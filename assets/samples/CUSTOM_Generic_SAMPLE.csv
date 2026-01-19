@@ -1,0 +1,3 @@
+Scope,Category,Subcategory,Detail,Basis,Unit,Factor
+Scope 2,Electricity,Office energy,Energy by floor area,per SQM per year,kWh/m2,75
+Scope 3,Employee commuting,Average,Spend-based fallback,per GBP,kgCO2e/GBP,0.35

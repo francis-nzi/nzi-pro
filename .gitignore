@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+
+# DB files
+*.db
+*.duckdb
+*.sqlite
+*.sqlite3
+
+# Generated outputs
+generated_reports/
+final_reports/
+**/generated_reports/
+**/final_reports/
+*.pdf
+
+# Archives / large
+*.zip
+*.xlsx
+*.docx
+
+# OS junk
+.DS_Store
+Thumbs.db

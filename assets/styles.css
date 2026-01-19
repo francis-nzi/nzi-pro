@@ -1,0 +1,7 @@
+:root{--nzi-green:#22c55e;--nzi-deep:#1e293b;--nzi-muted:#64748b;--nzi-border:#e5e7eb;}
+html,body,[data-testid="stAppViewContainer"]{background:#f6f7f9;color:var(--nzi-deep);}
+[data-testid="stSidebar"]{background:#ffffff;border-right:1px solid var(--nzi-border);}
+div.stButton > button:first-child{border-radius:8px;border:1px solid var(--nzi-green);background:#f3fbf4;color:#166534;font-weight:700;}
+div.stButton > button:hover{background:var(--nzi-green);color:#ffffff;}
+.hr{height:1px;background:var(--nzi-border);border:0;margin:12px 0;}
+.muted{color:var(--nzi-muted);}
