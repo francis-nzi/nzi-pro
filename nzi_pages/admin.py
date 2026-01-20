@@ -32,9 +32,9 @@ def render():
             em = c2.text_input("Email *")
             rl = c3.selectbox("Role *", _roles())
 
-            c4, c5 = st.columns(2)
+            c4, _ = st.columns(2)
             status = c4.selectbox("Status", ["Active", "Disabled"], index=0)
-            # We keep user_id aligned to email for simplicity
+
             if st.form_submit_button("Add / Update"):
                 em_norm = (em or "").strip().lower()
                 if fn and em_norm:
@@ -68,11 +68,11 @@ def render():
     with t2:
         l1, l2, l3 = st.tabs(["Job Types", "Time Subjects", "Portfolios"])
         with l1:
-            _lookup_editor("job_types", ["job_type_id", "name", "is_active"], id_col="job_type_id", name_col="name")
+            _lookup_editor("job_types", ["job_type_id", "name", "is_active"], id_col="job_type_id", name_col="name", title="Job Types")
         with l2:
-            _lookup_editor("time_subjects", ["subject_id", "name", "is_active"], id_col="subject_id", name_col="name")
+            _lookup_editor("time_subjects", ["subject_id", "name", "is_active"], id_col="subject_id", name_col="name", title="Time Subjects")
         with l3:
-            _lookup_editor("portfolios_lookup", ["portfolio_id", "name", "is_active"], id_col="portfolio_id", name_col="name")
+            _lookup_editor("portfolios_lookup", ["portfolio_id", "name", "is_active"], id_col="portfolio_id", name_col="name", title="Portfolios")
 
     # =========================
     # DATASETS & FACTORS
@@ -223,9 +223,9 @@ def render():
             st.rerun()
 
 
-# =========================
-# HELPERS
-# =========================
+# -------------------------
+# Helpers
+# -------------------------
 def _roles():
     with get_conn() as con:
         df = con.execute(
@@ -233,7 +233,6 @@ def _roles():
         ).df()
     rows = df["role_name"].tolist() if not df.empty else []
     if not rows:
-        # Seed minimal roles if table is empty
         with get_conn() as con:
             con.execute("""
                 INSERT INTO roles_lookup (role_name, is_active)
@@ -244,29 +243,90 @@ def _roles():
     return rows
 
 
-def _lookup_editor(table, columns, id_col, name_col):
+def _lookup_editor(table, columns, id_col, name_col, title: str):
+    st.markdown(f"### {title}")
+
     with get_conn() as con:
         df = con.execute(
             f"SELECT {', '.join(columns)} FROM {table} ORDER BY {name_col}"
         ).df()
-    table_with_pager(df, table.replace("_", " ").title(), key=f"{table}_tbl")
 
+    # Inline edit state for this lookup table
+    edit_key = f"edit_{table}"
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = None
+
+    if df.empty:
+        st.info("No rows yet.")
+    else:
+        h = st.columns([6, 2, 1, 1])
+        h[0].markdown("**Name**")
+        h[1].markdown("**Active**")
+        h[2].markdown("**Edit**")
+        h[3].markdown("**Archive**")
+
+        for _, r in df.iterrows():
+            rid = int(r[id_col])
+            nm = str(r[name_col])
+            active = bool(r.get("is_active", True))
+
+            c = st.columns([6, 2, 1, 1])
+            c[0].write(nm)
+            c[1].write("Yes" if active else "No")
+
+            if c[2].button("✏️", key=f"{table}_edit_{rid}"):
+                st.session_state[edit_key] = {"id": rid, "name": nm, "active": active}
+                st.rerun()
+
+            if c[3].button("🗄️", key=f"{table}_arch_{rid}", disabled=(not active)):
+                with get_conn() as con:
+                    con.execute(f"UPDATE {table} SET is_active=FALSE WHERE {id_col}=%s", [rid])
+                st.toast("Archived")
+                st.rerun()
+
+    # Edit panel
+    edit = st.session_state.get(edit_key)
+    if edit:
+        st.markdown("#### Edit")
+        with st.form(f"form_edit_{table}", clear_on_submit=False):
+            new_name = st.text_input("Name", value=edit["name"])
+            new_active = st.checkbox("Active", value=bool(edit["active"]))
+            c1, c2 = st.columns(2)
+            save = c1.form_submit_button("Save")
+            cancel = c2.form_submit_button("Cancel")
+
+            if cancel:
+                st.session_state[edit_key] = None
+                st.rerun()
+
+            if save:
+                nn = (new_name or "").strip()
+                if not nn:
+                    st.error("Name required.")
+                else:
+                    with get_conn() as con:
+                        con.execute(
+                            f"UPDATE {table} SET name=%s, is_active=%s WHERE {id_col}=%s",
+                            [nn, bool(new_active), int(edit["id"])],
+                        )
+                    st.session_state[edit_key] = None
+                    st.success("Saved.")
+                    st.rerun()
+
+    st.markdown("#### Add")
     with st.form(f"add_{table}", clear_on_submit=True):
         nm = st.text_input("Name")
         active = st.checkbox("Active", value=True)
         if st.form_submit_button("Add"):
-            if not nm:
+            nn = (nm or "").strip()
+            if not nn:
                 st.error("Name required.")
             else:
                 with get_conn() as con:
-                    new_id = int(
-                        con.execute(
-                            f"SELECT COALESCE(MAX({id_col}),0)+1 FROM {table}"
-                        ).fetchone()[0]
-                    )
+                    new_id = int(con.execute(f"SELECT COALESCE(MAX({id_col}),0)+1 FROM {table}").fetchone()[0])
                     con.execute(
                         f"INSERT INTO {table} ({id_col}, name, is_active) VALUES (%s,%s,%s)",
-                        [new_id, nm, active],
+                        [new_id, nn, bool(active)],
                     )
                 st.success("Added.")
                 st.rerun()
@@ -306,14 +366,7 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
     l3 = pick("Level 3", "level_3", "Detail", "Item")
     text = pick("Column Text", "column_text", "Description", "Name", "Item Name", "Activity")
     uom = pick("UOM", "Unit", "Units")
-    fac = pick(
-        "Factor",
-        "GHG Conversion Factor",
-        "kgCO2e per unit",
-        "kgco2e_per_unit",
-        "kgCO2e per GBP",
-        "kgCO2e_per_GBP",
-    )
+    fac = pick("Factor", "GHG Conversion Factor", "kgCO2e per unit", "kgco2e_per_unit", "kgCO2e per GBP", "kgCO2e_per_GBP")
 
     if text is None or fac is None:
         st.error("CSV missing required columns. See samples above.")
