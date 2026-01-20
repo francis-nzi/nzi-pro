@@ -1,11 +1,16 @@
 import streamlit as st
 import pandas as pd
+
 from core.database import get_conn, next_id
 from components.tables import table_with_pager
 from models import clients as m_clients
+from core.auth import require_role, show_user_badge
 
 
 def render():
+    require_role("Admin")
+    show_user_badge()
+
     st.title("⚙️ Admin Center")
 
     t1, t2, t3, t4 = st.tabs([
@@ -19,22 +24,32 @@ def render():
     # NZI TEAM
     # =========================
     with t1:
+        st.subheader("Team access (strict provisioning)")
+
         with st.form("add_staff", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             fn = c1.text_input("Full Name *")
             em = c2.text_input("Email *")
             rl = c3.selectbox("Role *", _roles())
+
+            c4, c5 = st.columns(2)
+            status = c4.selectbox("Status", ["Active", "Disabled"], index=0)
+            # We keep user_id aligned to email for simplicity
             if st.form_submit_button("Add / Update"):
-                if fn and em:
+                em_norm = (em or "").strip().lower()
+                if fn and em_norm:
                     with get_conn() as con:
                         con.execute(
                             """
-                            INSERT OR REPLACE INTO users
-                            (user_id, full_name, role, email, status)
-                            VALUES (?,?,?,?,COALESCE(
-                                (SELECT status FROM users WHERE user_id=?),'Active'))
+                            INSERT INTO users (user_id, full_name, role, email, status)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (email) DO UPDATE SET
+                                full_name = EXCLUDED.full_name,
+                                role      = EXCLUDED.role,
+                                status    = EXCLUDED.status,
+                                user_id   = EXCLUDED.user_id
                             """,
-                            [em, fn, rl, em, em],
+                            [em_norm, fn.strip(), rl, em_norm, status],
                         )
                     st.success("Saved.")
                     st.rerun()
@@ -43,7 +58,7 @@ def render():
 
         with get_conn() as con:
             team = con.execute(
-                "SELECT full_name, email, role, status FROM users ORDER BY status DESC, full_name"
+                "SELECT full_name, email, role, status FROM users ORDER BY status DESC, role, full_name"
             ).df()
         table_with_pager(team, "Staff", key="staff")
 
@@ -89,7 +104,7 @@ def render():
                                 """
                                 INSERT INTO datasets
                                 (dataset_id, name, source, analysis_type, country, region, currency, year, version, license, notes)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                                 """,
                                 [
                                     dsid, name, source, analysis_type, country,
@@ -161,7 +176,7 @@ def render():
                            fl.column_text, fl.uom, fl.factor
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE fl.dataset_id = ? AND fl.column_text ILIKE ?
+                    WHERE fl.dataset_id = %s AND fl.column_text ILIKE %s
                     ORDER BY fl.year DESC, fl.column_text
                     """,
                     [ds_filter, f"%{q}%"],
@@ -174,7 +189,7 @@ def render():
                            fl.column_text, fl.uom, fl.factor
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE fl.column_text ILIKE ?
+                    WHERE fl.column_text ILIKE %s
                     ORDER BY fl.year DESC, fl.column_text
                     """,
                     [f"%{q}%"],
@@ -187,7 +202,6 @@ def render():
     # =========================
     with t4:
         st.subheader("Archived Clients")
-
         q = st.text_input("Search archived clients", key="archived_clients_search")
         df = m_clients.list_archived_clients(q)
         table_with_pager(df, "Archived Clients", key="archived_clients_tbl")
@@ -214,13 +228,19 @@ def render():
 # =========================
 def _roles():
     with get_conn() as con:
-        rows = con.execute(
+        df = con.execute(
             "SELECT role_name FROM roles_lookup WHERE is_active=TRUE ORDER BY role_name"
-        ).df()["role_name"].tolist()
+        ).df()
+    rows = df["role_name"].tolist() if not df.empty else []
     if not rows:
+        # Seed minimal roles if table is empty
         with get_conn() as con:
-            con.execute("INSERT INTO roles_lookup VALUES ('Admin',TRUE),('CRM',TRUE),('Auditor',TRUE)")
-        rows = ["Admin", "CRM", "Auditor"]
+            con.execute("""
+                INSERT INTO roles_lookup (role_name, is_active)
+                VALUES ('Admin',TRUE),('Consultant',TRUE),('ReadOnly',TRUE),('CRM',TRUE),('QA',TRUE),('Support',TRUE)
+                ON CONFLICT (role_name) DO NOTHING
+            """)
+        rows = ["Admin", "Consultant", "ReadOnly", "CRM", "QA", "Support"]
     return rows
 
 
@@ -245,7 +265,7 @@ def _lookup_editor(table, columns, id_col, name_col):
                         ).fetchone()[0]
                     )
                     con.execute(
-                        f"INSERT INTO {table} ({id_col}, name, is_active) VALUES (?,?,?)",
+                        f"INSERT INTO {table} ({id_col}, name, is_active) VALUES (%s,%s,%s)",
                         [new_id, nm, active],
                     )
                 st.success("Added.")
@@ -309,14 +329,14 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
     for _, r in df.iterrows():
         rows.append([
             dataset_id, file.name, year,
-            getattr(r, id_col) if id_col else None,
-            getattr(r, scope) if scope else None,
-            getattr(r, l1) if l1 else None,
-            getattr(r, l2) if l2 else None,
-            getattr(r, l3) if l3 else None,
-            str(getattr(r, text)),
-            getattr(r, uom) if (isinstance(uom, str) and uom in df.columns) else None,
-            float(getattr(r, fac)),
+            r[id_col] if id_col else None,
+            r[scope] if scope else None,
+            r[l1] if l1 else None,
+            r[l2] if l2 else None,
+            r[l3] if l3 else None,
+            str(r[text]),
+            (r[uom] if (isinstance(uom, str) and uom in df.columns) else None),
+            float(r[fac]),
             src, region, currency,
         ])
 
@@ -327,7 +347,7 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
             (dataset_id, file_name, year, original_id, scope,
              level_1, level_2, level_3, column_text, uom, factor,
              source, region, currency)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             rows,
         )
