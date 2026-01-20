@@ -52,21 +52,28 @@ def run_migrations():
 
         # Users table (strict provisioning gate)
         # NOTE: email is the stable identifier (we also keep user_id for backwards compatibility).
+        # Users table (strict provisioning gate)
         con.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id VARCHAR PRIMARY KEY,
                 full_name VARCHAR,
                 role VARCHAR NOT NULL DEFAULT 'ReadOnly',
-                email VARCHAR UNIQUE NOT NULL,
+                email VARCHAR NOT NULL,
                 status VARCHAR NOT NULL DEFAULT 'Active'
             )
         """)
 
-        # Ensure required columns exist (additive, safe)
+        # Enforce email uniqueness explicitly (critical for ON CONFLICT)
+        con.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS users_email_uidx
+                ON users (email)
+        """)
+
+        # Additive safety for older schemas (non-destructive)
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR")
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR")
-        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR")
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR")
+
 
         # Ensure role defaults don’t break existing rows
         con.execute("UPDATE users SET role='ReadOnly' WHERE role IS NULL OR TRIM(role)=''")
