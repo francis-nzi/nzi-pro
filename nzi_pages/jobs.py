@@ -111,6 +111,7 @@ def render():
     if df.empty:
         st.info("No jobs yet.")
     else:
+        # Header
         h = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
         h[0].markdown("**Job**")
         h[1].markdown("**Client**")
@@ -120,6 +121,33 @@ def render():
         h[5].markdown("**Open**")
         h[6].markdown("**Edit**")
         h[7].markdown("**Archive**")
+
+for _, r in df.iterrows():
+    jid = int(r["job_id"])
+
+    # Row MUST match header column count
+    c = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
+    c[0].write(r["job_number"])
+    c[1].write(r["client_name"])
+    c[2].write(r["title"])
+    c[3].write(r["job_type"])
+    c[4].write(r["status"])
+
+    if c[5].button("📂", key=f"job_open_{jid}"):
+        st.session_state["selected_job_id"] = jid
+        st.session_state["active_page"] = "Job Folder"
+        st.rerun()
+
+    if c[6].button("✏️", key=f"job_edit_{jid}"):
+        st.session_state["edit_job_id"] = jid
+        st.rerun()
+
+    if c[7].button("🗄️", key=f"job_arch_{jid}", disabled=(str(r["status"]) == "Archived")):
+        with get_conn() as con:
+            con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [jid])
+        st.toast("Job archived")
+        st.rerun()
+
 
 
         for _, r in df.iterrows():
