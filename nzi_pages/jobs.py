@@ -111,14 +111,16 @@ def render():
     if df.empty:
         st.info("No jobs yet.")
     else:
-        h = st.columns([2, 3, 3, 2, 2, 1, 1])
+        h = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
         h[0].markdown("**Job**")
         h[1].markdown("**Client**")
         h[2].markdown("**Title**")
         h[3].markdown("**Type**")
         h[4].markdown("**Status**")
-        h[5].markdown("**Edit**")
-        h[6].markdown("**Archive**")
+        h[5].markdown("**Open**")
+        h[6].markdown("**Edit**")
+        h[7].markdown("**Archive**")
+
 
         for _, r in df.iterrows():
             jid = int(r["job_id"])
@@ -129,11 +131,16 @@ def render():
             c[3].write(r["job_type"])
             c[4].write(r["status"])
 
-            if c[5].button("✏️", key=f"job_edit_{jid}"):
+            if c[5].button("📂", key=f"job_open_{jid}"):
+                st.session_state["selected_job_id"] = jid
+                st.session_state["active_page"] = "Job Folder"
+                st.rerun()
+
+            if c[6].button("✏️", key=f"job_edit_{jid}"):
                 st.session_state["edit_job_id"] = jid
                 st.rerun()
 
-            if c[6].button("🗄️", key=f"job_arch_{jid}", disabled=(str(r["status"]) == "Archived")):
+            if c[7].button("🗄️", key=f"job_arch_{jid}", disabled=(str(r["status"]) == "Archived")):
                 with get_conn() as con:
                     con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [jid])
                 st.toast("Job archived")

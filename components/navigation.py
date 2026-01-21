@@ -7,7 +7,7 @@ def render_sidebar():
         st.markdown("---")
 
         pages = ["Dashboard", "Clients", "Jobs", "Admin"]
-        hidden_pages = {"Client Folder"}
+        hidden_pages = {"Client Folder", "Job Folder"}
 
         ap = st.session_state.get("active_page", "Dashboard")
         if ap not in pages and ap not in hidden_pages:

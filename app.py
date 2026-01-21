@@ -10,7 +10,7 @@ from config import APP_TITLE, LOGO_URL
 from core.database import run_ddl
 from core.migrations import run_migrations
 from components.navigation import render_sidebar
-from nzi_pages import dashboard, clients, admin, client_folder, jobs
+from nzi_pages import dashboard, clients, admin, client_folder, jobs, job_folder
 from models import clients as m_clients
 
 load_dotenv()
@@ -102,5 +102,7 @@ elif page == "Jobs":
     jobs.render()
 elif page == "Admin":
     admin.render()
+elif page == "Job Folder":
+    job_folder.render()
 else:
     dashboard.render()
