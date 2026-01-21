@@ -1,3 +1,4 @@
+print("ADMIN.PY LOADED — build 2026-01-21a")
 import streamlit as st
 import pandas as pd
 
