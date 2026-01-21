@@ -1,4 +1,3 @@
-st.info("ADMIN.PY VERSION: 2026-01-21 EDIT/ARCHIVE ENABLED")
 import streamlit as st
 import pandas as pd
 
@@ -57,23 +56,117 @@ def render():
                 else:
                     st.error("Full Name and Email required.")
 
+        # --- Staff list with row actions (Edit / Archive) ---
+        st.markdown("### Staff")
+
+        if "staff_edit" not in st.session_state:
+            st.session_state["staff_edit"] = None
+
         with get_conn() as con:
             team = con.execute(
                 "SELECT full_name, email, role, status FROM users ORDER BY status DESC, role, full_name"
             ).df()
-        table_with_pager(team, "Staff", key="staff")
+
+        if team.empty:
+            st.info("No staff found.")
+        else:
+            h = st.columns([4, 4, 2, 2, 1, 1])
+            h[0].markdown("**Name**")
+            h[1].markdown("**Email**")
+            h[2].markdown("**Role**")
+            h[3].markdown("**Status**")
+            h[4].markdown("**Edit**")
+            h[5].markdown("**Archive**")
+            st.divider()
+
+            for _, r in team.iterrows():
+                name = str(r.get("full_name") or "")
+                email = str(r.get("email") or "").strip().lower()
+                role = str(r.get("role") or "ReadOnly")
+                status = str(r.get("status") or "Active")
+
+                c = st.columns([4, 4, 2, 2, 1, 1])
+                c[0].write(name)
+                c[1].write(email)
+                c[2].write(role)
+                c[3].write(status)
+
+                if c[4].button("✏️", key=f"staff_edit_{email}"):
+                    st.session_state["staff_edit"] = {
+                        "email": email,
+                        "full_name": name,
+                        "role": role,
+                        "status": status,
+                    }
+                    st.rerun()
+
+                if c[5].button("🗄️", key=f"staff_arch_{email}", disabled=(status == "Disabled")):
+                    with get_conn() as con:
+                        con.execute("UPDATE users SET status='Disabled' WHERE email=%s", [email])
+                    st.toast("User disabled")
+                    st.rerun()
+
+                st.markdown(
+                    "<div style='height:1px;background:rgba(120,120,120,0.15);margin:6px 0 6px 0;'></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # Inline edit panel
+        edit = st.session_state.get("staff_edit")
+        if edit:
+            st.markdown("---")
+            st.markdown("### Edit staff member")
+
+            roles = _roles()
+            with st.form("staff_edit_form", clear_on_submit=False):
+                fn = st.text_input("Full Name", value=edit.get("full_name", ""))
+                rl = st.selectbox(
+                    "Role",
+                    roles,
+                    index=roles.index(edit["role"]) if edit.get("role") in roles else 0,
+                )
+                stt = st.selectbox(
+                    "Status",
+                    ["Active", "Disabled"],
+                    index=0 if edit.get("status") == "Active" else 1,
+                )
+                c1, c2 = st.columns(2)
+                save = c1.form_submit_button("Save")
+                cancel = c2.form_submit_button("Cancel")
+
+                if cancel:
+                    st.session_state["staff_edit"] = None
+                    st.rerun()
+
+                if save:
+                    with get_conn() as con:
+                        con.execute(
+                            """
+                            UPDATE users
+                            SET full_name=%s, role=%s, status=%s
+                            WHERE email=%s
+                            """,
+                            [(fn or "").strip(), rl, stt, edit["email"]],
+                        )
+                    st.session_state["staff_edit"] = None
+                    st.success("Saved.")
+                    st.rerun()
 
     # =========================
     # LOOKUPS
     # =========================
     with t2:
-        l1, l2, l3 = st.tabs(["Job Types", "Time Subjects", "Portfolios"])
+        l1, l2, l3, l4 = st.tabs(["Job Types", "Time Subjects", "Portfolios", "Industries"])
+
         with l1:
             _lookup_editor("job_types", ["job_type_id", "name", "is_active"], id_col="job_type_id", name_col="name", title="Job Types")
         with l2:
             _lookup_editor("time_subjects", ["subject_id", "name", "is_active"], id_col="subject_id", name_col="name", title="Time Subjects")
         with l3:
             _lookup_editor("portfolios_lookup", ["portfolio_id", "name", "is_active"], id_col="portfolio_id", name_col="name", title="Portfolios")
+        with l4:
+            # Industries lookup (requires industries_lookup table to exist)
+            _lookup_editor("industries_lookup", ["industry_id", "name", "is_active"], id_col="industry_id", name_col="name", title="Industries")
 
     # =========================
     # DATASETS & FACTORS
@@ -247,15 +340,19 @@ def _roles():
 def _lookup_editor(table, columns, id_col, name_col, title: str):
     st.markdown(f"### {title}")
 
-    with get_conn() as con:
-        df = con.execute(
-            f"SELECT {', '.join(columns)} FROM {table} ORDER BY {name_col}"
-        ).df()
-
     # Inline edit state for this lookup table
     edit_key = f"edit_{table}"
     if edit_key not in st.session_state:
         st.session_state[edit_key] = None
+
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                f"SELECT {', '.join(columns)} FROM {table} ORDER BY {name_col}"
+            ).df()
+    except Exception as e:
+        st.error(f"Lookup table '{table}' is not available yet. Add it in migrations. ({e})")
+        return
 
     if df.empty:
         st.info("No rows yet.")

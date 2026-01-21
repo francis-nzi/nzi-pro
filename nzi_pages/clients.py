@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 
 from models import clients as m_clients
+from core.database import get_conn
 
 
 def _init_clients_pager():
@@ -76,21 +77,31 @@ def _edit_client(cid_i: int):
 def _archive_client(cid_i: int):
     m_clients.archive_client(int(cid_i))
     st.session_state["active_page"] = "Clients"
-    # Keep sidebar selection consistent if you use nav_page
     if "nav_page" in st.session_state:
         st.session_state["nav_page"] = "Clients"
 
 
+def _list_industries():
+    """
+    Reads industries from industries_lookup (active only).
+    If the table doesn't exist yet, returns [] safely.
+    """
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT name FROM industries_lookup WHERE is_active=TRUE ORDER BY name"
+            ).df()
+        return df["name"].tolist() if not df.empty else []
+    except Exception:
+        return []
+
+
 def _clients_table_buttons(df: pd.DataFrame):
-    """
-    Table-based list with action icon buttons at end of each row (same-tab, no links).
-    """
     cols = ["client_name", "portfolio", "crm_owner", "industry", "addr_city", "addr_country", "db_id"]
     for c in cols:
         if c not in df.columns:
             df[c] = ""
 
-    # Header row (table-like)
     h = st.columns([3.0, 1.2, 1.2, 1.6, 1.2, 1.2, 1.0])
     h[0].markdown("**Client**")
     h[1].markdown("**Portfolio**")
@@ -106,7 +117,6 @@ def _clients_table_buttons(df: pd.DataFrame):
         try:
             cid_i = int(cid)
         except Exception:
-            # If no valid ID, show row but disable actions
             cid_i = None
 
         c = st.columns([3.0, 1.2, 1.2, 1.6, 1.2, 1.2, 1.0])
@@ -165,9 +175,9 @@ def render():
         _clients_table_buttons(df_slice)
 
     with st.expander("➕ New Client"):
-        # list_crm_owners() already includes "(Unassigned)" in its return
         crm_owners = m_clients.list_crm_owners()
         portfolios = m_clients.list_portfolios()
+        industries = _list_industries()
 
         with st.form("new_client_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
@@ -181,8 +191,16 @@ def render():
 
             c1, c2, c3 = st.columns(3)
             new_w = c1.text_input("Website")
-            new_ind = c2.text_input("Industry")
-            new_reg = c3.text_input("Company Reg")
+
+            # Industry dropdown (from lookup) with safe fallback
+            if industries:
+                new_ind = c2.selectbox("Industry", [""] + industries, index=0)
+                other_ind = c3.text_input("Company Reg")
+            else:
+                new_ind = c2.text_input("Industry")
+                other_ind = c3.text_input("Company Reg")
+
+            new_reg = other_ind
 
             c1, c2, c3 = st.columns(3)
             new_hq = c1.text_input("Headquarters")
@@ -230,7 +248,7 @@ def render():
                 else:
                     payload = dict(
                         client_name=new_n,
-                        industry=new_ind or None,
+                        industry=(new_ind or None),
                         description_long=new_desc or None,
                         website=new_w or None,
                         year_end_month=fy_end or None,
