@@ -1,23 +1,20 @@
 import streamlit as st
 from config import LOGO_URL, DEFAULT_YEAR
 
-
 def render_sidebar():
     with st.sidebar:
-        st.image(LOGO_URL, use_container_width=True)
+        st.image(LOGO_URL, width="stretch")
         st.markdown("---")
 
         pages = ["Dashboard", "Clients", "Jobs", "Admin"]
-        hidden_pages = {"Client Folder"}  # routable, not shown in nav
+        hidden_pages = {"Client Folder"}
 
-        # Ensure active_page exists and is valid (allow hidden pages)
         ap = st.session_state.get("active_page", "Dashboard")
         if ap not in pages and ap not in hidden_pages:
             ap = "Dashboard"
             st.session_state["active_page"] = ap
 
-        # Choose which page is selected in the radio.
-        # If active page is hidden, keep the radio on Clients (or last known nav_page).
+        # If we’re on a hidden page, keep the radio on Clients (but don’t overwrite active_page)
         if ap in pages:
             default_nav = ap
         else:
@@ -25,23 +22,18 @@ def render_sidebar():
             if default_nav not in pages:
                 default_nav = "Clients"
 
-        # Render radio with a deterministic index
-        idx = pages.index(default_nav)
         nav_choice = st.radio(
             "Navigate",
             pages,
-            index=idx,
+            index=pages.index(default_nav),
             key="nav_page",
             label_visibility="collapsed",
         )
 
-        # Critical: Always sync active_page to nav_choice
-        # BUT do not clobber hidden pages unless user actually chose something different.
+        # Always sync active_page, but don’t clobber a hidden page unless user changed nav
         if ap in pages:
             st.session_state["active_page"] = nav_choice
         else:
-            # We're currently on a hidden page; only switch away if user clicks a different choice
-            # (radio always has a value, so compare to default_nav)
             if nav_choice != default_nav:
                 st.session_state["active_page"] = nav_choice
 
