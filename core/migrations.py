@@ -174,6 +174,28 @@ def run_migrations():
             )
 
         # =========================
+        # INDUSTRIES LOOKUP (NEW)
+        # =========================
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS industries_lookup (
+                industry_id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+
+        # Ensure clients.industry exists (safe even if already present)
+        # This stores the chosen industry name from industries_lookup.
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS industry VARCHAR")
+        except Exception:
+            # If clients table isn't created yet at this point in your full migrations,
+            # later migrations will handle it; we ignore safely here.
+            pass
+
+        # =========================
         # FACTOR LOOKUP (existing)
         # =========================
         con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS year INTEGER")

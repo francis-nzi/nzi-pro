@@ -1,3 +1,4 @@
+st.info("ADMIN.PY VERSION: 2026-01-21 EDIT/ARCHIVE ENABLED")
 import streamlit as st
 import pandas as pd
 
