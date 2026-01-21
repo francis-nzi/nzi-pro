@@ -5,13 +5,13 @@ from core.database import get_conn
 def _job_types():
     with get_conn() as con:
         df = con.execute("SELECT name FROM job_types WHERE is_active=TRUE ORDER BY name").df()
-        return df["name"].tolist() if not df.empty else ["CRP", "Consultancy", "LCA", "Training"]
+    return df["name"].tolist() if not df.empty else ["CRP", "Consultancy", "LCA", "Training"]
 
 
 def _subjects():
     with get_conn() as con:
         df = con.execute("SELECT name FROM time_subjects WHERE is_active=TRUE ORDER BY name").df()
-        return df["name"].tolist() if not df.empty else ["Research", "Data Collection", "Analysis", "Reporting"]
+    return df["name"].tolist() if not df.empty else ["Research", "Data Collection", "Analysis", "Reporting"]
 
 
 def _clients():
@@ -40,6 +40,7 @@ def render():
     st.title("🧵 Jobs Register")
 
     st.session_state.setdefault("edit_job_id", None)
+    st.session_state.setdefault("selected_job_id", None)
 
     # -------------------------
     # Add Job
@@ -57,7 +58,7 @@ def render():
                     "Reporting Year *",
                     min_value=1990,
                     max_value=2100,
-                    value=st.session_state.get("working_year", 2026),
+                    value=int(st.session_state.get("working_year", 2026)),
                 )
 
                 title = st.text_input("Job Title/Description", "")
@@ -68,7 +69,6 @@ def render():
                 if st.form_submit_button("Create Job"):
                     client_id = int(cdf.loc[cdf["client_name"] == client_name, "db_id"].iloc[0])
 
-                    # Insert first to get job_id (Postgres IDENTITY/SERIAL)
                     with get_conn() as con:
                         row = con.execute(
                             """
@@ -81,7 +81,7 @@ def render():
                             [
                                 client_id,
                                 jtype,
-                                "PENDING",  # will update to NZI-YYYY-XXXX once we know job_id
+                                "PENDING",
                                 (title or "").strip() or "Untitled",
                                 int(year),
                                 "Open",
@@ -92,7 +92,6 @@ def render():
 
                         job_id = int(row[0])
                         job_number = f"NZI-{int(year)}-{job_id:04d}"
-
                         con.execute(
                             "UPDATE jobs SET job_number=%s WHERE job_id=%s",
                             [job_number, job_id],
@@ -111,7 +110,7 @@ def render():
     if df.empty:
         st.info("No jobs yet.")
     else:
-        # Header
+        # 8 columns: Job, Client, Title, Type, Status, Open, Edit, Archive
         h = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
         h[0].markdown("**Job**")
         h[1].markdown("**Client**")
@@ -122,37 +121,10 @@ def render():
         h[6].markdown("**Edit**")
         h[7].markdown("**Archive**")
 
-for _, r in df.iterrows():
-    jid = int(r["job_id"])
-
-    # Row MUST match header column count
-    c = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
-    c[0].write(r["job_number"])
-    c[1].write(r["client_name"])
-    c[2].write(r["title"])
-    c[3].write(r["job_type"])
-    c[4].write(r["status"])
-
-    if c[5].button("📂", key=f"job_open_{jid}"):
-        st.session_state["selected_job_id"] = jid
-        st.session_state["active_page"] = "Job Folder"
-        st.rerun()
-
-    if c[6].button("✏️", key=f"job_edit_{jid}"):
-        st.session_state["edit_job_id"] = jid
-        st.rerun()
-
-    if c[7].button("🗄️", key=f"job_arch_{jid}", disabled=(str(r["status"]) == "Archived")):
-        with get_conn() as con:
-            con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [jid])
-        st.toast("Job archived")
-        st.rerun()
-
-
-
         for _, r in df.iterrows():
             jid = int(r["job_id"])
-            c = st.columns([2, 3, 3, 2, 2, 1, 1])
+
+            c = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
             c[0].write(r["job_number"])
             c[1].write(r["client_name"])
             c[2].write(r["title"])
@@ -202,9 +174,22 @@ for _, r in df.iterrows():
 
             with st.form("edit_job_form", clear_on_submit=False):
                 c1, c2, c3 = st.columns(3)
-                new_type = c1.selectbox("Job Type", types, index=types.index(job_type) if job_type in types else 0)
-                new_year = c2.number_input("Reporting Year", min_value=1990, max_value=2100, value=int(reporting_year or 2026))
-                new_status = c3.selectbox("Status", statuses, index=statuses.index(status) if status in statuses else 0)
+                new_type = c1.selectbox(
+                    "Job Type",
+                    types,
+                    index=types.index(job_type) if job_type in types else 0,
+                )
+                new_year = c2.number_input(
+                    "Reporting Year",
+                    min_value=1990,
+                    max_value=2100,
+                    value=int(reporting_year or 2026),
+                )
+                new_status = c3.selectbox(
+                    "Status",
+                    statuses,
+                    index=statuses.index(status) if status in statuses else 0,
+                )
 
                 new_title = st.text_input("Title", value=title or "")
                 c4, c5 = st.columns(2)
@@ -242,18 +227,21 @@ for _, r in df.iterrows():
                     st.rerun()
 
     # -------------------------
-    # Time logging (no next_id; assume time_id is IDENTITY/SERIAL)
+    # Time logging
     # -------------------------
     st.markdown("---")
     st.markdown("### ⏱ Log Time")
 
     with st.form("time_log_form", clear_on_submit=True):
         jdf = _jobs_df(include_archived=False)
+
         if jdf.empty:
             st.info("No jobs yet.")
             st.form_submit_button("Save Time Entry", disabled=True)
         else:
-            jsel = st.selectbox("Job", jdf["job_number"] + " — " + jdf["client_name"])
+            # display label
+            labels = (jdf["job_number"] + " — " + jdf["client_name"]).tolist()
+            jsel = st.selectbox("Job", labels)
             subj = st.selectbox("Subject", _subjects())
             wdate = st.date_input("Date")
             hours = st.number_input("Hours", min_value=0, max_value=24, value=1)
@@ -264,7 +252,6 @@ for _, r in df.iterrows():
             if st.form_submit_button("Save Time Entry"):
                 jid = int(jdf.loc[(jdf["job_number"] + " — " + jdf["client_name"]) == jsel, "job_id"].iloc[0])
 
-                # current_user_email() is in core.auth in your codebase; import locally to avoid import cycles
                 from core.auth import current_user_email
                 user_id = current_user_email()
 
@@ -295,7 +282,6 @@ for _, r in df.iterrows():
     if not logs.empty:
         logs["hours"] = (logs["minutes"] / 60).round(2)
 
-    # If you still want paging here, keep your existing table_with_pager import and use it.
     try:
         from components.tables import table_with_pager
         table_with_pager(logs, "Time Logs", key="time_logs_tbl")
