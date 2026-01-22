@@ -1,3 +1,3 @@
-Code,SIC Section,SIC Division,Description,kgCO2e_per_GBP
-SIC_A01,Agriculture,01,Crop and animal production,0.45
-SIC_C24,Manufacturing,24,Manufacture of basic metals,0.72
+Year,ID,Scope,Level 1,Level 2,Level 3,Level 4,Column Text,UOM,GHG Unit,Factor
+2025,SIC_01,Scope 3,Purchased goods & services,SIC 01,Crop and animal production,,Spend-based (SIC 01),GBP,kgCO2e,0.4592291307
+2025,SIC_35,Scope 3,Purchased goods & services,SIC 35,Electricity, gas, steam and air conditioning supply,,Spend-based (SIC 35),GBP,kgCO2e,0.2400000000

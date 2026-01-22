@@ -1,4 +1,4 @@
-ID,Scope,Level 1,Level 2,Level 3,Column Text,UOM,Factor
-ELECTRICITY_UK,Scope 2,Purchased Electricity,Location-based,,Grid electricity (UK),kWh,0.233
-NATURAL_GAS,Scope 1,Stationary Combustion,Gas,Natural Gas,kWh,0.183
-DIESEL,Scope 1,Mobile Combustion,Diesel,,litre,2.68
+Year,ID,Scope,Level 1,Level 2,Level 3,Level 4,Column Text,UOM,GHG Unit,Factor
+2025,ELEC_GRID,Scope 2,Electricity,UK grid,,,"Electricity: UK grid",kWh,kgCO2e,0.193
+2025,NAT_GAS,Scope 1,Stationary combustion,Natural gas,,,"Natural gas combustion",kWh,kgCO2e,0.183
+2025,DIESEL,Scope 1,Mobile combustion,Diesel,,,"Diesel fuel (road)",litre,kgCO2e,2.68

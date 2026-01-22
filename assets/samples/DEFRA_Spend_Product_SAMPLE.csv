@@ -1,3 +1,3 @@
-Product Group,Product,Item,Description,kgCO2e_per_GBP
-Food & Drink,Meat,Beef and veal,Emissions per £,1.20
-Transport,Air travel,Short haul,Emissions per £,0.90
+Year,ID,Scope,Level 1,Level 2,Level 3,Level 4,Column Text,UOM,GHG Unit,Factor
+2025,PROD_PAPER,Scope 3,Purchased goods & services,Office supplies,Paper,A4 paper,Spend-based (paper products),GBP,kgCO2e,1.2300
+2025,PROD_IT,Scope 3,Purchased goods & services,IT equipment,Laptops,,Spend-based (laptops),GBP,kgCO2e,0.8200

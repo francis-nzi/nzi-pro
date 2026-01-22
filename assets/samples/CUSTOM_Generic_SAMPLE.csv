@@ -1,3 +1,3 @@
-Scope,Category,Subcategory,Detail,Basis,Unit,Factor
-Scope 2,Electricity,Office energy,Energy by floor area,per SQM per year,kWh/m2,75
-Scope 3,Employee commuting,Average,Spend-based fallback,per GBP,kgCO2e/GBP,0.35
+Year,ID,Scope,Level 1,Level 2,Level 3,Level 4,Column Text,UOM,GHG Unit,Factor
+2025,CUSTOM_1,Scope 1,Refrigerants,R410a,,,"Refrigerant leakage",kg,kgCO2e,2088
+2025,CUSTOM_2,Scope 2,Heat,District heat,,,"Purchased heat",kWh,kgCO2e,0.050
