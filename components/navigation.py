@@ -12,7 +12,7 @@ def render_sidebar():
         st.markdown("---")
 
         pages = ["Dashboard", "Clients", "Jobs", "Admin"]
-        hidden_pages = {"Client Folder", "Job Folder"}  # routable, but not shown in nav
+        hidden_pages = {"Client Folder", "Job Folder", "Scope 1", "Scope 2", "Scope 3"}
 
         ap = st.session_state.get("active_page")
         if ap is None:

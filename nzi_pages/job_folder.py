@@ -24,7 +24,12 @@ def _datasets():
             return []
         out = []
         for _, r in df.iterrows():
-            out.append((int(r["dataset_id"]), f'[{int(r["dataset_id"])}] {r["name"]} — {r["analysis_type"]} — {r["country"]} {int(r["year"])}'))
+            out.append(
+                (
+                    int(r["dataset_id"]),
+                    f'[{int(r["dataset_id"])}] {r["name"]} — {r["analysis_type"]} — {r["country"]} {int(r["year"])}',
+                )
+            )
         return out
     except Exception:
         return []
@@ -355,6 +360,7 @@ def render():
         ds_labels = [d[1] for d in ds]
         methods = ["Activity", "Spend", "Custom"]
 
+        include_map = {}
         if scopes.empty:
             st.info("No scope config rows found. (They will be auto-created on load.)")
         else:
@@ -370,13 +376,14 @@ def render():
                         dataset_id = row.iloc[0]["dataset_id"]
                         method = row.iloc[0]["factor_method"]
 
+                    include_map[scope_name] = include
+
                     st.markdown(f"#### {scope_name}")
                     c1, c2, c3 = st.columns([1.2, 4, 1.5])
-                    new_include = c1.checkbox("Include", value=include, key=f"inc_{scope_name}")
+                    c1.checkbox("Include", value=include, key=f"inc_{scope_name}")
 
                     # Dataset dropdown
                     if ds:
-                        # index: blank + datasets
                         options = ["(None)"] + ds_labels
                         if dataset_id is None:
                             idx = 0
@@ -386,42 +393,64 @@ def render():
                             except Exception:
                                 idx = 0
                         pick = c2.selectbox("Dataset", options, index=idx, key=f"ds_{scope_name}")
-                        new_dataset_id = None if pick == "(None)" else ds_ids[ds_labels.index(pick)]
                     else:
                         c2.info("No datasets found yet (Admin → Datasets & Factors).")
-                        new_dataset_id = None
 
                     # Method
                     if method in methods:
                         midx = methods.index(method)
                     else:
                         midx = 0
-                    new_method = c3.selectbox("Method", methods, index=midx, key=f"m_{scope_name}")
+                    c3.selectbox("Method", methods, index=midx, key=f"m_{scope_name}")
 
                     st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
 
                 save = st.form_submit_button("Save scope configuration")
-                if save:
-                    with get_conn() as con:
-                        for scope_name in ["Scope 1", "Scope 2", "Scope 3"]:
-                            inc = bool(st.session_state.get(f"inc_{scope_name}", True))
-                            # Dataset selection stored via the selectbox key
-                            ds_pick = st.session_state.get(f"ds_{scope_name}")
-                            if ds_pick and ds_pick != "(None)" and ds_pick in ds_labels:
-                                dsid = ds_ids[ds_labels.index(ds_pick)]
-                            else:
-                                dsid = None
-                            meth = st.session_state.get(f"m_{scope_name}", "Activity")
 
-                            con.execute(
-                                """
-                                UPDATE job_scope_config
-                                SET include_scope=%s, dataset_id=%s, factor_method=%s
-                                WHERE job_id=%s AND scope=%s
-                                """,
-                                [inc, dsid, meth, int(jid), scope_name],
-                            )
-                    st.success("Saved.")
-                    st.rerun()
+            if save:
+                with get_conn() as con:
+                    for scope_name in ["Scope 1", "Scope 2", "Scope 3"]:
+                        inc = bool(st.session_state.get(f"inc_{scope_name}", True))
+                        ds_pick = st.session_state.get(f"ds_{scope_name}")
+                        if ds_pick and ds_pick != "(None)" and ds_pick in ds_labels:
+                            dsid = ds_ids[ds_labels.index(ds_pick)]
+                        else:
+                            dsid = None
+                        meth = st.session_state.get(f"m_{scope_name}", "Activity")
 
-        st.caption("Next: we’ll re-enable Scope 1/2/3 data entry pages and filter factor searches by the selected dataset per scope.")
+                        con.execute(
+                            """
+                            UPDATE job_scope_config
+                            SET include_scope=%s, dataset_id=%s, factor_method=%s
+                            WHERE job_id=%s AND scope=%s
+                            """,
+                            [inc, dsid, meth, int(jid), scope_name],
+                        )
+                st.success("Saved.")
+                st.rerun()
+
+        # ---- NEW: Open Scope buttons (added here at end of Data Collection tab) ----
+        st.markdown("---")
+        st.subheader("Open scope data entry")
+
+        # Determine include flags from DB (safer than session_state)
+        include_flags = {"Scope 1": True, "Scope 2": True, "Scope 3": True}
+        try:
+            if not scopes.empty:
+                for _, rr in scopes.iterrows():
+                    include_flags[str(rr["scope"])] = bool(rr["include_scope"])
+        except Exception:
+            pass
+
+        b = st.columns(3)
+        if b[0].button("📦 Open Scope 1", disabled=not include_flags.get("Scope 1", True)):
+            st.session_state["active_page"] = "Scope 1"
+            st.rerun()
+        if b[1].button("📦 Open Scope 2", disabled=not include_flags.get("Scope 2", True)):
+            st.session_state["active_page"] = "Scope 2"
+            st.rerun()
+        if b[2].button("📦 Open Scope 3", disabled=not include_flags.get("Scope 3", True)):
+            st.session_state["active_page"] = "Scope 3"
+            st.rerun()
+
+        st.caption("Scopes must be enabled above (Include = True) to open their data entry pages.")

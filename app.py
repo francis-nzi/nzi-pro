@@ -9,6 +9,7 @@ from core.database import run_ddl
 from core.migrations import run_migrations
 from components.navigation import render_sidebar
 from nzi_pages import dashboard, clients, admin, client_folder, jobs, job_folder
+from nzi_pages import scope1, scope2, scope3
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -84,3 +85,9 @@ elif page == "Job Folder":
     job_folder.render()
 elif page == "Admin":
     admin.render()
+elif page == "Scope 1":
+    scope1.render()
+elif page == "Scope 2":
+    scope2.render()
+elif page == "Scope 3":
+    scope3.render()
