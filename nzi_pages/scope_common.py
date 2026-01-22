@@ -1,5 +1,30 @@
 import streamlit as st
+from datetime import datetime
 from core.database import get_conn
+
+
+def _ghg_unit_default(u: str | None) -> str:
+    s = (u or "").strip()
+    return s or "kgCO2e"
+
+
+def _kg_to_t(value: float) -> float:
+    return value / 1000.0
+
+
+def _to_tco2e(amount: float, factor: float, ghg_unit: str | None) -> float:
+    """Convert amount*factor to tonnes CO2e based on ghg_unit."""
+    ghg = (_ghg_unit_default(ghg_unit)).replace(" ", "").lower()
+    emissions = float(amount) * float(factor)
+    # Default DESNZ factors are kgCO2e
+    if ghg.startswith("kg"):
+        return _kg_to_t(emissions)
+    # if already tonnes
+    if ghg.startswith("t") or "tonne" in ghg:
+        return emissions
+    # conservative fallback: assume kg if unknown
+    return _kg_to_t(emissions)
+
 
 
 def _col_exists(table: str, col: str) -> bool:
@@ -44,32 +69,92 @@ def _get_scope_config(job_id: int, scope: str):
     return bool(r[0]), r[1], r[2] or "Activity"
 
 
-def _search_factors(dataset_id, scope: str, query: str):
+
+def _get_dataset_year(dataset_id: int | None):
+    if dataset_id is None:
+        return None
+    try:
+        with get_conn() as con:
+            r = con.execute("SELECT year FROM datasets WHERE dataset_id=%s", [int(dataset_id)]).fetchone()
+        return int(r[0]) if r and r[0] is not None else None
+    except Exception:
+        return None
+
+def _search_factors(dataset_id, scope: str, query: str, year: int | None = None, all_years: bool = False):
     """
-    Best-effort factor lookup search. Works even if factor_lookup schema varies.
-    We check columns and build a safe query.
+    Best-effort factor lookup search.
+
+    Supports newer NZI Pro schema (factor_lookup.db_id, level_1..4, column_text, uom, ghg_unit, year)
+    while remaining compatible with older schemas (factor_id, category/subcategory, unit, name).
     """
     if not query:
         return []
 
+    # Column existence checks (safe across schema variants)
     has_dataset = _col_exists("factor_lookup", "dataset_id")
     has_scope = _col_exists("factor_lookup", "scope")
+    has_year = _col_exists("factor_lookup", "year")
+
+    # ID column variants
+    has_factor_id = _col_exists("factor_lookup", "factor_id")
+    has_db_id = _col_exists("factor_lookup", "db_id")
+    id_col = "factor_id" if has_factor_id else ("db_id" if has_db_id else None)
+    if id_col is None:
+        return []
+
+    # New schema columns
+    has_l1 = _col_exists("factor_lookup", "level_1")
+    has_l2 = _col_exists("factor_lookup", "level_2")
+    has_l3 = _col_exists("factor_lookup", "level_3")
+    has_l4 = _col_exists("factor_lookup", "level_4")
+    has_coltext = _col_exists("factor_lookup", "column_text")
+    has_uom = _col_exists("factor_lookup", "uom")
+    has_ghg = _col_exists("factor_lookup", "ghg_unit")
+
+    # Older schema columns
     has_category = _col_exists("factor_lookup", "category")
     has_subcat = _col_exists("factor_lookup", "subcategory")
     has_unit = _col_exists("factor_lookup", "unit")
-    has_factor = _col_exists("factor_lookup", "factor")
-    has_name = _col_exists("factor_lookup", "name")  # some schemas use name
+    has_name = _col_exists("factor_lookup", "name")
 
-    # Build select list safely
-    select_cols = ["factor_id"]
+    has_factor = _col_exists("factor_lookup", "factor")
+
+    # Build select list safely (alias id to factor_id)
+    select_cols = []
+    if id_col == "factor_id":
+        select_cols.append("factor_id")
+    else:
+        select_cols.append(f"{id_col} AS factor_id")
+
+    if has_year:
+        select_cols.append("year")
+
+    # Prefer new schema fields first
+    if has_l1:
+        select_cols.append("level_1")
+    if has_l2:
+        select_cols.append("level_2")
+    if has_l3:
+        select_cols.append("level_3")
+    if has_l4:
+        select_cols.append("level_4")
+    if has_coltext:
+        select_cols.append("column_text")
+    if has_uom:
+        select_cols.append("uom")
+    if has_ghg:
+        select_cols.append("ghg_unit")
+
+    # Fallback fields (older schemas)
     if has_name:
         select_cols.append("name")
-    if has_category:
+    if has_category and not has_l1:
         select_cols.append("category")
-    if has_subcat:
+    if has_subcat and not has_l2:
         select_cols.append("subcategory")
-    if has_unit:
+    if has_unit and not has_uom:
         select_cols.append("unit")
+
     if has_factor:
         select_cols.append("factor")
 
@@ -87,18 +172,18 @@ def _search_factors(dataset_id, scope: str, query: str):
         wh.append("scope=%s")
         params.append(scope)
 
-    # Search text across name/category/subcategory
+    if has_year and (year is not None) and (not all_years):
+        wh.append("year=%s")
+        params.append(int(year))
+
+    # Search text across likely text columns
     like = f"%{query.strip()}%"
     search_terms = []
-    if has_name:
-        search_terms.append("name ILIKE %s")
-        params.append(like)
-    if has_category:
-        search_terms.append("category ILIKE %s")
-        params.append(like)
-    if has_subcat:
-        search_terms.append("subcategory ILIKE %s")
-        params.append(like)
+
+    for col in ["name", "category", "subcategory", "level_1", "level_2", "level_3", "level_4", "column_text"]:
+        if _col_exists("factor_lookup", col):
+            search_terms.append(f"{col} ILIKE %s")
+            params.append(like)
 
     if search_terms:
         wh.append("(" + " OR ".join(search_terms) + ")")
@@ -115,26 +200,50 @@ def _search_factors(dataset_id, scope: str, query: str):
     results = []
     for _, r in df.iterrows():
         fid = int(r.get("factor_id"))
-        name = r.get("name") if "name" in df.columns else None
-        cat = r.get("category") if "category" in df.columns else None
-        sub = r.get("subcategory") if "subcategory" in df.columns else None
-        unit = r.get("unit") if "unit" in df.columns else None
+
+        # Extract display parts
+        year_v = r.get("year") if "year" in df.columns else None
+        l1 = r.get("level_1") if "level_1" in df.columns else (r.get("category") if "category" in df.columns else None)
+        l2 = r.get("level_2") if "level_2" in df.columns else (r.get("subcategory") if "subcategory" in df.columns else None)
+        l3 = r.get("level_3") if "level_3" in df.columns else None
+        l4 = r.get("level_4") if "level_4" in df.columns else None
+        coltext = r.get("column_text") if "column_text" in df.columns else (r.get("name") if "name" in df.columns else None)
+
+        uom = r.get("uom") if "uom" in df.columns else (r.get("unit") if "unit" in df.columns else None)
+        ghg = r.get("ghg_unit") if "ghg_unit" in df.columns else None
         fac = r.get("factor") if "factor" in df.columns else None
 
         parts = []
-        if name:
-            parts.append(str(name))
-        if cat:
-            parts.append(str(cat))
-        if sub:
-            parts.append(str(sub))
-        if unit:
-            parts.append(f"unit={unit}")
+        if year_v is not None and str(year_v) != "nan":
+            parts.append(str(int(year_v)))
+        if l1:
+            parts.append(str(l1))
+        if l2:
+            parts.append(str(l2))
+        if l3:
+            parts.append(str(l3))
+        if l4:
+            parts.append(str(l4))
+        if coltext:
+            parts.append(str(coltext))
+        if uom:
+            parts.append(f"uom={uom}")
+        if ghg:
+            parts.append(f"ghg={str(ghg).replace(' ', '')}")
         if fac is not None:
             parts.append(f"factor={fac}")
 
         label = f"[{fid}] " + " | ".join(parts) if parts else f"[{fid}] factor"
-        results.append((fid, label, fac, unit, cat, sub))
+        results.append(
+            {
+                "factor_id": fid,
+                "label": label,
+                "factor": fac,
+                "uom": uom,
+                "ghg_unit": ghg,
+                "year": (int(year_v) if year_v is not None and str(year_v) != "nan" else None),
+            }
+        )
     return results
 
 
@@ -174,6 +283,8 @@ def render_scope(scope: str):
     st.caption(f"**{job_number}** — {client_name} — {title or ''}")
 
     inc, dataset_id, factor_method = _get_scope_config(int(job_id), scope)
+
+    dataset_year = _get_dataset_year(dataset_id)
     if not inc:
         st.warning(f"{scope} is disabled for this job. Enable it in Job Folder → Data Collection.")
         if st.button("Back to Job Folder"):
@@ -207,19 +318,34 @@ def render_scope(scope: str):
             c4, c5, c6 = st.columns(3)
             amount = c4.number_input("Amount", min_value=0.0, value=0.0)
             unit = c5.text_input("Unit (e.g., kWh, miles, £)", value="")
-            tco2e_override = c6.number_input("tCO₂e (override, optional)", min_value=0.0, value=0.0)
+            tco2e_override = c6.number_input("tCO₂e (tonnes) override (optional)", min_value=0.0, value=0.0)
 
             st.markdown("**Emission factor (optional)**")
             q = st.text_input("Search factors", placeholder="Type to search factor lookup…")
-            factors = _search_factors(dataset_id, scope, q) if q else []
+            search_all_years = st.checkbox(
+                "Search all years",
+                value=False,
+                help="By default we filter factors to the selected dataset year for this job. Enable this to search across all years in the dataset.",
+            )
+            factors = _search_factors(
+                dataset_id,
+                scope,
+                q,
+                year=dataset_year,
+                all_years=search_all_years,
+            ) if q else []
             factor_choice = None
             factor_value = None
+            factor_ghg_unit = None
             if factors:
-                labels = [f[1] for f in factors]
+                labels = [f["label"] for f in factors]
                 pick = st.selectbox("Matching factors", labels)
-                factor_choice = factors[labels.index(pick)][0]
-                factor_value = factors[labels.index(pick)][2]
+                chosen = factors[labels.index(pick)]
+                factor_choice = chosen["factor_id"]
+                factor_value = chosen["factor"]
+                factor_ghg_unit = chosen.get("ghg_unit")
             else:
+
                 st.caption("No factor selected. You can enter custom tCO₂e or add factors/datasets later.")
 
             notes = st.text_area("Notes", height=80)
@@ -229,7 +355,8 @@ def render_scope(scope: str):
                 tco2e = float(tco2e_override) if tco2e_override and tco2e_override > 0 else None
                 if tco2e is None and factor_value is not None:
                     try:
-                        tco2e = float(amount) * float(factor_value)
+                        # factor * amount is typically in kgCO2e; convert to tonnes for reporting/storage
+                        tco2e = _to_tco2e(float(amount), float(factor_value), factor_ghg_unit)
                     except Exception:
                         tco2e = None
 
