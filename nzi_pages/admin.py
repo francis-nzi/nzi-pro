@@ -570,8 +570,7 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
         return 0
 
     with get_conn() as con:
-        con.executemany(
-            """
+        sql = """
             INSERT INTO factor_lookup
             (
               dataset_id,
@@ -593,8 +592,8 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
             )
             VALUES
             (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            rows,
-        )
+            """
+        for params in rows:
+            con.execute(sql, params)
 
     return len(rows)
