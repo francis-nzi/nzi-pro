@@ -1,6 +1,20 @@
 import streamlit as st
-from datetime import timedelta
+from datetime import datetime, timedelta
 from core.database import get_conn
+
+
+def fmt_date(d):
+    return "" if not d else d.strftime("%d/%m/%Y")
+
+
+def parse_ddmmyyyy(label: str, s: str):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%d/%m/%Y").date()
+    except Exception:
+        raise ValueError(f"{label} must be DD/MM/YYYY")
 
 
 def _payment_terms():
@@ -10,11 +24,10 @@ def _payment_terms():
         ).df()
     if df.empty:
         return [(1, "100% in advance")]
-    return list(df.itertuples(index=False, name=None))  # [(term_id, name), ...]
+    return list(df.itertuples(index=False, name=None))
 
 
 def _datasets():
-    """Return list of (dataset_id, label). Safe if datasets table not ready."""
     try:
         with get_conn() as con:
             df = con.execute(
@@ -36,9 +49,7 @@ def _datasets():
 
 
 def _ensure_crp_rows(job_id: int, default_reporting_year: int):
-    """Create default rows for crp_job_details, job_plan, and job_scope_config if missing."""
     with get_conn() as con:
-        # CRP details
         con.execute(
             """
             INSERT INTO crp_job_details
@@ -50,7 +61,6 @@ def _ensure_crp_rows(job_id: int, default_reporting_year: int):
             [job_id, int(default_reporting_year)],
         )
 
-        # Job plan
         con.execute(
             """
             INSERT INTO job_plan (job_id, override_dates)
@@ -60,7 +70,6 @@ def _ensure_crp_rows(job_id: int, default_reporting_year: int):
             [job_id],
         )
 
-        # Scopes config
         for scope in ("Scope 1", "Scope 2", "Scope 3"):
             con.execute(
                 """
@@ -93,7 +102,6 @@ def render():
             st.rerun()
         return
 
-    # Load base job
     with get_conn() as con:
         row = con.execute(
             """
@@ -114,10 +122,8 @@ def render():
     (jid, job_number, title, job_type, reporting_year, status,
      start_date, due_date, client_db_id, client_name) = row
 
-    # Ensure related rows exist
     _ensure_crp_rows(int(jid), int(reporting_year or st.session_state.get("working_year", 2026)))
 
-    # Load CRP details + plan + scopes
     with get_conn() as con:
         crp = con.execute(
             """
@@ -158,7 +164,7 @@ def render():
     tab1, tab2, tab3 = st.tabs(["🧾 CRP Setup", "🗓️ Job Plan", "📦 Data Collection"])
 
     # -------------------------
-    # TAB 1: CRP Setup
+    # TAB 1
     # -------------------------
     with tab1:
         st.subheader("CRP reporting & admin")
@@ -171,7 +177,6 @@ def render():
          num_emp, turnover_gbp, prem_m2,
          veh_own, veh_lease, prem_own, prem_lease) = crp
 
-        # Payment terms dropdown
         pt = _payment_terms()
         pt_ids = [p[0] for p in pt]
         pt_labels = [p[1] for p in pt]
@@ -182,11 +187,10 @@ def render():
 
         with st.form("crp_setup_form", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
-            new_rp_from = c1.date_input("Reporting period from", value=rp_from)
-            new_rp_to = c2.date_input("Reporting period to", value=rp_to)
+            rp_from_txt = c1.text_input("Reporting period from (DD/MM/YYYY)", value=fmt_date(rp_from))
+            rp_to_txt = c2.text_input("Reporting period to (DD/MM/YYYY)", value=fmt_date(rp_to))
             new_is_bench = c3.checkbox("Benchmark year?", value=bool(is_bench))
 
-            # Benchmark: B => reporting year still required
             new_year = st.number_input(
                 "Reporting year (required even if benchmark)",
                 min_value=1990,
@@ -235,14 +239,18 @@ def render():
                 st.rerun()
 
             if save:
-                # Update base jobs table too (keep reporting_year aligned)
+                try:
+                    new_rp_from = parse_ddmmyyyy("Reporting period from", rp_from_txt)
+                    new_rp_to = parse_ddmmyyyy("Reporting period to", rp_to_txt)
+                    if new_rp_from and new_rp_to and new_rp_to < new_rp_from:
+                        raise ValueError("Reporting period to cannot be before from.")
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
+
                 with get_conn() as con:
                     con.execute(
-                        """
-                        UPDATE jobs
-                        SET reporting_year=%s
-                        WHERE job_id=%s
-                        """,
+                        "UPDATE jobs SET reporting_year=%s WHERE job_id=%s",
                         [int(new_year), int(jid)],
                     )
 
@@ -296,33 +304,36 @@ def render():
                 st.rerun()
 
     # -------------------------
-    # TAB 2: Job Plan
+    # TAB 2
     # -------------------------
     with tab2:
         st.subheader("Milestones")
         data_due, draft_due, final_due, override_dates = plan
-
-        # Compute defaults from current job start date
         def_data, def_draft, def_final = _calc_plan_dates(start_date)
 
         with st.form("job_plan_form", clear_on_submit=False):
-            c1, c2, c3 = st.columns(3)
             st.caption("Default: Data collection +45d, First draft +60d, Final report +90d (from Job Start Date)")
-
             new_override = st.checkbox("Override milestone dates", value=bool(override_dates))
 
-            if not new_override:
-                c1.date_input("Data collection due", value=def_data or data_due, disabled=True)
-                c2.date_input("First draft due", value=def_draft or draft_due, disabled=True)
-                c3.date_input("Final report due", value=def_final or final_due, disabled=True)
+            c1, c2, c3 = st.columns(3)
 
-                # We'll save computed values
+            if not new_override:
+                c1.text_input("Data collection due (DD/MM/YYYY)", value=fmt_date(def_data or data_due), disabled=True)
+                c2.text_input("First draft due (DD/MM/YYYY)", value=fmt_date(def_draft or draft_due), disabled=True)
+                c3.text_input("Final report due (DD/MM/YYYY)", value=fmt_date(def_final or final_due), disabled=True)
                 save_data, save_draft, save_final = def_data, def_draft, def_final
             else:
-                # Manual entries
-                save_data = c1.date_input("Data collection due", value=data_due or def_data)
-                save_draft = c2.date_input("First draft due", value=draft_due or def_draft)
-                save_final = c3.date_input("Final report due", value=final_due or def_final)
+                d1 = c1.text_input("Data collection due (DD/MM/YYYY)", value=fmt_date(data_due or def_data))
+                d2 = c2.text_input("First draft due (DD/MM/YYYY)", value=fmt_date(draft_due or def_draft))
+                d3 = c3.text_input("Final report due (DD/MM/YYYY)", value=fmt_date(final_due or def_final))
+
+                try:
+                    save_data = parse_ddmmyyyy("Data collection due", d1)
+                    save_draft = parse_ddmmyyyy("First draft due", d2)
+                    save_final = parse_ddmmyyyy("Final report due", d3)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
 
             b1, b2 = st.columns(2)
             save = b1.form_submit_button("Save milestones")
@@ -350,7 +361,7 @@ def render():
                 st.rerun()
 
     # -------------------------
-    # TAB 3: Data Collection (Scopes + datasets)
+    # TAB 3
     # -------------------------
     with tab3:
         st.subheader("Scopes & dataset selection")
@@ -360,29 +371,20 @@ def render():
         ds_labels = [d[1] for d in ds]
         methods = ["Activity", "Spend", "Custom"]
 
-        include_map = {}
         if scopes.empty:
             st.info("No scope config rows found. (They will be auto-created on load.)")
         else:
             with st.form("scope_cfg_form", clear_on_submit=False):
                 for scope_name in ["Scope 1", "Scope 2", "Scope 3"]:
                     row = scopes[scopes["scope"] == scope_name]
-                    if row.empty:
-                        include = True
-                        dataset_id = None
-                        method = None
-                    else:
-                        include = bool(row.iloc[0]["include_scope"])
-                        dataset_id = row.iloc[0]["dataset_id"]
-                        method = row.iloc[0]["factor_method"]
-
-                    include_map[scope_name] = include
+                    include = bool(row.iloc[0]["include_scope"]) if not row.empty else True
+                    dataset_id = row.iloc[0]["dataset_id"] if not row.empty else None
+                    method = row.iloc[0]["factor_method"] if not row.empty else None
 
                     st.markdown(f"#### {scope_name}")
                     c1, c2, c3 = st.columns([1.2, 4, 1.5])
                     c1.checkbox("Include", value=include, key=f"inc_{scope_name}")
 
-                    # Dataset dropdown
                     if ds:
                         options = ["(None)"] + ds_labels
                         if dataset_id is None:
@@ -392,15 +394,11 @@ def render():
                                 idx = 1 + ds_ids.index(int(dataset_id))
                             except Exception:
                                 idx = 0
-                        pick = c2.selectbox("Dataset", options, index=idx, key=f"ds_{scope_name}")
+                        c2.selectbox("Dataset", options, index=idx, key=f"ds_{scope_name}")
                     else:
                         c2.info("No datasets found yet (Admin → Datasets & Factors).")
 
-                    # Method
-                    if method in methods:
-                        midx = methods.index(method)
-                    else:
-                        midx = 0
+                    midx = methods.index(method) if method in methods else 0
                     c3.selectbox("Method", methods, index=midx, key=f"m_{scope_name}")
 
                     st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
@@ -429,11 +427,10 @@ def render():
                 st.success("Saved.")
                 st.rerun()
 
-        # ---- NEW: Open Scope buttons (added here at end of Data Collection tab) ----
+        # Open Scope buttons
         st.markdown("---")
         st.subheader("Open scope data entry")
 
-        # Determine include flags from DB (safer than session_state)
         include_flags = {"Scope 1": True, "Scope 2": True, "Scope 3": True}
         try:
             if not scopes.empty:
@@ -452,5 +449,3 @@ def render():
         if b[2].button("📦 Open Scope 3", disabled=not include_flags.get("Scope 3", True)):
             st.session_state["active_page"] = "Scope 3"
             st.rerun()
-
-        st.caption("Scopes must be enabled above (Include = True) to open their data entry pages.")

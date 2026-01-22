@@ -1,7 +1,24 @@
 import streamlit as st
+from datetime import datetime
 from core.database import get_conn
 
 
+# ---------- Date helpers ----------
+def fmt_date(d):
+    return "" if not d else d.strftime("%d/%m/%Y")
+
+
+def parse_ddmmyyyy(label: str, s: str):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%d/%m/%Y").date()
+    except Exception:
+        raise ValueError(f"{label} must be DD/MM/YYYY")
+
+
+# ---------- Lookups ----------
 def _job_types():
     with get_conn() as con:
         df = con.execute("SELECT name FROM job_types WHERE is_active=TRUE ORDER BY name").df()
@@ -62,13 +79,26 @@ def render():
                 )
 
                 title = st.text_input("Job Title/Description", "")
+
                 c4, c5 = st.columns(2)
-                start = c4.date_input("Start Date")
-                due = c5.date_input("Due Date")
+                start_txt = c4.text_input("Start Date (DD/MM/YYYY) *", value="")
+                due_txt = c5.text_input("Due Date (DD/MM/YYYY) *", value="")
 
                 if st.form_submit_button("Create Job"):
+                    try:
+                        start = parse_ddmmyyyy("Start Date", start_txt)
+                        due = parse_ddmmyyyy("Due Date", due_txt)
+                        if not start or not due:
+                            raise ValueError("Start Date and Due Date are required.")
+                        if due < start:
+                            raise ValueError("Due Date cannot be before Start Date.")
+                    except ValueError as e:
+                        st.error(str(e))
+                        st.stop()
+
                     client_id = int(cdf.loc[cdf["client_name"] == client_name, "db_id"].iloc[0])
 
+                    # Insert first to get job_id (Postgres IDENTITY/SERIAL)
                     with get_conn() as con:
                         row = con.execute(
                             """
@@ -92,6 +122,7 @@ def render():
 
                         job_id = int(row[0])
                         job_number = f"NZI-{int(year)}-{job_id:04d}"
+
                         con.execute(
                             "UPDATE jobs SET job_number=%s WHERE job_id=%s",
                             [job_number, job_id],
@@ -147,7 +178,7 @@ def render():
                 st.rerun()
 
     # -------------------------
-    # Inline edit panel
+    # Inline edit panel (preserved) - dates are DD/MM/YYYY
     # -------------------------
     edit_id = st.session_state.get("edit_job_id")
     if edit_id:
@@ -174,27 +205,15 @@ def render():
 
             with st.form("edit_job_form", clear_on_submit=False):
                 c1, c2, c3 = st.columns(3)
-                new_type = c1.selectbox(
-                    "Job Type",
-                    types,
-                    index=types.index(job_type) if job_type in types else 0,
-                )
-                new_year = c2.number_input(
-                    "Reporting Year",
-                    min_value=1990,
-                    max_value=2100,
-                    value=int(reporting_year or 2026),
-                )
-                new_status = c3.selectbox(
-                    "Status",
-                    statuses,
-                    index=statuses.index(status) if status in statuses else 0,
-                )
+                new_type = c1.selectbox("Job Type", types, index=types.index(job_type) if job_type in types else 0)
+                new_year = c2.number_input("Reporting Year", min_value=1990, max_value=2100, value=int(reporting_year or 2026))
+                new_status = c3.selectbox("Status", statuses, index=statuses.index(status) if status in statuses else 0)
 
                 new_title = st.text_input("Title", value=title or "")
+
                 c4, c5 = st.columns(2)
-                new_start = c4.date_input("Start Date", value=start_date)
-                new_due = c5.date_input("Due Date", value=due_date)
+                start_txt = c4.text_input("Start Date (DD/MM/YYYY)", value=fmt_date(start_date))
+                due_txt = c5.text_input("Due Date (DD/MM/YYYY)", value=fmt_date(due_date))
 
                 b1, b2 = st.columns(2)
                 save = b1.form_submit_button("Save")
@@ -205,6 +224,17 @@ def render():
                     st.rerun()
 
                 if save:
+                    try:
+                        new_start = parse_ddmmyyyy("Start Date", start_txt)
+                        new_due = parse_ddmmyyyy("Due Date", due_txt)
+                        if not new_start or not new_due:
+                            raise ValueError("Start Date and Due Date are required.")
+                        if new_due < new_start:
+                            raise ValueError("Due Date cannot be before Start Date.")
+                    except ValueError as e:
+                        st.error(str(e))
+                        st.stop()
+
                     with get_conn() as con:
                         con.execute(
                             """
@@ -227,22 +257,20 @@ def render():
                     st.rerun()
 
     # -------------------------
-    # Time logging
+    # Time logging (unchanged)
     # -------------------------
     st.markdown("---")
     st.markdown("### ⏱ Log Time")
 
     with st.form("time_log_form", clear_on_submit=True):
         jdf = _jobs_df(include_archived=False)
-
         if jdf.empty:
             st.info("No jobs yet.")
             st.form_submit_button("Save Time Entry", disabled=True)
         else:
-            # display label
-            labels = (jdf["job_number"] + " — " + jdf["client_name"]).tolist()
-            jsel = st.selectbox("Job", labels)
+            jsel = st.selectbox("Job", jdf["job_number"] + " — " + jdf["client_name"])
             subj = st.selectbox("Subject", _subjects())
+            # keep Streamlit picker for internal staff convenience, but if you want DD/MM strict here too, tell me
             wdate = st.date_input("Date")
             hours = st.number_input("Hours", min_value=0, max_value=24, value=1)
             quarter = st.selectbox("Quarter hour", [0, 15, 30, 45], index=0)
@@ -281,6 +309,7 @@ def render():
 
     if not logs.empty:
         logs["hours"] = (logs["minutes"] / 60).round(2)
+        logs["work_date"] = logs["work_date"].apply(lambda d: fmt_date(d))
 
     try:
         from components.tables import table_with_pager
