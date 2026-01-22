@@ -2,7 +2,7 @@ print("ADMIN.PY LOADED — build 2026-01-21a")
 import streamlit as st
 import pandas as pd
 
-from core.database import get_conn, next_id
+from core.database import get_conn
 from components.tables import table_with_pager
 from models import clients as m_clients
 from core.auth import require_role, show_user_badge
@@ -193,20 +193,21 @@ def render():
                     if not name or not source:
                         st.error("Name and Source are required.")
                     else:
-                        dsid = next_id("datasets", "dataset_id")
                         with get_conn() as con:
-                            con.execute(
+                            row = con.execute(
                                 """
                                 INSERT INTO datasets
-                                (dataset_id, name, source, analysis_type, country, region, currency, year, version, license, notes)
-                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                (name, source, analysis_type, country, region, currency, year, version, license, notes)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                RETURNING dataset_id
                                 """,
                                 [
-                                    dsid, name, source, analysis_type, country,
+                                    name, source, analysis_type, country,
                                     region, currency, int(year),
                                     version or None, license or None, notes or None
                                 ],
-                            )
+                            ).fetchone()
+                            dsid = int(row[0])
                         st.success(f"Dataset created with ID {dsid}.")
                         st.rerun()
 
@@ -229,7 +230,8 @@ def render():
                 selected_ds = int(choice.split("]")[0].strip("[")) if choice else None
 
             file = st.file_uploader("Upload Factors CSV", type=["csv"], key="fac_csv")
-            if st.button("Ingest CSV", disabled=(selected_ds is None)):
+                        disabled_ingest = (selected_ds is None) or (file is None)
+            if st.button("Ingest CSV", disabled=disabled_ingest):
                 if not file:
                     st.error("Upload a CSV first.")
                 else:
@@ -267,8 +269,8 @@ def render():
                 df = con.execute(
                     """
                     SELECT fl.db_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3,
-                           fl.column_text, fl.uom, fl.factor
+                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
+                           fl.column_text, fl.uom, fl.ghg_unit, fl.factor
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                     WHERE fl.dataset_id = %s AND fl.column_text ILIKE %s
@@ -280,8 +282,8 @@ def render():
                 df = con.execute(
                     """
                     SELECT fl.db_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3,
-                           fl.column_text, fl.uom, fl.factor
+                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
+                           fl.column_text, fl.uom, fl.ghg_unit, fl.factor
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                     WHERE fl.column_text ILIKE %s
