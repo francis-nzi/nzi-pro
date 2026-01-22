@@ -191,7 +191,7 @@ def run_migrations():
         con.execute(
             """
             INSERT INTO payment_terms_lookup (term_id, name, is_active)
-            VALUES (1, '100% in advance', TRUE)
+            VALUES (1, '100%% in advance', TRUE)
             ON CONFLICT (term_id) DO NOTHING
             """
         )
