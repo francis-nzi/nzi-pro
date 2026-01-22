@@ -475,7 +475,14 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
 
     # Read CSV
     content = file.read()
-    df = pd.read_csv(io.BytesIO(content))
+    # Read CSV bytes with robust encoding fallback (DESNZ files are sometimes Windows-1252)
+    try:
+        df = pd.read_csv(io.BytesIO(content), encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            df = pd.read_csv(io.BytesIO(content), encoding="cp1252")
+        except UnicodeDecodeError:
+            df = pd.read_csv(io.BytesIO(content), encoding="latin1")
 
     # Column map (case / underscore / spacing tolerant)
     cols = {norm_col(c): c for c in df.columns}
