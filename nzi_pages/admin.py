@@ -230,7 +230,7 @@ def render():
                 selected_ds = int(choice.split("]")[0].strip("[")) if choice else None
 
             file = st.file_uploader("Upload Factors CSV", type=["csv"], key="fac_csv")
-                        disabled_ingest = (selected_ds is None) or (file is None)
+            disabled_ingest = (selected_ds is None) or (file is None)
             if st.button("Ingest CSV", disabled=disabled_ingest):
                 if not file:
                     st.error("Upload a CSV first.")
@@ -591,4 +591,3 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
         )
 
     return len(rows)
-
