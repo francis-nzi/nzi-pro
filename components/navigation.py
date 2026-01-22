@@ -1,48 +1,43 @@
 import streamlit as st
 from config import LOGO_URL, DEFAULT_YEAR
 
+
+def _nav_changed():
+    st.session_state["active_page"] = st.session_state.get("nav_page", "Dashboard")
+
+
 def render_sidebar():
     with st.sidebar:
-        st.image(LOGO_URL, width="stretch")
+        st.image(LOGO_URL, use_container_width=True)
         st.markdown("---")
 
         pages = ["Dashboard", "Clients", "Jobs", "Admin"]
-        hidden_pages = {"Client Folder", "Job Folder"}
+        hidden_pages = {"Client Folder", "Job Folder"}  # routable, but not shown in nav
 
-        ap = st.session_state.get("active_page", "Dashboard")
-        if ap not in pages and ap not in hidden_pages:
+        ap = st.session_state.get("active_page")
+        if ap is None:
+            st.session_state["active_page"] = "Dashboard"
             ap = "Dashboard"
-            st.session_state["active_page"] = ap
+        if ap not in pages and ap not in hidden_pages:
+            st.session_state["active_page"] = "Dashboard"
+            ap = "Dashboard"
 
-        # If we’re on a hidden page, keep the radio on Clients (but don’t overwrite active_page)
-        if ap in pages:
-            default_nav = ap
-        else:
-            default_nav = st.session_state.get("nav_page", "Clients")
-            if default_nav not in pages:
-                default_nav = "Clients"
+        if "nav_page" not in st.session_state or st.session_state["nav_page"] not in pages:
+            st.session_state["nav_page"] = ap if ap in pages else "Clients"
 
-        nav_choice = st.radio(
+        st.radio(
             "Navigate",
             pages,
-            index=pages.index(default_nav),
             key="nav_page",
             label_visibility="collapsed",
+            on_change=_nav_changed,
         )
 
-        # Always sync active_page, but don’t clobber a hidden page unless user changed nav
-        if ap in pages:
-            st.session_state["active_page"] = nav_choice
-        else:
-            if nav_choice != default_nav:
-                st.session_state["active_page"] = nav_choice
-
         st.markdown("---")
-        years = [2024, 2025, 2026]
         st.session_state["working_year"] = st.selectbox(
             "Working Year",
-            years,
-            index=years.index(DEFAULT_YEAR) if DEFAULT_YEAR in years else len(years) - 1,
+            [2024, 2025, 2026],
+            index=[2024, 2025, 2026].index(DEFAULT_YEAR),
         )
         st.caption("NZI • v12.1 Multi-Dataset")
 

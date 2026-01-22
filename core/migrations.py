@@ -32,8 +32,6 @@ def run_migrations():
         # =========================
         # AUTH / RBAC (strict provisioning)
         # =========================
-
-        # Roles lookup used by Admin -> NZI Team
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS roles_lookup (
@@ -43,7 +41,6 @@ def run_migrations():
             """
         )
 
-        # Ensure baseline roles exist (additive)
         con.execute(
             """
             INSERT INTO roles_lookup (role_name, is_active)
@@ -58,8 +55,6 @@ def run_migrations():
             """
         )
 
-        # Users table (strict provisioning gate)
-        # NOTE: email is the stable identifier (we also keep user_id for backwards compatibility).
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -72,15 +67,11 @@ def run_migrations():
             """
         )
 
-        # Additive safety for older schemas (non-destructive)
-        # (Older DBs may have users without these columns/constraints.)
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR")
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR")
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR")
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR")
 
-        # Backfill / normalise email (critical before enforcing uniqueness)
-        # Legacy behaviour: user_id is commonly the email.
         con.execute(
             """
             UPDATE users
@@ -89,7 +80,6 @@ def run_migrations():
             """
         )
 
-        # Normalise email casing/whitespace so uniqueness behaves as expected
         con.execute(
             """
             UPDATE users
@@ -98,12 +88,9 @@ def run_migrations():
             """
         )
 
-        # Ensure role/status defaults don’t break existing rows
         con.execute("UPDATE users SET role='ReadOnly' WHERE role IS NULL OR TRIM(role)=''")
         con.execute("UPDATE users SET status='Active' WHERE status IS NULL OR TRIM(status)=''")
 
-        # Deduplicate any historical duplicates (keeps newest row per email)
-        # We must do this BEFORE adding a unique index/constraint.
         con.execute(
             """
             DELETE FROM users u
@@ -113,9 +100,6 @@ def run_migrations():
             """
         )
 
-        # Ensure a UNIQUE index exists for ON CONFLICT (email).
-        # Important: if an older NON-UNIQUE index exists with the same name,
-        # "IF NOT EXISTS" would skip creation and ON CONFLICT would still fail.
         con.execute(
             """
             DO $$
@@ -127,7 +111,6 @@ def run_migrations():
                     WHERE c.relkind = 'i'
                       AND c.relname = 'users_email_uidx'
                 ) THEN
-                    -- If the existing index is NOT unique, drop it so we can recreate as UNIQUE.
                     IF NOT EXISTS (
                         SELECT 1
                         FROM pg_index i
@@ -174,7 +157,7 @@ def run_migrations():
             )
 
         # =========================
-        # INDUSTRIES LOOKUP (NEW)
+        # INDUSTRIES LOOKUP
         # =========================
         con.execute(
             """
@@ -186,14 +169,106 @@ def run_migrations():
             """
         )
 
-        # Ensure clients.industry exists (safe even if already present)
-        # This stores the chosen industry name from industries_lookup.
         try:
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS industry VARCHAR")
         except Exception:
-            # If clients table isn't created yet at this point in your full migrations,
-            # later migrations will handle it; we ignore safely here.
             pass
+
+        # =========================
+        # PAYMENT TERMS LOOKUP (NEW)
+        # =========================
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_terms_lookup (
+                term_id INTEGER PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+
+        # Default term: 100% in advance
+        con.execute(
+            """
+            INSERT INTO payment_terms_lookup (term_id, name, is_active)
+            VALUES (1, '100% in advance', TRUE)
+            ON CONFLICT (term_id) DO NOTHING
+            """
+        )
+
+        # =========================
+        # CRP JOB DETAILS (NEW) - 1:1 with jobs
+        # Reporting Year is REQUIRED even for Benchmark (Benchmark: B)
+        # Payment terms is FK to lookup (Payment terms: FK)
+        # =========================
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS crp_job_details (
+              job_id INTEGER PRIMARY KEY,
+
+              reporting_period_from DATE,
+              reporting_period_to   DATE,
+              is_benchmark BOOLEAN NOT NULL DEFAULT FALSE,
+              reporting_year INTEGER NOT NULL,
+
+              is_renewal BOOLEAN NOT NULL DEFAULT FALSE,
+              client_order_number VARCHAR,
+
+              client_contact_name  VARCHAR,
+              client_contact_email VARCHAR,
+
+              report_signee_name     VARCHAR,
+              report_signee_position VARCHAR,
+
+              payment_term_id INTEGER NOT NULL DEFAULT 1
+                REFERENCES payment_terms_lookup(term_id),
+
+              free_training_place BOOLEAN NOT NULL DEFAULT FALSE,
+
+              num_employees INTEGER,
+              turnover_gbp NUMERIC,
+              premises_size_m2 NUMERIC,
+              vehicles_owned INTEGER,
+              vehicles_leased INTEGER,
+              premises_owned INTEGER,
+              premises_leased INTEGER,
+
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+
+        # =========================
+        # JOB PLAN MILESTONES (NEW)
+        # =========================
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_plan (
+              job_id INTEGER PRIMARY KEY,
+              data_collection_due DATE,
+              first_draft_due DATE,
+              final_report_due DATE,
+              override_dates BOOLEAN NOT NULL DEFAULT FALSE,
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+
+        # =========================
+        # SCOPE / DATASET CONFIG (NEW)
+        # =========================
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_scope_config (
+              job_id INTEGER NOT NULL,
+              scope VARCHAR NOT NULL,
+              include_scope BOOLEAN NOT NULL DEFAULT TRUE,
+              dataset_id INTEGER,
+              factor_method VARCHAR,
+              PRIMARY KEY (job_id, scope)
+            )
+            """
+        )
 
         # =========================
         # FACTOR LOOKUP (existing)
