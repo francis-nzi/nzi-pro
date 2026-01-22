@@ -446,61 +446,147 @@ def _dl_sample(label, path):
 
 
 def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
+    """
+    Ingest factors CSV into factor_lookup.
+    Supports DESNZ 2025+ format with:
+      - Year column (optional, overrides dataset year)
+      - Level 4 column (optional)
+      - GHG Unit column (defaults to kgCO2e)
+    Backwards compatible with older samples.
+    """
     import io
+    import numpy as np
 
+    def norm_col(c: str) -> str:
+        return c.lower().strip().replace("_", " ")
+
+    def norm_ghg_unit(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return "kgCO2e"
+        s = str(v).strip()
+        if not s or s.lower() == "nan":
+            return "kgCO2e"
+        s = s.replace(" ", "")
+        if s.lower() in ("kgco2e", "kgco₂e"):
+            return "kgCO2e"
+        return s
+
+    # Read CSV
     content = file.read()
     df = pd.read_csv(io.BytesIO(content))
-    cols = {c.lower().strip(): c for c in df.columns}
+
+    # Column map (case / underscore / spacing tolerant)
+    cols = {norm_col(c): c for c in df.columns}
 
     def pick(*names):
         for n in names:
-            if n.lower() in cols:
-                return cols[n.lower()]
+            k = norm_col(n)
+            if k in cols:
+                return cols[k]
         return None
 
-    id_col = pick("ID", "Code", "id", "code")
-    scope = pick("Scope")
-    l1 = pick("Level 1", "level_1", "Category", "SIC Section", "Product Group")
-    l2 = pick("Level 2", "level_2", "Subcategory", "SIC Division", "Product")
-    l3 = pick("Level 3", "level_3", "Detail", "Item")
-    text = pick("Column Text", "column_text", "Description", "Name", "Item Name", "Activity")
-    uom = pick("UOM", "Unit", "Units")
-    fac = pick("Factor", "GHG Conversion Factor", "kgCO2e per unit", "kgco2e_per_unit", "kgCO2e per GBP", "kgCO2e_per_GBP")
+    # Core columns
+    c_year = pick("Year")
+    c_id = pick("ID", "Code")
+    c_scope = pick("Scope")
+    c_l1 = pick("Level 1", "Category", "SIC Section", "Product Group")
+    c_l2 = pick("Level 2", "Subcategory", "SIC Division", "Product")
+    c_l3 = pick("Level 3", "Detail", "Item")
+    c_l4 = pick("Level 4")
+    c_text = pick("Column Text", "Description", "Name", "Activity")
+    c_uom = pick("UOM", "Unit", "Units")
+    c_ghg = pick("GHG Unit", "GHGUnit")
+    c_fac = pick(
+        "Factor",
+        "GHG Conversion Factor",
+        "kgCO2e per unit",
+        "kgco2e_per_unit",
+        "kgCO2e per GBP",
+        "kgCO2e_per_GBP",
+    )
 
-    if text is None or fac is None:
-        st.error("CSV missing required columns. See samples above.")
+    if c_text is None or c_fac is None:
+        st.error("CSV missing required columns (Column Text / Factor).")
         return 0
 
+    # Dataset metadata fallback
     meta = datasets_df.loc[datasets_df["dataset_id"] == dataset_id].iloc[0]
+    ds_year = int(meta["year"])
     src = str(meta["source"])
     region = str(meta.get("region", "") or "")
     currency = str(meta.get("currency", "GBP") or "GBP")
-    year = int(meta["year"])
 
     rows = []
+
     for _, r in df.iterrows():
-        rows.append([
-            dataset_id, file.name, year,
-            r[id_col] if id_col else None,
-            r[scope] if scope else None,
-            r[l1] if l1 else None,
-            r[l2] if l2 else None,
-            r[l3] if l3 else None,
-            str(r[text]),
-            (r[uom] if (isinstance(uom, str) and uom in df.columns) else None),
-            float(r[fac]),
-            src, region, currency,
-        ])
+        # Year precedence: CSV > dataset
+        yr = None
+        if c_year and not pd.isna(r[c_year]):
+            try:
+                yr = int(r[c_year])
+            except Exception:
+                yr = ds_year
+        else:
+            yr = ds_year
+
+        # Factor (skip invalid)
+        try:
+            factor = float(r[c_fac])
+        except Exception:
+            continue
+
+        rows.append(
+            [
+                dataset_id,
+                file.name,
+                yr,
+                r[c_id] if c_id else None,
+                r[c_scope] if c_scope else None,
+                r[c_l1] if c_l1 else None,
+                r[c_l2] if c_l2 else None,
+                r[c_l3] if c_l3 else None,
+                r[c_l4] if c_l4 else None,
+                str(r[c_text]).strip(),
+                r[c_uom] if c_uom else None,
+                norm_ghg_unit(r[c_ghg]) if c_ghg else "kgCO2e",
+                factor,
+                src,
+                region,
+                currency,
+            ]
+        )
+
+    if not rows:
+        st.warning("No valid factor rows found.")
+        return 0
 
     with get_conn() as con:
         con.executemany(
             """
             INSERT INTO factor_lookup
-            (dataset_id, file_name, year, original_id, scope,
-             level_1, level_2, level_3, column_text, uom, factor,
-             source, region, currency)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            (
+              dataset_id,
+              file_name,
+              year,
+              original_id,
+              scope,
+              level_1,
+              level_2,
+              level_3,
+              level_4,
+              column_text,
+              uom,
+              ghg_unit,
+              factor,
+              source,
+              region,
+              currency
+            )
+            VALUES
+            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             rows,
         )
+
     return len(rows)
+
