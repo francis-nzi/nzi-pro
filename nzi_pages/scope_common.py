@@ -480,104 +480,148 @@ def render_scope(scope: str):
         # Add row (cascading selector)
         # -------------------------
         with st.expander("➕ Add row", expanded=True):
-            with st.form(f"add_{scope}_row", clear_on_submit=True):
-                # Cascading factor selection
-                levels_exist = True
-                with get_conn() as con:
-                    levels_exist = _col_exists(con, "factor_lookup", "level_1")
+            # NOTE: do NOT use st.form here – we need dynamic cascading dropdowns.
+            base = f"{scope}_addrow"
 
-                if levels_exist:
-                    l1_opts = _factor_cascade_options(int(dataset_id), scope)
-                    l1 = st.selectbox("Category (Level 1) *", l1_opts, index=0 if l1_opts else None)
-                    l2_opts = []
-                    if l1:
-                        df_l2 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)[["level_2"]].dropna().drop_duplicates().sort_values("level_2")
-                        l2_opts = df_l2["level_2"].tolist()
-                    l2 = st.selectbox("Level 2", l2_opts, index=0 if l2_opts else None)
+            def _reset(*names):
+                for n in names:
+                    st.session_state.pop(f"{base}_{n}", None)
 
-                    l3_opts = []
-                    if l1 and l2:
-                        df_l3 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)[["level_3"]].dropna().drop_duplicates().sort_values("level_3")
-                        l3_opts = df_l3["level_3"].tolist()
-                    l3 = st.selectbox("Level 3", l3_opts, index=0 if l3_opts else None)
+            # Current selections (stored in session_state so dependent dropdowns refresh immediately)
+            l1_key = f"{base}_l1"
+            l2_key = f"{base}_l2"
+            l3_key = f"{base}_l3"
+            l4_key = f"{base}_l4"
+            f_key  = f"{base}_factor"
+            qty_key = f"{base}_qty"
+            en_key = f"{base}_enabled"
+            lbl_key = f"{base}_label"
+            notes_key = f"{base}_notes"
+            ovr_key = f"{base}_override"
+            ovr_reason_key = f"{base}_override_reason"
 
-                    l4_opts = []
-                    if l1 and l2 and l3:
-                        df_l4 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3)[["level_4"]].dropna().drop_duplicates().sort_values("level_4")
-                        l4_opts = df_l4["level_4"].tolist()
-                    l4 = st.selectbox("Level 4", l4_opts, index=0 if l4_opts else None)
+            # Determine which schema is available in factor_lookup
+            with get_conn() as con:
+                levels_exist = _col_exists(con, "factor_lookup", "level_1")
 
-                    fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3, l4=l4)
-                else:
-                    # Legacy: category/subcategory
-                    l1_opts = _factor_cascade_options(int(dataset_id), scope)
-                    l1 = st.selectbox("Category *", l1_opts, index=0 if l1_opts else None)
-                    l2_opts = []
-                    if l1:
-                        ftmp = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)
-                        if "level_2" in ftmp.columns:
-                            l2_opts = sorted([x for x in ftmp["level_2"].dropna().unique().tolist() if str(x).strip() != ""])
-                    l2 = st.selectbox("Subcategory", l2_opts, index=0 if l2_opts else None)
-                    fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)
+            if levels_exist:
+                l1_opts = _factor_cascade_options(int(dataset_id), scope)
+                l1 = st.selectbox(
+                    "Category (Level 1) *",
+                    l1_opts,
+                    key=l1_key,
+                    on_change=lambda: _reset("l2", "l3", "l4", "factor"),
+                )
 
-                if fdf is None or fdf.empty:
-                    st.info("Select levels to load factors.")
-                    st.form_submit_button("Add row", disabled=True)
-                else:
-                    # Choose the specific factor line
-                    fdf = fdf.copy()
-                    disp = (fdf["column_text"].fillna("").astype(str).str.strip() + " — " + fdf["uom"].fillna("").astype(str).str.strip()).tolist()
-                    choice = st.selectbox("Factor line *", disp)
-                    frow = fdf.iloc[disp.index(choice)]
+                l2_opts = []
+                if l1:
+                    df_l2 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)[["level_2"]].dropna().drop_duplicates().sort_values("level_2")
+                    l2_opts = df_l2["level_2"].tolist()
+                l2 = st.selectbox(
+                    "Level 2",
+                    l2_opts,
+                    key=l2_key,
+                    on_change=lambda: _reset("l3", "l4", "factor"),
+                )
 
-                    st.write(f"**ID:** {frow.get('original_id')}")
-                    st.write(f"**UOM:** {frow.get('uom')}")
-                    st.write(f"**Factor:** {frow.get('factor')} ({_ghg_unit_default(frow.get('ghg_unit'))})")
+                l3_opts = []
+                if l1 and l2:
+                    df_l3 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)[["level_3"]].dropna().drop_duplicates().sort_values("level_3")
+                    l3_opts = df_l3["level_3"].tolist()
+                l3 = st.selectbox(
+                    "Level 3",
+                    l3_opts,
+                    key=l3_key,
+                    on_change=lambda: _reset("l4", "factor"),
+                )
 
-                    c1, c2, c3 = st.columns(3)
-                    qty = c1.number_input("Quantity", min_value=0.0, value=0.0, step=1.0)
-                    enabled = c2.checkbox("Enabled", value=True)
-                    report_label = c3.text_input("Report label")
+                l4_opts = []
+                if l1 and l2 and l3:
+                    df_l4 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3)[["level_4"]].dropna().drop_duplicates().sort_values("level_4")
+                    l4_opts = df_l4["level_4"].tolist()
+                l4 = st.selectbox("Level 4", l4_opts, key=l4_key, on_change=lambda: _reset("factor"))
 
-                    notes = st.text_area("Notes")
+                fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3, l4=l4)
+            else:
+                # Legacy schema: category/subcategory
+                l1_opts = _factor_cascade_options(int(dataset_id), scope)
+                l1 = st.selectbox(
+                    "Category *",
+                    l1_opts,
+                    key=l1_key,
+                    on_change=lambda: _reset("l2", "factor"),
+                )
 
-                    o1, o2 = st.columns(2)
-                    override = o1.number_input("Override tCO2e (optional)", min_value=0.0, value=0.0, step=0.001)
-                    override_reason = o2.text_input("Override reason (required if override used)")
+                l2_opts = []
+                if l1:
+                    ftmp = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)
+                    if ftmp is not None and not ftmp.empty and "level_2" in ftmp.columns:
+                        l2_opts = sorted([x for x in ftmp["level_2"].dropna().unique().tolist() if str(x).strip() != ""])
+                l2 = st.selectbox("Subcategory", l2_opts, key=l2_key, on_change=lambda: _reset("factor"))
 
-                    submitted = st.form_submit_button("Add row")
-                    if submitted:
-                        calc = _calc_row_tco2e(qty, frow.get("factor"), frow.get("ghg_unit"))
-                        use_override = override is not None and float(override) > 0.0
-                        if use_override and not (override_reason or "").strip():
-                            st.error("Override reason is required when override is set.")
-                        else:
-                            rid = _insert_job_scope_row(
-                                {
-                                    "job_id": int(job_id),
-                                    "scope": scope,
-                                    "dataset_id": int(dataset_id) if dataset_id is not None else None,
-                                    "factor_db_id": int(frow.get("db_id")),
-                                    "original_id": str(frow.get("original_id")),
-                                    "level_1": frow.get("level_1"),
-                                    "level_2": frow.get("level_2"),
-                                    "level_3": frow.get("level_3"),
-                                    "level_4": frow.get("level_4"),
-                                    "column_text": frow.get("column_text"),
-                                    "report_label": (report_label or "").strip() or None,
-                                    "notes": (notes or "").strip() or None,
-                                    "enabled": bool(enabled),
-                                    "qty": float(qty),
-                                    "uom": frow.get("uom"),
-                                    "factor": float(frow.get("factor")),
-                                    "ghg_unit": _ghg_unit_default(frow.get("ghg_unit")),
-                                    "calc_tco2e": calc,
-                                    "override_tco2e": float(override) if use_override else None,
-                                    "override_reason": (override_reason or "").strip() if use_override else None,
-                                }
-                            )
-                            st.success(f"Row added (ID {rid}).")
-                            st.rerun()
+                fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)
+
+            if fdf is None or fdf.empty:
+                st.info("Pick a category (and deeper levels where available) to load factor lines.")
+                st.button("Add row", disabled=True, key=f"{base}_add_disabled")
+            else:
+                # Choose specific factor line
+                fdf = fdf.copy()
+                disp = (
+                    fdf["column_text"].fillna("").astype(str).str.strip()
+                    + " — "
+                    + fdf["uom"].fillna("").astype(str).str.strip()
+                ).tolist()
+                choice = st.selectbox("Factor line *", disp, key=f_key)
+                frow = fdf.iloc[disp.index(choice)]
+
+                st.caption(f"ID: {frow.get('original_id')} • UOM: {frow.get('uom')} • Factor: {frow.get('factor')} ({_ghg_unit_default(frow.get('ghg_unit'))})")
+
+                c1, c2, c3 = st.columns(3)
+                qty = c1.number_input("Quantity", min_value=0.0, value=float(st.session_state.get(qty_key, 0.0)), step=1.0, key=qty_key)
+                enabled = c2.checkbox("Enabled", value=bool(st.session_state.get(en_key, True)), key=en_key)
+                report_label = c3.text_input("Report label", key=lbl_key)
+
+                notes = st.text_area("Notes", key=notes_key)
+
+                o1, o2 = st.columns(2)
+                override = o1.number_input("Override tCO2e (optional)", min_value=0.0, value=float(st.session_state.get(ovr_key, 0.0)), step=0.001, key=ovr_key)
+                override_reason = o2.text_input("Override reason (required if override used)", key=ovr_reason_key)
+
+                if st.button("Add row", key=f"{base}_add"):
+                    calc = _calc_row_tco2e(qty, frow.get("factor"), frow.get("ghg_unit"))
+                    use_override = override is not None and float(override) > 0.0
+                    if use_override and not (override_reason or "").strip():
+                        st.error("Override reason is required when Override tCO2e is used.")
+                    else:
+                        _insert_job_scope_row(
+                            job_id=int(job_id),
+                            scope=scope,
+                            dataset_id=int(dataset_id),
+                            factor_db_id=int(frow.get("db_id")),
+                            original_id=str(frow.get("original_id") or ""),
+                            level_1=str(frow.get("level_1") or ""),
+                            level_2=str(frow.get("level_2") or ""),
+                            level_3=str(frow.get("level_3") or ""),
+                            level_4=str(frow.get("level_4") or ""),
+                            report_label=(report_label or "").strip(),
+                            notes=(notes or "").strip() or None,
+                            enabled=bool(enabled),
+                            qty=float(qty),
+                            uom=str(frow.get("uom") or ""),
+                            factor=float(frow.get("factor") or 0.0),
+                            ghg_unit=str(frow.get("ghg_unit") or "kgCO2e"),
+                            calc_tco2e=float(calc),
+                            override_tco2e=float(override) if use_override else None,
+                            override_reason=(override_reason or "").strip() if use_override else None,
+                        )
+                        # Clear dependent selections/inputs for quick next entry
+                        _reset("factor")
+                        st.session_state.pop(qty_key, None)
+                        st.session_state.pop(ovr_key, None)
+                        st.session_state.pop(ovr_reason_key, None)
+                        st.toast("Row added")
+                        st.rerun()
 
         st.markdown("---")
         show_disabled = st.checkbox("Show disabled rows", value=True, key=f"show_dis_{scope}")
