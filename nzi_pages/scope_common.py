@@ -347,6 +347,45 @@ def _factor_rows_for_levels(dataset_id: int, scope: str, l1=None, l2=None, l3=No
         return con.execute(sql, params).df()
 
 
+def _job_scope_rows_df(job_id: int, scope: str, include_disabled: bool = False):
+    """Return job_scope_rows for a job+scope. Adds a 'tco2e_used' column.
+    Safe if table doesn't exist yet (returns empty df).
+    """
+    where = "" if include_disabled else "AND enabled=TRUE"
+    sql = f"""
+        SELECT
+            row_id, job_id, scope, dataset_id,
+            factor_db_id, original_id,
+            level_1, level_2, level_3, level_4,
+            report_label, notes,
+            enabled,
+            qty, uom, factor, ghg_unit,
+            calc_tco2e, override_tco2e, override_reason,
+            created_at, updated_at
+        FROM job_scope_rows
+        WHERE job_id=%s AND scope=%s
+        {where}
+        ORDER BY COALESCE(level_1,''), COALESCE(level_2,''), COALESCE(level_3,''), COALESCE(level_4,''), row_id
+    """
+    try:
+        with get_conn() as con:
+            df = con.execute(sql, [int(job_id), str(scope)]).df()
+    except Exception:
+        import pandas as pd
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return df
+
+    # used emissions = override if present else calc
+    import pandas as pd
+    df["tco2e_used"] = df["override_tco2e"].where(df["override_tco2e"].notna(), df["calc_tco2e"])
+    # ensure numeric
+    df["tco2e_used"] = pd.to_numeric(df["tco2e_used"], errors="coerce").fillna(0.0)
+    return df
+
+
+
 def _factor_cascade_options(dataset_id: int, scope: str):
     """Return distinct Level 1 options for a dataset+scope."""
     if _col_exists("factor_lookup", "level_1"):
