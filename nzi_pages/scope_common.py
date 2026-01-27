@@ -27,8 +27,26 @@ def _to_tco2e(amount: float, factor: float, ghg_unit: str | None) -> float:
 
 
 
-def _col_exists(table: str, col: str) -> bool:
-    with get_conn() as con:
+def _col_exists(*args) -> bool:
+    """Check whether a column exists.
+    Supports two call styles:
+      - _col_exists(table, col)
+      - _col_exists(con, table, col)
+    """
+    if len(args) == 2:
+        table, col = args
+        with get_conn() as con:
+            r = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name=%s AND column_name=%s
+                """,
+                [table, col],
+            ).fetchone()
+            return bool(r)
+    elif len(args) == 3:
+        con, table, col = args
         r = con.execute(
             """
             SELECT 1
@@ -37,8 +55,9 @@ def _col_exists(table: str, col: str) -> bool:
             """,
             [table, col],
         ).fetchone()
-    return bool(r)
-
+        return bool(r)
+    else:
+        raise TypeError("_col_exists() takes 2 or 3 positional arguments")
 
 def _get_job_context(job_id: int):
     with get_conn() as con:
