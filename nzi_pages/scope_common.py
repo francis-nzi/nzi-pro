@@ -266,6 +266,107 @@ def _search_factors(dataset_id, scope: str, query: str, year: int | None = None,
     return results
 
 
+
+
+# -------------------------
+# Phase A helpers: cascading factor selection
+# -------------------------
+def _factor_rows_for_levels(dataset_id: int, scope: str, l1=None, l2=None, l3=None, l4=None):
+    """Return factor_lookup rows matching the selected hierarchy levels.
+
+    Uses new schema columns level_1..level_4 when available, otherwise falls back to
+    category/subcategory/name where possible.
+    """
+    has_l1 = _col_exists("factor_lookup", "level_1")
+    has_l2 = _col_exists("factor_lookup", "level_2")
+    has_l3 = _col_exists("factor_lookup", "level_3")
+    has_l4 = _col_exists("factor_lookup", "level_4")
+    has_coltext = _col_exists("factor_lookup", "column_text")
+    has_uom = _col_exists("factor_lookup", "uom")
+    has_ghg = _col_exists("factor_lookup", "ghg_unit")
+    has_original = _col_exists("factor_lookup", "original_id")
+
+    # ID column variants
+    has_factor_id = _col_exists("factor_lookup", "factor_id")
+    has_db_id = _col_exists("factor_lookup", "db_id")
+    id_col = "factor_id" if has_factor_id else ("db_id" if has_db_id else None)
+    if id_col is None:
+        return None
+
+    sel = [f"{id_col} AS factor_id"]
+    if has_original:
+        sel.append("original_id")
+    if _col_exists("factor_lookup", "year"):
+        sel.append("year")
+
+    if has_l1: sel.append("level_1")
+    if has_l2: sel.append("level_2")
+    if has_l3: sel.append("level_3")
+    if has_l4: sel.append("level_4")
+    if has_coltext: sel.append("column_text")
+    if has_uom: sel.append("uom")
+    if has_ghg: sel.append("ghg_unit")
+    if _col_exists("factor_lookup", "factor"):
+        sel.append("factor")
+
+    # Fallback columns for older schemas
+    if (not has_l1) and _col_exists("factor_lookup", "category"):
+        sel.append("category")
+    if (not has_l2) and _col_exists("factor_lookup", "subcategory"):
+        sel.append("subcategory")
+    if (not has_coltext) and _col_exists("factor_lookup", "name"):
+        sel.append("name")
+    if (not has_uom) and _col_exists("factor_lookup", "unit"):
+        sel.append("unit")
+
+    wh = ["dataset_id=%s"]
+    params = [int(dataset_id)]
+
+    if _col_exists("factor_lookup", "scope"):
+        wh.append("scope=%s")
+        params.append(scope)
+
+    # Apply hierarchy filters (prefer level_*, else fallback)
+    if l1:
+        if has_l1:
+            wh.append("level_1=%s"); params.append(l1)
+        elif _col_exists("factor_lookup", "category"):
+            wh.append("category=%s"); params.append(l1)
+    if l2:
+        if has_l2:
+            wh.append("level_2=%s"); params.append(l2)
+        elif _col_exists("factor_lookup", "subcategory"):
+            wh.append("subcategory=%s"); params.append(l2)
+    if l3 and has_l3:
+        wh.append("level_3=%s"); params.append(l3)
+    if l4 and has_l4:
+        wh.append("level_4=%s"); params.append(l4)
+
+    sql = f"SELECT {', '.join(sel)} FROM factor_lookup WHERE {' AND '.join(wh)} ORDER BY factor_id DESC"
+    with get_conn() as con:
+        return con.execute(sql, params).df()
+
+
+def _factor_cascade_options(dataset_id: int, scope: str):
+    """Return distinct Level 1 options for a dataset+scope."""
+    if _col_exists("factor_lookup", "level_1"):
+        col = "level_1"
+    elif _col_exists("factor_lookup", "category"):
+        col = "category"
+    else:
+        return []
+
+    sql = f"SELECT DISTINCT {col} AS l1 FROM factor_lookup WHERE dataset_id=%s" + (" AND scope=%s" if _col_exists("factor_lookup", "scope") else "") + " ORDER BY l1"
+    params = [int(dataset_id)]
+    if _col_exists("factor_lookup", "scope"):
+        params.append(scope)
+
+    with get_conn() as con:
+        df = con.execute(sql, params).df()
+    if df.empty:
+        return []
+    return [x for x in df["l1"].tolist() if x is not None and str(x).strip() != ""]
+
 def _list_entries(job_id: int, scope: str, include_archived: bool):
     where = "" if include_archived else "AND is_archived=FALSE"
     with get_conn() as con:
