@@ -303,6 +303,231 @@ def render_scope(scope: str):
 
     st.session_state.setdefault("edit_entry_id", None)
 
+# Phase A toggle: simplified row-by-row entry (job_scope_rows)
+st.session_state.setdefault("use_simplified_rows", True)
+use_simple = st.checkbox(
+    "Use simplified row-by-row entry (recommended)",
+    key=f"use_simple_{scope}",
+    value=st.session_state.get("use_simplified_rows", True),
+)
+st.session_state["use_simplified_rows"] = use_simple
+
+if use_simple:
+    st.markdown("### Row-by-row entries")
+
+    st.session_state.setdefault("edit_scope_row_id", None)
+
+    # -------------------------
+    # Add row (cascading selector)
+    # -------------------------
+    with st.expander("➕ Add row", expanded=True):
+        with st.form(f"add_{scope}_row", clear_on_submit=True):
+            # Cascading factor selection
+            levels_exist = True
+            with get_conn() as con:
+                levels_exist = _col_exists(con, "factor_lookup", "level_1")
+
+            if levels_exist:
+                l1_opts = _factor_cascade_options(int(dataset_id), scope)
+                l1 = st.selectbox("Category (Level 1) *", l1_opts, index=0 if l1_opts else None)
+                l2_opts = []
+                if l1:
+                    df_l2 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)[["level_2"]].dropna().drop_duplicates().sort_values("level_2")
+                    l2_opts = df_l2["level_2"].tolist()
+                l2 = st.selectbox("Level 2", l2_opts, index=0 if l2_opts else None)
+
+                l3_opts = []
+                if l1 and l2:
+                    df_l3 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)[["level_3"]].dropna().drop_duplicates().sort_values("level_3")
+                    l3_opts = df_l3["level_3"].tolist()
+                l3 = st.selectbox("Level 3", l3_opts, index=0 if l3_opts else None)
+
+                l4_opts = []
+                if l1 and l2 and l3:
+                    df_l4 = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3)[["level_4"]].dropna().drop_duplicates().sort_values("level_4")
+                    l4_opts = df_l4["level_4"].tolist()
+                l4 = st.selectbox("Level 4", l4_opts, index=0 if l4_opts else None)
+
+                fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2, l3=l3, l4=l4)
+            else:
+                # Legacy: category/subcategory
+                l1_opts = _factor_cascade_options(int(dataset_id), scope)
+                l1 = st.selectbox("Category *", l1_opts, index=0 if l1_opts else None)
+                l2_opts = []
+                if l1:
+                    ftmp = _factor_rows_for_levels(int(dataset_id), scope, l1=l1)
+                    if "level_2" in ftmp.columns:
+                        l2_opts = sorted([x for x in ftmp["level_2"].dropna().unique().tolist() if str(x).strip() != ""])
+                l2 = st.selectbox("Subcategory", l2_opts, index=0 if l2_opts else None)
+                fdf = _factor_rows_for_levels(int(dataset_id), scope, l1=l1, l2=l2)
+
+            if fdf is None or fdf.empty:
+                st.info("Select levels to load factors.")
+                st.form_submit_button("Add row", disabled=True)
+            else:
+                # Choose the specific factor line
+                fdf = fdf.copy()
+                disp = (fdf["column_text"].fillna("").astype(str).str.strip() + " — " + fdf["uom"].fillna("").astype(str).str.strip()).tolist()
+                choice = st.selectbox("Factor line *", disp)
+                frow = fdf.iloc[disp.index(choice)]
+
+                st.write(f"**ID:** {frow.get('original_id')}")
+                st.write(f"**UOM:** {frow.get('uom')}")
+                st.write(f"**Factor:** {frow.get('factor')} ({_ghg_unit_default(frow.get('ghg_unit'))})")
+
+                c1, c2, c3 = st.columns(3)
+                qty = c1.number_input("Quantity", min_value=0.0, value=0.0, step=1.0)
+                enabled = c2.checkbox("Enabled", value=True)
+                report_label = c3.text_input("Report label")
+
+                notes = st.text_area("Notes")
+
+                o1, o2 = st.columns(2)
+                override = o1.number_input("Override tCO2e (optional)", min_value=0.0, value=0.0, step=0.001)
+                override_reason = o2.text_input("Override reason (required if override used)")
+
+                submitted = st.form_submit_button("Add row")
+                if submitted:
+                    calc = _calc_row_tco2e(qty, frow.get("factor"), frow.get("ghg_unit"))
+                    use_override = override is not None and float(override) > 0.0
+                    if use_override and not (override_reason or "").strip():
+                        st.error("Override reason is required when override is set.")
+                    else:
+                        rid = _insert_job_scope_row(
+                            {
+                                "job_id": int(job_id),
+                                "scope": scope,
+                                "dataset_id": int(dataset_id) if dataset_id is not None else None,
+                                "factor_db_id": int(frow.get("db_id")),
+                                "original_id": str(frow.get("original_id")),
+                                "level_1": frow.get("level_1"),
+                                "level_2": frow.get("level_2"),
+                                "level_3": frow.get("level_3"),
+                                "level_4": frow.get("level_4"),
+                                "column_text": frow.get("column_text"),
+                                "report_label": (report_label or "").strip() or None,
+                                "notes": (notes or "").strip() or None,
+                                "enabled": bool(enabled),
+                                "qty": float(qty),
+                                "uom": frow.get("uom"),
+                                "factor": float(frow.get("factor")),
+                                "ghg_unit": _ghg_unit_default(frow.get("ghg_unit")),
+                                "calc_tco2e": calc,
+                                "override_tco2e": float(override) if use_override else None,
+                                "override_reason": (override_reason or "").strip() if use_override else None,
+                            }
+                        )
+                        st.success(f"Row added (ID {rid}).")
+                        st.rerun()
+
+    st.markdown("---")
+    show_disabled = st.checkbox("Show disabled rows", value=True, key=f"show_dis_{scope}")
+    sdf = _job_scope_rows_df(int(job_id), scope, include_disabled=show_disabled)
+
+    if sdf.empty:
+        st.info("No rows yet.")
+    else:
+        # Totals
+        used = []
+        for _, rr in sdf.iterrows():
+            if not bool(rr.get("enabled", True)):
+                continue
+            v = rr.get("override_tco2e")
+            if v is None or str(v) == "nan":
+                v = rr.get("calc_tco2e")
+            try:
+                used.append(float(v) if v is not None else 0.0)
+            except Exception:
+                used.append(0.0)
+        st.metric("Total tCO2e (enabled rows)", round(sum(used), 4))
+
+        # Header
+        h = st.columns([1, 3, 3, 1.5, 1.5, 1.2, 1.2, 1.2])
+        h[0].markdown("**On**")
+        h[1].markdown("**Label / Activity**")
+        h[2].markdown("**Factor (ID)**")
+        h[3].markdown("**Qty**")
+        h[4].markdown("**Calc tCO2e**")
+        h[5].markdown("**Override**")
+        h[6].markdown("**Used**")
+        h[7].markdown("**Actions**")
+
+        for _, rr in sdf.iterrows():
+            rid = int(rr["row_id"])
+            is_override = rr.get("override_tco2e") is not None and str(rr.get("override_tco2e")) != "nan"
+            used_val = rr.get("override_tco2e") if is_override else rr.get("calc_tco2e")
+            prefix = "🟧 " if is_override else ""
+            c = st.columns([1, 3, 3, 1.5, 1.5, 1.2, 1.2, 1.2])
+            enabled_now = c[0].checkbox("", value=bool(rr.get("enabled", True)), key=f"en_{scope}_{rid}")
+            act = f"{prefix}{rr.get('report_label') or ''}\n{rr.get('level_1') or ''} / {rr.get('level_2') or ''} / {rr.get('level_3') or ''} / {rr.get('level_4') or ''}\n{rr.get('column_text') or ''}"
+            c[1].write(act)
+
+            c[2].write(f"{rr.get('factor')} {rr.get('ghg_unit')}\nID: {rr.get('original_id')}")
+            c[3].write(rr.get("qty"))
+            c[4].write(rr.get("calc_tco2e"))
+            c[5].write(rr.get("override_tco2e") if is_override else "")
+            c[6].write(used_val)
+
+            # Actions: Edit / Delete
+            if c[7].button("✏️", key=f"edit_row_{scope}_{rid}"):
+                st.session_state["edit_scope_row_id"] = rid
+                st.rerun()
+
+            if c[7].button("🗑️", key=f"del_row_{scope}_{rid}"):
+                _delete_job_scope_row(rid)
+                st.toast("Row deleted")
+                st.rerun()
+
+        edit_rid = st.session_state.get("edit_scope_row_id")
+        if edit_rid:
+            st.markdown("### Edit row")
+            row = sdf.loc[sdf["row_id"] == int(edit_rid)]
+            if row.empty:
+                st.session_state["edit_scope_row_id"] = None
+            else:
+                rr = row.iloc[0]
+                with st.form(f"edit_scope_row_{scope}_{edit_rid}"):
+                    enabled = st.checkbox("Enabled", value=bool(rr.get("enabled", True)))
+                    report_label = st.text_input("Report label", value=rr.get("report_label") or "")
+                    notes = st.text_area("Notes", value=rr.get("notes") or "")
+                    qty = st.number_input("Quantity", min_value=0.0, value=float(rr.get("qty") or 0.0), step=1.0)
+                    override = st.number_input("Override tCO2e (optional)", min_value=0.0, value=float(rr.get("override_tco2e") or 0.0), step=0.001)
+                    override_reason = st.text_input("Override reason", value=rr.get("override_reason") or "")
+
+                    b1, b2 = st.columns(2)
+                    save = b1.form_submit_button("Save")
+                    cancel = b2.form_submit_button("Cancel")
+
+                    if cancel:
+                        st.session_state["edit_scope_row_id"] = None
+                        st.rerun()
+
+                    if save:
+                        calc = _calc_row_tco2e(qty, rr.get("factor"), rr.get("ghg_unit"))
+                        use_override = override is not None and float(override) > 0.0
+                        if use_override and not (override_reason or "").strip():
+                            st.error("Override reason is required when override is set.")
+                        else:
+                            _update_job_scope_row(
+                                int(edit_rid),
+                                {
+                                    "enabled": bool(enabled),
+                                    "report_label": (report_label or "").strip() or None,
+                                    "notes": (notes or "").strip() or None,
+                                    "qty": float(qty),
+                                    "calc_tco2e": calc,
+                                    "override_tco2e": float(override) if use_override else None,
+                                    "override_reason": (override_reason or "").strip() if use_override else None,
+                                },
+                            )
+                            st.success("Saved.")
+                            st.session_state["edit_scope_row_id"] = None
+                            st.rerun()
+
+    # Stop here so the legacy UI below doesn't also render
+    return
+
+
     # -------------------------
     # Add entry
     # -------------------------

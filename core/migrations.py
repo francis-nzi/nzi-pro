@@ -315,3 +315,58 @@ def run_migrations():
             ON crp_scope_entries (job_id, scope, is_archived)
             """
         )
+
+
+# =========================
+# PHASE A: SIMPLIFIED SCOPE ROWS (job_scope_rows)
+# =========================
+con.execute(
+    """
+    CREATE TABLE IF NOT EXISTS job_scope_rows (
+      row_id SERIAL PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES jobs(job_id),
+      scope VARCHAR NOT NULL,                 -- 'Scope 1' | 'Scope 2' | 'Scope 3'
+
+      dataset_id INTEGER REFERENCES datasets(dataset_id),
+      factor_db_id INTEGER REFERENCES factor_lookup(db_id),
+      original_id VARCHAR NOT NULL,           -- MUST match factor_lookup.original_id (DESNZ ID)
+
+      level_1 VARCHAR,
+      level_2 VARCHAR,
+      level_3 VARCHAR,
+      level_4 VARCHAR,
+      column_text VARCHAR,
+
+      report_label VARCHAR,
+      notes VARCHAR,
+
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+
+      qty NUMERIC,
+      uom VARCHAR,
+      factor NUMERIC,
+      ghg_unit VARCHAR,
+
+      calc_tco2e NUMERIC,
+      override_tco2e NUMERIC,
+      override_reason VARCHAR,
+
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+    """
+)
+
+con.execute(
+    """
+    CREATE INDEX IF NOT EXISTS job_scope_rows_job_scope_idx
+    ON job_scope_rows (job_id, scope)
+    """
+)
+
+con.execute(
+    """
+    CREATE INDEX IF NOT EXISTS job_scope_rows_job_scope_enabled_idx
+    ON job_scope_rows (job_id, scope, enabled)
+    """
+)
