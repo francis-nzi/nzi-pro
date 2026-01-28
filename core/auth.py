@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from core.database import get_conn
 
@@ -11,11 +12,41 @@ def _norm_email(x: str | None) -> str | None:
     return x or None
 
 
+def _env_truthy(name: str, default: str = "false") -> bool:
+    v = str(os.getenv(name, default) or "").strip().lower()
+    return v in ("1", "true", "yes", "y", "on")
+
+
+def _allow_dev_login() -> bool:
+    env = str(os.getenv("APP_ENV", "") or "").strip().lower()
+    return env in ("local", "dev", "development") or _env_truthy("ALLOW_DEV_LOGIN", "false")
+
+
+def _proxy_header_trusted(headers_lc: dict[str, str]) -> bool:
+    # Optional hardening: require a shared secret header from your reverse-proxy.
+    # If AUTH_PROXY_SECRET is unset, we do not enforce this check.
+    secret = str(os.getenv("AUTH_PROXY_SECRET", "") or "").strip()
+    if not secret:
+        return True
+    header_name = str(os.getenv("AUTH_PROXY_SECRET_HEADER", "X-Auth-Proxy-Secret") or "X-Auth-Proxy-Secret").strip()
+    provided = str(headers_lc.get(header_name.lower(), "") or "").strip()
+    return provided == secret
+
+
 def current_email() -> str | None:
     """
     Read authenticated email from oauth2-proxy forwarded headers.
     """
+    if st.session_state.get("basic_auth_ok") is True:
+        basic_email = _norm_email(os.getenv("BASIC_AUTH_EMAIL"))
+        if basic_email:
+            return basic_email
+
     headers = dict(st.context.headers or {})
+    headers_lc = {str(k).lower(): v for k, v in headers.items()}
+
+    if not _proxy_header_trusted(headers_lc):
+        return None
 
     for key in (
         "X-Auth-Request-Email",
@@ -23,8 +54,14 @@ def current_email() -> str | None:
         "X-Forwarded-User",
         "X-Auth-Request-User",
     ):
-        if key in headers and headers[key]:
-            return _norm_email(headers[key])
+        v = headers_lc.get(key.lower())
+        if v:
+            return _norm_email(v)
+
+    if _allow_dev_login():
+        dev_email = _norm_email(os.getenv("DEV_LOGIN_EMAIL") or os.getenv("NZI_DEV_LOGIN_EMAIL"))
+        if dev_email:
+            return dev_email
 
     # Authorization header fallback intentionally ignored for Phase 1
     return None

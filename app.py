@@ -5,6 +5,7 @@ if APP_DIR not in sys.path:
 
 import streamlit as st
 from config import APP_TITLE, LOGO_URL
+from core.basic_auth import require_basic_auth
 from core.database import run_ddl
 from core.migrations import run_migrations
 from components.navigation import render_sidebar
@@ -21,8 +22,16 @@ try:
 except Exception:
     pass
 
+require_basic_auth()
+
 run_ddl()
-run_migrations()
+
+def _env_truthy(name: str, default: str = "true") -> bool:
+    v = str(os.getenv(name, default) or "").strip().lower()
+    return v in ("1", "true", "yes", "y", "on")
+
+if _env_truthy("RUN_STARTUP_MIGRATIONS", "false"):
+    run_migrations()
 
 # --- Action links handler (Clients icons) ---
 try:
