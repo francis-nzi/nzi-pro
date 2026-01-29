@@ -782,7 +782,7 @@ def render():
                     if vr is not None and not vr.empty:
                         for _, r in vr.iterrows():
                             vid = int(r.get("vat_rate_id"))
-                            label = f"{r.get('name')} ({float(r.get('rate_pct') or 0):g}%)"
+                            label = f"{float(r.get('rate_pct') or 0):g}%"
                             vat_opts.append(label)
                             vat_map[label] = vid
                             rev_vat_map[vid] = label
@@ -917,29 +917,67 @@ def render():
 
                     lines_df = _apply_quote_line_defaults(lines_df)
 
+                    try:
+                        st.markdown(
+                            """
+                            <style>
+                            div[data-testid="stDataEditor"] * { font-size: 0.92rem; }
+                            div[data-testid="stDataEditor"] [role="gridcell"] { white-space: normal !important; line-height: 1.25 !important; }
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    except Exception:
+                        pass
+
                     def _recalc_lines() -> None:
                         try:
                             cur = st.session_state.get(editor_key)
                             if isinstance(cur, pd.DataFrame) and not cur.empty:
-                                st.session_state[editor_key] = _apply_quote_line_defaults(cur)
+                                cur2 = _apply_quote_line_defaults(cur)
+                                try:
+                                    if "delete" in cur2.columns and bool(cur2["delete"].fillna(False).astype(bool).any()):
+                                        cur2 = cur2.loc[~cur2["delete"].fillna(False).astype(bool)].copy()
+                                        cur2["delete"] = False
+                                except Exception:
+                                    pass
+                                st.session_state[editor_key] = cur2
                         except Exception:
                             pass
 
                     st.markdown("**Quote lines**")
+
+                    try:
+                        lines_df = lines_df[[
+                            "line_type",
+                            "job_type",
+                            "description",
+                            "qty",
+                            "unit_price_ex_vat",
+                            "vat_rate",
+                            "line_total",
+                            "is_selected",
+                            "delete",
+                        ]]
+                    except Exception:
+                        pass
+
                     edited = st.data_editor(
                         lines_df,
                         use_container_width=True,
                         num_rows="dynamic",
                         column_config={
                             "line_type": st.column_config.SelectboxColumn("Type", options=["Line", "Option"]),
-                            "job_type": st.column_config.SelectboxColumn("Job type", options=jt_opts),
+                            "job_type": st.column_config.SelectboxColumn("Item", options=jt_opts, width="medium"),
+                            "description": st.column_config.TextColumn("Description", width="medium"),
                             "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
                             "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0, format="%.0f"),
                             "unit_price_ex_vat": st.column_config.NumberColumn(
-                                "Unit price (ex VAT)",
+                                "Unit price",
                                 min_value=0.0,
                                 step=0.01,
                                 format="%.2f",
+                                width="small",
                             ),
                             "line_total": st.column_config.NumberColumn(
                                 "Total (ex VAT)",
@@ -947,9 +985,10 @@ def render():
                                 step=0.01,
                                 format="%.2f",
                                 help="Qty × Unit price (ex VAT)",
+                                width="small",
                             ),
-                            "is_selected": st.column_config.CheckboxColumn("Selected"),
-                            "delete": st.column_config.CheckboxColumn("Delete"),
+                            "is_selected": st.column_config.CheckboxColumn("Include", help="Only used for Option lines"),
+                            "delete": st.column_config.CheckboxColumn("🗑", width="small"),
                         },
                         disabled=["line_total"],
                         key=editor_key,
