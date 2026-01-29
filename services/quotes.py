@@ -65,6 +65,7 @@ def create_quote(
     valid_to: date | None,
     salesperson: str | None,
     payment_term_id: int | None,
+    currency_code: str | None,
     description: str | None,
     notes: str | None,
 ) -> int:
@@ -78,9 +79,9 @@ def create_quote(
                 """
                 INSERT INTO quotes
                   (client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
-                   description, notes, status)
+                   currency_code, description, notes, status)
                 VALUES
-                  (?,?,?,?,?,?,?,?,'Draft')
+                  (?,?,?,?,?,?,?,?,?,'Draft')
                 RETURNING quote_id
                 """,
                 [
@@ -90,6 +91,7 @@ def create_quote(
                     vt,
                     (salesperson or "").strip() or None,
                     int(payment_term_id) if payment_term_id is not None else None,
+                    (currency_code or "GBP").strip().upper(),
                     (description or "").strip() or None,
                     (notes or "").strip() or None,
                 ],
@@ -101,9 +103,9 @@ def create_quote(
             """
             INSERT INTO quotes
               (quote_id, client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
-               description, notes, status, created_at, updated_at)
+               currency_code, description, notes, status, created_at, updated_at)
             VALUES
-              (?,?,?,?,?,?,?,?,?,'Draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+              (?,?,?,?,?,?,?,?,?,?,'Draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             [
                 int(qid),
@@ -113,6 +115,7 @@ def create_quote(
                 vt,
                 (salesperson or "").strip() or None,
                 int(payment_term_id) if payment_term_id is not None else None,
+                (currency_code or "GBP").strip().upper(),
                 (description or "").strip() or None,
                 (notes or "").strip() or None,
             ],
@@ -127,6 +130,7 @@ def update_quote(quote_id: int, updates: dict[str, Any]) -> None:
         "valid_to",
         "salesperson",
         "payment_term_id",
+        "currency_code",
         "description",
         "notes",
         "status",
@@ -206,6 +210,19 @@ def compute_totals(lines_df: pd.DataFrame) -> QuoteTotals:
     if lines_df is None or getattr(lines_df, "empty", True):
         return QuoteTotals(0.0, 0.0, 0.0)
 
+    def _f(x) -> float:
+        try:
+            if x is None:
+                return 0.0
+            if pd.isna(x):
+                return 0.0
+        except Exception:
+            pass
+        try:
+            return float(x)
+        except Exception:
+            return 0.0
+
     with get_conn() as con:
         vdf = con.execute(
             """
@@ -231,8 +248,8 @@ def compute_totals(lines_df: pd.DataFrame) -> QuoteTotals:
         if lt.lower() == "option" and not selected:
             continue
 
-        qty = float(r.get("qty") or 0)
-        unit_price = float(r.get("unit_price_ex_vat") or 0)
+        qty = _f(r.get("qty"))
+        unit_price = _f(r.get("unit_price_ex_vat"))
         line_sub = qty * unit_price
         subtotal += line_sub
 
@@ -259,6 +276,7 @@ def revise_quote(source_quote_id: int) -> int:
         valid_to=src.get("valid_to"),
         salesperson=src.get("salesperson"),
         payment_term_id=int(src.get("payment_term_id")) if src.get("payment_term_id") is not None else None,
+        currency_code=src.get("currency_code"),
         description=src.get("description"),
         notes=src.get("notes"),
     )

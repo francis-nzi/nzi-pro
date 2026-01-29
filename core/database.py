@@ -199,6 +199,13 @@ def run_ddl():
           note_id INTEGER PRIMARY KEY, client_db_id INTEGER, author VARCHAR, note_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS currencies_lookup (
+          currency_code VARCHAR PRIMARY KEY,
+          symbol VARCHAR,
+          name VARCHAR,
+          is_active BOOLEAN DEFAULT TRUE
+        );
+
         CREATE TABLE IF NOT EXISTS quotes (
           quote_id INTEGER PRIMARY KEY,
           client_db_id INTEGER,
@@ -207,6 +214,7 @@ def run_ddl():
           valid_to DATE,
           salesperson VARCHAR,
           payment_term_id INTEGER,
+          currency_code VARCHAR,
           description TEXT,
           notes TEXT,
           status VARCHAR,
@@ -236,6 +244,17 @@ def run_ddl():
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS description VARCHAR")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS unit_price_ex_vat DOUBLE")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
+
+        con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency_code VARCHAR")
+
+        try:
+            cnt = con.execute("SELECT COUNT(*) FROM currencies_lookup").fetchone()[0]
+            if cnt == 0:
+                con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('GBP','£','Pound Sterling', TRUE)")
+                con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('USD','$','US Dollar', TRUE)")
+                con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('EUR','€','Euro', TRUE)")
+        except Exception:
+            pass
 
         try:
             cnt = con.execute("SELECT COUNT(*) FROM vat_rates_lookup").fetchone()[0]

@@ -47,6 +47,20 @@ def _parse_ddmmyyyy(label: str, s: str):
         raise ValueError(f"{label} must be DD/MM/YYYY")
 
 
+def _fmt_money(amount, symbol: str) -> str:
+    try:
+        if amount is None:
+            return f"{symbol}0.00"
+        if pd.isna(amount):
+            return f"{symbol}0.00"
+    except Exception:
+        pass
+    try:
+        return f"{symbol}{float(amount):,.2f}"
+    except Exception:
+        return f"{symbol}0.00"
+
+
 def _goto_clients():
     st.session_state["active_page"] = "Clients"
     st.session_state["edit_mode"] = False
@@ -482,97 +496,123 @@ def render():
         if "selected_quote_id" not in st.session_state:
             st.session_state["selected_quote_id"] = None
 
-        left, right = st.columns([3, 5])
-        with left:
-            st.markdown("**Quotes**")
-            if qdf is None or qdf.empty:
-                st.info("No quotes yet.")
-            else:
-                labels = []
-                ids = []
-                for _, r in qdf.iterrows():
-                    qid = int(r.get("quote_id"))
-                    status = str(r.get("status") or "").strip() or "Draft"
-                    qdate = r.get("quote_date")
-                    labels.append(f"#{qid} — {qdate} — {status}")
-                    ids.append(qid)
-                cur = st.session_state.get("selected_quote_id")
-                idx = ids.index(cur) if cur in ids else 0
-                picked = st.selectbox("Select quote", labels, index=idx)
-                st.session_state["selected_quote_id"] = ids[labels.index(picked)]
+        with st.container():
+            st.markdown("**Select quote**")
+            s1, s2 = st.columns([3, 2])
 
-            with st.expander("➕ Add Quote", expanded=False):
-                contacts_df = list_contacts(int(cid))
-                contact_opts = ["(None)"]
-                contact_map = {"(None)": None}
-                if contacts_df is not None and not contacts_df.empty:
-                    for _, r in contacts_df.iterrows():
-                        label = f"{r.get('full_name')}".strip()
-                        contact_opts.append(label)
-                        contact_map[label] = int(r.get("contact_id"))
+            with s1:
+                if qdf is None or qdf.empty:
+                    st.info("No quotes yet.")
+                else:
+                    labels = []
+                    ids = []
+                    for _, r in qdf.iterrows():
+                        qid = int(r.get("quote_id"))
+                        status = str(r.get("status") or "").strip() or "Draft"
+                        qdate = r.get("quote_date")
+                        try:
+                            qdate = pd.to_datetime(qdate).strftime("%d/%m/%Y") if qdate else ""
+                        except Exception:
+                            qdate = str(qdate or "")
+                        labels.append(f"No. {qid} — {qdate} — {status}")
+                        ids.append(qid)
+                    cur = st.session_state.get("selected_quote_id")
+                    idx = ids.index(cur) if cur in ids else 0
+                    picked = st.selectbox("Quote", labels, index=idx)
+                    st.session_state["selected_quote_id"] = ids[labels.index(picked)]
 
-                with get_conn() as con:
-                    staff_df = con.execute(
-                        "SELECT full_name FROM users WHERE status='Active' AND full_name IS NOT NULL ORDER BY full_name"
-                    ).df()
-                    pt_df = con.execute(
-                        "SELECT term_id, name FROM payment_terms_lookup WHERE is_active=TRUE ORDER BY term_id"
-                    ).df()
+            with s2:
+                with st.expander("➕ Add Quote", expanded=False):
+                    contacts_df = list_contacts(int(cid))
+                    contact_opts = ["(None)"]
+                    contact_map = {"(None)": None}
+                    if contacts_df is not None and not contacts_df.empty:
+                        for _, r in contacts_df.iterrows():
+                            label = f"{r.get('full_name')}".strip()
+                            contact_opts.append(label)
+                            contact_map[label] = int(r.get("contact_id"))
 
-                staff_opts = ["(None)"] + (staff_df["full_name"].tolist() if staff_df is not None and not staff_df.empty else [])
-                pt_opts = []
-                pt_map = {}
-                if pt_df is not None and not pt_df.empty:
-                    for _, r in pt_df.iterrows():
-                        label = str(r.get("name"))
-                        pt_opts.append(label)
-                        pt_map[label] = int(r.get("term_id"))
-                if not pt_opts:
-                    pt_opts = ["100% in advance"]
-                    pt_map["100% in advance"] = 1
+                    with get_conn() as con:
+                        staff_df = con.execute(
+                            "SELECT full_name FROM users WHERE status='Active' AND full_name IS NOT NULL ORDER BY full_name"
+                        ).df()
+                        pt_df = con.execute(
+                            "SELECT term_id, name FROM payment_terms_lookup WHERE is_active=TRUE ORDER BY term_id"
+                        ).df()
+                        try:
+                            cur_df = con.execute(
+                                "SELECT currency_code, symbol FROM currencies_lookup WHERE is_active=TRUE ORDER BY currency_code"
+                            ).df()
+                        except Exception:
+                            cur_df = pd.DataFrame()
 
-                c1, c2 = st.columns(2)
-                contact_label = c1.selectbox("Contact", contact_opts, index=0)
-                salesperson = c2.selectbox("Sales person", staff_opts, index=0)
-
-                d1, d2 = st.columns(2)
-                quote_date_txt = d1.text_input("Quote date (DD/MM/YYYY)", value=pd.Timestamp.today().strftime("%d/%m/%Y"))
-                valid_to_txt = d2.text_input(
-                    "Valid to (DD/MM/YYYY)",
-                    value=(pd.Timestamp.today() + pd.Timedelta(days=30)).strftime("%d/%m/%Y"),
-                )
-
-                payment_terms = st.selectbox("Payment terms", pt_opts, index=0)
-                desc = st.text_area("Description (above lines)", height=80)
-                notes = st.text_area("Notes", height=100)
-
-                if st.button("Create Quote"):
-                    try:
-                        quote_date = _parse_ddmmyyyy("Quote date", quote_date_txt)
-                        valid_to = _parse_ddmmyyyy("Valid to", valid_to_txt)
-                        if not quote_date:
-                            raise ValueError("Quote date is required.")
-                        if not valid_to:
-                            raise ValueError("Valid to is required.")
-                    except ValueError as e:
-                        st.error(str(e))
-                        st.stop()
-
-                    new_id = create_quote(
-                        client_db_id=int(cid),
-                        contact_id=contact_map.get(contact_label),
-                        quote_date=quote_date,
-                        valid_to=valid_to,
-                        salesperson=(None if salesperson == "(None)" else salesperson),
-                        payment_term_id=pt_map.get(payment_terms),
-                        description=desc,
-                        notes=notes,
+                    staff_opts = ["(None)"] + (
+                        staff_df["full_name"].tolist() if staff_df is not None and not staff_df.empty else []
                     )
-                    st.session_state["selected_quote_id"] = int(new_id)
-                    st.success(f"Quote #{int(new_id)} created.")
-                    st.rerun()
+                    pt_opts = []
+                    pt_map = {}
+                    if pt_df is not None and not pt_df.empty:
+                        for _, r in pt_df.iterrows():
+                            label = str(r.get("name"))
+                            pt_opts.append(label)
+                            pt_map[label] = int(r.get("term_id"))
+                    if not pt_opts:
+                        pt_opts = ["100% in advance"]
+                        pt_map["100% in advance"] = 1
 
-        with right:
+                    cur_opts = ["GBP"]
+                    if cur_df is not None and not cur_df.empty and "currency_code" in cur_df.columns:
+                        cur_opts = cur_df["currency_code"].astype(str).tolist()
+
+                    c1, c2 = st.columns(2)
+                    contact_label = c1.selectbox("Contact", contact_opts, index=0)
+                    salesperson = c2.selectbox("Sales person", staff_opts, index=0)
+
+                    d1, d2 = st.columns(2)
+                    quote_date_txt = d1.text_input("Quote date (DD/MM/YYYY)", value=pd.Timestamp.today().strftime("%d/%m/%Y"))
+                    valid_to_txt = d2.text_input(
+                        "Valid to (DD/MM/YYYY)",
+                        value=(pd.Timestamp.today() + pd.Timedelta(days=30)).strftime("%d/%m/%Y"),
+                    )
+
+                    payment_terms = st.selectbox("Payment terms", pt_opts, index=0)
+                    currency_code = st.selectbox(
+                        "Currency",
+                        cur_opts,
+                        index=(cur_opts.index("GBP") if "GBP" in cur_opts else 0),
+                    )
+                    desc = st.text_area("Description (above lines)", height=80)
+                    notes = st.text_area("Notes", height=100)
+
+                    if st.button("Create Quote"):
+                        try:
+                            quote_date = _parse_ddmmyyyy("Quote date", quote_date_txt)
+                            valid_to = _parse_ddmmyyyy("Valid to", valid_to_txt)
+                            if not quote_date:
+                                raise ValueError("Quote date is required.")
+                            if not valid_to:
+                                raise ValueError("Valid to is required.")
+                        except ValueError as e:
+                            st.error(str(e))
+                            st.stop()
+
+                        new_id = create_quote(
+                            client_db_id=int(cid),
+                            contact_id=contact_map.get(contact_label),
+                            quote_date=quote_date,
+                            valid_to=valid_to,
+                            salesperson=(None if salesperson == "(None)" else salesperson),
+                            payment_term_id=pt_map.get(payment_terms),
+                            currency_code=currency_code,
+                            description=desc,
+                            notes=notes,
+                        )
+                        st.session_state["selected_quote_id"] = int(new_id)
+                        st.success(f"Quote No. {int(new_id)} created.")
+                        st.rerun()
+
+        st.markdown("---")
+        with st.container():
             qid = st.session_state.get("selected_quote_id")
             if not qid:
                 st.info("Select a quote to view/edit.")
@@ -582,7 +622,32 @@ def render():
                     st.warning("Quote not found.")
                 else:
                     status = str(q.get("status") or "Draft")
-                    st.markdown(f"**Quote #{int(qid)}** — Status: **{status}**")
+                    currency_code = str(q.get("currency_code") or "GBP").strip().upper() or "GBP"
+
+                    with get_conn() as con:
+                        try:
+                            cur_map_df = con.execute(
+                                "SELECT currency_code, symbol FROM currencies_lookup WHERE is_active=TRUE"
+                            ).df()
+                        except Exception:
+                            cur_map_df = pd.DataFrame()
+
+                    symbol = "£"
+                    if cur_map_df is not None and not cur_map_df.empty:
+                        try:
+                            m = cur_map_df.loc[cur_map_df["currency_code"].astype(str) == currency_code]
+                            if not m.empty:
+                                symbol = str(m.iloc[0].get("symbol") or symbol)
+                        except Exception:
+                            pass
+
+                    qd_show = ""
+                    try:
+                        qd_show = pd.to_datetime(q.get("quote_date")).strftime("%d/%m/%Y")
+                    except Exception:
+                        qd_show = str(q.get("quote_date") or "")
+
+                    st.markdown(f"**Quote No. {int(qid)}** — {qd_show} — Status: **{status}** — **{currency_code}**")
 
                     with st.form(f"quote_header_{int(qid)}"):
                         contacts_df = list_contacts(int(cid))
@@ -603,6 +668,12 @@ def render():
                             pt_df = con.execute(
                                 "SELECT term_id, name FROM payment_terms_lookup WHERE is_active=TRUE ORDER BY term_id"
                             ).df()
+                            try:
+                                cur_df = con.execute(
+                                    "SELECT currency_code FROM currencies_lookup WHERE is_active=TRUE ORDER BY currency_code"
+                                ).df()
+                            except Exception:
+                                cur_df = pd.DataFrame()
 
                         staff_opts = ["(None)"] + (staff_df["full_name"].tolist() if staff_df is not None and not staff_df.empty else [])
                         pt_opts = []
@@ -634,6 +705,13 @@ def render():
                         pt_idx = pt_opts.index(pt_default) if pt_default in pt_opts else 0
                         payment_terms = st.selectbox("Payment terms", pt_opts, index=pt_idx) if pt_opts else ""
 
+                        cur_opts = ["GBP"]
+                        if cur_df is not None and not cur_df.empty and "currency_code" in cur_df.columns:
+                            cur_opts = cur_df["currency_code"].astype(str).tolist()
+                        cur_default = str(q.get("currency_code") or "GBP").strip().upper() or "GBP"
+                        cur_idx = cur_opts.index(cur_default) if cur_default in cur_opts else 0
+                        currency_code = st.selectbox("Currency", cur_opts, index=cur_idx)
+
                         desc = st.text_area("Description (above lines)", value=str(q.get("description") or ""), height=80)
                         notes = st.text_area("Notes", value=str(q.get("notes") or ""), height=100)
 
@@ -658,6 +736,7 @@ def render():
                                     "quote_date": quote_date,
                                     "valid_to": valid_to,
                                     "payment_term_id": pt_map.get(payment_terms) if payment_terms else None,
+                                    "currency_code": currency_code,
                                     "description": desc,
                                     "notes": notes,
                                 },
@@ -721,6 +800,7 @@ def render():
                                     "vat_rate": vat_opts[0],
                                     "is_selected": True,
                                     "line_total": 0.0,
+                                    "line_total_fmt": _fmt_money(0.0, symbol),
                                 }
                             ]
                         )
@@ -746,6 +826,7 @@ def render():
 
                         rows = []
                         for _, r in lines_df.iterrows():
+                            lt_val = float(r.get("qty") or 0) * float(r.get("unit_price_ex_vat") or 0)
                             rows.append(
                                 {
                                     "line_type": str(r.get("line_type") or "Line"),
@@ -755,7 +836,8 @@ def render():
                                     "unit_price_ex_vat": float(r.get("unit_price_ex_vat") or 0),
                                     "vat_rate": _vat_label(r.get("vat_rate_id")),
                                     "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
-                                    "line_total": float(r.get("qty") or 0) * float(r.get("unit_price_ex_vat") or 0),
+                                    "line_total": lt_val,
+                                    "line_total_fmt": _fmt_money(lt_val, symbol),
                                 }
                             )
                         lines_df = pd.DataFrame(rows)
@@ -800,6 +882,7 @@ def render():
                                     pass
 
                         df["line_total"] = (df["qty"].astype(float) * df["unit_price_ex_vat"].astype(float)).fillna(0.0)
+                        df["line_total_fmt"] = df["line_total"].apply(lambda x: _fmt_money(x, symbol))
                         return df
 
                     editor_key = f"quote_lines_editor_{int(qid)}"
@@ -844,9 +927,10 @@ def render():
                             "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
                             "unit_price_ex_vat": st.column_config.NumberColumn("Unit price (ex VAT)", min_value=0.0, step=10.0),
                             "line_total": st.column_config.NumberColumn("Total (ex VAT)", min_value=0.0, step=10.0),
+                            "line_total_fmt": st.column_config.TextColumn("Total", help="Qty × Unit price (ex VAT)"),
                             "is_selected": st.column_config.CheckboxColumn("Selected"),
                         },
-                        disabled=["line_total"],
+                        disabled=["line_total", "line_total_fmt"],
                         key=editor_key,
                     )
 
@@ -894,9 +978,9 @@ def render():
                     q2 = get_quote(int(qid))
                     totals = compute_totals(q2.get("lines"))
                     t1, t2, t3 = st.columns(3)
-                    t1.metric("Sub-total (ex VAT)", f"£{totals.subtotal_ex_vat:,.2f}")
-                    t2.metric("VAT", f"£{totals.vat_total:,.2f}")
-                    t3.metric("Total", f"£{totals.total_inc_vat:,.2f}")
+                    t1.metric("Sub-total (ex VAT)", _fmt_money(totals.subtotal_ex_vat, symbol))
+                    t2.metric("VAT", _fmt_money(totals.vat_total, symbol))
+                    t3.metric("Total", _fmt_money(totals.total_inc_vat, symbol))
 
                     # Status actions
                     a1, a2, a3, a4 = st.columns(4)
