@@ -1,6 +1,7 @@
 import streamlit as st
 import plotly.express as px
 import pandas as pd
+import base64
 
 from models.clients import get_client, update_client, list_crm_owners, list_portfolios, list_industries
 from components.tables import table_with_pager
@@ -21,7 +22,8 @@ from services.quotes import (
     revise_quote,
     update_quote,
 )
-from services.quote_documents import convert_docx_bytes_to_pdf_bytes, render_quote_docx_bytes
+from services.quote_documents import render_quote_pdf_bytes
+from services.emailer import send_email_with_attachment
 
 
 def is_blank(x) -> bool:
@@ -1187,34 +1189,49 @@ def render():
                     t2.metric("VAT", _fmt_money(totals.vat_total, symbol))
                     t3.metric("Total", _fmt_money(totals.total_inc_vat, symbol))
 
-                    d1, d2, d3 = st.columns([2, 2, 6])
-                    with d1:
+                    st.markdown("**Quote PDF preview**")
+                    pdf_bytes = None
+                    try:
+                        pdf_bytes = render_quote_pdf_bytes(int(qid))
+                        b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                        st.markdown(
+                            f"""<iframe src="data:application/pdf;base64,{b64}" width="100%" height="820" type="application/pdf"></iframe>""",
+                            unsafe_allow_html=True,
+                        )
+                    except Exception as e:
+                        st.error(str(e))
+
+                    st.markdown("**Email quote**")
+                    contact_email = ""
+                    try:
+                        cid2 = q2.get("contact_id")
+                        if cid2 is not None:
+                            with get_conn() as con:
+                                cdf = con.execute(
+                                    "SELECT email FROM client_contacts WHERE contact_id=?", [int(cid2)]
+                                ).df()
+                            if cdf is not None and not cdf.empty:
+                                contact_email = str(cdf.iloc[0]["email"] or "")
+                    except Exception:
+                        pass
+
+                    e1, e2 = st.columns([3, 1])
+                    to_email = e1.text_input("To", value=contact_email, key=f"quote_email_to_{int(qid)}")
+                    send_disabled = pdf_bytes is None or is_blank(to_email)
+                    if e2.button("Send", disabled=send_disabled, key=f"send_quote_{int(qid)}"):
                         try:
-                            docx_bytes = render_quote_docx_bytes(int(qid))
-                            st.download_button(
-                                "Download DOCX",
-                                data=docx_bytes,
-                                file_name=f"Quote No. {int(qid)}.docx",
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key=f"dl_docx_{int(qid)}",
+                            quote_no = f"Q{int(qid):06d}"
+                            send_email_with_attachment(
+                                to_email=str(to_email).strip(),
+                                subject=f"Quote {quote_no}",
+                                body_text=f"Please find attached Quote {quote_no}.",
+                                attachment_bytes=pdf_bytes or b"",
+                                attachment_filename=f"Quote {quote_no}.pdf",
+                                attachment_mime="application/pdf",
                             )
+                            st.success("Email sent.")
                         except Exception as e:
-                            st.button("Download DOCX", disabled=True, key=f"dl_docx_dis_{int(qid)}")
-                            st.caption(str(e))
-                    with d2:
-                        try:
-                            docx_bytes = render_quote_docx_bytes(int(qid))
-                            pdf_bytes = convert_docx_bytes_to_pdf_bytes(docx_bytes)
-                            st.download_button(
-                                "Download PDF",
-                                data=pdf_bytes,
-                                file_name=f"Quote No. {int(qid)}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_pdf_{int(qid)}",
-                            )
-                        except Exception as e:
-                            st.button("Download PDF", disabled=True, key=f"dl_pdf_dis_{int(qid)}")
-                            st.caption(str(e))
+                            st.error(str(e))
 
                     # Status actions
                     a1, a2, a3, a4 = st.columns(4)

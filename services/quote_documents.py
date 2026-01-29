@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
-import os
-import tempfile
-from datetime import date
 from typing import Any
 
 import pandas as pd
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from core.database import get_conn
 from models.clients import get_client
@@ -32,6 +35,17 @@ def _fmt_money(amount: Any) -> str:
         return f"{float(amount):,.2f}"
     except Exception:
         return "0.00"
+
+
+def _currency_symbol(code: str | None) -> str:
+    c = str(code or "GBP").strip().upper()
+    if c == "GBP":
+        return "£"
+    if c == "USD":
+        return "$"
+    if c == "EUR":
+        return "€"
+    return ""
 
 
 def _client_billing_address(client_row) -> str:
@@ -64,19 +78,22 @@ def _get_contact_name(contact_id: int | None) -> str:
     return ""
 
 
-def render_quote_docx_bytes(quote_id: int, template_path: str | None = None) -> bytes:
-    """Render a quote DOCX from the Word template using MERGEFIELDs.
-
-    Requires `docx-mailmerge`.
-    """
-
+def _get_contact_email(contact_id: int | None) -> str:
+    if contact_id is None:
+        return ""
     try:
-        from mailmerge import MailMerge
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "Missing dependency 'docx-mailmerge'. Install it to generate DOCX/PDF quotes."
-        ) from e
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT email FROM client_contacts WHERE contact_id=?", [int(contact_id)]
+            ).df()
+        if df is not None and not df.empty:
+            return str(df.iloc[0]["email"] or "")
+    except Exception:
+        pass
+    return ""
 
+
+def render_quote_pdf_bytes(quote_id: int) -> bytes:
     q = get_quote(int(quote_id))
     if not q:
         raise ValueError("Quote not found")
@@ -85,93 +102,156 @@ def render_quote_docx_bytes(quote_id: int, template_path: str | None = None) -> 
     client = get_client(client_id)
 
     totals = compute_totals(q.get("lines"))
-
-    quote_date = q.get("quote_date")
-    valid_to = q.get("valid_to")
-
-    template = template_path or os.path.join("templates", "NZI Standard Quote.docx")
-
-    contact_name = _get_contact_name(q.get("contact_id"))
-
     currency_code = str(q.get("currency_code") or "GBP").strip().upper()
+    symbol = _currency_symbol(currency_code)
 
-    # Build line items (only Line types)
+    quote_no = f"Q{int(quote_id):06d}"
+    quote_date = _fmt_ddmmyyyy(q.get("quote_date"))
+    valid_to = _fmt_ddmmyyyy(q.get("valid_to"))
+    contact_id = q.get("contact_id")
+    contact_name = _get_contact_name(contact_id)
+    contact_email = _get_contact_email(contact_id)
+    notes = str(q.get("notes") or "").strip()
+
     lines_df = q.get("lines")
-    items: list[dict[str, Any]] = []
-    options: list[dict[str, Any]] = []
-
+    line_rows = []
+    option_rows = []
     if lines_df is not None and not getattr(lines_df, "empty", True):
         for _, r in lines_df.iterrows():
             lt = str(r.get("line_type") or "Line").strip().lower()
-            rec = {
-                "Description": str(r.get("description") or "") or "",
-                "Quantity": f"{float(r.get('qty') or 0):g}",
-                "Rate": _fmt_money(r.get("unit_price_ex_vat")),
-                "Amount": _fmt_money((float(r.get("qty") or 0) * float(r.get("unit_price_ex_vat") or 0))),
-                "PreferenceTaxName": "",  # template expects a field; we keep it minimal
-            }
+            desc = str(r.get("description") or "").strip()
+            qty = float(r.get("qty") or 0)
+            rate = float(r.get("unit_price_ex_vat") or 0)
+            amt = qty * rate
+            row = [desc, f"{qty:g}", f"{symbol}{rate:,.2f}", f"{symbol}{amt:,.2f}"]
             if lt == "option":
-                options.append(rec)
+                option_rows.append(row)
             else:
-                items.append(rec)
+                line_rows.append(row)
 
-    option_text = ""
-    if options:
-        option_text = "\n".join([f"- {o.get('Description','')}" for o in options if o.get("Description")])
+    styles = getSampleStyleSheet()
+    normal = styles["Normal"]
+    heading = styles["Heading2"]
 
-    with MailMerge(template) as doc:
-        # Header fields
-        doc.merge(
-            Title=str((q.get("description") or "Quote")).strip() or "Quote",
-            ClientName=str(getattr(client, "client_name", "") or "").strip(),
-            ClientBillingAddress=_client_billing_address(client),
-            ContactName=contact_name,
-            QuoteNumber=f"No. {int(quote_id)}",
-            QuoteDate=_fmt_ddmmyyyy(quote_date),
-            QuoteValidDate=_fmt_ddmmyyyy(valid_to),
-            QuoteDescription=str((q.get("description") or "")).strip(),
-            QuoteSubTotal=_fmt_money(totals.subtotal_ex_vat),
-            QuoteTaxTotal=_fmt_money(totals.vat_total),
-            QuoteTotal=_fmt_money(totals.total_inc_vat),
-            QuoteOptionExplanation=option_text,
-            # These are present in template; safe defaults
-            PreferenceTaxName="",
-            Description="",
-            Quantity="",
-            Rate="",
-            Amount="",
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=quote_no,
+    )
+
+    story = []
+    story.append(Paragraph("Quote", styles["Title"]))
+    story.append(Spacer(1, 4 * mm))
+
+    header_left = (
+        f"<b>{str(getattr(client, 'client_name', '') or '').strip()}</b><br/>{_client_billing_address(client).replace(chr(10), '<br/>')}"
+    )
+    header_right_lines = [
+        f"<b>Quote</b>: {quote_no}",
+        f"<b>Date</b>: {quote_date}",
+        f"<b>Valid to</b>: {valid_to}",
+    ]
+    if contact_name:
+        header_right_lines.append(f"<b>Contact</b>: {contact_name}")
+    if contact_email:
+        header_right_lines.append(f"<b>Email</b>: {contact_email}")
+    header_right = "<br/>".join(header_right_lines)
+
+    header_tbl = Table(
+        [[Paragraph(header_left, normal), Paragraph(header_right, normal)]],
+        colWidths=[110 * mm, 60 * mm],
+    )
+    header_tbl.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
         )
+    )
+    story.append(header_tbl)
+    story.append(Spacer(1, 6 * mm))
 
-        # Repeating table region: Cost
-        if items:
-            doc.merge_rows("Description", items)
-        else:
-            # Keep table but blank first row fields if present
-            doc.merge(Description="", Quantity="", Rate="", Amount="", PreferenceTaxName="")
+    story.append(Paragraph("Lines", heading))
+    if not line_rows:
+        story.append(Paragraph("(No lines)", normal))
+    else:
+        tbl_data = [["Description", "Qty", "Unit price", "Amount"]] + line_rows
+        t = Table(tbl_data, colWidths=[95 * mm, 15 * mm, 30 * mm, 30 * mm])
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(t)
 
-        buf = io.BytesIO()
-        doc.write(buf)
-        return buf.getvalue()
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("Options", heading))
+    if not option_rows:
+        story.append(Paragraph("(No options)", normal))
+    else:
+        opt_data = [["Description", "Qty", "Unit price", "Amount"]] + option_rows
+        ot = Table(opt_data, colWidths=[95 * mm, 15 * mm, 30 * mm, 30 * mm])
+        ot.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111827")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+                    ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(ot)
 
+    story.append(Spacer(1, 8 * mm))
 
-def convert_docx_bytes_to_pdf_bytes(docx_bytes: bytes) -> bytes:
-    """Convert DOCX bytes to PDF bytes on Windows.
+    totals_tbl = Table(
+        [
+            ["Sub-total", f"{symbol}{float(totals.subtotal_ex_vat):,.2f}"],
+            ["VAT", f"{symbol}{float(totals.vat_total):,.2f}"],
+            ["Total", f"{symbol}{float(totals.total_inc_vat):,.2f}"],
+        ],
+        colWidths=[30 * mm, 35 * mm],
+    )
+    totals_tbl.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f3f4f6")),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.append(totals_tbl)
 
-    Requires `docx2pdf` and a working MS Word installation.
-    """
+    if notes:
+        story.append(Spacer(1, 10 * mm))
+        story.append(Paragraph("Notes", heading))
+        story.append(Paragraph(notes.replace("\n", "<br/>"), normal))
 
-    try:
-        from docx2pdf import convert
-    except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "Missing dependency 'docx2pdf'. Install it (and ensure MS Word is installed) to export PDF."
-        ) from e
-
-    with tempfile.TemporaryDirectory() as td:
-        docx_path = os.path.join(td, "quote.docx")
-        pdf_path = os.path.join(td, "quote.pdf")
-        with open(docx_path, "wb") as f:
-            f.write(docx_bytes)
-        convert(docx_path, pdf_path)
-        with open(pdf_path, "rb") as f:
-            return f.read()
+    doc.build(story)
+    return buf.getvalue()
