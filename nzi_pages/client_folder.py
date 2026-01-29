@@ -112,6 +112,17 @@ def render():
                 headquarters = e1.text_input("Headquarters", value=coalesce(c.get("headquarters"), ""))
                 logo_url = e2.text_input("Logo URL", value=coalesce(c.get("logo_url"), ""))
 
+                st.markdown("**Address**")
+                a1, a2 = st.columns(2)
+                addr1 = a1.text_input("Address line 1", value=coalesce(c.get("addr_line1"), ""))
+                addr2 = a2.text_input("Address line 2", value=coalesce(c.get("addr_line2"), ""))
+                pc1, pc2 = st.columns(2)
+                city = pc1.text_input("City", value=coalesce(c.get("addr_city"), ""))
+                region = pc2.text_input("Region/State", value=coalesce(c.get("addr_region"), ""))
+                pc1, pc2 = st.columns(2)
+                postcode = pc1.text_input("Postcode/ZIP", value=coalesce(c.get("addr_postcode"), ""))
+                country = pc2.text_input("Country", value=coalesce(c.get("addr_country"), ""))
+
                 desc = st.text_area(
                     "Company Description (Long)",
                     value=coalesce(c.get("description_long"), ""),
@@ -135,6 +146,12 @@ def render():
                             "industry": industry or None,
                             "company_reg": company_reg or None,
                             "headquarters": headquarters or None,
+                            "addr_line1": addr1 or None,
+                            "addr_line2": addr2 or None,
+                            "addr_city": city or None,
+                            "addr_region": region or None,
+                            "addr_postcode": postcode or None,
+                            "addr_country": country or None,
                             "logo_url": logo_url or None,
                             "description_long": desc or None,
                             "crm_owner": (None if crm_owner == "(Unassigned)" else crm_owner),
