@@ -107,9 +107,10 @@ def _clients_table_buttons(df: pd.DataFrame):
     h[1].markdown("**Portfolio**")
     h[2].markdown("**CRM**")
     h[3].markdown("**Industry**")
-    h[4].markdown("**City**")
+    h[4].markdown("**City (Address)**")
     h[5].markdown("**Country**")
     h[6].markdown("**Actions**")
+    st.caption("City is sourced from the client address (`clients.addr_city`).")
     st.divider()
 
     for _, r in df.iterrows():
@@ -120,7 +121,17 @@ def _clients_table_buttons(df: pd.DataFrame):
             cid_i = None
 
         c = st.columns([3.0, 1.2, 1.2, 1.6, 1.2, 1.2, 1.0])
-        c[0].write(_cell_str(r.get("client_name")))
+        client_label = _cell_str(r.get("client_name"))
+        if cid_i is None:
+            c[0].write(client_label)
+        else:
+            c[0].button(
+                client_label or "(Unnamed)",
+                key=f"cl_name_{cid_i}",
+                help="Open client folder",
+                on_click=_open_client,
+                args=(cid_i,),
+            )
         c[1].write(_cell_str(r.get("portfolio")))
         c[2].write(_cell_str(r.get("crm_owner")))
         c[3].write(_cell_str(r.get("industry")))
@@ -163,17 +174,6 @@ def _clients_table_buttons(df: pd.DataFrame):
 
 def render():
     st.title("👥 Clients")
-    search = st.text_input("Search Clients")
-    df = m_clients.list_clients(search)
-
-    start, end = _render_clients_pager(len(df))
-    df_slice = df.iloc[start:end].copy() if not df.empty else df
-
-    if df_slice.empty:
-        st.info("No clients found.")
-    else:
-        _clients_table_buttons(df_slice)
-
     with st.expander("➕ New Client"):
         crm_owners = m_clients.list_crm_owners()
         portfolios = m_clients.list_portfolios()
@@ -237,11 +237,6 @@ def render():
             t1, _ = st.columns(2)
             target_s3_pct = t1.number_input("Scope 3 Target Reduction (%)", min_value=0, max_value=100, value=90)
 
-            specify_benchmark = st.checkbox("Set Benchmark Year", value=False)
-            benchmark_year = None
-            if specify_benchmark:
-                benchmark_year = st.number_input("Benchmark Year", min_value=1900, max_value=2100, value=2024)
-
             if st.form_submit_button("Create Client"):
                 if not new_n:
                     st.error("Client Name is required.")
@@ -279,9 +274,17 @@ def render():
                         target_s3_pct=int(target_s3_pct),
                     )
 
-                    if benchmark_year is not None:
-                        payload["benchmark_year"] = int(benchmark_year)
-
                     m_clients.create_client(payload)
                     st.success(f"Client {new_n} created.")
                     st.rerun()
+
+    search = st.text_input("Search Clients")
+    df = m_clients.list_clients(search)
+
+    start, end = _render_clients_pager(len(df))
+    df_slice = df.iloc[start:end].copy() if not df.empty else df
+
+    if df_slice.empty:
+        st.info("No clients found.")
+    else:
+        _clients_table_buttons(df_slice)

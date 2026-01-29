@@ -10,13 +10,35 @@ def list_crm_owners():
     return ["(Unassigned)"] + vals
 
 def list_portfolios():
-    """Distinct portfolios already in use (plus default NZI)."""
-    with get_conn() as con:
-        a = con.execute("SELECT DISTINCT portfolio AS v FROM clients WHERE portfolio IS NOT NULL AND portfolio <> ''").df()
-    vals = sorted({str(x) for x in list(a["v"]) if x is not None and str(x).strip() != ""})
-    if "NZI" not in vals:
-        vals = ["NZI"] + vals
-    return vals
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT name FROM portfolios_lookup WHERE is_active=TRUE ORDER BY name"
+            ).df()
+        vals = df["name"].tolist() if not df.empty else []
+        if "NZI" not in vals:
+            vals = ["NZI"] + vals
+        return vals
+    except Exception:
+        with get_conn() as con:
+            a = con.execute(
+                "SELECT DISTINCT portfolio AS v FROM clients WHERE portfolio IS NOT NULL AND portfolio <> ''"
+            ).df()
+        vals = sorted({str(x) for x in list(a["v"]) if x is not None and str(x).strip() != ""})
+        if "NZI" not in vals:
+            vals = ["NZI"] + vals
+        return vals
+
+
+def list_industries():
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT name FROM industries_lookup WHERE is_active=TRUE ORDER BY name"
+            ).df()
+        return df["name"].tolist() if not df.empty else []
+    except Exception:
+        return []
 
 def list_clients(search:str=""):
     with get_conn() as con:

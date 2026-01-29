@@ -2,7 +2,7 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 
-from models.clients import get_client, update_client, list_crm_owners, list_portfolios
+from models.clients import get_client, update_client, list_crm_owners, list_portfolios, list_industries
 from components.tables import table_with_pager
 from core.database import get_conn, db_backend
 from utils.forecasting import build_forecast_df
@@ -98,7 +98,14 @@ def render():
                 website = c2.text_input("Website", value=coalesce(c.get("website"), ""))
 
                 d1, d2 = st.columns(2)
-                industry = d1.text_input("Industry", value=coalesce(c.get("industry"), ""))
+                industry_opts = list_industries()
+                industry_default = coalesce(c.get("industry"), "")
+                if industry_opts:
+                    ind_values = [""] + industry_opts
+                    ind_idx = ind_values.index(industry_default) if industry_default in ind_values else 0
+                    industry = d1.selectbox("Industry", ind_values, index=ind_idx)
+                else:
+                    industry = d1.text_input("Industry", value=industry_default)
                 company_reg = d2.text_input("Company Reg", value=coalesce(c.get("company_reg"), ""))
 
                 e1, e2 = st.columns(2)
@@ -141,9 +148,9 @@ def render():
     tabs = st.tabs([
         "🏢 Profile",
         "📍 Sites",
-        "� Contacts",
+        "👥 Contacts",
         "🗂️ Jobs",
-        "🧾 CRP",
+        "🧾 Reports",
         "🎯 Targets",
         "📊 Activity",
         "🗃️ Datasets Used",
@@ -161,10 +168,24 @@ def render():
         except Exception:
             return False
 
+    with tabs[0]:
+        left, right = st.columns([2, 1])
+        left.subheader("Client")
+        left.write(f"Name: {coalesce(c.get('client_name'), '-')}")
+        left.write(f"Portfolio: {coalesce(c.get('portfolio'), '-')}")
+        left.write(f"Industry: {coalesce(c.get('industry'), '-')}")
+        left.write(f"CRM Owner: {coalesce(c.get('crm_owner'), '-')}")
+        right.subheader("Address")
+        right.write(coalesce(c.get("addr_line1"), "-"))
+        right.write(coalesce(c.get("addr_line2"), ""))
+        right.write(f"{coalesce(c.get('addr_city'), '-')}, {coalesce(c.get('addr_region'), '')}")
+        right.write(coalesce(c.get("addr_postcode"), ""))
+        right.write(coalesce(c.get("addr_country"), "-"))
+
     # --------------------
     # SITES (ADD + LIST)
     # --------------------
-    with tabs[0]:
+    with tabs[1]:
         with st.expander("➕ Add Site", expanded=False):
             with st.form("add_site_form", clear_on_submit=True):
                 s1, s2 = st.columns(2)
@@ -186,7 +207,7 @@ def render():
     # -----------------------
     # CONTACTS (ADD + LIST)
     # -----------------------
-    with tabs[1]:
+    with tabs[2]:
         with st.expander("➕ Add Contact", expanded=False):
             with st.form("add_contact_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
@@ -208,7 +229,7 @@ def render():
     # --------------------
     # JOBS (LIST)
     # --------------------
-    with tabs[2]:
+    with tabs[3]:
         with get_conn() as con:
             df = con.execute(
                 """
@@ -224,7 +245,7 @@ def render():
     # --------------------
     # CRP (LIST)
     # --------------------
-    with tabs[3]:
+    with tabs[4]:
         if _table_exists("crp_reports"):
             with get_conn() as con:
                 df = con.execute(
@@ -252,7 +273,7 @@ def render():
     # --------------------
     # TARGETS (EDIT + CHART)
     # --------------------
-    with tabs[4]:
+    with tabs[5]:
         st.subheader("Net Zero Targets")
         nz_col, it_col = st.columns(2)
         nz_year = nz_col.number_input(
@@ -363,7 +384,7 @@ def render():
     # --------------------
     # ACTIVITY (LIST)
     # --------------------
-    with tabs[5]:
+    with tabs[6]:
         if not _table_exists("activity_data"):
             st.info("Activity data is not available in this database yet.")
         else:
@@ -386,7 +407,7 @@ def render():
     # --------------------
     # DATASETS USED (LIST)
     # --------------------
-    with tabs[6]:
+    with tabs[7]:
         st.subheader("Datasets used in client calculations")
         if not _table_exists("activity_data"):
             st.info("Activity data is not available in this database yet.")
@@ -410,7 +431,7 @@ def render():
     # --------------------
     # NOTES (ADD + LIST)
     # --------------------
-    with tabs[7]:
+    with tabs[8]:
         with st.expander("➕ Add Note", expanded=False):
             with st.form("add_note_form", clear_on_submit=True):
                 note_text = st.text_area("Note", height=120, placeholder="Type your note here...")
