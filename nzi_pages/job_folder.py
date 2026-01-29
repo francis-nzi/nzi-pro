@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime, timedelta
 from core.database import get_conn
+from nzi_pages.job_folder_excel import render_excel_section
 
 
 def fmt_date(d):
@@ -426,6 +427,18 @@ def render():
                         )
                 st.success("Saved.")
                 st.rerun()
+
+        st.markdown("---")
+        render_excel_section(
+            jid=int(jid),
+            job_number=str(job_number),
+            client_db_id=int(client_db_id),
+            client_name=str(client_name),
+            reporting_year=(int(reporting_year) if reporting_year is not None else None),
+            rp_from=rp_from,
+            rp_to=rp_to,
+            scopes_df=scopes,
+        )
 
         # Open Scope buttons
         st.markdown("---")

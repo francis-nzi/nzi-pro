@@ -26,6 +26,109 @@ def _to_tco2e(amount: float, factor: float, ghg_unit: str | None) -> float:
     return _kg_to_t(emissions)
 
 
+def _calc_row_tco2e(qty: float | None, factor: float | None, ghg_unit: str | None) -> float:
+    try:
+        if qty is None or factor is None:
+            return 0.0
+        if str(qty) == "nan" or str(factor) == "nan":
+            return 0.0
+        return float(_to_tco2e(float(qty), float(factor), ghg_unit))
+    except Exception:
+        return 0.0
+
+
+def _insert_job_scope_row(
+    job_id: int,
+    scope: str,
+    dataset_id: int,
+    factor_db_id: int,
+    original_id: str,
+    level_1: str | None = None,
+    level_2: str | None = None,
+    level_3: str | None = None,
+    level_4: str | None = None,
+    column_text: str | None = None,
+    report_label: str | None = None,
+    notes: str | None = None,
+    enabled: bool = True,
+    qty: float | None = None,
+    uom: str | None = None,
+    factor: float | None = None,
+    ghg_unit: str | None = None,
+    calc_tco2e: float | None = None,
+    override_tco2e: float | None = None,
+    override_reason: str | None = None,
+):
+    with get_conn() as con:
+        con.execute(
+            """
+            INSERT INTO job_scope_rows
+              (job_id, scope, dataset_id, factor_db_id, original_id,
+               level_1, level_2, level_3, level_4, column_text,
+               report_label, notes, enabled,
+               qty, uom, factor, ghg_unit,
+               calc_tco2e, override_tco2e, override_reason,
+               created_at, updated_at)
+            VALUES
+              (%s, %s, %s, %s, %s,
+               %s, %s, %s, %s, %s,
+               %s, %s, %s,
+               %s, %s, %s, %s,
+               %s, %s, %s,
+               NOW(), NOW())
+            """,
+            [
+                int(job_id), str(scope), int(dataset_id), int(factor_db_id), str(original_id),
+                (level_1 or "").strip() or None,
+                (level_2 or "").strip() or None,
+                (level_3 or "").strip() or None,
+                (level_4 or "").strip() or None,
+                (column_text or "").strip() or None,
+                (report_label or "").strip() or None,
+                (notes or "").strip() or None,
+                bool(enabled),
+                float(qty) if qty is not None else None,
+                (uom or "").strip() or None,
+                float(factor) if factor is not None else None,
+                (ghg_unit or "").strip() or None,
+                float(calc_tco2e) if calc_tco2e is not None else None,
+                float(override_tco2e) if override_tco2e is not None else None,
+                (override_reason or "").strip() or None,
+            ],
+        )
+
+
+def _update_job_scope_row(row_id: int, updates: dict):
+    allowed = {
+        "enabled",
+        "report_label",
+        "notes",
+        "qty",
+        "calc_tco2e",
+        "override_tco2e",
+        "override_reason",
+    }
+    cols = [k for k in (updates or {}).keys() if k in allowed]
+    if not cols:
+        return
+
+    sets = ", ".join([f"{c}=%s" for c in cols])
+    params = []
+    for c in cols:
+        params.append(updates.get(c))
+    params.append(int(row_id))
+
+    with get_conn() as con:
+        con.execute(
+            f"UPDATE job_scope_rows SET {sets}, updated_at=NOW() WHERE row_id=%s",
+            params,
+        )
+
+
+def _delete_job_scope_row(row_id: int):
+    with get_conn() as con:
+        con.execute("DELETE FROM job_scope_rows WHERE row_id=%s", [int(row_id)])
+
 
 def _col_exists(*args) -> bool:
     """Check whether a column exists.
@@ -59,6 +162,7 @@ def _col_exists(*args) -> bool:
     else:
         raise TypeError("_col_exists() takes 2 or 3 positional arguments")
 
+
 def _get_job_context(job_id: int):
     with get_conn() as con:
         row = con.execute(
@@ -88,7 +192,6 @@ def _get_scope_config(job_id: int, scope: str):
     return bool(r[0]), r[1], r[2] or "Activity"
 
 
-
 def _get_dataset_year(dataset_id: int | None):
     if dataset_id is None:
         return None
@@ -98,6 +201,7 @@ def _get_dataset_year(dataset_id: int | None):
         return int(r[0]) if r and r[0] is not None else None
     except Exception:
         return None
+
 
 def _search_factors(dataset_id, scope: str, query: str, year: int | None = None, all_years: bool = False):
     """
@@ -266,8 +370,6 @@ def _search_factors(dataset_id, scope: str, query: str, year: int | None = None,
     return results
 
 
-
-
 # -------------------------
 # Phase A helpers: cascading factor selection
 # -------------------------
@@ -357,6 +459,7 @@ def _job_scope_rows_df(job_id: int, scope: str, include_disabled: bool = False):
             row_id, job_id, scope, dataset_id,
             factor_db_id, original_id,
             level_1, level_2, level_3, level_4,
+            column_text,
             report_label, notes,
             enabled,
             qty, uom, factor, ghg_unit,
@@ -385,9 +488,10 @@ def _job_scope_rows_df(job_id: int, scope: str, include_disabled: bool = False):
     return df
 
 
-
-def _factor_cascade_options(dataset_id: int, scope: str):
+def _factor_cascade_options(dataset_id: int | None, scope: str):
     """Return distinct Level 1 options for a dataset+scope."""
+    if dataset_id is None:
+        return []
     if _col_exists("factor_lookup", "level_1"):
         col = "level_1"
     elif _col_exists("factor_lookup", "category"):
@@ -405,6 +509,7 @@ def _factor_cascade_options(dataset_id: int, scope: str):
     if df.empty:
         return []
     return [x for x in df["l1"].tolist() if x is not None and str(x).strip() != ""]
+
 
 def _list_entries(job_id: int, scope: str, include_archived: bool):
     where = "" if include_archived else "AND is_archived=FALSE"
@@ -438,10 +543,19 @@ def render_scope(scope: str):
         return
 
     job_number, title, start_date, status, client_name = ctx
-    st.title(f"📦 {scope} — Data Entry")
+    st.title(f" {scope} — Data Entry")
     st.caption(f"**{job_number}** — {client_name} — {title or ''}")
 
     inc, dataset_id, factor_method = _get_scope_config(int(job_id), scope)
+
+    if dataset_id is None:
+        st.warning(
+            f"{scope} has no dataset selected. Set a dataset in Job Folder → Data Collection, then try again."
+        )
+        if st.button("Back to Job Folder"):
+            st.session_state["active_page"] = "Job Folder"
+            st.rerun()
+        return
 
     dataset_year = _get_dataset_year(dataset_id)
     if not inc:
@@ -492,7 +606,7 @@ def render_scope(scope: str):
             l2_key = f"{base}_l2"
             l3_key = f"{base}_l3"
             l4_key = f"{base}_l4"
-            f_key  = f"{base}_factor"
+            f_key = f"{base}_factor"
             qty_key = f"{base}_qty"
             en_key = f"{base}_enabled"
             lbl_key = f"{base}_label"
@@ -604,6 +718,7 @@ def render_scope(scope: str):
                             level_2=str(frow.get("level_2") or ""),
                             level_3=str(frow.get("level_3") or ""),
                             level_4=str(frow.get("level_4") or ""),
+                            column_text=str(frow.get("column_text") or ""),
                             report_label=(report_label or "").strip(),
                             notes=(notes or "").strip() or None,
                             enabled=bool(enabled),
