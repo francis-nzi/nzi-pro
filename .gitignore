@@ -28,6 +28,7 @@ final_reports/
 *.zip
 *.xlsx
 *.docx
+!templates/NZI Standard Quote.docx
 
 # OS junk
 .DS_Store

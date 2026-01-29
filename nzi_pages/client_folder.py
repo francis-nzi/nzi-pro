@@ -21,6 +21,7 @@ from services.quotes import (
     revise_quote,
     update_quote,
 )
+from services.quote_documents import convert_docx_bytes_to_pdf_bytes, render_quote_docx_bytes
 
 
 def is_blank(x) -> bool:
@@ -1185,6 +1186,35 @@ def render():
                     t1.metric("Sub-total (ex VAT)", _fmt_money(totals.subtotal_ex_vat, symbol))
                     t2.metric("VAT", _fmt_money(totals.vat_total, symbol))
                     t3.metric("Total", _fmt_money(totals.total_inc_vat, symbol))
+
+                    d1, d2, d3 = st.columns([2, 2, 6])
+                    with d1:
+                        try:
+                            docx_bytes = render_quote_docx_bytes(int(qid))
+                            st.download_button(
+                                "Download DOCX",
+                                data=docx_bytes,
+                                file_name=f"Quote No. {int(qid)}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dl_docx_{int(qid)}",
+                            )
+                        except Exception as e:
+                            st.button("Download DOCX", disabled=True, key=f"dl_docx_dis_{int(qid)}")
+                            st.caption(str(e))
+                    with d2:
+                        try:
+                            docx_bytes = render_quote_docx_bytes(int(qid))
+                            pdf_bytes = convert_docx_bytes_to_pdf_bytes(docx_bytes)
+                            st.download_button(
+                                "Download PDF",
+                                data=pdf_bytes,
+                                file_name=f"Quote No. {int(qid)}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_pdf_{int(qid)}",
+                            )
+                        except Exception as e:
+                            st.button("Download PDF", disabled=True, key=f"dl_pdf_dis_{int(qid)}")
+                            st.caption(str(e))
 
                     # Status actions
                     a1, a2, a3, a4 = st.columns(4)
