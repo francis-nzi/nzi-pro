@@ -171,7 +171,9 @@ def render():
         "🎯 Targets",
         "📊 Activity",
         "🗃️ Datasets Used",
-        "📝 Notes",
+        "� Quotes",
+        "💷 Invoices",
+        "�📝 Notes",
     ])
 
     def _table_exists(table: str) -> bool:
@@ -449,6 +451,15 @@ def render():
     # NOTES (ADD + LIST)
     # --------------------
     with tabs[8]:
+        st.subheader("Quotes")
+        if st.button("Add Quote"):
+            st.info("Quote creation UI is coming next.")
+
+    with tabs[9]:
+        st.subheader("Invoices")
+        st.info("Invoices will be managed from within Jobs. This tab is a placeholder.")
+
+    with tabs[10]:
         with st.expander("➕ Add Note", expanded=False):
             with st.form("add_note_form", clear_on_submit=True):
                 note_text = st.text_area("Note", height=120, placeholder="Type your note here...")

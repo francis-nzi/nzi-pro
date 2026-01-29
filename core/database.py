@@ -134,6 +134,14 @@ def run_ddl():
         );
 
         CREATE TABLE IF NOT EXISTS job_types (job_type_id INTEGER PRIMARY KEY, name VARCHAR UNIQUE, is_active BOOLEAN DEFAULT TRUE);
+
+        CREATE TABLE IF NOT EXISTS vat_rates_lookup (
+          vat_rate_id INTEGER PRIMARY KEY,
+          name VARCHAR,
+          rate_pct DOUBLE,
+          is_default BOOLEAN DEFAULT FALSE,
+          is_active BOOLEAN DEFAULT TRUE
+        );
         CREATE TABLE IF NOT EXISTS jobs (
           job_id INTEGER PRIMARY KEY, client_db_id INTEGER, job_type_id INTEGER, job_type VARCHAR,
           job_number VARCHAR UNIQUE, title VARCHAR, reporting_year INTEGER,
@@ -195,6 +203,22 @@ def run_ddl():
 
         con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS dataset_id INTEGER")
         con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS portfolio VARCHAR")
+
+        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS description VARCHAR")
+        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS unit_price_ex_vat DOUBLE")
+        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
+
+        try:
+            cnt = con.execute("SELECT COUNT(*) FROM vat_rates_lookup").fetchone()[0]
+            if cnt == 0:
+                con.execute(
+                    "INSERT INTO vat_rates_lookup (vat_rate_id, name, rate_pct, is_default, is_active) VALUES (1, '20% Standard Rate', 20, TRUE, TRUE)"
+                )
+                con.execute(
+                    "INSERT INTO vat_rates_lookup (vat_rate_id, name, rate_pct, is_default, is_active) VALUES (2, 'No VAT', 0, FALSE, TRUE)"
+                )
+        except Exception:
+            pass
 
         # Seed portfolios
         try:
