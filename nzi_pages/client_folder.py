@@ -11,6 +11,16 @@ from utils.forecasting import build_forecast_df
 from services.sites import add_site, list_sites
 from services.contacts import add_contact, list_contacts
 from services.notes import add_note, list_notes
+from services.quotes import (
+    accept_quote_create_job,
+    compute_totals,
+    create_quote,
+    get_quote,
+    list_quotes,
+    replace_quote_lines,
+    revise_quote,
+    update_quote,
+)
 
 
 def is_blank(x) -> bool:
@@ -171,9 +181,9 @@ def render():
         "🎯 Targets",
         "📊 Activity",
         "🗃️ Datasets Used",
-        "� Quotes",
+        "💬 Quotes",
         "💷 Invoices",
-        "�📝 Notes",
+        "📝 Notes",
     ])
 
     def _table_exists(table: str) -> bool:
@@ -452,8 +462,346 @@ def render():
     # --------------------
     with tabs[8]:
         st.subheader("Quotes")
-        if st.button("Add Quote"):
-            st.info("Quote creation UI is coming next.")
+
+        try:
+            qdf = list_quotes(int(cid))
+        except Exception as e:
+            st.error(f"Quotes table is not available yet. Apply sql_migrations/0004_quotes.sql. ({e})")
+            qdf = pd.DataFrame()
+
+        if "selected_quote_id" not in st.session_state:
+            st.session_state["selected_quote_id"] = None
+
+        left, right = st.columns([3, 5])
+        with left:
+            st.markdown("**Quotes**")
+            if qdf is None or qdf.empty:
+                st.info("No quotes yet.")
+            else:
+                labels = []
+                ids = []
+                for _, r in qdf.iterrows():
+                    qid = int(r.get("quote_id"))
+                    status = str(r.get("status") or "").strip() or "Draft"
+                    qdate = r.get("quote_date")
+                    labels.append(f"#{qid} — {qdate} — {status}")
+                    ids.append(qid)
+                cur = st.session_state.get("selected_quote_id")
+                idx = ids.index(cur) if cur in ids else 0
+                picked = st.selectbox("Select quote", labels, index=idx)
+                st.session_state["selected_quote_id"] = ids[labels.index(picked)]
+
+            with st.expander("➕ Add Quote", expanded=False):
+                contacts_df = list_contacts(int(cid))
+                contact_opts = ["(None)"]
+                contact_map = {"(None)": None}
+                if contacts_df is not None and not contacts_df.empty:
+                    for _, r in contacts_df.iterrows():
+                        label = f"{r.get('full_name')}".strip()
+                        contact_opts.append(label)
+                        contact_map[label] = int(r.get("contact_id"))
+
+                with get_conn() as con:
+                    staff_df = con.execute(
+                        "SELECT full_name FROM users WHERE status='Active' AND full_name IS NOT NULL ORDER BY full_name"
+                    ).df()
+                    pt_df = con.execute(
+                        "SELECT term_id, name FROM payment_terms_lookup WHERE is_active=TRUE ORDER BY term_id"
+                    ).df()
+
+                staff_opts = ["(None)"] + (staff_df["full_name"].tolist() if staff_df is not None and not staff_df.empty else [])
+                pt_opts = []
+                pt_map = {}
+                if pt_df is not None and not pt_df.empty:
+                    for _, r in pt_df.iterrows():
+                        label = str(r.get("name"))
+                        pt_opts.append(label)
+                        pt_map[label] = int(r.get("term_id"))
+                if not pt_opts:
+                    pt_opts = ["100% in advance"]
+                    pt_map["100% in advance"] = 1
+
+                c1, c2 = st.columns(2)
+                contact_label = c1.selectbox("Contact", contact_opts, index=0)
+                salesperson = c2.selectbox("Sales person", staff_opts, index=0)
+
+                d1, d2 = st.columns(2)
+                quote_date = d1.date_input("Quote date", value=pd.Timestamp.today().date())
+                valid_to = d2.date_input("Valid to", value=(pd.Timestamp.today() + pd.Timedelta(days=30)).date())
+
+                payment_terms = st.selectbox("Payment terms", pt_opts, index=0)
+                desc = st.text_area("Description (above lines)", height=80)
+                notes = st.text_area("Notes", height=100)
+
+                if st.button("Create Quote"):
+                    new_id = create_quote(
+                        client_db_id=int(cid),
+                        contact_id=contact_map.get(contact_label),
+                        quote_date=quote_date,
+                        valid_to=valid_to,
+                        salesperson=(None if salesperson == "(None)" else salesperson),
+                        payment_term_id=pt_map.get(payment_terms),
+                        description=desc,
+                        notes=notes,
+                    )
+                    st.session_state["selected_quote_id"] = int(new_id)
+                    st.success(f"Quote #{int(new_id)} created.")
+                    st.rerun()
+
+        with right:
+            qid = st.session_state.get("selected_quote_id")
+            if not qid:
+                st.info("Select a quote to view/edit.")
+            else:
+                q = get_quote(int(qid))
+                if not q:
+                    st.warning("Quote not found.")
+                else:
+                    status = str(q.get("status") or "Draft")
+                    st.markdown(f"**Quote #{int(qid)}** — Status: **{status}**")
+
+                    with st.form(f"quote_header_{int(qid)}"):
+                        contacts_df = list_contacts(int(cid))
+                        contact_opts = ["(None)"]
+                        contact_map = {"(None)": None}
+                        rev_contact_map = {None: "(None)"}
+                        if contacts_df is not None and not contacts_df.empty:
+                            for _, r in contacts_df.iterrows():
+                                label = f"{r.get('full_name')}".strip()
+                                contact_opts.append(label)
+                                contact_map[label] = int(r.get("contact_id"))
+                                rev_contact_map[int(r.get("contact_id"))] = label
+
+                        with get_conn() as con:
+                            staff_df = con.execute(
+                                "SELECT full_name FROM users WHERE status='Active' AND full_name IS NOT NULL ORDER BY full_name"
+                            ).df()
+                            pt_df = con.execute(
+                                "SELECT term_id, name FROM payment_terms_lookup WHERE is_active=TRUE ORDER BY term_id"
+                            ).df()
+
+                        staff_opts = ["(None)"] + (staff_df["full_name"].tolist() if staff_df is not None and not staff_df.empty else [])
+                        pt_opts = []
+                        pt_map = {}
+                        rev_pt_map = {}
+                        if pt_df is not None and not pt_df.empty:
+                            for _, r in pt_df.iterrows():
+                                label = str(r.get("name"))
+                                pt_opts.append(label)
+                                pt_map[label] = int(r.get("term_id"))
+                                rev_pt_map[int(r.get("term_id"))] = label
+
+                        c1, c2 = st.columns(2)
+                        contact_default = rev_contact_map.get(q.get("contact_id"), "(None)")
+                        c_idx = contact_opts.index(contact_default) if contact_default in contact_opts else 0
+                        contact_label = c1.selectbox("Contact", contact_opts, index=c_idx)
+
+                        salesperson_default = str(q.get("salesperson") or "(None)")
+                        s_idx = staff_opts.index(salesperson_default) if salesperson_default in staff_opts else 0
+                        salesperson = c2.selectbox("Sales person", staff_opts, index=s_idx)
+
+                        d1, d2 = st.columns(2)
+                        qd_val = pd.to_datetime(q.get("quote_date") or pd.Timestamp.today()).date()
+                        vt_val = pd.to_datetime(q.get("valid_to") or (pd.Timestamp.today() + pd.Timedelta(days=30))).date()
+                        quote_date = d1.date_input("Quote date", value=qd_val)
+                        valid_to = d2.date_input("Valid to", value=vt_val)
+
+                        pt_default = rev_pt_map.get(q.get("payment_term_id"), (pt_opts[0] if pt_opts else ""))
+                        pt_idx = pt_opts.index(pt_default) if pt_default in pt_opts else 0
+                        payment_terms = st.selectbox("Payment terms", pt_opts, index=pt_idx) if pt_opts else ""
+
+                        desc = st.text_area("Description (above lines)", value=str(q.get("description") or ""), height=80)
+                        notes = st.text_area("Notes", value=str(q.get("notes") or ""), height=100)
+
+                        save = st.form_submit_button("Save Header")
+                        if save:
+                            update_quote(
+                                int(qid),
+                                {
+                                    "contact_id": contact_map.get(contact_label),
+                                    "salesperson": (None if salesperson == "(None)" else salesperson),
+                                    "quote_date": quote_date,
+                                    "valid_to": valid_to,
+                                    "payment_term_id": pt_map.get(payment_terms) if payment_terms else None,
+                                    "description": desc,
+                                    "notes": notes,
+                                },
+                            )
+                            st.success("Saved.")
+                            st.rerun()
+
+                    with get_conn() as con:
+                        jt = con.execute(
+                            """
+                            SELECT job_type_id, name, description, unit_price_ex_vat, vat_rate_id
+                            FROM job_types
+                            WHERE is_active=TRUE
+                            ORDER BY name
+                            """
+                        ).df()
+                        vr = con.execute(
+                            """
+                            SELECT vat_rate_id, name, rate_pct
+                            FROM vat_rates_lookup
+                            WHERE is_active=TRUE
+                            ORDER BY is_default DESC, name
+                            """
+                        ).df()
+
+                    jt_opts = ["(Custom)"]
+                    jt_map = {"(Custom)": None}
+                    jt_defaults = {}
+                    if jt is not None and not jt.empty:
+                        for _, r in jt.iterrows():
+                            label = str(r.get("name"))
+                            jt_opts.append(label)
+                            jt_map[label] = int(r.get("job_type_id"))
+                            jt_defaults[int(r.get("job_type_id"))] = {
+                                "description": r.get("description"),
+                                "unit_price_ex_vat": r.get("unit_price_ex_vat"),
+                                "vat_rate_id": r.get("vat_rate_id"),
+                            }
+
+                    vat_opts = ["(None)"]
+                    vat_map = {"(None)": None}
+                    rev_vat_map = {None: "(None)"}
+                    if vr is not None and not vr.empty:
+                        for _, r in vr.iterrows():
+                            vid = int(r.get("vat_rate_id"))
+                            label = f"{r.get('name')} ({float(r.get('rate_pct') or 0):g}%)"
+                            vat_opts.append(label)
+                            vat_map[label] = vid
+                            rev_vat_map[vid] = label
+
+                    lines_df = q.get("lines")
+                    if lines_df is None or lines_df.empty:
+                        lines_df = pd.DataFrame(
+                            [
+                                {
+                                    "line_type": "Line",
+                                    "job_type": "(Custom)",
+                                    "description": "",
+                                    "qty": 1.0,
+                                    "unit_price_ex_vat": 0.0,
+                                    "vat_rate": vat_opts[0],
+                                    "is_selected": True,
+                                }
+                            ]
+                        )
+                    else:
+                        def _jt_label(job_type_id):
+                            if job_type_id is None:
+                                return "(Custom)"
+                            try:
+                                rid = int(job_type_id)
+                                if jt is not None and not jt.empty:
+                                    m = jt.loc[jt["job_type_id"] == rid]
+                                    if not m.empty:
+                                        return str(m.iloc[0]["name"])
+                            except Exception:
+                                pass
+                            return "(Custom)"
+
+                        def _vat_label(vat_rate_id):
+                            try:
+                                return rev_vat_map.get(int(vat_rate_id), "(None)")
+                            except Exception:
+                                return "(None)"
+
+                        rows = []
+                        for _, r in lines_df.iterrows():
+                            rows.append(
+                                {
+                                    "line_type": str(r.get("line_type") or "Line"),
+                                    "job_type": _jt_label(r.get("job_type_id")),
+                                    "description": str(r.get("description") or ""),
+                                    "qty": float(r.get("qty") or 0),
+                                    "unit_price_ex_vat": float(r.get("unit_price_ex_vat") or 0),
+                                    "vat_rate": _vat_label(r.get("vat_rate_id")),
+                                    "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
+                                }
+                            )
+                        lines_df = pd.DataFrame(rows)
+
+                    st.markdown("**Quote lines**")
+                    edited = st.data_editor(
+                        lines_df,
+                        use_container_width=True,
+                        num_rows="dynamic",
+                        column_config={
+                            "line_type": st.column_config.SelectboxColumn("Type", options=["Line", "Option"]),
+                            "job_type": st.column_config.SelectboxColumn("Job type", options=jt_opts),
+                            "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
+                            "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
+                            "unit_price_ex_vat": st.column_config.NumberColumn("Unit price (ex VAT)", min_value=0.0, step=10.0),
+                            "is_selected": st.column_config.CheckboxColumn("Selected"),
+                        },
+                        key=f"quote_lines_editor_{int(qid)}",
+                    )
+
+                    if st.button("Save Lines", key=f"save_lines_{int(qid)}"):
+                        out = []
+                        for _, r in edited.iterrows():
+                            jt_id = jt_map.get(r.get("job_type"))
+                            defaults = jt_defaults.get(jt_id) if jt_id is not None else None
+                            desc2 = str(r.get("description") or "").strip() or None
+                            if (jt_id is not None) and (desc2 is None) and defaults:
+                                desc2 = (defaults.get("description") or None)
+                            unit = float(r.get("unit_price_ex_vat") or 0)
+                            if (jt_id is not None) and (unit == 0) and defaults and defaults.get("unit_price_ex_vat") is not None:
+                                try:
+                                    unit = float(defaults.get("unit_price_ex_vat") or 0)
+                                except Exception:
+                                    pass
+                            vat_id = vat_map.get(r.get("vat_rate"))
+                            if (jt_id is not None) and (vat_id is None) and defaults and defaults.get("vat_rate_id") is not None:
+                                try:
+                                    vat_id = int(defaults.get("vat_rate_id"))
+                                except Exception:
+                                    pass
+
+                            out.append(
+                                {
+                                    "line_type": r.get("line_type"),
+                                    "job_type_id": jt_id,
+                                    "description": desc2,
+                                    "qty": float(r.get("qty") or 0),
+                                    "unit_price_ex_vat": unit,
+                                    "vat_rate_id": vat_id,
+                                    "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
+                                }
+                            )
+                        replace_quote_lines(int(qid), out)
+                        st.success("Lines saved.")
+                        st.rerun()
+
+                    # Totals
+                    q2 = get_quote(int(qid))
+                    totals = compute_totals(q2.get("lines"))
+                    t1, t2, t3 = st.columns(3)
+                    t1.metric("Sub-total (ex VAT)", f"£{totals.subtotal_ex_vat:,.2f}")
+                    t2.metric("VAT", f"£{totals.vat_total:,.2f}")
+                    t3.metric("Total", f"£{totals.total_inc_vat:,.2f}")
+
+                    # Status actions
+                    a1, a2, a3, a4 = st.columns(4)
+                    if a1.button("Issue", disabled=(status not in ("Draft", "Revised")), key=f"issue_{int(qid)}"):
+                        update_quote(int(qid), {"status": "Issued"})
+                        st.rerun()
+                    if a2.button("Accept", disabled=(status not in ("Issued",)), key=f"accept_{int(qid)}"):
+                        job_id = accept_quote_create_job(int(qid))
+                        st.success(f"Accepted. Created Job ID {int(job_id)}")
+                        st.session_state["selected_job_id"] = int(job_id)
+                        st.session_state["active_page"] = "Job Folder"
+                        st.rerun()
+                    if a3.button("Reject", disabled=(status not in ("Issued",)), key=f"reject_{int(qid)}"):
+                        update_quote(int(qid), {"status": "Rejected"})
+                        st.rerun()
+                    if a4.button("Revise", disabled=(status not in ("Issued", "Rejected", "Accepted")), key=f"revise_{int(qid)}"):
+                        new_id = revise_quote(int(qid))
+                        st.session_state["selected_quote_id"] = int(new_id)
+                        st.success(f"Created revision #{int(new_id)}")
+                        st.rerun()
 
     with tabs[9]:
         st.subheader("Invoices")

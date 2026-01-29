@@ -198,6 +198,35 @@ def run_ddl():
         CREATE TABLE IF NOT EXISTS client_notes (
           note_id INTEGER PRIMARY KEY, client_db_id INTEGER, author VARCHAR, note_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS quotes (
+          quote_id INTEGER PRIMARY KEY,
+          client_db_id INTEGER,
+          contact_id INTEGER,
+          quote_date DATE,
+          valid_to DATE,
+          salesperson VARCHAR,
+          payment_term_id INTEGER,
+          description TEXT,
+          notes TEXT,
+          status VARCHAR,
+          revision_of_quote_id INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS quote_lines (
+          line_id INTEGER PRIMARY KEY,
+          quote_id INTEGER,
+          line_type VARCHAR,
+          sort_order INTEGER,
+          job_type_id INTEGER,
+          description TEXT,
+          qty DOUBLE,
+          unit_price_ex_vat DOUBLE,
+          vat_rate_id INTEGER,
+          is_selected BOOLEAN
+        );
         """
         )
 
