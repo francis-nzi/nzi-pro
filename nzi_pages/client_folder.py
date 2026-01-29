@@ -888,34 +888,108 @@ def render():
                         return df
 
                     editor_key = f"quote_lines_editor_{int(qid)}"
-                    edited_prev = st.session_state.get(editor_key)
+                    lines_key = f"{editor_key}_lines"
+                    options_key = f"{editor_key}_options"
+
+                    lines_df = _apply_quote_line_defaults(lines_df)
+
+                    try:
+                        lt_series = lines_df.get("line_type")
+                        if lt_series is None:
+                            lt_series = pd.Series(["Line"] * len(lines_df), index=lines_df.index)
+                        lt_norm = lt_series.astype(str).str.strip().str.lower()
+                        lines_only = lines_df.loc[lt_norm != "option"].copy()
+                        options_only = lines_df.loc[lt_norm == "option"].copy()
+                    except Exception:
+                        lines_only = lines_df.copy()
+                        options_only = lines_df.iloc[0:0].copy()
+
+                    if lines_only is None or lines_only.empty:
+                        lines_only = pd.DataFrame(
+                            [
+                                {
+                                    "line_type": "Line",
+                                    "job_type": "(Custom)",
+                                    "description": "",
+                                    "qty": 1.0,
+                                    "unit_price_ex_vat": 0.0,
+                                    "vat_rate": vat_opts[0],
+                                    "delete": False,
+                                    "line_total": 0.0,
+                                }
+                            ]
+                        )
+                    if options_only is None:
+                        options_only = pd.DataFrame()
+                    if options_only.empty:
+                        options_only = pd.DataFrame(
+                            columns=[
+                                "line_type",
+                                "job_type",
+                                "description",
+                                "qty",
+                                "unit_price_ex_vat",
+                                "vat_rate",
+                                "delete",
+                                "line_total",
+                                "is_selected",
+                            ]
+                        )
+                    options_only = _apply_quote_line_defaults(options_only)
+
+                    edited_prev = st.session_state.get(lines_key)
                     if isinstance(edited_prev, pd.DataFrame) and not edited_prev.empty:
                         try:
                             prev_job_types = edited_prev.get("job_type")
-                            cur_job_types = lines_df.get("job_type")
+                            cur_job_types = lines_only.get("job_type")
                             if prev_job_types is not None and cur_job_types is not None:
                                 changed = (prev_job_types.astype(str) != cur_job_types.astype(str))
                                 if bool(changed.any()):
-                                    for ix in list(lines_df.index[changed]):
-                                        jt_label = lines_df.at[ix, "job_type"]
+                                    for ix in list(lines_only.index[changed]):
+                                        jt_label = lines_only.at[ix, "job_type"]
                                         jt_id = jt_map.get(jt_label)
                                         defaults = jt_defaults.get(jt_id) if jt_id is not None else None
                                         if jt_id is not None and defaults:
-                                            lines_df.at[ix, "description"] = str(defaults.get("description") or "")
+                                            lines_only.at[ix, "description"] = str(defaults.get("description") or "")
                                             try:
-                                                lines_df.at[ix, "unit_price_ex_vat"] = float(defaults.get("unit_price_ex_vat") or 0)
+                                                lines_only.at[ix, "unit_price_ex_vat"] = float(defaults.get("unit_price_ex_vat") or 0)
                                             except Exception:
                                                 pass
                                             try:
-                                                lines_df.at[ix, "vat_rate"] = rev_vat_map.get(int(defaults.get("vat_rate_id")), "(None)")
+                                                lines_only.at[ix, "vat_rate"] = rev_vat_map.get(int(defaults.get("vat_rate_id")), "(None)")
                                             except Exception:
                                                 pass
-                                            if float(lines_df.at[ix, "qty"] or 0) == 0:
-                                                lines_df.at[ix, "qty"] = 1.0
+                                            if float(lines_only.at[ix, "qty"] or 0) == 0:
+                                                lines_only.at[ix, "qty"] = 1.0
                         except Exception:
                             pass
 
-                    lines_df = _apply_quote_line_defaults(lines_df)
+                    edited_prev_opt = st.session_state.get(options_key)
+                    if isinstance(edited_prev_opt, pd.DataFrame) and not edited_prev_opt.empty:
+                        try:
+                            prev_job_types = edited_prev_opt.get("job_type")
+                            cur_job_types = options_only.get("job_type")
+                            if prev_job_types is not None and cur_job_types is not None:
+                                changed = (prev_job_types.astype(str) != cur_job_types.astype(str))
+                                if bool(changed.any()):
+                                    for ix in list(options_only.index[changed]):
+                                        jt_label = options_only.at[ix, "job_type"]
+                                        jt_id = jt_map.get(jt_label)
+                                        defaults = jt_defaults.get(jt_id) if jt_id is not None else None
+                                        if jt_id is not None and defaults:
+                                            options_only.at[ix, "description"] = str(defaults.get("description") or "")
+                                            try:
+                                                options_only.at[ix, "unit_price_ex_vat"] = float(defaults.get("unit_price_ex_vat") or 0)
+                                            except Exception:
+                                                pass
+                                            try:
+                                                options_only.at[ix, "vat_rate"] = rev_vat_map.get(int(defaults.get("vat_rate_id")), "(None)")
+                                            except Exception:
+                                                pass
+                                            if float(options_only.at[ix, "qty"] or 0) == 0:
+                                                options_only.at[ix, "qty"] = 1.0
+                        except Exception:
+                            pass
 
                     try:
                         st.markdown(
@@ -930,9 +1004,9 @@ def render():
                     except Exception:
                         pass
 
-                    def _recalc_lines() -> None:
+                    def _recalc_lines_only() -> None:
                         try:
-                            cur = st.session_state.get(editor_key)
+                            cur = st.session_state.get(lines_key)
                             if isinstance(cur, pd.DataFrame) and not cur.empty:
                                 cur2 = _apply_quote_line_defaults(cur)
                                 try:
@@ -941,33 +1015,45 @@ def render():
                                         cur2["delete"] = False
                                 except Exception:
                                     pass
-                                st.session_state[editor_key] = cur2
+                                st.session_state[lines_key] = cur2
+                        except Exception:
+                            pass
+
+                    def _recalc_options_only() -> None:
+                        try:
+                            cur = st.session_state.get(options_key)
+                            if isinstance(cur, pd.DataFrame) and not cur.empty:
+                                cur2 = _apply_quote_line_defaults(cur)
+                                try:
+                                    if "delete" in cur2.columns and bool(cur2["delete"].fillna(False).astype(bool).any()):
+                                        cur2 = cur2.loc[~cur2["delete"].fillna(False).astype(bool)].copy()
+                                        cur2["delete"] = False
+                                except Exception:
+                                    pass
+                                st.session_state[options_key] = cur2
                         except Exception:
                             pass
 
                     st.markdown("**Quote lines**")
 
                     try:
-                        lines_df = lines_df[[
-                            "line_type",
+                        lines_only = lines_only[[
                             "job_type",
                             "description",
                             "qty",
                             "unit_price_ex_vat",
                             "vat_rate",
                             "line_total",
-                            "is_selected",
                             "delete",
                         ]]
                     except Exception:
                         pass
 
-                    edited = st.data_editor(
-                        lines_df,
+                    edited_lines = st.data_editor(
+                        lines_only,
                         use_container_width=True,
                         num_rows="dynamic",
                         column_config={
-                            "line_type": st.column_config.SelectboxColumn("Type", options=["Line", "Option"]),
                             "job_type": st.column_config.SelectboxColumn("Item", options=jt_opts, width="medium"),
                             "description": st.column_config.TextColumn("Description", width="medium"),
                             "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
@@ -987,56 +1073,109 @@ def render():
                                 help="Qty × Unit price (ex VAT)",
                                 width="small",
                             ),
-                            "is_selected": st.column_config.CheckboxColumn("Include", help="Only used for Option lines"),
                             "delete": st.column_config.CheckboxColumn("🗑", width="small"),
                         },
                         disabled=["line_total"],
-                        key=editor_key,
-                        on_change=_recalc_lines,
+                        key=lines_key,
+                        on_change=_recalc_lines_only,
                     )
 
-                    edited = _apply_quote_line_defaults(edited)
+                    st.markdown("**Options (not included in totals)**")
 
-                    if st.button("Save Lines", key=f"save_lines_{int(qid)}"):
+                    try:
+                        options_only = options_only[[
+                            "job_type",
+                            "description",
+                            "qty",
+                            "unit_price_ex_vat",
+                            "vat_rate",
+                            "line_total",
+                            "is_selected",
+                            "delete",
+                        ]]
+                    except Exception:
+                        pass
+
+                    edited_options = st.data_editor(
+                        options_only,
+                        use_container_width=True,
+                        num_rows="dynamic",
+                        column_config={
+                            "job_type": st.column_config.SelectboxColumn("Item", options=jt_opts, width="medium"),
+                            "description": st.column_config.TextColumn("Description", width="medium"),
+                            "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
+                            "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0, format="%.0f"),
+                            "unit_price_ex_vat": st.column_config.NumberColumn(
+                                "Unit price",
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f",
+                                width="small",
+                            ),
+                            "line_total": st.column_config.NumberColumn(
+                                "Total (ex VAT)",
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f",
+                                help="Qty × Unit price (ex VAT)",
+                                width="small",
+                            ),
+                            "is_selected": st.column_config.CheckboxColumn("Chosen"),
+                            "delete": st.column_config.CheckboxColumn("🗑", width="small"),
+                        },
+                        disabled=["line_total"],
+                        key=options_key,
+                        on_change=_recalc_options_only,
+                    )
+
+                    edited_lines = _apply_quote_line_defaults(edited_lines)
+                    edited_options = _apply_quote_line_defaults(edited_options)
+
+                    if st.button("Save", key=f"save_lines_{int(qid)}"):
                         out = []
-                        for _, r in edited.iterrows():
-                            if bool(r.get("delete")):
-                                continue
-                            jt_id = jt_map.get(r.get("job_type"))
-                            defaults = jt_defaults.get(jt_id) if jt_id is not None else None
-                            desc2 = str(r.get("description") or "").strip() or None
-                            if (jt_id is not None) and (desc2 is None) and defaults:
-                                desc2 = (defaults.get("description") or None)
-                            qty = float(r.get("qty") or 0)
-                            if qty == 0:
-                                qty = 1.0
+                        def _append_rows(df_in: pd.DataFrame, lt_value: str) -> None:
+                            if df_in is None or df_in.empty:
+                                return
+                            for _, r in df_in.iterrows():
+                                if bool(r.get("delete")):
+                                    continue
+                                jt_id = jt_map.get(r.get("job_type"))
+                                defaults = jt_defaults.get(jt_id) if jt_id is not None else None
+                                desc2 = str(r.get("description") or "").strip() or None
+                                if (jt_id is not None) and (desc2 is None) and defaults:
+                                    desc2 = (defaults.get("description") or None)
+                                qty = float(r.get("qty") or 0)
+                                if qty == 0:
+                                    qty = 1.0
+                                unit = float(r.get("unit_price_ex_vat") or 0)
+                                if (jt_id is not None) and (unit == 0) and defaults and defaults.get("unit_price_ex_vat") is not None:
+                                    try:
+                                        unit = float(defaults.get("unit_price_ex_vat") or 0)
+                                    except Exception:
+                                        pass
+                                vat_id = vat_map.get(r.get("vat_rate"))
+                                if (jt_id is not None) and (vat_id is None) and defaults and defaults.get("vat_rate_id") is not None:
+                                    try:
+                                        vat_id = int(defaults.get("vat_rate_id"))
+                                    except Exception:
+                                        pass
 
-                            unit = float(r.get("unit_price_ex_vat") or 0)
-                            if (jt_id is not None) and (unit == 0) and defaults and defaults.get("unit_price_ex_vat") is not None:
-                                try:
-                                    unit = float(defaults.get("unit_price_ex_vat") or 0)
-                                except Exception:
-                                    pass
-                            vat_id = vat_map.get(r.get("vat_rate"))
-                            if (jt_id is not None) and (vat_id is None) and defaults and defaults.get("vat_rate_id") is not None:
-                                try:
-                                    vat_id = int(defaults.get("vat_rate_id"))
-                                except Exception:
-                                    pass
+                                out.append(
+                                    {
+                                        "line_type": lt_value,
+                                        "job_type_id": jt_id,
+                                        "description": desc2,
+                                        "qty": qty,
+                                        "unit_price_ex_vat": unit,
+                                        "vat_rate_id": vat_id,
+                                        "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
+                                    }
+                                )
 
-                            out.append(
-                                {
-                                    "line_type": r.get("line_type"),
-                                    "job_type_id": jt_id,
-                                    "description": desc2,
-                                    "qty": qty,
-                                    "unit_price_ex_vat": unit,
-                                    "vat_rate_id": vat_id,
-                                    "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
-                                }
-                            )
+                        _append_rows(edited_lines, "Line")
+                        _append_rows(edited_options, "Option")
                         replace_quote_lines(int(qid), out)
-                        st.success("Lines saved.")
+                        st.success("Saved.")
                         st.rerun()
 
                     # Totals

@@ -244,8 +244,7 @@ def compute_totals(lines_df: pd.DataFrame) -> QuoteTotals:
 
     for _, r in lines_df.iterrows():
         lt = str(r.get("line_type") or "Line").strip() or "Line"
-        selected = bool(r.get("is_selected") if r.get("is_selected") is not None else True)
-        if lt.lower() == "option" and not selected:
+        if lt.lower() == "option":
             continue
 
         qty = _f(r.get("qty"))
