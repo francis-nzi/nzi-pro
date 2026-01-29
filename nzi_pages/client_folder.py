@@ -37,6 +37,16 @@ def coalesce(x, default):
     return default if is_blank(x) else x
 
 
+def _parse_ddmmyyyy(label: str, s: str):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return pd.to_datetime(s, format="%d/%m/%Y").date()
+    except Exception:
+        raise ValueError(f"{label} must be DD/MM/YYYY")
+
+
 def _goto_clients():
     st.session_state["active_page"] = "Clients"
     st.session_state["edit_mode"] = False
@@ -526,14 +536,28 @@ def render():
                 salesperson = c2.selectbox("Sales person", staff_opts, index=0)
 
                 d1, d2 = st.columns(2)
-                quote_date = d1.date_input("Quote date", value=pd.Timestamp.today().date())
-                valid_to = d2.date_input("Valid to", value=(pd.Timestamp.today() + pd.Timedelta(days=30)).date())
+                quote_date_txt = d1.text_input("Quote date (DD/MM/YYYY)", value=pd.Timestamp.today().strftime("%d/%m/%Y"))
+                valid_to_txt = d2.text_input(
+                    "Valid to (DD/MM/YYYY)",
+                    value=(pd.Timestamp.today() + pd.Timedelta(days=30)).strftime("%d/%m/%Y"),
+                )
 
                 payment_terms = st.selectbox("Payment terms", pt_opts, index=0)
                 desc = st.text_area("Description (above lines)", height=80)
                 notes = st.text_area("Notes", height=100)
 
                 if st.button("Create Quote"):
+                    try:
+                        quote_date = _parse_ddmmyyyy("Quote date", quote_date_txt)
+                        valid_to = _parse_ddmmyyyy("Valid to", valid_to_txt)
+                        if not quote_date:
+                            raise ValueError("Quote date is required.")
+                        if not valid_to:
+                            raise ValueError("Valid to is required.")
+                    except ValueError as e:
+                        st.error(str(e))
+                        st.stop()
+
                     new_id = create_quote(
                         client_db_id=int(cid),
                         contact_id=contact_map.get(contact_label),
@@ -603,8 +627,8 @@ def render():
                         d1, d2 = st.columns(2)
                         qd_val = pd.to_datetime(q.get("quote_date") or pd.Timestamp.today()).date()
                         vt_val = pd.to_datetime(q.get("valid_to") or (pd.Timestamp.today() + pd.Timedelta(days=30))).date()
-                        quote_date = d1.date_input("Quote date", value=qd_val)
-                        valid_to = d2.date_input("Valid to", value=vt_val)
+                        quote_date_txt = d1.text_input("Quote date (DD/MM/YYYY)", value=pd.Timestamp(qd_val).strftime("%d/%m/%Y"))
+                        valid_to_txt = d2.text_input("Valid to (DD/MM/YYYY)", value=pd.Timestamp(vt_val).strftime("%d/%m/%Y"))
 
                         pt_default = rev_pt_map.get(q.get("payment_term_id"), (pt_opts[0] if pt_opts else ""))
                         pt_idx = pt_opts.index(pt_default) if pt_default in pt_opts else 0
@@ -615,6 +639,17 @@ def render():
 
                         save = st.form_submit_button("Save Header")
                         if save:
+                            try:
+                                quote_date = _parse_ddmmyyyy("Quote date", quote_date_txt)
+                                valid_to = _parse_ddmmyyyy("Valid to", valid_to_txt)
+                                if not quote_date:
+                                    raise ValueError("Quote date is required.")
+                                if not valid_to:
+                                    raise ValueError("Valid to is required.")
+                            except ValueError as e:
+                                st.error(str(e))
+                                st.stop()
+
                             update_quote(
                                 int(qid),
                                 {
@@ -685,6 +720,7 @@ def render():
                                     "unit_price_ex_vat": 0.0,
                                     "vat_rate": vat_opts[0],
                                     "is_selected": True,
+                                    "line_total": 0.0,
                                 }
                             ]
                         )
@@ -719,9 +755,82 @@ def render():
                                     "unit_price_ex_vat": float(r.get("unit_price_ex_vat") or 0),
                                     "vat_rate": _vat_label(r.get("vat_rate_id")),
                                     "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
+                                    "line_total": float(r.get("qty") or 0) * float(r.get("unit_price_ex_vat") or 0),
                                 }
                             )
                         lines_df = pd.DataFrame(rows)
+
+                    def _apply_quote_line_defaults(df_in: pd.DataFrame) -> pd.DataFrame:
+                        if df_in is None or df_in.empty:
+                            return df_in
+                        df = df_in.copy()
+
+                        if "qty" not in df.columns:
+                            df["qty"] = 1.0
+                        df["qty"] = df["qty"].fillna(1.0)
+                        df.loc[df["qty"] == 0, "qty"] = 1.0
+
+                        if "unit_price_ex_vat" not in df.columns:
+                            df["unit_price_ex_vat"] = 0.0
+                        df["unit_price_ex_vat"] = df["unit_price_ex_vat"].fillna(0.0)
+
+                        if "job_type" not in df.columns:
+                            df["job_type"] = "(Custom)"
+                        if "description" not in df.columns:
+                            df["description"] = ""
+                        if "vat_rate" not in df.columns:
+                            df["vat_rate"] = "(None)"
+
+                        for i, r in df.iterrows():
+                            jt_label = r.get("job_type")
+                            jt_id = jt_map.get(jt_label)
+                            defaults = jt_defaults.get(jt_id) if jt_id is not None else None
+                            if jt_id is not None and defaults:
+                                if is_blank(r.get("description")):
+                                    df.at[i, "description"] = str(defaults.get("description") or "")
+                                try:
+                                    if float(r.get("unit_price_ex_vat") or 0) == 0 and defaults.get("unit_price_ex_vat") is not None:
+                                        df.at[i, "unit_price_ex_vat"] = float(defaults.get("unit_price_ex_vat") or 0)
+                                except Exception:
+                                    pass
+                                try:
+                                    if (is_blank(r.get("vat_rate")) or r.get("vat_rate") == "(None)") and defaults.get("vat_rate_id") is not None:
+                                        df.at[i, "vat_rate"] = rev_vat_map.get(int(defaults.get("vat_rate_id")), "(None)")
+                                except Exception:
+                                    pass
+
+                        df["line_total"] = (df["qty"].astype(float) * df["unit_price_ex_vat"].astype(float)).fillna(0.0)
+                        return df
+
+                    editor_key = f"quote_lines_editor_{int(qid)}"
+                    edited_prev = st.session_state.get(editor_key)
+                    if isinstance(edited_prev, pd.DataFrame) and not edited_prev.empty:
+                        try:
+                            prev_job_types = edited_prev.get("job_type")
+                            cur_job_types = lines_df.get("job_type")
+                            if prev_job_types is not None and cur_job_types is not None:
+                                changed = (prev_job_types.astype(str) != cur_job_types.astype(str))
+                                if bool(changed.any()):
+                                    for ix in list(lines_df.index[changed]):
+                                        jt_label = lines_df.at[ix, "job_type"]
+                                        jt_id = jt_map.get(jt_label)
+                                        defaults = jt_defaults.get(jt_id) if jt_id is not None else None
+                                        if jt_id is not None and defaults:
+                                            lines_df.at[ix, "description"] = str(defaults.get("description") or "")
+                                            try:
+                                                lines_df.at[ix, "unit_price_ex_vat"] = float(defaults.get("unit_price_ex_vat") or 0)
+                                            except Exception:
+                                                pass
+                                            try:
+                                                lines_df.at[ix, "vat_rate"] = rev_vat_map.get(int(defaults.get("vat_rate_id")), "(None)")
+                                            except Exception:
+                                                pass
+                                            if float(lines_df.at[ix, "qty"] or 0) == 0:
+                                                lines_df.at[ix, "qty"] = 1.0
+                        except Exception:
+                            pass
+
+                    lines_df = _apply_quote_line_defaults(lines_df)
 
                     st.markdown("**Quote lines**")
                     edited = st.data_editor(
@@ -734,9 +843,11 @@ def render():
                             "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
                             "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
                             "unit_price_ex_vat": st.column_config.NumberColumn("Unit price (ex VAT)", min_value=0.0, step=10.0),
+                            "line_total": st.column_config.NumberColumn("Total (ex VAT)", min_value=0.0, step=10.0),
                             "is_selected": st.column_config.CheckboxColumn("Selected"),
                         },
-                        key=f"quote_lines_editor_{int(qid)}",
+                        disabled=["line_total"],
+                        key=editor_key,
                     )
 
                     if st.button("Save Lines", key=f"save_lines_{int(qid)}"):
@@ -747,6 +858,10 @@ def render():
                             desc2 = str(r.get("description") or "").strip() or None
                             if (jt_id is not None) and (desc2 is None) and defaults:
                                 desc2 = (defaults.get("description") or None)
+                            qty = float(r.get("qty") or 0)
+                            if qty == 0:
+                                qty = 1.0
+
                             unit = float(r.get("unit_price_ex_vat") or 0)
                             if (jt_id is not None) and (unit == 0) and defaults and defaults.get("unit_price_ex_vat") is not None:
                                 try:
@@ -765,7 +880,7 @@ def render():
                                     "line_type": r.get("line_type"),
                                     "job_type_id": jt_id,
                                     "description": desc2,
-                                    "qty": float(r.get("qty") or 0),
+                                    "qty": qty,
                                     "unit_price_ex_vat": unit,
                                     "vat_rate_id": vat_id,
                                     "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
