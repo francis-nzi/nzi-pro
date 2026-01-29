@@ -4,7 +4,7 @@ import pandas as pd
 
 from models.clients import get_client, update_client, list_crm_owners, list_portfolios
 from components.tables import table_with_pager
-from core.database import get_conn
+from core.database import get_conn, db_backend
 from utils.forecasting import build_forecast_df
 
 # Phase 1 service extraction (MCP-ready): keep DB ops out of Streamlit pages
@@ -204,12 +204,40 @@ def render():
     # CRP (LIST)
     # --------------------
     with tabs[3]:
-        with get_conn() as con:
-            df = con.execute(
-                "SELECT reporting_year, is_benchmark, status, created_at FROM crp_reports WHERE client_db_id=? ORDER BY reporting_year",
-                [cid]
-            ).df()
-        table_with_pager(df, "CRP Years", key="crp_years")
+        def _table_exists(table: str) -> bool:
+            try:
+                with get_conn() as con:
+                    if db_backend() == "postgres":
+                        r = con.execute("SELECT to_regclass(%s)", [f"public.{table}"]).fetchone()
+                        return bool(r and r[0])
+                    con.execute(f"SELECT 1 FROM {table} LIMIT 1")
+                return True
+            except Exception:
+                return False
+
+        if _table_exists("crp_reports"):
+            with get_conn() as con:
+                df = con.execute(
+                    "SELECT reporting_year, is_benchmark, status, created_at FROM crp_reports WHERE client_db_id=? ORDER BY reporting_year",
+                    [cid],
+                ).df()
+            table_with_pager(df, "CRP Years", key="crp_years")
+        else:
+            with get_conn() as con:
+                df = con.execute(
+                    """
+                    SELECT j.reporting_year,
+                           COALESCE(cjd.is_benchmark, FALSE) AS is_benchmark,
+                           j.status,
+                           j.created_at
+                    FROM jobs j
+                    LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+                    WHERE j.client_db_id=?
+                    ORDER BY j.reporting_year
+                    """,
+                    [cid],
+                ).df()
+            table_with_pager(df, "CRP Years", key="crp_years")
 
     # --------------------
     # TARGETS (EDIT + CHART)
@@ -263,11 +291,20 @@ def render():
             bmy = c.get("benchmark_year")
 
             if is_blank(bmy):
-                row = con.execute(
-                    "SELECT MIN(reporting_year) FROM crp_reports WHERE client_db_id=?",
-                    [cid]
-                ).fetchone()
-                min_year = row[0] if row else None
+                try:
+                    if db_backend() == "postgres":
+                        row = con.execute(
+                            "SELECT MIN(reporting_year) FROM jobs WHERE client_db_id=%s",
+                            [cid],
+                        ).fetchone()
+                    else:
+                        row = con.execute(
+                            "SELECT MIN(reporting_year) FROM crp_reports WHERE client_db_id=?",
+                            [cid],
+                        ).fetchone()
+                    min_year = row[0] if row else None
+                except Exception:
+                    min_year = None
 
                 if is_blank(min_year):
                     bmy = int(st.session_state.get("working_year", 2026))
@@ -276,20 +313,26 @@ def render():
             else:
                 bmy = int(bmy)
 
-            base = con.execute(
-                """
-                SELECT scope, SUM(emissions_tco2e) AS t
-                FROM activity_data
-                WHERE client_db_id=?
-                  AND crp_id IN (
-                    SELECT crp_id
-                    FROM crp_reports
-                    WHERE client_db_id=? AND reporting_year=?
-                  )
-                GROUP BY scope
-                """,
-                [cid, cid, bmy]
-            ).df()
+            try:
+                if db_backend() != "postgres":
+                    base = con.execute(
+                        """
+                        SELECT scope, SUM(emissions_tco2e) AS t
+                        FROM activity_data
+                        WHERE client_db_id=?
+                          AND crp_id IN (
+                            SELECT crp_id
+                            FROM crp_reports
+                            WHERE client_db_id=? AND reporting_year=?
+                          )
+                        GROUP BY scope
+                        """,
+                        [cid, cid, bmy],
+                    ).df()
+                else:
+                    base = pd.DataFrame()
+            except Exception:
+                base = pd.DataFrame()
 
         baseline = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
         if not base.empty:
