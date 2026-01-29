@@ -799,8 +799,8 @@ def render():
                                     "unit_price_ex_vat": 0.0,
                                     "vat_rate": vat_opts[0],
                                     "is_selected": True,
+                                    "delete": False,
                                     "line_total": 0.0,
-                                    "line_total_fmt": _fmt_money(0.0, symbol),
                                 }
                             ]
                         )
@@ -836,8 +836,8 @@ def render():
                                     "unit_price_ex_vat": float(r.get("unit_price_ex_vat") or 0),
                                     "vat_rate": _vat_label(r.get("vat_rate_id")),
                                     "is_selected": bool(r.get("is_selected") if r.get("is_selected") is not None else True),
+                                    "delete": False,
                                     "line_total": lt_val,
-                                    "line_total_fmt": _fmt_money(lt_val, symbol),
                                 }
                             )
                         lines_df = pd.DataFrame(rows)
@@ -863,6 +863,9 @@ def render():
                         if "vat_rate" not in df.columns:
                             df["vat_rate"] = "(None)"
 
+                        if "delete" not in df.columns:
+                            df["delete"] = False
+
                         for i, r in df.iterrows():
                             jt_label = r.get("job_type")
                             jt_id = jt_map.get(jt_label)
@@ -882,7 +885,6 @@ def render():
                                     pass
 
                         df["line_total"] = (df["qty"].astype(float) * df["unit_price_ex_vat"].astype(float)).fillna(0.0)
-                        df["line_total_fmt"] = df["line_total"].apply(lambda x: _fmt_money(x, symbol))
                         return df
 
                     editor_key = f"quote_lines_editor_{int(qid)}"
@@ -915,6 +917,14 @@ def render():
 
                     lines_df = _apply_quote_line_defaults(lines_df)
 
+                    def _recalc_lines() -> None:
+                        try:
+                            cur = st.session_state.get(editor_key)
+                            if isinstance(cur, pd.DataFrame) and not cur.empty:
+                                st.session_state[editor_key] = _apply_quote_line_defaults(cur)
+                        except Exception:
+                            pass
+
                     st.markdown("**Quote lines**")
                     edited = st.data_editor(
                         lines_df,
@@ -924,19 +934,35 @@ def render():
                             "line_type": st.column_config.SelectboxColumn("Type", options=["Line", "Option"]),
                             "job_type": st.column_config.SelectboxColumn("Job type", options=jt_opts),
                             "vat_rate": st.column_config.SelectboxColumn("VAT", options=vat_opts),
-                            "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0),
-                            "unit_price_ex_vat": st.column_config.NumberColumn("Unit price (ex VAT)", min_value=0.0, step=10.0),
-                            "line_total": st.column_config.NumberColumn("Total (ex VAT)", min_value=0.0, step=10.0),
-                            "line_total_fmt": st.column_config.TextColumn("Total", help="Qty × Unit price (ex VAT)"),
+                            "qty": st.column_config.NumberColumn("Qty", min_value=0.0, step=1.0, format="%,.0f"),
+                            "unit_price_ex_vat": st.column_config.NumberColumn(
+                                "Unit price (ex VAT)",
+                                min_value=0.0,
+                                step=0.01,
+                                format="%,.2f",
+                            ),
+                            "line_total": st.column_config.NumberColumn(
+                                "Total (ex VAT)",
+                                min_value=0.0,
+                                step=0.01,
+                                format="%,.2f",
+                                help="Qty × Unit price (ex VAT)",
+                            ),
                             "is_selected": st.column_config.CheckboxColumn("Selected"),
+                            "delete": st.column_config.CheckboxColumn("Delete"),
                         },
-                        disabled=["line_total", "line_total_fmt"],
+                        disabled=["line_total"],
                         key=editor_key,
+                        on_change=_recalc_lines,
                     )
+
+                    edited = _apply_quote_line_defaults(edited)
 
                     if st.button("Save Lines", key=f"save_lines_{int(qid)}"):
                         out = []
                         for _, r in edited.iterrows():
+                            if bool(r.get("delete")):
+                                continue
                             jt_id = jt_map.get(r.get("job_type"))
                             defaults = jt_defaults.get(jt_id) if jt_id is not None else None
                             desc2 = str(r.get("description") or "").strip() or None
