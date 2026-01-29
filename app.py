@@ -8,7 +8,7 @@ from config import APP_TITLE, LOGO_URL
 from core.basic_auth import require_basic_auth
 from core.database import run_ddl
 from core.migrations import run_migrations
-from components.navigation import render_sidebar
+from components.navigation import render_top_nav
 from nzi_pages import dashboard, clients, admin, client_folder, jobs, job_folder
 from nzi_pages import scope1, scope2, scope3
 
@@ -81,7 +81,7 @@ with c2:
     st.caption("Net Zero International — internal portal")
 st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
 
-page = render_sidebar()
+page = render_top_nav()
 if page == "Dashboard":
     dashboard.render()
 elif page == "Clients":
