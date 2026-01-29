@@ -489,12 +489,16 @@ def _ensure_quote_lookup_schema():
                     )
                     """
                 )
-    except Exception:
-        return
+        return True
+    except Exception as e:
+        st.warning(f"Quote lookup schema ensure failed (db_backend={db_backend()}): {e}")
+        return False
 
 
 def _vat_rates_editor():
     st.markdown("### VAT Rates")
+
+    _ensure_quote_lookup_schema()
 
     edit_key = "edit_vat_rates_lookup"
     if edit_key not in st.session_state:
@@ -510,7 +514,11 @@ def _vat_rates_editor():
                 """
             ).df()
     except Exception as e:
-        st.error(f"Lookup table 'vat_rates_lookup' is not available yet. Add it in migrations. ({e})")
+        st.error(
+            "VAT Rates table is not available yet. "
+            "Apply sql_migrations/0003_quotes_lookups.sql to your Postgres DB. "
+            f"({e})"
+        )
         return
 
     if df.empty:
@@ -604,6 +612,8 @@ def _vat_rates_editor():
 def _job_types_editor():
     st.markdown("### Job Types")
 
+    _ensure_quote_lookup_schema()
+
     edit_key = "edit_job_types"
     if edit_key not in st.session_state:
         st.session_state[edit_key] = None
@@ -626,7 +636,26 @@ def _job_types_editor():
                 """
             ).df()
     except Exception as e:
-        st.error(f"Job Types/VAT lookup tables are not available yet. Add them in migrations. ({e})")
+        try:
+            with get_conn() as con:
+                jdf = con.execute(
+                    """
+                    SELECT job_type_id, name, is_active
+                    FROM job_types
+                    ORDER BY is_active DESC, name
+                    """
+                ).df()
+            st.error(
+                "Job Types pricing/VAT columns are not available yet. "
+                "Apply sql_migrations/0003_quotes_lookups.sql to your Postgres DB."
+            )
+            table_with_pager(jdf, "Job Types (basic)", key="job_types_basic")
+        except Exception as e2:
+            st.error(
+                "Job Types/VAT lookup tables are not available yet. "
+                "Apply sql_migrations/0003_quotes_lookups.sql to your Postgres DB. "
+                f"({e}; {e2})"
+            )
         return
 
     vat_options = []
