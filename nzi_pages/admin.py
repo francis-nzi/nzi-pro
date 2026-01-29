@@ -157,15 +157,32 @@ def render():
     # LOOKUPS
     # =========================
     with t2:
-        l1, l2, l3, l4 = st.tabs(["Job Types", "Time Subjects", "Portfolios", "Industries"])
+        l1, l2, l3, l4, l5, l6 = st.tabs([
+            "Job Types",
+            "VAT Rates",
+            "Payment Terms",
+            "Time Subjects",
+            "Portfolios",
+            "Industries",
+        ])
 
         with l1:
-            _lookup_editor("job_types", ["job_type_id", "name", "is_active"], id_col="job_type_id", name_col="name", title="Job Types")
+            _job_types_editor()
         with l2:
-            _lookup_editor("time_subjects", ["subject_id", "name", "is_active"], id_col="subject_id", name_col="name", title="Time Subjects")
+            _vat_rates_editor()
         with l3:
-            _lookup_editor("portfolios_lookup", ["portfolio_id", "name", "is_active"], id_col="portfolio_id", name_col="name", title="Portfolios")
+            _lookup_editor(
+                "payment_terms_lookup",
+                ["term_id", "name", "is_active"],
+                id_col="term_id",
+                name_col="name",
+                title="Payment Terms",
+            )
         with l4:
+            _lookup_editor("time_subjects", ["subject_id", "name", "is_active"], id_col="subject_id", name_col="name", title="Time Subjects")
+        with l5:
+            _lookup_editor("portfolios_lookup", ["portfolio_id", "name", "is_active"], id_col="portfolio_id", name_col="name", title="Portfolios")
+        with l6:
             # Industries lookup (requires industries_lookup table to exist)
             _lookup_editor("industries_lookup", ["industry_id", "name", "is_active"], id_col="industry_id", name_col="name", title="Industries")
 
@@ -428,6 +445,282 @@ def _lookup_editor(table, columns, id_col, name_col, title: str):
                     con.execute(
                         f"INSERT INTO {table} ({id_col}, name, is_active) VALUES (%s,%s,%s)",
                         [new_id, nn, bool(active)],
+                    )
+                st.success("Added.")
+                st.rerun()
+
+
+def _vat_rates_editor():
+    st.markdown("### VAT Rates")
+
+    edit_key = "edit_vat_rates_lookup"
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = None
+
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                """
+                SELECT vat_rate_id, name, rate_pct, is_default, is_active
+                FROM vat_rates_lookup
+                ORDER BY is_default DESC, name
+                """
+            ).df()
+    except Exception as e:
+        st.error(f"Lookup table 'vat_rates_lookup' is not available yet. Add it in migrations. ({e})")
+        return
+
+    if df.empty:
+        st.info("No rows yet.")
+    else:
+        h = st.columns([4, 2, 2, 2, 1])
+        h[0].markdown("**Name**")
+        h[1].markdown("**Rate %**")
+        h[2].markdown("**Default**")
+        h[3].markdown("**Active**")
+        h[4].markdown("**Edit**")
+
+        for _, r in df.iterrows():
+            rid = int(r["vat_rate_id"])
+            c = st.columns([4, 2, 2, 2, 1])
+            c[0].write(str(r.get("name") or ""))
+            c[1].write(str(r.get("rate_pct") or ""))
+            c[2].write("Yes" if bool(r.get("is_default")) else "No")
+            c[3].write("Yes" if bool(r.get("is_active", True)) else "No")
+            if c[4].button("✏️", key=f"vat_edit_{rid}"):
+                st.session_state[edit_key] = {
+                    "id": rid,
+                    "name": str(r.get("name") or ""),
+                    "rate_pct": float(r.get("rate_pct") or 0),
+                    "is_default": bool(r.get("is_default")),
+                    "is_active": bool(r.get("is_active", True)),
+                }
+                st.rerun()
+
+    edit = st.session_state.get(edit_key)
+    if edit:
+        st.markdown("#### Edit")
+        with st.form("form_edit_vat_rates", clear_on_submit=False):
+            name = st.text_input("Name", value=edit.get("name", ""))
+            rate_pct = st.number_input("Rate %", min_value=0.0, max_value=100.0, value=float(edit.get("rate_pct", 0.0)))
+            is_default = st.checkbox("Default", value=bool(edit.get("is_default")))
+            is_active = st.checkbox("Active", value=bool(edit.get("is_active", True)))
+            c1, c2 = st.columns(2)
+            save = c1.form_submit_button("Save")
+            cancel = c2.form_submit_button("Cancel")
+
+            if cancel:
+                st.session_state[edit_key] = None
+                st.rerun()
+
+            if save:
+                nn = (name or "").strip()
+                if not nn:
+                    st.error("Name required.")
+                else:
+                    with get_conn() as con:
+                        if is_default:
+                            con.execute("UPDATE vat_rates_lookup SET is_default=FALSE")
+                        con.execute(
+                            """
+                            UPDATE vat_rates_lookup
+                            SET name=%s, rate_pct=%s, is_default=%s, is_active=%s
+                            WHERE vat_rate_id=%s
+                            """,
+                            [nn, float(rate_pct), bool(is_default), bool(is_active), int(edit["id"])],
+                        )
+                    st.session_state[edit_key] = None
+                    st.success("Saved.")
+                    st.rerun()
+
+    st.markdown("#### Add")
+    with st.form("add_vat_rate", clear_on_submit=True):
+        name = st.text_input("Name", key="vat_add_name")
+        rate_pct = st.number_input("Rate %", min_value=0.0, max_value=100.0, value=20.0, key="vat_add_rate")
+        is_default = st.checkbox("Default", value=False, key="vat_add_default")
+        is_active = st.checkbox("Active", value=True, key="vat_add_active")
+        if st.form_submit_button("Add"):
+            nn = (name or "").strip()
+            if not nn:
+                st.error("Name required.")
+            else:
+                with get_conn() as con:
+                    if is_default:
+                        con.execute("UPDATE vat_rates_lookup SET is_default=FALSE")
+                    con.execute(
+                        """
+                        INSERT INTO vat_rates_lookup (name, rate_pct, is_default, is_active)
+                        VALUES (%s,%s,%s,%s)
+                        """,
+                        [nn, float(rate_pct), bool(is_default), bool(is_active)],
+                    )
+                st.success("Added.")
+                st.rerun()
+
+
+def _job_types_editor():
+    st.markdown("### Job Types")
+
+    edit_key = "edit_job_types"
+    if edit_key not in st.session_state:
+        st.session_state[edit_key] = None
+
+    try:
+        with get_conn() as con:
+            jdf = con.execute(
+                """
+                SELECT job_type_id, name, description, unit_price_ex_vat, vat_rate_id, is_active
+                FROM job_types
+                ORDER BY is_active DESC, name
+                """
+            ).df()
+            vdf = con.execute(
+                """
+                SELECT vat_rate_id, name, rate_pct, is_default
+                FROM vat_rates_lookup
+                WHERE is_active=TRUE
+                ORDER BY is_default DESC, name
+                """
+            ).df()
+    except Exception as e:
+        st.error(f"Job Types/VAT lookup tables are not available yet. Add them in migrations. ({e})")
+        return
+
+    vat_options = []
+    vat_map = {}
+    if not vdf.empty:
+        for _, r in vdf.iterrows():
+            vid = int(r["vat_rate_id"])
+            label = f"{r.get('name')} ({float(r.get('rate_pct') or 0):g}%)"
+            vat_options.append(label)
+            vat_map[label] = vid
+
+    def _vat_label_for_id(vat_rate_id):
+        if vat_rate_id is None or vdf.empty:
+            return None
+        try:
+            vid = int(vat_rate_id)
+        except Exception:
+            return None
+        rows = vdf.loc[vdf["vat_rate_id"] == vid]
+        if rows.empty:
+            return None
+        rr = rows.iloc[0]
+        return f"{rr.get('name')} ({float(rr.get('rate_pct') or 0):g}%)"
+
+    if jdf.empty:
+        st.info("No rows yet.")
+    else:
+        h = st.columns([3, 4, 2, 2, 2, 1])
+        h[0].markdown("**Name**")
+        h[1].markdown("**Description**")
+        h[2].markdown("**Unit Price (ex VAT)**")
+        h[3].markdown("**VAT**")
+        h[4].markdown("**Active**")
+        h[5].markdown("**Edit**")
+
+        for _, r in jdf.iterrows():
+            rid = int(r["job_type_id"])
+            c = st.columns([3, 4, 2, 2, 2, 1])
+            c[0].write(str(r.get("name") or ""))
+            c[1].write(str(r.get("description") or ""))
+            c[2].write(str(r.get("unit_price_ex_vat") or ""))
+            c[3].write(_vat_label_for_id(r.get("vat_rate_id")) or "")
+            c[4].write("Yes" if bool(r.get("is_active", True)) else "No")
+            if c[5].button("✏️", key=f"jt_edit_{rid}"):
+                st.session_state[edit_key] = {
+                    "id": rid,
+                    "name": str(r.get("name") or ""),
+                    "description": str(r.get("description") or ""),
+                    "unit_price_ex_vat": float(r.get("unit_price_ex_vat") or 0),
+                    "vat_rate_id": (None if pd.isna(r.get("vat_rate_id")) else r.get("vat_rate_id")),
+                    "is_active": bool(r.get("is_active", True)),
+                }
+                st.rerun()
+
+    edit = st.session_state.get(edit_key)
+    if edit:
+        st.markdown("#### Edit")
+        with st.form("form_edit_job_type", clear_on_submit=False):
+            name = st.text_input("Name", value=edit.get("name", ""))
+            desc = st.text_area("Description", value=edit.get("description", ""), height=80)
+            unit_price = st.number_input("Unit Price (ex VAT)", min_value=0.0, value=float(edit.get("unit_price_ex_vat", 0.0)))
+            vat_default_label = _vat_label_for_id(edit.get("vat_rate_id"))
+            if vat_options:
+                vat_idx = vat_options.index(vat_default_label) if vat_default_label in vat_options else 0
+                vat_label = st.selectbox("VAT Rate", vat_options, index=vat_idx)
+                vat_rate_id = vat_map.get(vat_label)
+            else:
+                vat_rate_id = None
+                st.info("Add VAT Rates first to select VAT for job types.")
+            is_active = st.checkbox("Active", value=bool(edit.get("is_active", True)))
+            c1, c2 = st.columns(2)
+            save = c1.form_submit_button("Save")
+            cancel = c2.form_submit_button("Cancel")
+
+            if cancel:
+                st.session_state[edit_key] = None
+                st.rerun()
+
+            if save:
+                nn = (name or "").strip()
+                if not nn:
+                    st.error("Name required.")
+                else:
+                    with get_conn() as con:
+                        con.execute(
+                            """
+                            UPDATE job_types
+                            SET name=%s,
+                                description=%s,
+                                unit_price_ex_vat=%s,
+                                vat_rate_id=%s,
+                                is_active=%s
+                            WHERE job_type_id=%s
+                            """,
+                            [
+                                nn,
+                                (desc or None),
+                                float(unit_price),
+                                (int(vat_rate_id) if vat_rate_id is not None else None),
+                                bool(is_active),
+                                int(edit["id"]),
+                            ],
+                        )
+                    st.session_state[edit_key] = None
+                    st.success("Saved.")
+                    st.rerun()
+
+    st.markdown("#### Add")
+    with st.form("add_job_type", clear_on_submit=True):
+        name = st.text_input("Name", key="jt_add_name")
+        desc = st.text_area("Description", value="", height=80, key="jt_add_desc")
+        unit_price = st.number_input("Unit Price (ex VAT)", min_value=0.0, value=0.0, key="jt_add_price")
+        if vat_options:
+            vat_label = st.selectbox("VAT Rate", vat_options, index=0, key="jt_add_vat")
+            vat_rate_id = vat_map.get(vat_label)
+        else:
+            vat_rate_id = None
+            st.info("Add VAT Rates first to select VAT for job types.")
+        is_active = st.checkbox("Active", value=True, key="jt_add_active")
+        if st.form_submit_button("Add"):
+            nn = (name or "").strip()
+            if not nn:
+                st.error("Name required.")
+            else:
+                with get_conn() as con:
+                    con.execute(
+                        """
+                        INSERT INTO job_types (name, description, unit_price_ex_vat, vat_rate_id, is_active)
+                        VALUES (%s,%s,%s,%s,%s)
+                        """,
+                        [
+                            nn,
+                            (desc or None),
+                            float(unit_price),
+                            (int(vat_rate_id) if vat_rate_id is not None else None),
+                            bool(is_active),
+                        ],
                     )
                 st.success("Added.")
                 st.rerun()
