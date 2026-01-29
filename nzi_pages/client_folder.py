@@ -138,7 +138,28 @@ def render():
                         st.success("Client profile updated.")
                         _stop_edit()
 
-    tabs = st.tabs(["🏢 Sites", "📞 Contacts", "🧵 Jobs", "📄 CRP", "🎯 Targets", "🧾 Activity", "🧪 Datasets Used", "📝 Notes"])
+    tabs = st.tabs([
+        "🏢 Profile",
+        "📍 Sites",
+        "� Contacts",
+        "🗂️ Jobs",
+        "🧾 CRP",
+        "🎯 Targets",
+        "📊 Activity",
+        "🗃️ Datasets Used",
+        "📝 Notes",
+    ])
+
+    def _table_exists(table: str) -> bool:
+        try:
+            with get_conn() as con:
+                if db_backend() == "postgres":
+                    r = con.execute("SELECT to_regclass(%s)", [f"public.{table}"]).fetchone()
+                    return bool(r and r[0])
+                con.execute(f"SELECT 1 FROM {table} LIMIT 1")
+            return True
+        except Exception:
+            return False
 
     # --------------------
     # SITES (ADD + LIST)
@@ -204,17 +225,6 @@ def render():
     # CRP (LIST)
     # --------------------
     with tabs[3]:
-        def _table_exists(table: str) -> bool:
-            try:
-                with get_conn() as con:
-                    if db_backend() == "postgres":
-                        r = con.execute("SELECT to_regclass(%s)", [f"public.{table}"]).fetchone()
-                        return bool(r and r[0])
-                    con.execute(f"SELECT 1 FROM {table} LIMIT 1")
-                return True
-            except Exception:
-                return False
-
         if _table_exists("crp_reports"):
             with get_conn() as con:
                 df = con.execute(
@@ -354,42 +364,48 @@ def render():
     # ACTIVITY (LIST)
     # --------------------
     with tabs[5]:
-        with get_conn() as con:
-            df = con.execute(
-                """
-                SELECT COALESCE(s.site_name,'(Unassigned)') AS site,
-                       ad.scope,
-                       SUM(ad.emissions_tco2e) AS tCO2e
-                FROM activity_data ad
-                LEFT JOIN client_sites s ON s.site_id = ad.site_id
-                WHERE ad.client_db_id=?
-                GROUP BY 1,2
-                ORDER BY 1,2
-                """,
-                [cid]
-            ).df()
-        table_with_pager(df, "Activity Summary (by Site & Scope)", key="activity_summary")
+        if not _table_exists("activity_data"):
+            st.info("Activity data is not available in this database yet.")
+        else:
+            with get_conn() as con:
+                df = con.execute(
+                    """
+                    SELECT COALESCE(s.site_name,'(Unassigned)') AS site,
+                           ad.scope,
+                           SUM(ad.emissions_tco2e) AS tCO2e
+                    FROM activity_data ad
+                    LEFT JOIN client_sites s ON s.site_id = ad.site_id
+                    WHERE ad.client_db_id=?
+                    GROUP BY 1,2
+                    ORDER BY 1,2
+                    """,
+                    [cid]
+                ).df()
+            table_with_pager(df, "Activity Summary (by Site & Scope)", key="activity_summary")
 
     # --------------------
     # DATASETS USED (LIST)
     # --------------------
     with tabs[6]:
         st.subheader("Datasets used in client calculations")
-        with get_conn() as con:
-            df = con.execute(
-                """
-                SELECT d.name, d.source, d.analysis_type, d.country, d.year, d.version,
-                       COUNT(*) AS lines, SUM(ad.emissions_tco2e) AS total_tco2e
-                FROM activity_data ad
-                JOIN factor_lookup fl ON fl.db_id = ad.factor_id
-                LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                WHERE ad.client_db_id = ?
-                GROUP BY 1,2,3,4,5,6
-                ORDER BY d.year DESC, d.name
-                """,
-                [cid]
-            ).df()
-        table_with_pager(df, "Datasets Used", key="datasets_used")
+        if not _table_exists("activity_data"):
+            st.info("Activity data is not available in this database yet.")
+        else:
+            with get_conn() as con:
+                df = con.execute(
+                    """
+                    SELECT d.name, d.source, d.analysis_type, d.country, d.year, d.version,
+                           COUNT(*) AS lines, SUM(ad.emissions_tco2e) AS total_tco2e
+                    FROM activity_data ad
+                    JOIN factor_lookup fl ON fl.db_id = ad.factor_id
+                    LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                    WHERE ad.client_db_id = ?
+                    GROUP BY 1,2,3,4,5,6
+                    ORDER BY d.year DESC, d.name
+                    """,
+                    [cid]
+                ).df()
+            table_with_pager(df, "Datasets Used", key="datasets_used")
 
     # --------------------
     # NOTES (ADD + LIST)
