@@ -474,9 +474,9 @@ def _ensure_quote_lookup_schema():
                 con.execute(
                     """
                     INSERT INTO vat_rates_lookup (name, rate_pct, is_default, is_active)
-                    SELECT '20% Standard Rate', 20, TRUE, TRUE
+                    SELECT '20%% Standard Rate', 20, TRUE, TRUE
                     WHERE NOT EXISTS (
-                      SELECT 1 FROM vat_rates_lookup WHERE lower(name)=lower('20% Standard Rate')
+                      SELECT 1 FROM vat_rates_lookup WHERE lower(name)=lower('20%% Standard Rate')
                     )
                     """
                 )
