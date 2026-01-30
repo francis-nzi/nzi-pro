@@ -532,15 +532,43 @@ def _ensure_job_status_lookup_schema():
                     """
                 )
 
-            df = con.execute("SELECT COUNT(*) AS n FROM job_statuses_lookup").df()
-            n = int(df.iloc[0]["n"]) if df is not None and not df.empty else 0
-            if n == 0:
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Open', 10, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Data Gathering Phase', 20, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Reporting Phase', 30, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Awaiting Client Input', 40, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Completed', 50, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (name, sort_order, is_active) VALUES ('Archived', 999, FALSE)")
+            defaults = [
+                ("Open", 10, True),
+                ("Data Gathering Phase", 20, True),
+                ("Reporting Phase", 30, True),
+                ("Awaiting Client Input", 40, True),
+                ("Completed", 50, True),
+                ("Closed", 60, True),
+                ("Archived", 999, False),
+            ]
+
+            if db_backend() == "postgres":
+                for name, sort_order, is_active in defaults:
+                    con.execute(
+                        """
+                        INSERT INTO job_statuses_lookup (name, sort_order, is_active)
+                        SELECT %s, %s, %s
+                        WHERE NOT EXISTS (
+                          SELECT 1 FROM job_statuses_lookup WHERE lower(name)=lower(%s)
+                        )
+                        """,
+                        [name, int(sort_order), bool(is_active), name],
+                    )
+            else:
+                for name, sort_order, is_active in defaults:
+                    exists = con.execute(
+                        "SELECT 1 FROM job_statuses_lookup WHERE lower(name)=lower(?) LIMIT 1",
+                        [name],
+                    ).fetchone()
+                    if exists:
+                        continue
+                    next_id = int(
+                        con.execute("SELECT COALESCE(MAX(status_id),0)+1 FROM job_statuses_lookup").fetchone()[0]
+                    )
+                    con.execute(
+                        "INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (?, ?, ?, ?)",
+                        [next_id, name, int(sort_order), bool(is_active)],
+                    )
     except Exception:
         return
 

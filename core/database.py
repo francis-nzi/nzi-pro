@@ -265,14 +265,30 @@ def run_ddl():
 
         # Seed job statuses
         try:
-            cnt = con.execute("SELECT COUNT(*) FROM job_statuses_lookup").fetchone()[0]
-            if cnt == 0:
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (1, 'Open', 10, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (2, 'Data Gathering Phase', 20, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (3, 'Reporting Phase', 30, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (4, 'Awaiting Client Input', 40, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (5, 'Completed', 50, TRUE)")
-                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (6, 'Archived', 999, FALSE)")
+            defaults = [
+                ("Open", 10, True),
+                ("Data Gathering Phase", 20, True),
+                ("Reporting Phase", 30, True),
+                ("Awaiting Client Input", 40, True),
+                ("Completed", 50, True),
+                ("Closed", 60, True),
+                ("Archived", 999, False),
+            ]
+
+            for name, sort_order, is_active in defaults:
+                exists = con.execute(
+                    "SELECT 1 FROM job_statuses_lookup WHERE lower(name)=lower(?) LIMIT 1",
+                    [name],
+                ).fetchone()
+                if exists:
+                    continue
+                next_status_id = int(
+                    con.execute("SELECT COALESCE(MAX(status_id),0)+1 FROM job_statuses_lookup").fetchone()[0]
+                )
+                con.execute(
+                    "INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (?, ?, ?, ?)",
+                    [next_status_id, name, int(sort_order), bool(is_active)],
+                )
         except Exception:
             pass
 
