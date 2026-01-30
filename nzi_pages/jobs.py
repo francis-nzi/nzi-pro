@@ -161,47 +161,59 @@ def render():
         if df.empty:
             st.info("No jobs yet.")
         else:
-            view = df.copy()
-            view["job_link"] = (
-                "?action=open&jid="
-                + view["job_id"].astype(str)
-                + "&label="
-                + view["job_number"].astype(str)
-            )
-            view["edit_link"] = "?action=edit&jid=" + view["job_id"].astype(str)
-            view["archive_link"] = "?action=archive&jid=" + view["job_id"].astype(str)
+            pick = df.copy()
+            pick["_label"] = pick["job_number"].astype(str) + " — " + pick["client_name"].astype(str)
+            label = st.selectbox("Select job", pick["_label"].tolist(), key="jobs_quick_pick")
+            try:
+                selected_id = int(pick.loc[pick["_label"] == label, "job_id"].iloc[0])
+            except Exception:
+                selected_id = None
 
-            view = view[
-                [
-                    "job_link",
-                    "client_name",
-                    "title",
-                    "job_type",
-                    "reporting_year",
-                    "status",
-                    "start_date",
-                    "due_date",
-                    "edit_link",
-                    "archive_link",
-                ]
-            ]
+            b1, b2, b3, _ = st.columns([1, 1, 1, 6])
+            b1.button(
+                "Open",
+                key="jobs_open_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _open_job,
+                args=None if selected_id is None else (selected_id,),
+            )
+            b2.button(
+                "Edit",
+                key="jobs_edit_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _edit_job,
+                args=None if selected_id is None else (selected_id,),
+            )
+            b3.button(
+                "Archive",
+                key="jobs_arch_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _archive_job,
+                args=None if selected_id is None else (selected_id,),
+            )
+
+            view = df[[
+                "job_number",
+                "client_name",
+                "title",
+                "job_type",
+                "reporting_year",
+                "status",
+                "start_date",
+                "due_date",
+            ]].copy()
 
             st.dataframe(
                 view,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "job_link": st.column_config.LinkColumn(
-                        "Job",
-                        display_text=r"label=(.*)",
-                    ),
+                    "job_number": st.column_config.TextColumn("Job"),
                     "client_name": st.column_config.TextColumn("Client"),
                     "job_type": st.column_config.TextColumn("Type"),
                     "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
                     "start_date": st.column_config.DateColumn("Start"),
                     "due_date": st.column_config.DateColumn("Due"),
-                    "edit_link": st.column_config.LinkColumn("Edit", display_text="Edit"),
-                    "archive_link": st.column_config.LinkColumn("Archive", display_text="Archive"),
                 },
             )
 
