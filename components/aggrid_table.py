@@ -43,6 +43,8 @@ def render_single_select_grid(
     if fit_columns_on_grid_load:
         gb.configure_grid_options(domLayout="normal")
 
+    gb.configure_grid_options(rowSelection="single", rowMultiSelectWithClick=True, suppressRowClickSelection=False)
+
     if column_labels:
         for col_key, label in column_labels.items():
             if col_key in view.columns:
@@ -87,6 +89,19 @@ def render_single_select_grid(
     selected_row = selected[0]
     if selection_column not in df.columns:
         return selected_row
+
+    if selected_row.get(selection_column) in (None, ""):
+        match_cols = [c for c in ("job_number", "client_name") if c in df.columns and c in selected_row]
+        for c in match_cols:
+            try:
+                v = selected_row.get(c)
+                if v is None:
+                    continue
+                matches = df[df[c].astype(str) == str(v)]
+                if not matches.empty:
+                    return matches.iloc[0].to_dict()
+            except Exception:
+                continue
 
     try:
         sel_id = int(selected_row.get(selection_column))
