@@ -135,6 +135,13 @@ def run_ddl():
 
         CREATE TABLE IF NOT EXISTS job_types (job_type_id INTEGER PRIMARY KEY, name VARCHAR UNIQUE, is_active BOOLEAN DEFAULT TRUE);
 
+        CREATE TABLE IF NOT EXISTS job_statuses_lookup (
+          status_id INTEGER PRIMARY KEY,
+          name VARCHAR UNIQUE,
+          sort_order INTEGER,
+          is_active BOOLEAN DEFAULT TRUE
+        );
+
         CREATE TABLE IF NOT EXISTS vat_rates_lookup (
           vat_rate_id INTEGER PRIMARY KEY,
           name VARCHAR,
@@ -253,6 +260,19 @@ def run_ddl():
                 con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('GBP','£','Pound Sterling', TRUE)")
                 con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('USD','$','US Dollar', TRUE)")
                 con.execute("INSERT INTO currencies_lookup (currency_code, symbol, name, is_active) VALUES ('EUR','€','Euro', TRUE)")
+        except Exception:
+            pass
+
+        # Seed job statuses
+        try:
+            cnt = con.execute("SELECT COUNT(*) FROM job_statuses_lookup").fetchone()[0]
+            if cnt == 0:
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (1, 'Open', 10, TRUE)")
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (2, 'Data Gathering Phase', 20, TRUE)")
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (3, 'Reporting Phase', 30, TRUE)")
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (4, 'Awaiting Client Input', 40, TRUE)")
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (5, 'Completed', 50, TRUE)")
+                con.execute("INSERT INTO job_statuses_lookup (status_id, name, sort_order, is_active) VALUES (6, 'Archived', 999, FALSE)")
         except Exception:
             pass
 

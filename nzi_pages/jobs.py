@@ -27,6 +27,26 @@ def _job_types():
     return df["name"].tolist() if not df.empty else ["CRP", "Consultancy", "LCA", "Training"]
 
 
+def _job_statuses():
+    # Admin-managed lookup (falls back to sensible defaults).
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT name FROM job_statuses_lookup WHERE is_active=TRUE ORDER BY sort_order, name"
+            ).df()
+        if df is not None and not df.empty and "name" in df.columns:
+            return [str(x) for x in df["name"].tolist() if str(x).strip()]
+    except Exception:
+        pass
+    return [
+        "Open",
+        "Data Gathering Phase",
+        "Reporting Phase",
+        "Awaiting Client Input",
+        "Completed",
+    ]
+
+
 def _subjects():
     with get_conn() as con:
         df = con.execute("SELECT name FROM time_subjects WHERE is_active=TRUE ORDER BY name").df()
@@ -58,10 +78,6 @@ def _jobs_df(include_archived: bool = False):
 def _open_job(jid: int):
     st.session_state["selected_job_id"] = int(jid)
     st.session_state["active_page"] = "Job Folder"
-
-
-def _edit_job(jid: int):
-    st.session_state["edit_job_id"] = int(jid)
 
 
 def _archive_job(jid: int):
@@ -112,7 +128,6 @@ def _render_jobs_pager(n_rows: int):
 def render():
     page_header("Jobs Register", "Create, track and manage delivery")
 
-    st.session_state.setdefault("edit_job_id", None)
     st.session_state.setdefault("selected_job_id", None)
 
     # -------------------------
@@ -133,6 +148,13 @@ def render():
                         min_value=1990,
                         max_value=2100,
                         value=int(st.session_state.get("working_year", 2026)),
+                    )
+
+                    statuses = _job_statuses()
+                    status = st.selectbox(
+                        "Status",
+                        statuses,
+                        index=(statuses.index("Open") if "Open" in statuses else 0),
                     )
 
                     title = st.text_input("Job Title/Description", "")
@@ -170,14 +192,14 @@ def render():
                                     "PENDING",
                                     (title or "").strip() or "Untitled",
                                     int(year),
-                                    "Open",
+                                    (status or "Open"),
                                     start,
                                     due,
                                 ],
                             ).fetchone()
 
                             job_id = int(row[0])
-                            job_number = f"NZI-{int(year)}-{job_id:04d}"
+                            job_number = f"J{(int(job_id) + 999):06d}"
 
                             con.execute(
                                 "UPDATE jobs SET job_number=%s WHERE job_id=%s",
@@ -264,97 +286,12 @@ def render():
                 args=None if selected_id is None else (selected_id,),
             )
             b2.button(
-                "Edit",
-                key="jobs_edit_sel",
-                disabled=(selected_id is None),
-                on_click=None if selected_id is None else _edit_job,
-                args=None if selected_id is None else (selected_id,),
-            )
-            b3.button(
                 "Archive",
                 key="jobs_arch_sel",
                 disabled=(selected_id is None),
                 on_click=None if selected_id is None else _archive_job,
                 args=None if selected_id is None else (selected_id,),
             )
-
-    # -------------------------
-    # Inline edit panel (preserved) - dates are DD/MM/YYYY
-    # -------------------------
-    edit_id = st.session_state.get("edit_job_id")
-    if edit_id:
-        with card("Edit Job"):
-
-            with get_conn() as con:
-                row = con.execute(
-                    """
-                    SELECT job_id, job_type, title, reporting_year, status, start_date, due_date
-                    FROM jobs
-                    WHERE job_id=%s
-                    """,
-                    [int(edit_id)],
-                ).fetchone()
-
-            if not row:
-                st.warning("Job not found.")
-                st.session_state["edit_job_id"] = None
-            else:
-                job_id, job_type, title, reporting_year, status, start_date, due_date = row
-                types = _job_types()
-                statuses = ["Open", "In Progress", "Complete", "Archived"]
-
-                with st.form("edit_job_form", clear_on_submit=False):
-                    c1, c2, c3 = st.columns(3)
-                    new_type = c1.selectbox("Job Type", types, index=types.index(job_type) if job_type in types else 0)
-                    new_year = c2.number_input("Reporting Year", min_value=1990, max_value=2100, value=int(reporting_year or 2026))
-                    new_status = c3.selectbox("Status", statuses, index=statuses.index(status) if status in statuses else 0)
-
-                    new_title = st.text_input("Title", value=title or "")
-
-                    c4, c5 = st.columns(2)
-                    start_txt = c4.text_input("Start Date (DD/MM/YYYY)", value=fmt_date(start_date))
-                    due_txt = c5.text_input("Due Date (DD/MM/YYYY)", value=fmt_date(due_date))
-
-                    b1, b2 = st.columns(2)
-                    save = b1.form_submit_button("Save")
-                    cancel = b2.form_submit_button("Cancel")
-
-                if cancel:
-                    st.session_state["edit_job_id"] = None
-                    st.rerun()
-
-                if save:
-                    try:
-                        new_start = parse_ddmmyyyy("Start Date", start_txt)
-                        new_due = parse_ddmmyyyy("Due Date", due_txt)
-                        if not new_start or not new_due:
-                            raise ValueError("Start Date and Due Date are required.")
-                        if new_due < new_start:
-                            raise ValueError("Due Date cannot be before Start Date.")
-                    except ValueError as e:
-                        st.error(str(e))
-                        st.stop()
-
-                    with get_conn() as con:
-                        con.execute(
-                            """
-                            UPDATE jobs
-                            SET job_type=%s, title=%s, reporting_year=%s, status=%s, start_date=%s, due_date=%s
-                            WHERE job_id=%s
-                            """,
-                            [
-                                new_type,
-                                (new_title or "").strip(),
-                                int(new_year),
-                                new_status,
-                                new_start,
-                                new_due,
-                                int(edit_id),
-                            ],
-                        )
-                    st.success("Saved.")
-                    st.session_state["edit_job_id"] = None
-                    st.rerun()
 
     # -------------------------
     # Time logging (unchanged)

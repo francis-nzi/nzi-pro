@@ -48,6 +48,25 @@ def _payment_terms():
     return list(df.itertuples(index=False, name=None))
 
 
+def _job_statuses():
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                "SELECT name FROM job_statuses_lookup WHERE is_active=TRUE ORDER BY sort_order, name"
+            ).df()
+        if df is not None and not df.empty and "name" in df.columns:
+            return [str(x) for x in df["name"].tolist() if str(x).strip()]
+    except Exception:
+        pass
+    return [
+        "Open",
+        "Data Gathering Phase",
+        "Reporting Phase",
+        "Awaiting Client Input",
+        "Completed",
+    ]
+
+
 def _datasets():
     try:
         with get_conn() as con:
@@ -180,6 +199,8 @@ def render():
             [int(jid)],
         ).df()
 
+    st.session_state.setdefault("job_folder_edit_open", False)
+
     st.markdown(f"**Job No.:** {job_number} &nbsp;&nbsp; **Client:** {client_name}")
 
     tab1, tab2, tab3 = st.tabs(["🧾 CRP Setup", "🗓️ Job Plan", "📦 Data Collection"])
@@ -188,6 +209,78 @@ def render():
     # TAB 1
     # -------------------------
     with tab1:
+        top1, top2, _ = st.columns([1.2, 1.2, 7.6])
+        if top1.button("← Back to Jobs", key="job_folder_back_to_jobs"):
+            st.session_state["active_page"] = "Jobs"
+            st.rerun()
+
+        edit_label = "✏️ Edit job" if not st.session_state.get("job_folder_edit_open") else "✓ Done editing"
+        if top2.button(edit_label, key="job_folder_toggle_edit"):
+            st.session_state["job_folder_edit_open"] = not bool(st.session_state.get("job_folder_edit_open"))
+            st.rerun()
+
+        if st.session_state.get("job_folder_edit_open"):
+            statuses = _job_statuses()
+            try:
+                status_idx = statuses.index(status) if status in statuses else 0
+            except Exception:
+                status_idx = 0
+
+            with st.form("job_folder_edit_job", clear_on_submit=False):
+                c1, c2, c3 = st.columns(3)
+                new_type = c1.text_input("Job type", value=str(job_type or ""))
+                new_year = c2.number_input(
+                    "Reporting year",
+                    min_value=1990,
+                    max_value=2100,
+                    value=int(reporting_year or st.session_state.get("working_year", 2026)),
+                )
+                new_status = c3.selectbox("Status", statuses, index=status_idx)
+
+                new_title = st.text_input("Title", value=str(title or ""))
+
+                d1, d2 = st.columns(2)
+                new_start = d1.date_input("Start date", value=(start_date if start_date else None), format="DD/MM/YYYY")
+                new_due = d2.date_input("Due date", value=(due_date if due_date else None), format="DD/MM/YYYY")
+
+                b1, b2 = st.columns(2)
+                save = b1.form_submit_button("Save")
+                cancel = b2.form_submit_button("Cancel")
+
+                if cancel:
+                    st.session_state["job_folder_edit_open"] = False
+                    st.rerun()
+
+                if save:
+                    if new_due and new_start and new_due < new_start:
+                        st.error("Due date cannot be before start date.")
+                        st.stop()
+                    with get_conn() as con:
+                        con.execute(
+                            """
+                            UPDATE jobs
+                            SET job_type=%s,
+                                title=%s,
+                                reporting_year=%s,
+                                status=%s,
+                                start_date=%s,
+                                due_date=%s
+                            WHERE job_id=%s
+                            """,
+                            [
+                                (new_type or "").strip() or None,
+                                (new_title or "").strip() or "Untitled",
+                                int(new_year),
+                                (new_status or "Open"),
+                                new_start,
+                                new_due,
+                                int(jid),
+                            ],
+                        )
+                    st.success("Saved.")
+                    st.session_state["job_folder_edit_open"] = False
+                    st.rerun()
+
         st.subheader("CRP reporting & admin")
 
         (rp_from, rp_to, is_bench, crp_year,

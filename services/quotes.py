@@ -365,7 +365,7 @@ def accept_quote_create_job(quote_id: int) -> int:
                 ],
             )
 
-        job_number = f"NZI-{int(reporting_year)}-{int(job_id):04d}"
+        job_number = f"J{(int(job_id) + 999):06d}"
         con.execute("UPDATE jobs SET job_number=? WHERE job_id=?", [job_number, int(job_id)])
 
     update_quote(int(quote_id), {"status": "Accepted"})
