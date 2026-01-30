@@ -4,7 +4,6 @@ import pandas as pd
 from models import clients as m_clients
 from core.database import get_conn
 from components.layout import page_header, card
-from components.aggrid_table import render_single_select_grid
 
 
 def _init_clients_pager():
@@ -291,31 +290,40 @@ def render():
             start, end = _render_clients_pager(len(df))
             df_slice = df.iloc[start:end].copy()
 
-            selected = render_single_select_grid(
-                df_slice,
-                key="clients_aggrid",
-                selection_column="db_id",
-                height=520,
-                column_order=[
-                    "client_name",
-                    "portfolio",
-                    "crm_owner",
-                    "industry",
-                    "addr_city",
-                    "addr_country",
-                    "db_id",
-                ],
-                column_labels={
-                    "client_name": "Client",
-                    "crm_owner": "CRM",
-                    "addr_city": "City",
-                    "addr_country": "Country",
-                    "db_id": "ID",
+            view = df_slice[[
+                "client_name",
+                "portfolio",
+                "crm_owner",
+                "industry",
+                "addr_city",
+                "addr_country",
+            ]].copy()
+
+            evt = st.dataframe(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="clients_df_sel",
+                column_config={
+                    "client_name": st.column_config.TextColumn("Client"),
+                    "crm_owner": st.column_config.TextColumn("CRM"),
+                    "addr_city": st.column_config.TextColumn("City"),
+                    "addr_country": st.column_config.TextColumn("Country"),
                 },
             )
 
+            selected_row = None
             try:
-                selected_id = int((selected or {}).get("db_id"))
+                rows = list(getattr(getattr(evt, "selection", None), "rows", []) or [])
+                if rows:
+                    selected_row = df_slice.iloc[int(rows[0])].to_dict()
+            except Exception:
+                selected_row = None
+
+            try:
+                selected_id = int((selected_row or {}).get("db_id"))
             except Exception:
                 selected_id = None
 

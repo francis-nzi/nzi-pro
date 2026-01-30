@@ -70,6 +70,45 @@ def _archive_job(jid: int):
     st.toast("Job archived")
 
 
+def _init_jobs_pager():
+    st.session_state.setdefault("jobs_tbl_page", 0)
+    st.session_state.setdefault("jobs_tbl_psize", 25)
+
+
+def _render_jobs_pager(n_rows: int):
+    _init_jobs_pager()
+    psize = int(st.session_state["jobs_tbl_psize"])
+    page = int(st.session_state["jobs_tbl_page"])
+    psize = max(10, min(psize, 200))
+    pages = max(1, (n_rows + psize - 1) // psize)
+    page = max(0, min(page, pages - 1))
+    st.session_state["jobs_tbl_page"] = page
+
+    c1, c2, c3, _ = st.columns([1.2, 1.2, 2, 6])
+    with c1:
+        st.session_state["jobs_tbl_psize"] = st.selectbox(
+            "Rows",
+            [25, 50, 100, 200],
+            index=[25, 50, 100, 200].index(psize) if psize in [25, 50, 100, 200] else 0,
+            key="jobs_tbl_psize_sel",
+        )
+    with c2:
+        st.session_state["jobs_tbl_page"] = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=pages,
+            value=page + 1,
+            step=1,
+            key="jobs_tbl_page_sel",
+        ) - 1
+    with c3:
+        st.caption(f"Showing {n_rows} jobs")
+
+    start = int(st.session_state["jobs_tbl_page"]) * int(st.session_state["jobs_tbl_psize"])
+    end = start + int(st.session_state["jobs_tbl_psize"])
+    return start, end
+
+
 def render():
     page_header("Jobs Register", "Create, track and manage delivery")
 
@@ -153,23 +192,68 @@ def render():
     # -------------------------
     with card("Jobs"):
         show_archived = st.checkbox("Show archived", value=False)
+        search = st.text_input("Search jobs", value="", key="jobs_search")
         df = _jobs_df(include_archived=show_archived)
+
+        if search:
+            s = str(search).strip().lower()
+            mask = (
+                df["job_number"].astype(str).str.lower().str.contains(s, na=False)
+                | df["client_name"].astype(str).str.lower().str.contains(s, na=False)
+                | df["title"].astype(str).str.lower().str.contains(s, na=False)
+                | df["job_type"].astype(str).str.lower().str.contains(s, na=False)
+                | df["status"].astype(str).str.lower().str.contains(s, na=False)
+            )
+            df = df[mask].copy()
 
         if df.empty:
             st.info("No jobs yet.")
         else:
-            pick = df.copy()
-            pick["_label"] = pick["job_number"].astype(str) + " — " + pick["client_name"].astype(str)
-            label = st.selectbox("Select job", pick["_label"].tolist(), key="jobs_quick_pick")
+            start, end = _render_jobs_pager(len(df))
+            df_slice = df.iloc[start:end].copy()
+
+            view = df_slice[[
+                "job_number",
+                "client_name",
+                "title",
+                "job_type",
+                "reporting_year",
+                "status",
+                "start_date",
+                "due_date",
+            ]].copy()
+
+            evt = st.dataframe(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="jobs_df_sel",
+                column_config={
+                    "job_number": st.column_config.TextColumn("Job"),
+                    "client_name": st.column_config.TextColumn("Client"),
+                    "job_type": st.column_config.TextColumn("Type"),
+                    "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
+                    "start_date": st.column_config.DateColumn("Start"),
+                    "due_date": st.column_config.DateColumn("Due"),
+                },
+            )
+
+            selected_row = None
             try:
-                selected_id = int(pick.loc[pick["_label"] == label, "job_id"].iloc[0])
+                rows = list(getattr(getattr(evt, "selection", None), "rows", []) or [])
+                if rows:
+                    selected_row = df_slice.iloc[int(rows[0])].to_dict()
+            except Exception:
+                selected_row = None
+
+            try:
+                selected_id = int((selected_row or {}).get("job_id"))
             except Exception:
                 selected_id = None
 
-            try:
-                selected_job_number = str(pick.loc[pick["_label"] == label, "job_number"].iloc[0])
-            except Exception:
-                selected_job_number = None
+            selected_job_number = (selected_row or {}).get("job_number") if isinstance(selected_row, dict) else None
 
             b1, b2, b3, _ = st.columns([1, 1, 1, 6])
             b1.button(
@@ -192,31 +276,6 @@ def render():
                 disabled=(selected_id is None),
                 on_click=None if selected_id is None else _archive_job,
                 args=None if selected_id is None else (selected_id,),
-            )
-
-            view = df[[
-                "job_number",
-                "client_name",
-                "title",
-                "job_type",
-                "reporting_year",
-                "status",
-                "start_date",
-                "due_date",
-            ]].copy()
-
-            st.dataframe(
-                view,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "job_number": st.column_config.TextColumn("Job"),
-                    "client_name": st.column_config.TextColumn("Client"),
-                    "job_type": st.column_config.TextColumn("Type"),
-                    "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
-                    "start_date": st.column_config.DateColumn("Start"),
-                    "due_date": st.column_config.DateColumn("Due"),
-                },
             )
 
     # -------------------------
