@@ -58,8 +58,22 @@ def render_single_select_grid(
         key=key,
     )
 
-    selected = (res or {}).get("selected_rows") or []
-    if not selected:
+    res_dict = res if isinstance(res, dict) else {}
+    selected_rows = res_dict.get("selected_rows")
+    if selected_rows is None:
+        return None
+
+    if isinstance(selected_rows, pd.DataFrame):
+        selected = selected_rows.to_dict("records")
+    elif isinstance(selected_rows, list):
+        selected = selected_rows
+    else:
+        try:
+            selected = list(selected_rows)
+        except Exception:
+            selected = []
+
+    if len(selected) == 0:
         return None
 
     selected_row = selected[0]
