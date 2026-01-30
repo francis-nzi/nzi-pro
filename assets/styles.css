@@ -7,7 +7,7 @@ div.stButton > button:hover{background:var(--nzi-green);color:#ffffff;}
 .muted{color:var(--nzi-muted);}
 
 /* --- App shell --- */
-.topbar{position:sticky !important;top:0;z-index:999;background:#ffffff;border-bottom:1px solid var(--nzi-border);box-shadow:0 1px 0 rgba(15,23,42,.06);padding:10px 18px;}
+.topbar{position:fixed;top:3.25rem;left:0;right:0;z-index:999;background:#ffffff;border-bottom:1px solid var(--nzi-border);box-shadow:0 1px 0 rgba(15,23,42,.06);padding:10px 18px;}
 .topbar .brand{display:flex;align-items:center;gap:12px;}
 .topbar .brand-title{font-size:16px;font-weight:800;line-height:1.1;margin:0;color:var(--nzi-deep);}
 .topbar .brand-subtitle{font-size:12px;color:var(--nzi-muted);margin:2px 0 0 0;}
@@ -15,7 +15,8 @@ div.stButton > button:hover{background:var(--nzi-green);color:#ffffff;}
 /* Streamlit default container spacing can feel cramped/uneven */
 [data-testid="stAppViewContainer"]{overflow:visible;}
 [data-testid="stAppViewContainer"] .main{overflow:visible;}
-[data-testid="stAppViewContainer"] .main .block-container{padding-top:0.75rem;padding-bottom:2.25rem;max-width:1400px;}
+/* Toolbar (Streamlit) ~3.25rem + our bar ~3.25rem + a little gap */
+[data-testid="stAppViewContainer"] .main .block-container{padding-top:7.25rem;padding-bottom:2.25rem;max-width:1400px;}
 
 /* Inputs */
 div[data-baseweb="select"] > div{border-radius:12px;border-color:#d1d5db;background:#ffffff;}
