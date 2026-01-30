@@ -4,6 +4,7 @@ import pandas as pd
 from models import clients as m_clients
 from core.database import get_conn
 from components.layout import page_header, card
+from components.aggrid_table import render_single_select_grid
 
 
 def _init_clients_pager():
@@ -284,10 +285,59 @@ def render():
         search = st.text_input("Search Clients")
         df = m_clients.list_clients(search)
 
-        start, end = _render_clients_pager(len(df))
-        df_slice = df.iloc[start:end].copy() if not df.empty else df
-
-        if df_slice.empty:
+        if df is None or df.empty:
             st.info("No clients found.")
         else:
-            _clients_table_buttons(df_slice)
+            start, end = _render_clients_pager(len(df))
+            df_slice = df.iloc[start:end].copy()
+
+            selected = render_single_select_grid(
+                df_slice,
+                key="clients_aggrid",
+                selection_column="db_id",
+                height=520,
+                column_order=[
+                    "client_name",
+                    "portfolio",
+                    "crm_owner",
+                    "industry",
+                    "addr_city",
+                    "addr_country",
+                    "db_id",
+                ],
+                column_labels={
+                    "client_name": "Client",
+                    "crm_owner": "CRM",
+                    "addr_city": "City",
+                    "addr_country": "Country",
+                    "db_id": "ID",
+                },
+            )
+
+            try:
+                selected_id = int((selected or {}).get("db_id"))
+            except Exception:
+                selected_id = None
+
+            b1, b2, b3, _ = st.columns([1, 1, 1, 6])
+            b1.button(
+                "Open",
+                key="clients_open_sel",
+                disabled=(selected_id is None),
+                on_click=_open_client if selected_id is not None else None,
+                args=(selected_id,) if selected_id is not None else None,
+            )
+            b2.button(
+                "Edit",
+                key="clients_edit_sel",
+                disabled=(selected_id is None),
+                on_click=_edit_client if selected_id is not None else None,
+                args=(selected_id,) if selected_id is not None else None,
+            )
+            b3.button(
+                "Archive",
+                key="clients_arch_sel",
+                disabled=(selected_id is None),
+                on_click=_archive_client if selected_id is not None else None,
+                args=(selected_id,) if selected_id is not None else None,
+            )
