@@ -60,30 +60,39 @@ def _clients():
         ).df()
 
 
-def _jobs_df(include_archived: bool = False):
-    where = "" if include_archived else "WHERE j.status <> 'Archived'"
+def _is_closed_status(s: str) -> bool:
+    s = (s or "").strip().lower()
+    return s in {"completed", "closed"}
+
+
+def _jobs_df(mode: str = "all"):
     with get_conn() as con:
-        return con.execute(
+        df = con.execute(
             f"""
             SELECT j.job_id, j.job_number, c.client_name, j.job_type, j.title,
                    j.reporting_year, j.status, j.start_date, j.due_date
             FROM jobs j
             JOIN clients c ON c.db_id = j.client_db_id
-            {where}
             ORDER BY j.created_at DESC
             """
         ).df()
+
+    if df is None or df.empty:
+        return df
+
+    if "status" not in df.columns:
+        return df
+
+    if mode == "open":
+        return df[~df["status"].astype(str).apply(_is_closed_status)].copy()
+    if mode == "closed":
+        return df[df["status"].astype(str).apply(_is_closed_status)].copy()
+    return df
 
 
 def _open_job(jid: int):
     st.session_state["selected_job_id"] = int(jid)
     st.session_state["active_page"] = "Job Folder"
-
-
-def _archive_job(jid: int):
-    with get_conn() as con:
-        con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [int(jid)])
-    st.toast("Job archived")
 
 
 def _init_jobs_pager():
@@ -213,9 +222,12 @@ def render():
     # Jobs list + row actions
     # -------------------------
     with card("Jobs"):
-        show_archived = st.checkbox("Show archived", value=False)
         search = st.text_input("Search jobs", value="", key="jobs_search")
-        df = _jobs_df(include_archived=show_archived)
+        open_df = _jobs_df(mode="open")
+        closed_df = _jobs_df(mode="closed")
+
+        view_mode = st.radio("", ["Open", "Closed"], horizontal=True, key="jobs_view_mode", label_visibility="collapsed")
+        df = open_df if view_mode == "Open" else closed_df
 
         if search:
             s = str(search).strip().lower()
@@ -277,19 +289,12 @@ def render():
 
             selected_job_number = (selected_row or {}).get("job_number") if isinstance(selected_row, dict) else None
 
-            b1, b2, b3, _ = st.columns([1, 1, 1, 6])
+            b1, b2, _ = st.columns([1, 1, 8])
             b1.button(
                 f"Open {selected_job_number}" if selected_job_number else "Open",
                 key="jobs_open_sel",
                 disabled=(selected_id is None),
                 on_click=None if selected_id is None else _open_job,
-                args=None if selected_id is None else (selected_id,),
-            )
-            b2.button(
-                "Archive",
-                key="jobs_arch_sel",
-                disabled=(selected_id is None),
-                on_click=None if selected_id is None else _archive_job,
                 args=None if selected_id is None else (selected_id,),
             )
 
@@ -300,7 +305,7 @@ def render():
     st.markdown("### ⏱ Log Time")
 
     with st.form("time_log_form", clear_on_submit=True):
-        jdf = _jobs_df(include_archived=False)
+        jdf = _jobs_df(mode="all")
         if jdf.empty:
             st.info("No jobs yet.")
             st.form_submit_button("Save Time Entry", disabled=True)
