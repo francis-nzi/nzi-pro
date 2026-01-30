@@ -191,94 +191,94 @@ def render():
                 )
                 crm_owner = c3.selectbox("CRM Owner", crm_owners, index=0)
 
-            c1, c2, c3 = st.columns(3)
-            new_w = c1.text_input("Website")
+                c1, c2, c3 = st.columns(3)
+                new_w = c1.text_input("Website")
 
-            # Industry dropdown (from lookup) with safe fallback
-            if industries:
-                new_ind = c2.selectbox("Industry", [""] + industries, index=0)
-                other_ind = c3.text_input("Company Reg")
-            else:
-                new_ind = c2.text_input("Industry")
-                other_ind = c3.text_input("Company Reg")
-
-            new_reg = other_ind
-
-            c1, c2, c3 = st.columns(3)
-            new_hq = c1.text_input("Headquarters")
-            fy_end = c2.selectbox(
-                "Financial Year End (Month)",
-                ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-                index=0,
-            )
-            logo = c3.text_input("Logo URL")
-
-            st.markdown("**Address**")
-            a1, a2 = st.columns(2)
-            addr1 = a1.text_input("Address line 1")
-            addr2 = a2.text_input("Address line 2")
-            pc1, pc2 = st.columns(2)
-            city = pc1.text_input("City")
-            region = pc2.text_input("Region/State")
-            pc1, pc2 = st.columns(2)
-            postcode = pc1.text_input("Postcode/ZIP")
-            country = pc2.text_input("Country")
-            new_desc = st.text_area("Company Description (Long)", value="", height=120)
-
-            st.markdown("**Targets**")
-            t1, t2, t3 = st.columns(3)
-            net_zero_year = t1.number_input("Net Zero Target Year", min_value=2025, max_value=2100, value=2050)
-            target_s1_year = t2.number_input("Scope 1 Target Year", min_value=2025, max_value=2100, value=2050)
-            target_s1_pct = t3.number_input("Scope 1 Target Reduction (%)", min_value=0, max_value=100, value=90)
-
-            t1, t2, t3 = st.columns(3)
-            target_s2_year = t1.number_input("Scope 2 Target Year", min_value=2025, max_value=2100, value=2050)
-            target_s2_pct = t2.number_input("Scope 2 Target Reduction (%)", min_value=0, max_value=100, value=90)
-            target_s3_year = t3.number_input("Scope 3 Target Year", min_value=2025, max_value=2100, value=2050)
-
-            t1, _ = st.columns(2)
-            target_s3_pct = t1.number_input("Scope 3 Target Reduction (%)", min_value=0, max_value=100, value=90)
-
-            if st.form_submit_button("Create Client"):
-                if not new_n:
-                    st.error("Client Name is required.")
+                # Industry dropdown (from lookup) with safe fallback
+                if industries:
+                    new_ind = c2.selectbox("Industry", [""] + industries, index=0)
+                    other_ind = c3.text_input("Company Reg")
                 else:
-                    payload = dict(
-                        client_name=new_n,
-                        industry=(new_ind or None),
-                        description_long=new_desc or None,
-                        website=new_w or None,
-                        year_end_month=fy_end or None,
-                        company_reg=new_reg or None,
-                        headquarters=new_hq or None,
-                        addr_line1=addr1 or None,
-                        addr_line2=addr2 or None,
-                        addr_city=city or None,
-                        addr_region=region or None,
-                        addr_postcode=postcode or None,
-                        addr_country=country or None,
-                        logo_url=logo or None,
-                        crm_owner=(None if crm_owner == "(Unassigned)" else crm_owner),
-                        portfolio=portfolio or "NZI",
-                        net_zero_year=int(net_zero_year),
+                    new_ind = c2.text_input("Industry")
+                    other_ind = c3.text_input("Company Reg")
 
-                        # Interim defaults (as per your standard)
-                        interim_year=2035,
-                        interim_s1_pct=50,
-                        interim_s2_pct=50,
-                        interim_s3_pct=50,
+                new_reg = other_ind
 
-                        target_s1_year=int(target_s1_year),
-                        target_s2_year=int(target_s2_year),
-                        target_s3_year=int(target_s3_year),
-                        target_s1_pct=int(target_s1_pct),
-                        target_s2_pct=int(target_s2_pct),
-                        target_s3_pct=int(target_s3_pct),
-                    )
+                c1, c2, c3 = st.columns(3)
+                new_hq = c1.text_input("Headquarters")
+                fy_end = c2.selectbox(
+                    "Financial Year End (Month)",
+                    ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+                    index=0,
+                )
+                logo = c3.text_input("Logo URL")
 
-                    m_clients.create_client(payload)
-                    st.success(f"Client {new_n} created.")
-                    st.rerun()
+                st.markdown("**Address**")
+                a1, a2 = st.columns(2)
+                addr1 = a1.text_input("Address line 1")
+                addr2 = a2.text_input("Address line 2")
+                pc1, pc2 = st.columns(2)
+                city = pc1.text_input("City")
+                region = pc2.text_input("Region/State")
+                pc1, pc2 = st.columns(2)
+                postcode = pc1.text_input("Postcode/ZIP")
+                country = pc2.text_input("Country")
+                new_desc = st.text_area("Company Description (Long)", value="", height=120)
+
+                st.markdown("**Targets**")
+                t1, t2, t3 = st.columns(3)
+                net_zero_year = t1.number_input("Net Zero Target Year", min_value=2025, max_value=2100, value=2050)
+                target_s1_year = t2.number_input("Scope 1 Target Year", min_value=2025, max_value=2100, value=2050)
+                target_s1_pct = t3.number_input("Scope 1 Target Reduction (%)", min_value=0, max_value=100, value=90)
+
+                t1, t2, t3 = st.columns(3)
+                target_s2_year = t1.number_input("Scope 2 Target Year", min_value=2025, max_value=2100, value=2050)
+                target_s2_pct = t2.number_input("Scope 2 Target Reduction (%)", min_value=0, max_value=100, value=90)
+                target_s3_year = t3.number_input("Scope 3 Target Year", min_value=2025, max_value=2100, value=2050)
+
+                t1, _ = st.columns(2)
+                target_s3_pct = t1.number_input("Scope 3 Target Reduction (%)", min_value=0, max_value=100, value=90)
+
+                if st.form_submit_button("Create Client"):
+                    if not new_n:
+                        st.error("Client Name is required.")
+                    else:
+                        payload = dict(
+                            client_name=new_n,
+                            industry=(new_ind or None),
+                            description_long=new_desc or None,
+                            website=new_w or None,
+                            year_end_month=fy_end or None,
+                            company_reg=new_reg or None,
+                            headquarters=new_hq or None,
+                            addr_line1=addr1 or None,
+                            addr_line2=addr2 or None,
+                            addr_city=city or None,
+                            addr_region=region or None,
+                            addr_postcode=postcode or None,
+                            addr_country=country or None,
+                            logo_url=logo or None,
+                            crm_owner=(None if crm_owner == "(Unassigned)" else crm_owner),
+                            portfolio=portfolio or "NZI",
+                            net_zero_year=int(net_zero_year),
+
+                            # Interim defaults (as per your standard)
+                            interim_year=2035,
+                            interim_s1_pct=50,
+                            interim_s2_pct=50,
+                            interim_s3_pct=50,
+
+                            target_s1_year=int(target_s1_year),
+                            target_s2_year=int(target_s2_year),
+                            target_s3_year=int(target_s3_year),
+                            target_s1_pct=int(target_s1_pct),
+                            target_s2_pct=int(target_s2_pct),
+                            target_s3_pct=int(target_s3_pct),
+                        )
+
+                        m_clients.create_client(payload)
+                        st.success(f"Client {new_n} created.")
+                        st.rerun()
 
     with card("Client Directory"):
         search = st.text_input("Search Clients")
