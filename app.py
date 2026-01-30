@@ -77,13 +77,18 @@ if action and cid:
 st.markdown("<div class='topbar'>", unsafe_allow_html=True)
 t1, t2 = st.columns([6, 5])
 with t1:
+    _render_commit = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "").strip()
+    _render_commit_short = _render_commit[:7] if _render_commit else ""
+    _subtitle = "Net Zero International — internal portal"
+    if _render_commit_short:
+        _subtitle = f"{_subtitle} · build {_render_commit_short}"
     st.markdown(
         f"""
         <div class='brand'>
           <img src='{LOGO_URL}' style='height:34px; width:auto;' />
           <div>
             <div class='brand-title'>{APP_TITLE}</div>
-            <div class='brand-subtitle'>Net Zero International — internal portal</div>
+            <div class='brand-subtitle'>{_subtitle}</div>
           </div>
         </div>
         """,
