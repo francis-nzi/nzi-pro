@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 from core.database import get_conn
 from components.layout import page_header, card
+from components.aggrid_table import render_single_select_grid
 
 
 # ---------- Date helpers ----------
@@ -52,6 +53,24 @@ def _jobs_df(include_archived: bool = False):
             ORDER BY j.created_at DESC
             """
         ).df()
+
+
+def _open_job(jid: int):
+    st.session_state["selected_job_id"] = int(jid)
+    st.session_state["active_page"] = "Job Folder"
+    st.rerun()
+
+
+def _edit_job(jid: int):
+    st.session_state["edit_job_id"] = int(jid)
+    st.rerun()
+
+
+def _archive_job(jid: int):
+    with get_conn() as con:
+        con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [int(jid)])
+    st.toast("Job archived")
+    st.rerun()
 
 
 def render():
@@ -142,40 +161,60 @@ def render():
         if df.empty:
             st.info("No jobs yet.")
         else:
-            h = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
-            h[0].markdown("**Job**")
-            h[1].markdown("**Client**")
-            h[2].markdown("**Title**")
-            h[3].markdown("**Type**")
-            h[4].markdown("**Status**")
-            h[5].markdown("**Open**")
-            h[6].markdown("**Edit**")
-            h[7].markdown("**Archive**")
+            selected = render_single_select_grid(
+                df,
+                key="jobs_aggrid",
+                selection_column="job_id",
+                height=520,
+                column_order=[
+                    "job_number",
+                    "client_name",
+                    "title",
+                    "job_type",
+                    "reporting_year",
+                    "status",
+                    "start_date",
+                    "due_date",
+                    "job_id",
+                ],
+                column_labels={
+                    "job_number": "Job",
+                    "client_name": "Client",
+                    "job_type": "Type",
+                    "reporting_year": "Year",
+                    "start_date": "Start",
+                    "due_date": "Due",
+                    "job_id": "ID",
+                },
+            )
 
-            for _, r in df.iterrows():
-                jid = int(r["job_id"])
+            try:
+                selected_id = int((selected or {}).get("job_id"))
+            except Exception:
+                selected_id = None
 
-                c = st.columns([2, 3, 3, 2, 2, 1, 1, 1])
-                c[0].write(r["job_number"])
-                c[1].write(r["client_name"])
-                c[2].write(r["title"])
-                c[3].write(r["job_type"])
-                c[4].write(r["status"])
-
-                if c[5].button("📂", key=f"job_open_{jid}"):
-                    st.session_state["selected_job_id"] = jid
-                    st.session_state["active_page"] = "Job Folder"
-                    st.rerun()
-
-                if c[6].button("✏️", key=f"job_edit_{jid}"):
-                    st.session_state["edit_job_id"] = jid
-                    st.rerun()
-
-                if c[7].button("🗄️", key=f"job_arch_{jid}", disabled=(str(r["status"]) == "Archived")):
-                    with get_conn() as con:
-                        con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [jid])
-                    st.toast("Job archived")
-                    st.rerun()
+            b1, b2, b3, _ = st.columns([1, 1, 1, 6])
+            b1.button(
+                "Open",
+                key="jobs_open_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _open_job,
+                args=None if selected_id is None else (selected_id,),
+            )
+            b2.button(
+                "Edit",
+                key="jobs_edit_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _edit_job,
+                args=None if selected_id is None else (selected_id,),
+            )
+            b3.button(
+                "Archive",
+                key="jobs_arch_sel",
+                disabled=(selected_id is None),
+                on_click=None if selected_id is None else _archive_job,
+                args=None if selected_id is None else (selected_id,),
+            )
 
     # -------------------------
     # Inline edit panel (preserved) - dates are DD/MM/YYYY
