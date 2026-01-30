@@ -73,15 +73,25 @@ if action and cid:
         st.experimental_set_query_params()
 # --------------------------------------------------------
 
-c1, c2 = st.columns([1, 6])
-with c1:
-    st.image(LOGO_URL, width=160)
-with c2:
-    st.markdown(f"### {APP_TITLE}")
-    st.caption("Net Zero International — internal portal")
-st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
+st.markdown("<div class='topbar'>", unsafe_allow_html=True)
+t1, t2 = st.columns([6, 5])
+with t1:
+    st.markdown(
+        f"""
+        <div class='brand'>
+          <img src='{LOGO_URL}' style='height:34px; width:auto;' />
+          <div>
+            <div class='brand-title'>{APP_TITLE}</div>
+            <div class='brand-subtitle'>Net Zero International — internal portal</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+with t2:
+    page = render_top_nav()
+st.markdown("</div>", unsafe_allow_html=True)
 
-page = render_top_nav()
 if page == "Dashboard":
     dashboard.render()
 elif page == "Clients":

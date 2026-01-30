@@ -24,7 +24,7 @@ def render_top_nav():
     hidden_pages = {"Client Folder", "Job Folder", "Scope 1", "Scope 2", "Scope 3"}
     _ensure_active_page(pages, hidden_pages)
 
-    n1, n2 = st.columns([6, 2])
+    n1, n2 = st.columns([7, 2])
     with n1:
         st.radio(
             "Navigate",
@@ -41,7 +41,6 @@ def render_top_nav():
             index=[2024, 2025, 2026].index(DEFAULT_YEAR),
             label_visibility="collapsed",
         )
-    st.markdown("<div class='hr'></div>", unsafe_allow_html=True)
     return st.session_state["active_page"]
 
 

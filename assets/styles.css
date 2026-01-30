@@ -5,3 +5,27 @@ div.stButton > button:first-child{border-radius:8px;border:1px solid var(--nzi-g
 div.stButton > button:hover{background:var(--nzi-green);color:#ffffff;}
 .hr{height:1px;background:var(--nzi-border);border:0;margin:12px 0;}
 .muted{color:var(--nzi-muted);}
+
+/* --- App shell --- */
+.topbar{position:sticky;top:0;z-index:999;background:#ffffff;border-bottom:1px solid var(--nzi-border);box-shadow:0 1px 0 rgba(15,23,42,.04);padding:10px 18px;margin:-1rem -1rem 16px -1rem;}
+.topbar .brand{display:flex;align-items:center;gap:12px;}
+.topbar .brand-title{font-size:16px;font-weight:800;line-height:1.1;margin:0;color:var(--nzi-deep);}
+.topbar .brand-subtitle{font-size:12px;color:var(--nzi-muted);margin:2px 0 0 0;}
+
+/* Streamlit default container spacing can feel cramped/uneven */
+[data-testid="stAppViewContainer"] .main .block-container{padding-top:0.75rem;padding-bottom:2.25rem;max-width:1400px;}
+
+/* Inputs */
+div[data-baseweb="select"] > div{border-radius:10px;}
+div[data-baseweb="input"] > div{border-radius:10px;}
+
+/* Radio pills (top nav) */
+div[role="radiogroup"]{gap:6px;}
+div[role="radiogroup"] label{background:#f8fafc;border:1px solid var(--nzi-border);border-radius:999px;padding:6px 10px;margin:0;}
+div[role="radiogroup"] label:hover{border-color:#cbd5e1;background:#f1f5f9;}
+
+/* Tables */
+[data-testid="stDataFrame"]{border-radius:12px;overflow:hidden;border:1px solid var(--nzi-border);background:#ffffff;}
+
+/* Typography */
+h1,h2,h3{letter-spacing:-.01em;}
