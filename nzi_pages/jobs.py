@@ -184,8 +184,8 @@ def render():
                     "reporting_year": "Year",
                     "start_date": "Start",
                     "due_date": "Due",
-                    "job_id": "ID",
                 },
+                hide_columns=["job_id"],
             )
 
             try:

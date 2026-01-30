@@ -11,6 +11,7 @@ def render_single_select_grid(
     fit_columns_on_grid_load: bool = True,
     column_order: list[str] | None = None,
     column_labels: dict[str, str] | None = None,
+    hide_columns: list[str] | None = None,
 ):
     try:
         from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode
@@ -30,9 +31,6 @@ def render_single_select_grid(
                 cols.append(c)
         view = view[cols]
 
-    if column_labels:
-        view = view.rename(columns={k: v for k, v in column_labels.items() if k in view.columns})
-
     gb = GridOptionsBuilder.from_dataframe(view)
     gb.configure_default_column(
         resizable=True,
@@ -44,6 +42,16 @@ def render_single_select_grid(
     gb.configure_selection("single", use_checkbox=True)
     if fit_columns_on_grid_load:
         gb.configure_grid_options(domLayout="normal")
+
+    if column_labels:
+        for col_key, label in column_labels.items():
+            if col_key in view.columns:
+                gb.configure_column(col_key, headerName=label)
+
+    if hide_columns:
+        for col_key in hide_columns:
+            if col_key in view.columns:
+                gb.configure_column(col_key, hide=True)
 
     grid_options = gb.build()
 
