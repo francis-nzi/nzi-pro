@@ -58,19 +58,16 @@ def _jobs_df(include_archived: bool = False):
 def _open_job(jid: int):
     st.session_state["selected_job_id"] = int(jid)
     st.session_state["active_page"] = "Job Folder"
-    st.rerun()
 
 
 def _edit_job(jid: int):
     st.session_state["edit_job_id"] = int(jid)
-    st.rerun()
 
 
 def _archive_job(jid: int):
     with get_conn() as con:
         con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [int(jid)])
     st.toast("Job archived")
-    st.rerun()
 
 
 def render():
@@ -169,9 +166,14 @@ def render():
             except Exception:
                 selected_id = None
 
+            try:
+                selected_job_number = str(pick.loc[pick["_label"] == label, "job_number"].iloc[0])
+            except Exception:
+                selected_job_number = None
+
             b1, b2, b3, _ = st.columns([1, 1, 1, 6])
             b1.button(
-                "Open",
+                f"Open {selected_job_number}" if selected_job_number else "Open",
                 key="jobs_open_sel",
                 disabled=(selected_id is None),
                 on_click=None if selected_id is None else _open_job,
