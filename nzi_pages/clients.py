@@ -3,6 +3,7 @@ import pandas as pd
 
 from models import clients as m_clients
 from core.database import get_conn
+from components.layout import page_header, card
 
 
 def _init_clients_pager():
@@ -173,21 +174,22 @@ def _clients_table_buttons(df: pd.DataFrame):
 
 
 def render():
-    st.title("👥 Clients")
-    with st.expander("➕ New Client"):
-        crm_owners = m_clients.list_crm_owners()
-        portfolios = m_clients.list_portfolios()
-        industries = _list_industries()
+    page_header("Clients", "Manage client profiles and portfolios")
+    with card("New Client"):
+        with st.expander("➕ New Client"):
+            crm_owners = m_clients.list_crm_owners()
+            portfolios = m_clients.list_portfolios()
+            industries = _list_industries()
 
-        with st.form("new_client_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns(3)
-            new_n = c1.text_input("Client Name *")
-            portfolio = c2.selectbox(
-                "Portfolio",
-                portfolios,
-                index=portfolios.index("NZI") if "NZI" in portfolios else 0,
-            )
-            crm_owner = c3.selectbox("CRM Owner", crm_owners, index=0)
+            with st.form("new_client_form", clear_on_submit=True):
+                c1, c2, c3 = st.columns(3)
+                new_n = c1.text_input("Client Name *")
+                portfolio = c2.selectbox(
+                    "Portfolio",
+                    portfolios,
+                    index=portfolios.index("NZI") if "NZI" in portfolios else 0,
+                )
+                crm_owner = c3.selectbox("CRM Owner", crm_owners, index=0)
 
             c1, c2, c3 = st.columns(3)
             new_w = c1.text_input("Website")
@@ -278,13 +280,14 @@ def render():
                     st.success(f"Client {new_n} created.")
                     st.rerun()
 
-    search = st.text_input("Search Clients")
-    df = m_clients.list_clients(search)
+    with card("Client Directory"):
+        search = st.text_input("Search Clients")
+        df = m_clients.list_clients(search)
 
-    start, end = _render_clients_pager(len(df))
-    df_slice = df.iloc[start:end].copy() if not df.empty else df
+        start, end = _render_clients_pager(len(df))
+        df_slice = df.iloc[start:end].copy() if not df.empty else df
 
-    if df_slice.empty:
-        st.info("No clients found.")
-    else:
-        _clients_table_buttons(df_slice)
+        if df_slice.empty:
+            st.info("No clients found.")
+        else:
+            _clients_table_buttons(df_slice)

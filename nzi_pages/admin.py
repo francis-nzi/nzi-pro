@@ -6,20 +6,22 @@ from core.database import db_backend
 from components.tables import table_with_pager
 from models import clients as m_clients
 from core.auth import require_role, show_user_badge
+from components.layout import page_header, card
 
 
 def render():
     require_role("Admin")
     show_user_badge()
 
-    st.title("⚙️ Admin Center")
+    page_header("Admin Center", "Team, lookups and system management")
 
-    t1, t2, t3, t4 = st.tabs([
-        "👥 NZI Team",
-        "📋 Lookups",
-        "📚 Datasets & Factors",
-        "🗄️ Archived Clients",
-    ])
+    with card("Admin"):
+        t1, t2, t3, t4 = st.tabs([
+            "👥 NZI Team",
+            "📋 Lookups",
+            "📚 Datasets & Factors",
+            "🗄️ Archived Clients",
+        ])
 
     # =========================
     # NZI TEAM

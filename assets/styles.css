@@ -39,3 +39,13 @@ div[role="radiogroup"] label:hover{border-color:#cbd5e1;background:#f1f5f9;}
 
 /* Typography */
 h1,h2,h3{letter-spacing:-.01em;}
+
+/* Page header */
+.page-header{margin:4px 0 10px 0;}
+.page-title{font-size:22px;font-weight:850;letter-spacing:-.02em;line-height:1.15;color:var(--nzi-deep);}
+.page-subtitle{font-size:13px;color:var(--nzi-muted);margin-top:4px;}
+
+/* Cards */
+.card{background:#ffffff;border:1px solid var(--nzi-border);border-radius:14px;box-shadow:0 1px 0 rgba(15,23,42,.04);padding:14px 14px;margin:10px 0 14px 0;}
+.card-title{font-weight:800;color:var(--nzi-deep);font-size:14px;margin:0 0 10px 0;}
+.card-body{margin-top:2px;}
