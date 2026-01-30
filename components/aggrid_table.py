@@ -61,7 +61,7 @@ def render_single_select_grid(
         height=height,
         fit_columns_on_grid_load=fit_columns_on_grid_load,
         update_mode=GridUpdateMode.SELECTION_CHANGED,
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        data_return_mode=DataReturnMode.AS_INPUT,
         allow_unsafe_jscode=False,
         key=key,
     )

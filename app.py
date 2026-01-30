@@ -34,7 +34,7 @@ def _env_truthy(name: str, default: str = "true") -> bool:
 if _env_truthy("RUN_STARTUP_MIGRATIONS", "false"):
     run_migrations()
 
-# --- Action links handler (Clients icons) ---
+# --- Action links handler (Clients/Jobs links) ---
 try:
     qp = st.query_params
 except Exception:
@@ -43,14 +43,18 @@ except Exception:
 try:
     action = qp.get('action')
     cid = qp.get('cid')
+    jid = qp.get('jid')
 except Exception:
     action = None
     cid = None
+    jid = None
 
 if isinstance(action, list):
     action = action[0] if action else None
 if isinstance(cid, list):
     cid = cid[0] if cid else None
+if isinstance(jid, list):
+    jid = jid[0] if jid else None
 
 if action and cid:
     try:
@@ -67,6 +71,30 @@ if action and cid:
             from models import clients as m_clients
             m_clients.archive_client(cid_i)
             st.session_state['active_page'] = 'Clients'
+
+    try:
+        st.query_params.clear()
+    except Exception:
+        st.experimental_set_query_params()
+
+if action and jid:
+    try:
+        jid_i = int(jid)
+    except Exception:
+        jid_i = None
+
+    if jid_i is not None:
+        if action == 'open':
+            st.session_state['selected_job_id'] = jid_i
+            st.session_state['active_page'] = 'Job Folder'
+        elif action == 'edit':
+            st.session_state['edit_job_id'] = jid_i
+            st.session_state['active_page'] = 'Jobs'
+        elif action == 'archive':
+            from core.database import get_conn
+            with get_conn() as con:
+                con.execute("UPDATE jobs SET status='Archived' WHERE job_id=%s", [jid_i])
+            st.session_state['active_page'] = 'Jobs'
 
     try:
         st.query_params.clear()

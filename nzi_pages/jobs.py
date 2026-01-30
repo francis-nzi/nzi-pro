@@ -193,6 +193,8 @@ def render():
             except Exception:
                 selected_id = None
 
+            selected_job_number = (selected or {}).get("job_number") if isinstance(selected, dict) else None
+
             b1, b2, b3, _ = st.columns([1, 1, 1, 6])
             b1.button(
                 "Open",
@@ -215,6 +217,19 @@ def render():
                 on_click=None if selected_id is None else _archive_job,
                 args=None if selected_id is None else (selected_id,),
             )
+
+            if selected_id is not None:
+                label = selected_job_number or f"Job {selected_id}"
+                st.markdown(
+                    (
+                        f"<div style='margin-top: 0.25rem'>"
+                        f"<a href='?action=open&jid={selected_id}' target='_self'><b>{label}</b></a>"
+                        f" &nbsp;·&nbsp; <a href='?action=edit&jid={selected_id}' target='_self'>Edit</a>"
+                        f" &nbsp;·&nbsp; <a href='?action=archive&jid={selected_id}' target='_self'>Archive</a>"
+                        f"</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
 
     # -------------------------
     # Inline edit panel (preserved) - dates are DD/MM/YYYY
