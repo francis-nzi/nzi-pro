@@ -161,13 +161,19 @@ def render():
         if df.empty:
             st.info("No jobs yet.")
         else:
-            selected = render_single_select_grid(
-                df,
-                key="jobs_aggrid",
-                selection_column="job_id",
-                height=520,
-                column_order=[
-                    "job_number",
+            view = df.copy()
+            view["job_link"] = (
+                "?action=open&jid="
+                + view["job_id"].astype(str)
+                + "&label="
+                + view["job_number"].astype(str)
+            )
+            view["edit_link"] = "?action=edit&jid=" + view["job_id"].astype(str)
+            view["archive_link"] = "?action=archive&jid=" + view["job_id"].astype(str)
+
+            view = view[
+                [
+                    "job_link",
                     "client_name",
                     "title",
                     "job_type",
@@ -175,61 +181,29 @@ def render():
                     "status",
                     "start_date",
                     "due_date",
-                    "job_id",
-                ],
-                column_labels={
-                    "job_number": "Job",
-                    "client_name": "Client",
-                    "job_type": "Type",
-                    "reporting_year": "Year",
-                    "start_date": "Start",
-                    "due_date": "Due",
-                },
-                hide_columns=["job_id"],
-            )
+                    "edit_link",
+                    "archive_link",
+                ]
+            ]
 
-            try:
-                selected_id = int((selected or {}).get("job_id"))
-            except Exception:
-                selected_id = None
-
-            selected_job_number = (selected or {}).get("job_number") if isinstance(selected, dict) else None
-
-            b1, b2, b3, _ = st.columns([1, 1, 1, 6])
-            b1.button(
-                "Open",
-                key="jobs_open_sel",
-                disabled=(selected_id is None),
-                on_click=None if selected_id is None else _open_job,
-                args=None if selected_id is None else (selected_id,),
-            )
-            b2.button(
-                "Edit",
-                key="jobs_edit_sel",
-                disabled=(selected_id is None),
-                on_click=None if selected_id is None else _edit_job,
-                args=None if selected_id is None else (selected_id,),
-            )
-            b3.button(
-                "Archive",
-                key="jobs_arch_sel",
-                disabled=(selected_id is None),
-                on_click=None if selected_id is None else _archive_job,
-                args=None if selected_id is None else (selected_id,),
-            )
-
-            if selected_id is not None:
-                label = selected_job_number or f"Job {selected_id}"
-                st.markdown(
-                    (
-                        f"<div style='margin-top: 0.25rem'>"
-                        f"<a href='?action=open&jid={selected_id}' target='_self'><b>{label}</b></a>"
-                        f" &nbsp;·&nbsp; <a href='?action=edit&jid={selected_id}' target='_self'>Edit</a>"
-                        f" &nbsp;·&nbsp; <a href='?action=archive&jid={selected_id}' target='_self'>Archive</a>"
-                        f"</div>"
+            st.dataframe(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "job_link": st.column_config.LinkColumn(
+                        "Job",
+                        display_text=r"label=(.*)",
                     ),
-                    unsafe_allow_html=True,
-                )
+                    "client_name": st.column_config.TextColumn("Client"),
+                    "job_type": st.column_config.TextColumn("Type"),
+                    "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
+                    "start_date": st.column_config.DateColumn("Start"),
+                    "due_date": st.column_config.DateColumn("Due"),
+                    "edit_link": st.column_config.LinkColumn("Edit", display_text="Edit"),
+                    "archive_link": st.column_config.LinkColumn("Archive", display_text="Archive"),
+                },
+            )
 
     # -------------------------
     # Inline edit panel (preserved) - dates are DD/MM/YYYY
