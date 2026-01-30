@@ -199,7 +199,7 @@ def render():
                         st.success("Client profile updated.")
                         _stop_edit()
 
-    tabs = st.tabs([
+    tab_labels = [
         "🏢 Profile",
         "📍 Sites",
         "👥 Contacts",
@@ -211,7 +211,21 @@ def render():
         "💬 Quotes",
         "💷 Invoices",
         "📝 Notes",
-    ])
+    ]
+
+    if "client_folder_tab" not in st.session_state:
+        st.session_state["client_folder_tab"] = tab_labels[0]
+    if st.session_state.get("client_folder_tab") not in tab_labels:
+        st.session_state["client_folder_tab"] = tab_labels[0]
+
+    active_tab = st.radio(
+        "",
+        tab_labels,
+        index=tab_labels.index(st.session_state["client_folder_tab"]),
+        horizontal=True,
+        key="client_folder_tab",
+        label_visibility="collapsed",
+    )
 
     def _table_exists(table: str) -> bool:
         try:
@@ -224,24 +238,30 @@ def render():
         except Exception:
             return False
 
-    with tabs[0]:
-        left, right = st.columns([2, 1])
-        left.subheader("Client")
-        left.write(f"Name: {coalesce(c.get('client_name'), '-')}")
-        left.write(f"Portfolio: {coalesce(c.get('portfolio'), '-')}")
-        left.write(f"Industry: {coalesce(c.get('industry'), '-')}")
-        left.write(f"CRM Owner: {coalesce(c.get('crm_owner'), '-')}")
-        right.subheader("Address")
-        right.write(coalesce(c.get("addr_line1"), "-"))
-        right.write(coalesce(c.get("addr_line2"), ""))
-        right.write(f"{coalesce(c.get('addr_city'), '-')}, {coalesce(c.get('addr_region'), '')}")
-        right.write(coalesce(c.get("addr_postcode"), ""))
-        right.write(coalesce(c.get("addr_country"), "-"))
+    # --------------------
+    # PROFILE
+    # --------------------
+    if active_tab == tab_labels[0]:
+        st.subheader("Profile")
+        p1, p2, p3 = st.columns(3)
+        p1.markdown(f"**Client:** {coalesce(c.get('client_name'), '-')}")
+        p2.markdown(f"**CRM Owner:** {coalesce(c.get('crm_owner'), '-')}")
+        p3.markdown(f"**Status:** {coalesce(c.get('status'), '-')}")
+
+        st.markdown("---")
+        a1, a2 = st.columns(2)
+        a1.markdown(f"**Industry:** {coalesce(c.get('industry'), '-')}")
+        a2.markdown(f"**Portfolio:** {coalesce(c.get('portfolio'), '-')}")
+
+        st.markdown("---")
+        st.markdown(f"**Website:** {coalesce(c.get('website'), '-')}")
+        st.markdown(f"**Headquarters:** {coalesce(c.get('headquarters'), '-')}")
+        st.markdown(f"**Company Reg:** {coalesce(c.get('company_reg'), '-')}")
 
     # --------------------
     # SITES (ADD + LIST)
     # --------------------
-    with tabs[1]:
+    if active_tab == tab_labels[1]:
         with st.expander("➕ Add Site", expanded=False):
             with st.form("add_site_form", clear_on_submit=True):
                 s1, s2 = st.columns(2)
@@ -263,7 +283,7 @@ def render():
     # -----------------------
     # CONTACTS (ADD + LIST)
     # -----------------------
-    with tabs[2]:
+    if active_tab == tab_labels[2]:
         with st.expander("➕ Add Contact", expanded=False):
             with st.form("add_contact_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
@@ -285,30 +305,93 @@ def render():
     # --------------------
     # JOBS (LIST)
     # --------------------
-    with tabs[3]:
+    if active_tab == tab_labels[3]:
         with get_conn() as con:
             df = con.execute(
                 """
-                SELECT job_number, job_type, title, reporting_year, status, start_date, due_date
+                SELECT job_id, job_number, job_type, title, reporting_year, status, start_date, due_date
                 FROM jobs
                 WHERE client_db_id=?
                 ORDER BY created_at DESC
                 """,
                 [cid]
             ).df()
-        table_with_pager(df, "Client Jobs", key="client_jobs")
+
+        if df is None or df.empty:
+            st.info("No jobs yet.")
+        else:
+            view = df[[
+                "job_number",
+                "title",
+                "job_type",
+                "reporting_year",
+                "status",
+                "start_date",
+                "due_date",
+            ]].copy()
+
+            evt = st.dataframe(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="client_jobs_df_sel",
+                column_config={
+                    "job_number": st.column_config.TextColumn("Job"),
+                    "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
+                    "start_date": st.column_config.DateColumn("Start"),
+                    "due_date": st.column_config.DateColumn("Due"),
+                },
+            )
+
+            selected_row = None
+            try:
+                rows = list(getattr(getattr(evt, "selection", None), "rows", []) or [])
+                if rows:
+                    selected_row = df.iloc[int(rows[0])].to_dict()
+            except Exception:
+                selected_row = None
+
+            try:
+                selected_id = int((selected_row or {}).get("job_id"))
+            except Exception:
+                selected_id = None
+
+            selected_job_number = (selected_row or {}).get("job_number") if isinstance(selected_row, dict) else None
+            b1, _ = st.columns([1, 9])
+            if b1.button(
+                f"Open {selected_job_number}" if selected_job_number else "Open",
+                key="client_jobs_open_sel",
+                disabled=(selected_id is None),
+            ):
+                st.session_state["selected_job_id"] = int(selected_id)
+                st.session_state["active_page"] = "Job Folder"
+                st.rerun()
 
     # --------------------
     # CRP (LIST)
     # --------------------
-    with tabs[4]:
+    if active_tab == tab_labels[4]:
         if _table_exists("crp_reports"):
             with get_conn() as con:
                 df = con.execute(
-                    "SELECT reporting_year, is_benchmark, status, created_at FROM crp_reports WHERE client_db_id=? ORDER BY reporting_year",
+                    """
+                    SELECT r.crp_id,
+                           r.reporting_year,
+                           r.is_benchmark,
+                           r.status,
+                           r.created_at,
+                           j.job_id
+                    FROM crp_reports r
+                    LEFT JOIN jobs j
+                      ON j.client_db_id = r.client_db_id
+                     AND j.reporting_year = r.reporting_year
+                    WHERE r.client_db_id=?
+                    ORDER BY r.reporting_year
+                    """,
                     [cid],
                 ).df()
-            table_with_pager(df, "CRP Years", key="crp_years")
         else:
             with get_conn() as con:
                 df = con.execute(
@@ -316,7 +399,8 @@ def render():
                     SELECT j.reporting_year,
                            COALESCE(cjd.is_benchmark, FALSE) AS is_benchmark,
                            j.status,
-                           j.created_at
+                           j.created_at,
+                           j.job_id
                     FROM jobs j
                     LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
                     WHERE j.client_db_id=?
@@ -324,12 +408,58 @@ def render():
                     """,
                     [cid],
                 ).df()
-            table_with_pager(df, "CRP Years", key="crp_years")
+
+        if df is None or df.empty:
+            st.info("No CRP years yet.")
+        else:
+            view = df[[
+                "reporting_year",
+                "is_benchmark",
+                "status",
+                "created_at",
+            ]].copy()
+
+            evt = st.dataframe(
+                view,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="client_crp_df_sel",
+                column_config={
+                    "reporting_year": st.column_config.NumberColumn("Year", format="%d"),
+                    "is_benchmark": st.column_config.CheckboxColumn("Benchmark"),
+                    "created_at": st.column_config.DatetimeColumn("Created"),
+                },
+            )
+
+            selected_row = None
+            try:
+                rows = list(getattr(getattr(evt, "selection", None), "rows", []) or [])
+                if rows:
+                    selected_row = df.iloc[int(rows[0])].to_dict()
+            except Exception:
+                selected_row = None
+
+            try:
+                selected_job_id = int((selected_row or {}).get("job_id"))
+            except Exception:
+                selected_job_id = None
+
+            b1, _ = st.columns([1, 9])
+            if b1.button(
+                "Open",
+                key="client_crp_open_sel",
+                disabled=(selected_job_id is None),
+            ):
+                st.session_state["selected_job_id"] = int(selected_job_id)
+                st.session_state["active_page"] = "Job Folder"
+                st.rerun()
 
     # --------------------
     # TARGETS (EDIT + CHART)
     # --------------------
-    with tabs[5]:
+    if active_tab == tab_labels[5]:
         st.subheader("Net Zero Targets")
         nz_col, it_col = st.columns(2)
         nz_year = nz_col.number_input(
@@ -440,7 +570,7 @@ def render():
     # --------------------
     # ACTIVITY (LIST)
     # --------------------
-    with tabs[6]:
+    if active_tab == tab_labels[6]:
         if not _table_exists("activity_data"):
             st.info("Activity data is not available in this database yet.")
         else:
@@ -463,7 +593,7 @@ def render():
     # --------------------
     # DATASETS USED (LIST)
     # --------------------
-    with tabs[7]:
+    if active_tab == tab_labels[7]:
         st.subheader("Datasets used in client calculations")
         if not _table_exists("activity_data"):
             st.info("Activity data is not available in this database yet.")
@@ -485,9 +615,9 @@ def render():
             table_with_pager(df, "Datasets Used", key="datasets_used")
 
     # --------------------
-    # NOTES (ADD + LIST)
+    # QUOTES
     # --------------------
-    with tabs[8]:
+    if active_tab == tab_labels[8]:
         st.subheader("Quotes")
 
         try:
@@ -1266,11 +1396,11 @@ def render():
                         st.success(f"Created revision #{int(new_id)}")
                         st.rerun()
 
-    with tabs[9]:
+    if active_tab == tab_labels[9]:
         st.subheader("Invoices")
         st.info("Invoices will be managed from within Jobs. This tab is a placeholder.")
 
-    with tabs[10]:
+    if active_tab == tab_labels[10]:
         with st.expander("➕ Add Note", expanded=False):
             with st.form("add_note_form", clear_on_submit=True):
                 note_text = st.text_area("Note", height=120, placeholder="Type your note here...")
