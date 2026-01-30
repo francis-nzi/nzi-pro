@@ -18,6 +18,26 @@ def parse_ddmmyyyy(label: str, s: str):
         raise ValueError(f"{label} must be DD/MM/YYYY")
 
 
+def _add_months(d, months: int):
+    if not d:
+        return None
+    try:
+        m = int(d.month) - 1 + int(months)
+        y = int(d.year) + m // 12
+        m = m % 12 + 1
+        day = int(d.day)
+        # clamp day to end of target month
+        if m == 12:
+            next_month = datetime(y + 1, 1, 1).date()
+        else:
+            next_month = datetime(y, m + 1, 1).date()
+        last_day = (next_month - timedelta(days=1)).day
+        day = min(day, last_day)
+        return datetime(y, m, day).date()
+    except Exception:
+        return None
+
+
 def _payment_terms():
     with get_conn() as con:
         df = con.execute(
@@ -160,7 +180,7 @@ def render():
             [int(jid)],
         ).df()
 
-    st.caption(f"**{job_number}** — {client_name}")
+    st.markdown(f"**Job No.:** {job_number} &nbsp;&nbsp; **Client:** {client_name}")
 
     tab1, tab2, tab3 = st.tabs(["🧾 CRP Setup", "🗓️ Job Plan", "📦 Data Collection"])
 
@@ -188,8 +208,18 @@ def render():
 
         with st.form("crp_setup_form", clear_on_submit=False):
             c1, c2, c3 = st.columns(3)
-            rp_from_txt = c1.text_input("Reporting period from (DD/MM/YYYY)", value=fmt_date(rp_from))
-            rp_to_txt = c2.text_input("Reporting period to (DD/MM/YYYY)", value=fmt_date(rp_to))
+            rp_from_date = c1.date_input(
+                "Reporting period from",
+                value=(rp_from if rp_from else None),
+                format="DD/MM/YYYY",
+            )
+            rp_to_date = _add_months(rp_from_date, 12) if rp_from_date else (rp_to if rp_to else None)
+            c2.date_input(
+                "Reporting period to",
+                value=(rp_to_date if rp_to_date else None),
+                format="DD/MM/YYYY",
+                disabled=True,
+            )
             new_is_bench = c3.checkbox("Benchmark year?", value=bool(is_bench))
 
             new_year = st.number_input(
@@ -241,8 +271,8 @@ def render():
 
             if save:
                 try:
-                    new_rp_from = parse_ddmmyyyy("Reporting period from", rp_from_txt)
-                    new_rp_to = parse_ddmmyyyy("Reporting period to", rp_to_txt)
+                    new_rp_from = rp_from_date
+                    new_rp_to = _add_months(rp_from_date, 12) if rp_from_date else None
                     if new_rp_from and new_rp_to and new_rp_to < new_rp_from:
                         raise ValueError("Reporting period to cannot be before from.")
                 except ValueError as e:
@@ -319,22 +349,41 @@ def render():
             c1, c2, c3 = st.columns(3)
 
             if not new_override:
-                c1.text_input("Data collection due (DD/MM/YYYY)", value=fmt_date(def_data or data_due), disabled=True)
-                c2.text_input("First draft due (DD/MM/YYYY)", value=fmt_date(def_draft or draft_due), disabled=True)
-                c3.text_input("Final report due (DD/MM/YYYY)", value=fmt_date(def_final or final_due), disabled=True)
+                c1.date_input(
+                    "Data collection due",
+                    value=(def_data or data_due),
+                    format="DD/MM/YYYY",
+                    disabled=True,
+                )
+                c2.date_input(
+                    "First draft due",
+                    value=(def_draft or draft_due),
+                    format="DD/MM/YYYY",
+                    disabled=True,
+                )
+                c3.date_input(
+                    "Final report due",
+                    value=(def_final or final_due),
+                    format="DD/MM/YYYY",
+                    disabled=True,
+                )
                 save_data, save_draft, save_final = def_data, def_draft, def_final
             else:
-                d1 = c1.text_input("Data collection due (DD/MM/YYYY)", value=fmt_date(data_due or def_data))
-                d2 = c2.text_input("First draft due (DD/MM/YYYY)", value=fmt_date(draft_due or def_draft))
-                d3 = c3.text_input("Final report due (DD/MM/YYYY)", value=fmt_date(final_due or def_final))
-
-                try:
-                    save_data = parse_ddmmyyyy("Data collection due", d1)
-                    save_draft = parse_ddmmyyyy("First draft due", d2)
-                    save_final = parse_ddmmyyyy("Final report due", d3)
-                except ValueError as e:
-                    st.error(str(e))
-                    st.stop()
+                save_data = c1.date_input(
+                    "Data collection due",
+                    value=(data_due or def_data),
+                    format="DD/MM/YYYY",
+                )
+                save_draft = c2.date_input(
+                    "First draft due",
+                    value=(draft_due or def_draft),
+                    format="DD/MM/YYYY",
+                )
+                save_final = c3.date_input(
+                    "Final report due",
+                    value=(final_due or def_final),
+                    format="DD/MM/YYYY",
+                )
 
             b1, b2 = st.columns(2)
             save = b1.form_submit_button("Save milestones")

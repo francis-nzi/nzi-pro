@@ -533,7 +533,13 @@ def render():
                         for _, r in contacts_df.iterrows():
                             label = f"{r.get('full_name')}".strip()
                             contact_opts.append(label)
-                            contact_map[label] = int(r.get("contact_id"))
+                            cid_raw = r.get("contact_id")
+                            if cid_raw is None:
+                                continue
+                            try:
+                                contact_map[label] = int(cid_raw)
+                            except Exception:
+                                continue
 
                     with get_conn() as con:
                         staff_df = con.execute(
@@ -661,8 +667,15 @@ def render():
                             for _, r in contacts_df.iterrows():
                                 label = f"{r.get('full_name')}".strip()
                                 contact_opts.append(label)
-                                contact_map[label] = int(r.get("contact_id"))
-                                rev_contact_map[int(r.get("contact_id"))] = label
+                                cid_raw = r.get("contact_id")
+                                if cid_raw is None:
+                                    continue
+                                try:
+                                    cid_i = int(cid_raw)
+                                except Exception:
+                                    continue
+                                contact_map[label] = cid_i
+                                rev_contact_map[cid_i] = label
 
                         with get_conn() as con:
                             staff_df = con.execute(
