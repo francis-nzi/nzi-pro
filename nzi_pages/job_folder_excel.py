@@ -8,6 +8,60 @@ from core.database import db_backend, get_conn
 from services.sites import list_sites
 
 
+def _replace_sheet(wb, name: str):
+    if name in wb.sheetnames:
+        ws_old = wb[name]
+        wb.remove(ws_old)
+    return wb.create_sheet(title=name)
+
+
+def _append_kv(ws, rows: list[tuple[str, object]]):
+    for k, v in rows:
+        ws.append([k, v])
+
+
+def _job_core_data(job_id: int):
+    try:
+        with get_conn() as con:
+            hdr = con.execute(
+                """
+                SELECT j.job_id, j.job_number, j.title, j.job_type, j.reporting_year, j.status,
+                       j.start_date, j.due_date,
+                       j.client_db_id, c.client_name
+                FROM jobs j
+                JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+
+            crp = con.execute(
+                """
+                SELECT reporting_period_from, reporting_period_to,
+                       client_order_number, client_contact_name, client_contact_email,
+                       report_signee_name, report_signee_position,
+                       num_employees, turnover_gbp, premises_size_m2,
+                       vehicles_owned, vehicles_leased, premises_owned, premises_leased
+                FROM crp_job_details
+                WHERE job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+
+            plan = con.execute(
+                """
+                SELECT data_collection_due, first_draft_due, final_report_due
+                FROM job_plan
+                WHERE job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+
+        return hdr, crp, plan
+    except Exception:
+        return None, None, None
+
+
 def _to_tco2e(qty: float, factor: float, ghg_unit: str | None) -> float:
     ghg = (str(ghg_unit or "kgCO2e").replace(" ", "").lower())
     emissions = float(qty) * float(factor)
@@ -213,6 +267,110 @@ def render_excel_section(
     if selected_site and st.button("Generate template", type="primary"):
         template_path = "templates/NZI Data Upload Template - Basic UK.xlsx"
         wb = load_workbook(template_path)
+
+        hdr, crp, plan = _job_core_data(int(jid))
+
+        if hdr is not None:
+            (
+                _jid,
+                _job_number,
+                _title,
+                _job_type,
+                _year,
+                _status,
+                _start_date,
+                _due_date,
+                _client_db_id,
+                _client_name,
+            ) = hdr
+
+            ws_core = _replace_sheet(wb, "Core Data")
+            _append_kv(
+                ws_core,
+                [
+                    ("Client", _client_name),
+                    ("Job Number", _job_number),
+                    ("Job Title", _title),
+                    ("Job Type", _job_type),
+                    ("Job Status", _status),
+                    ("Reporting Year", _year),
+                    ("Start Date", _start_date),
+                    ("Due Date", _due_date),
+                    ("Reporting Period From", rp_from),
+                    ("Reporting Period To", rp_to),
+                    ("Template Site", selected_site),
+                ],
+            )
+
+            if crp is not None:
+                (
+                    crp_from,
+                    crp_to,
+                    client_order_number,
+                    client_contact_name,
+                    client_contact_email,
+                    report_signee_name,
+                    report_signee_position,
+                    num_employees,
+                    turnover_gbp,
+                    premises_size_m2,
+                    vehicles_owned,
+                    vehicles_leased,
+                    premises_owned,
+                    premises_leased,
+                ) = crp
+
+                ws_core.append([])
+                _append_kv(
+                    ws_core,
+                    [
+                        ("Client Order Number", client_order_number),
+                        ("Client Contact Name", client_contact_name),
+                        ("Client Contact Email", client_contact_email),
+                        ("Report Signee Name", report_signee_name),
+                        ("Report Signee Position", report_signee_position),
+                        ("Employees", num_employees),
+                        ("Turnover GBP", turnover_gbp),
+                        ("Premises Size (m2)", premises_size_m2),
+                        ("Vehicles Owned", vehicles_owned),
+                        ("Vehicles Leased", vehicles_leased),
+                        ("Premises Owned", premises_owned),
+                        ("Premises Leased", premises_leased),
+                    ],
+                )
+
+                if crp_from or crp_to:
+                    ws_core.append([])
+                    _append_kv(
+                        ws_core,
+                        [
+                            ("CRP Reporting Period From (stored)", crp_from),
+                            ("CRP Reporting Period To (stored)", crp_to),
+                        ],
+                    )
+
+            if plan is not None:
+                (data_collection_due, first_draft_due, final_report_due) = plan
+                ws_core.append([])
+                _append_kv(
+                    ws_core,
+                    [
+                        ("Milestone: Data collection due", data_collection_due),
+                        ("Milestone: First draft due", first_draft_due),
+                        ("Milestone: Final report due", final_report_due),
+                    ],
+                )
+
+            try:
+                ws_sites = _replace_sheet(wb, "Sites")
+                if sites_df is not None and not sites_df.empty:
+                    ws_sites.append(list(sites_df.columns))
+                    for row_vals in sites_df.itertuples(index=False, name=None):
+                        ws_sites.append(list(row_vals))
+                else:
+                    ws_sites.append(["No sites found for this client."])
+            except Exception:
+                pass
 
         for ws in wb.worksheets:
             if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
