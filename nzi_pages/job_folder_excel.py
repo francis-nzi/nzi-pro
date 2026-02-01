@@ -1,8 +1,10 @@
 import io
+import os
 
 import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook
+from openpyxl import Workbook
 
 from core.database import db_backend, get_conn
 from services.sites import list_sites
@@ -18,6 +20,44 @@ def _replace_sheet(wb, name: str):
 def _append_kv(ws, rows: list[tuple[str, object]]):
     for k, v in rows:
         ws.append([k, v])
+
+
+def _init_scope_sheet(ws):
+    ws["A1"].value = "Site Name:"
+    ws["B1"].value = ""
+    ws["C1"].value = "Report From:"
+    ws["D1"].value = ""
+    ws["E1"].value = "To:"
+    ws["F1"].value = ""
+    ws["A2"].value = "Data Files:"
+    ws["B2"].value = ""
+    ws["C2"].value = "Client Name:"
+    ws["D2"].value = ""
+    ws["E2"].value = "Job Number:"
+    ws["F2"].value = ""
+    ws.append([])
+    ws.append(["ID", "Qty", "Apply"]) 
+
+
+def _load_template_workbook() -> Workbook:
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        template_path = os.path.join(base_dir, "templates", "NZI Data Upload Template - Basic UK.xlsx")
+        if os.path.exists(template_path):
+            return load_workbook(template_path)
+    except Exception:
+        pass
+
+    wb = Workbook()
+    try:
+        wb.remove(wb.active)
+    except Exception:
+        pass
+
+    for name in ("Scope 1", "Scope 2", "Scope 3"):
+        ws = wb.create_sheet(title=name)
+        _init_scope_sheet(ws)
+    return wb
 
 
 def _job_core_data(job_id: int):
@@ -265,8 +305,7 @@ def render_excel_section(
         data_files_ref = ""
 
     if selected_site and st.button("Generate template", type="primary"):
-        template_path = "templates/NZI Data Upload Template - Basic UK.xlsx"
-        wb = load_workbook(template_path)
+        wb = _load_template_workbook()
 
         hdr, crp, plan = _job_core_data(int(jid))
 
