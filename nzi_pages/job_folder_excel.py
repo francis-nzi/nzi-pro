@@ -102,6 +102,234 @@ def _job_core_data(job_id: int):
         return None, None, None
 
 
+def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_year: bool = True) -> tuple[bytes, str]:
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT j.job_id, j.job_number, j.reporting_year, j.client_db_id, c.client_name,
+                   crp.reporting_period_from, crp.reporting_period_to
+            FROM jobs j
+            JOIN clients c ON c.db_id = j.client_db_id
+            LEFT JOIN crp_job_details crp ON crp.job_id = j.job_id
+            WHERE j.job_id=%s
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+    if not row:
+        raise ValueError("Job not found")
+
+    (_jid, job_number, reporting_year, client_db_id, client_name, rp_from, rp_to) = row
+
+    sites_df = list_sites(int(client_db_id))
+
+    data_files_ref = ""
+    try:
+        with get_conn() as con:
+            df_ds = con.execute(
+                """
+                SELECT jsc.scope, d.name, d.year, d.analysis_type, d.country
+                FROM job_scope_config jsc
+                LEFT JOIN datasets d ON d.dataset_id = jsc.dataset_id
+                WHERE jsc.job_id=%s
+                ORDER BY jsc.scope
+                """,
+                [int(job_id)],
+            ).df()
+
+        parts = []
+        if df_ds is not None and (not df_ds.empty):
+            for _, r in df_ds.iterrows():
+                if r.get("name") is None:
+                    continue
+                label = str(r.get("name") or "").strip()
+                y = r.get("year")
+                if y is not None and str(y) != "nan":
+                    label = f"{label} {int(y)}"
+                parts.append(label)
+        data_files_ref = ", ".join(parts)
+    except Exception:
+        data_files_ref = ""
+
+    wb = _load_template_workbook()
+
+    hdr, crp, plan = _job_core_data(int(job_id))
+
+    if hdr is not None:
+        (
+            _jid2,
+            _job_number,
+            _title,
+            _job_type,
+            _year,
+            _status,
+            _start_date,
+            _due_date,
+            _client_db_id,
+            _client_name,
+        ) = hdr
+
+        ws_core = _replace_sheet(wb, "Core Data")
+        _append_kv(
+            ws_core,
+            [
+                ("Client", _client_name),
+                ("Job Number", _job_number),
+                ("Job Title", _title),
+                ("Job Type", _job_type),
+                ("Job Status", _status),
+                ("Reporting Year", _year),
+                ("Start Date", _start_date),
+                ("Due Date", _due_date),
+                ("Reporting Period From", rp_from),
+                ("Reporting Period To", rp_to),
+                ("Template Site", selected_site),
+            ],
+        )
+
+        if crp is not None:
+            (
+                crp_from,
+                crp_to,
+                client_order_number,
+                client_contact_name,
+                client_contact_email,
+                report_signee_name,
+                report_signee_position,
+                num_employees,
+                turnover_gbp,
+                premises_size_m2,
+                vehicles_owned,
+                vehicles_leased,
+                premises_owned,
+                premises_leased,
+            ) = crp
+
+            ws_core.append([])
+            _append_kv(
+                ws_core,
+                [
+                    ("Client Order Number", client_order_number),
+                    ("Client Contact Name", client_contact_name),
+                    ("Client Contact Email", client_contact_email),
+                    ("Report Signee Name", report_signee_name),
+                    ("Report Signee Position", report_signee_position),
+                    ("Employees", num_employees),
+                    ("Turnover GBP", turnover_gbp),
+                    ("Premises Size (m2)", premises_size_m2),
+                    ("Vehicles Owned", vehicles_owned),
+                    ("Vehicles Leased", vehicles_leased),
+                    ("Premises Owned", premises_owned),
+                    ("Premises Leased", premises_leased),
+                ],
+            )
+
+            if crp_from or crp_to:
+                ws_core.append([])
+                _append_kv(
+                    ws_core,
+                    [
+                        ("CRP Reporting Period From (stored)", crp_from),
+                        ("CRP Reporting Period To (stored)", crp_to),
+                    ],
+                )
+
+        if plan is not None:
+            (data_collection_due, first_draft_due, final_report_due) = plan
+            ws_core.append([])
+            _append_kv(
+                ws_core,
+                [
+                    ("Milestone: Data collection due", data_collection_due),
+                    ("Milestone: First draft due", first_draft_due),
+                    ("Milestone: Final report due", final_report_due),
+                ],
+            )
+
+        try:
+            ws_sites = _replace_sheet(wb, "Sites")
+            if sites_df is not None and not sites_df.empty:
+                ws_sites.append(list(sites_df.columns))
+                for row_vals in sites_df.itertuples(index=False, name=None):
+                    ws_sites.append(list(row_vals))
+            else:
+                ws_sites.append(["No sites found for this client."])
+        except Exception:
+            pass
+
+    for ws in wb.worksheets:
+        if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
+            ws["B1"].value = selected_site
+        if ws["C1"].value and str(ws["C1"].value).strip().startswith("Report From:"):
+            ws["D1"].value = rp_from
+        if ws["E1"].value and str(ws["E1"].value).strip().startswith("To:"):
+            ws["F1"].value = rp_to
+        if ws["A2"].value and str(ws["A2"].value).strip().startswith("Data Files:"):
+            ws["B2"].value = data_files_ref or ws["B2"].value
+
+        ws["C2"].value = "Client Name:"
+        ws["D2"].value = client_name
+        ws["E2"].value = "Job Number:"
+        ws["F2"].value = job_number
+
+    if include_prev_year:
+        prev_year = int(reporting_year or 0) - 1 if reporting_year is not None else None
+        prev_job_id = None
+        if prev_year:
+            try:
+                with get_conn() as con:
+                    r = con.execute(
+                        """
+                        SELECT job_id
+                        FROM jobs
+                        WHERE client_db_id=%s AND reporting_year=%s
+                        ORDER BY job_id DESC
+                        LIMIT 1
+                        """,
+                        [int(client_db_id), int(prev_year)],
+                    ).fetchone()
+                if r:
+                    prev_job_id = int(r[0])
+            except Exception:
+                prev_job_id = None
+
+        if prev_job_id is not None:
+            try:
+                with get_conn() as con:
+                    prev_df = con.execute(
+                        """
+                        SELECT scope, category, subcategory, description, amount, unit, tco2e, method, notes, updated_at
+                        FROM crp_scope_entries
+                        WHERE job_id=%s AND is_archived=FALSE
+                        ORDER BY scope, category, subcategory, entry_id
+                        """,
+                        [int(prev_job_id)],
+                    ).df()
+
+                if prev_df is not None and (not prev_df.empty):
+                    name = f"Previous Year ({prev_year})"
+                    if name in wb.sheetnames:
+                        ws_prev = wb[name]
+                        wb.remove(ws_prev)
+                    ws_prev = wb.create_sheet(title=name)
+                    ws_prev.append(["Client", client_name])
+                    ws_prev.append(["Job", job_number])
+                    ws_prev.append(["Site", selected_site])
+                    ws_prev.append([])
+                    ws_prev.append(list(prev_df.columns))
+                    for row_vals in prev_df.itertuples(index=False, name=None):
+                        ws_prev.append(list(row_vals))
+            except Exception:
+                pass
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fn_site = "".join(ch if ch.isalnum() or ch in ("-", "_", " ") else "_" for ch in str(selected_site))
+    filename = f"{job_number} - {fn_site} - NZI Data Upload Template.xlsx"
+    return buf.getvalue(), filename
+
+
 def _to_tco2e(qty: float, factor: float, ghg_unit: str | None) -> float:
     ghg = (str(ghg_unit or "kgCO2e").replace(" ", "").lower())
     emissions = float(qty) * float(factor)
@@ -305,187 +533,19 @@ def render_excel_section(
         data_files_ref = ""
 
     if selected_site and st.button("Generate template", type="primary"):
-        wb = _load_template_workbook()
-
-        hdr, crp, plan = _job_core_data(int(jid))
-
-        if hdr is not None:
-            (
-                _jid,
-                _job_number,
-                _title,
-                _job_type,
-                _year,
-                _status,
-                _start_date,
-                _due_date,
-                _client_db_id,
-                _client_name,
-            ) = hdr
-
-            ws_core = _replace_sheet(wb, "Core Data")
-            _append_kv(
-                ws_core,
-                [
-                    ("Client", _client_name),
-                    ("Job Number", _job_number),
-                    ("Job Title", _title),
-                    ("Job Type", _job_type),
-                    ("Job Status", _status),
-                    ("Reporting Year", _year),
-                    ("Start Date", _start_date),
-                    ("Due Date", _due_date),
-                    ("Reporting Period From", rp_from),
-                    ("Reporting Period To", rp_to),
-                    ("Template Site", selected_site),
-                ],
+        try:
+            data, filename = build_excel_template_bytes(
+                job_id=int(jid),
+                selected_site=str(selected_site),
+                include_prev_year=bool(include_prev_year),
             )
-
-            if crp is not None:
-                (
-                    crp_from,
-                    crp_to,
-                    client_order_number,
-                    client_contact_name,
-                    client_contact_email,
-                    report_signee_name,
-                    report_signee_position,
-                    num_employees,
-                    turnover_gbp,
-                    premises_size_m2,
-                    vehicles_owned,
-                    vehicles_leased,
-                    premises_owned,
-                    premises_leased,
-                ) = crp
-
-                ws_core.append([])
-                _append_kv(
-                    ws_core,
-                    [
-                        ("Client Order Number", client_order_number),
-                        ("Client Contact Name", client_contact_name),
-                        ("Client Contact Email", client_contact_email),
-                        ("Report Signee Name", report_signee_name),
-                        ("Report Signee Position", report_signee_position),
-                        ("Employees", num_employees),
-                        ("Turnover GBP", turnover_gbp),
-                        ("Premises Size (m2)", premises_size_m2),
-                        ("Vehicles Owned", vehicles_owned),
-                        ("Vehicles Leased", vehicles_leased),
-                        ("Premises Owned", premises_owned),
-                        ("Premises Leased", premises_leased),
-                    ],
-                )
-
-                if crp_from or crp_to:
-                    ws_core.append([])
-                    _append_kv(
-                        ws_core,
-                        [
-                            ("CRP Reporting Period From (stored)", crp_from),
-                            ("CRP Reporting Period To (stored)", crp_to),
-                        ],
-                    )
-
-            if plan is not None:
-                (data_collection_due, first_draft_due, final_report_due) = plan
-                ws_core.append([])
-                _append_kv(
-                    ws_core,
-                    [
-                        ("Milestone: Data collection due", data_collection_due),
-                        ("Milestone: First draft due", first_draft_due),
-                        ("Milestone: Final report due", final_report_due),
-                    ],
-                )
-
-            try:
-                ws_sites = _replace_sheet(wb, "Sites")
-                if sites_df is not None and not sites_df.empty:
-                    ws_sites.append(list(sites_df.columns))
-                    for row_vals in sites_df.itertuples(index=False, name=None):
-                        ws_sites.append(list(row_vals))
-                else:
-                    ws_sites.append(["No sites found for this client."])
-            except Exception:
-                pass
-
-        for ws in wb.worksheets:
-            if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
-                ws["B1"].value = selected_site
-            if ws["C1"].value and str(ws["C1"].value).strip().startswith("Report From:"):
-                ws["D1"].value = rp_from
-            if ws["E1"].value and str(ws["E1"].value).strip().startswith("To:"):
-                ws["F1"].value = rp_to
-            if ws["A2"].value and str(ws["A2"].value).strip().startswith("Data Files:"):
-                ws["B2"].value = data_files_ref or ws["B2"].value
-
-            ws["C2"].value = "Client Name:"
-            ws["D2"].value = client_name
-            ws["E2"].value = "Job Number:"
-            ws["F2"].value = job_number
-
-        if include_prev_year:
-            prev_year = int(reporting_year or 0) - 1 if reporting_year is not None else None
-            prev_job_id = None
-            if prev_year:
-                try:
-                    with get_conn() as con:
-                        r = con.execute(
-                            """
-                            SELECT job_id
-                            FROM jobs
-                            WHERE client_db_id=%s AND reporting_year=%s
-                            ORDER BY job_id DESC
-                            LIMIT 1
-                            """,
-                            [int(client_db_id), int(prev_year)],
-                        ).fetchone()
-                    if r:
-                        prev_job_id = int(r[0])
-                except Exception:
-                    prev_job_id = None
-
-            if prev_job_id is not None:
-                try:
-                    with get_conn() as con:
-                        prev_df = con.execute(
-                            """
-                            SELECT scope, category, subcategory, description, amount, unit, tco2e, method, notes, updated_at
-                            FROM crp_scope_entries
-                            WHERE job_id=%s AND is_archived=FALSE
-                            ORDER BY scope, category, subcategory, entry_id
-                            """,
-                            [int(prev_job_id)],
-                        ).df()
-
-                    if not prev_df.empty:
-                        name = f"Previous Year ({prev_year})"
-                        if name in wb.sheetnames:
-                            ws_prev = wb[name]
-                            wb.remove(ws_prev)
-                        ws_prev = wb.create_sheet(title=name)
-                        ws_prev.append(["Client", client_name])
-                        ws_prev.append(["Job", job_number])
-                        ws_prev.append(["Site", selected_site])
-                        ws_prev.append([])
-                        ws_prev.append(list(prev_df.columns))
-                        for row_vals in prev_df.itertuples(index=False, name=None):
-                            ws_prev.append(list(row_vals))
-                except Exception:
-                    pass
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-
-        fn_site = "".join(ch if ch.isalnum() or ch in ("-", "_", " ") else "_" for ch in str(selected_site))
-        filename = f"{job_number} - {fn_site} - NZI Data Upload Template.xlsx"
+        except Exception as e:
+            st.error(f"Could not generate template: {e}")
+            return
 
         st.download_button(
             "Download template",
-            data=buf,
+            data=data,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
