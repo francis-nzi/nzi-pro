@@ -42,7 +42,13 @@ def _init_scope_sheet(ws):
 def _load_template_workbook() -> Workbook:
     try:
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        template_path = os.path.join(base_dir, "templates", "NZI Data Upload Template - Basic UK.xlsx")
+        override = (os.getenv("NZI_EXCEL_TEMPLATE_PATH") or "").strip()
+        if override:
+            template_path = override
+            if not os.path.isabs(template_path):
+                template_path = os.path.join(base_dir, template_path)
+        else:
+            template_path = os.path.join(base_dir, "templates", "NZI Data Upload Template - Basic UK.xlsx")
         if os.path.exists(template_path):
             return load_workbook(template_path)
     except Exception:
@@ -103,18 +109,44 @@ def _job_core_data(job_id: int):
 
 
 def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_year: bool = True) -> tuple[bytes, str]:
-    with get_conn() as con:
-        row = con.execute(
-            """
-            SELECT j.job_id, j.job_number, j.reporting_year, j.client_db_id, c.client_name,
-                   crp.reporting_period_from, crp.reporting_period_to
-            FROM jobs j
-            JOIN clients c ON c.db_id = j.client_db_id
-            LEFT JOIN crp_job_details crp ON crp.job_id = j.job_id
-            WHERE j.job_id=%s
-            """,
-            [int(job_id)],
-        ).fetchone()
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT j.job_id, j.job_number, j.reporting_year, j.client_db_id, c.client_name,
+                       crp.reporting_period_from, crp.reporting_period_to
+                FROM jobs j
+                JOIN clients c ON c.db_id = j.client_db_id
+                LEFT JOIN crp_job_details crp ON crp.job_id = j.job_id
+                WHERE j.job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+    except Exception:
+        wb = _load_template_workbook()
+
+        ws_core = _replace_sheet(wb, "Core Data")
+        _append_kv(
+            ws_core,
+            [
+                ("Job ID", int(job_id)),
+                ("Template Site", selected_site),
+                ("Include Previous Year", bool(include_prev_year)),
+            ],
+        )
+
+        for ws in wb.worksheets:
+            try:
+                if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
+                    ws["B1"].value = selected_site
+            except Exception:
+                pass
+
+        bio = io.BytesIO()
+        wb.save(bio)
+        data = bio.getvalue()
+        filename = f"job_{int(job_id)}_data_upload_template.xlsx"
+        return data, filename
 
     if not row:
         raise ValueError("Job not found")

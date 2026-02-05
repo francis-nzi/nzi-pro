@@ -903,7 +903,11 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
     import numpy as np
 
     def norm_col(c: str) -> str:
-        return c.lower().strip().replace("_", " ")
+        s = c.lower().strip().replace("_", " ")
+        # normalize punctuation like 'GHG/Unit' -> 'ghg unit'
+        s = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in s)
+        s = " ".join(s.split())
+        return s
 
     def norm_ghg_unit(v):
         if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -915,6 +919,70 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
         if s.lower() in ("kgco2e", "kgco₂e"):
             return "kgCO2e"
         return s
+
+    def norm_scope(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return None
+        s = str(v).strip()
+        if not s or s.lower() == "nan":
+            return None
+        sl = s.replace(" ", "").replace("_", "").lower()
+        if sl.startswith("scope1") or sl == "s1" or "scope1" in sl:
+            return "Scope 1"
+        if sl.startswith("scope2") or sl == "s2" or "scope2" in sl:
+            return "Scope 2"
+        if sl.startswith("scope3") or sl == "s3" or "scope3" in sl:
+            return "Scope 3"
+        if "scope 1" in s.lower():
+            return "Scope 1"
+        if "scope 2" in s.lower():
+            return "Scope 2"
+        if "scope 3" in s.lower():
+            return "Scope 3"
+        return s
+
+    def norm_original_id(v):
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return None
+        if isinstance(v, float):
+            # Common Excel artifact: 1234.0
+            if float(v).is_integer():
+                return str(int(v))
+        s = str(v).strip()
+        if not s or s.lower() == "nan":
+            return None
+        if s.endswith(".0"):
+            head = s[:-2]
+            if head.isdigit():
+                return head
+        return s
+
+    def synth_column_text(r, c_text, c_l1, c_l2, c_l3, c_l4):
+        if c_text is not None:
+            try:
+                v = r[c_text]
+                if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                    s = str(v).strip()
+                    if s and s.lower() != "nan":
+                        return s
+            except Exception:
+                pass
+        parts = []
+        for c in (c_l1, c_l2, c_l3, c_l4):
+            if c is None:
+                continue
+            try:
+                v = r[c]
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    continue
+                s = str(v).strip()
+                if s and s.lower() != "nan":
+                    parts.append(s)
+            except Exception:
+                continue
+        if not parts:
+            return ""
+        return " - ".join(parts)
 
     # Read CSV
     content = file.read()
@@ -935,6 +1003,10 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
             k = norm_col(n)
             if k in cols:
                 return cols[k]
+            # Allow year-suffixed variants like 'ghg conversion factor 2025'
+            for ck, orig in cols.items():
+                if ck.startswith(k):
+                    return orig
         return None
 
     # Core columns
@@ -947,18 +1019,25 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
     c_l4 = pick("Level 4")
     c_text = pick("Column Text", "Description", "Name", "Activity")
     c_uom = pick("UOM", "Unit", "Units")
-    c_ghg = pick("GHG Unit", "GHGUnit")
+    c_ghg = pick("GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per")
     c_fac = pick(
         "Factor",
         "GHG Conversion Factor",
+        "GHG Conversion Factor 2025",
         "kgCO2e per unit",
         "kgco2e_per_unit",
         "kgCO2e per GBP",
         "kgCO2e_per_GBP",
     )
 
-    if c_text is None or c_fac is None:
-        st.error("CSV missing required columns (Column Text / Factor).")
+    if c_fac is None:
+        st.error("CSV missing required column: Factor.")
+        return 0
+    if c_id is None:
+        st.error("CSV missing required column: ID.")
+        return 0
+    if c_scope is None:
+        st.error("CSV missing required column: Scope.")
         return 0
 
     # Dataset metadata fallback
@@ -987,18 +1066,28 @@ def _ingest_factors(file, dataset_id: int, datasets_df: pd.DataFrame) -> int:
         except Exception:
             continue
 
+        oid = norm_original_id(r[c_id] if c_id else None)
+        if oid is None:
+            continue
+
+        scope_norm = norm_scope(r[c_scope] if c_scope else None)
+        if scope_norm is None:
+            continue
+
+        col_text = synth_column_text(r, c_text, c_l1, c_l2, c_l3, c_l4)
+
         rows.append(
             [
                 dataset_id,
                 file.name,
                 yr,
-                r[c_id] if c_id else None,
-                r[c_scope] if c_scope else None,
+                oid,
+                scope_norm,
                 r[c_l1] if c_l1 else None,
                 r[c_l2] if c_l2 else None,
                 r[c_l3] if c_l3 else None,
                 r[c_l4] if c_l4 else None,
-                str(r[c_text]).strip(),
+                col_text,
                 r[c_uom] if c_uom else None,
                 norm_ghg_unit(r[c_ghg]) if c_ghg else "kgCO2e",
                 factor,

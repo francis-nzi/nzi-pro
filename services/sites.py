@@ -7,7 +7,7 @@ def list_sites(client_db_id: int) -> pd.DataFrame:
     with get_conn() as con:
         return con.execute(
             """
-            SELECT site_name, location, is_registered_office
+            SELECT site_id, site_name, location, is_registered_office
             FROM client_sites
             WHERE client_db_id=?
             ORDER BY site_name

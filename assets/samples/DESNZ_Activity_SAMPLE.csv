@@ -1,4 +1,6 @@
-Year,ID,Scope,Level 1,Level 2,Level 3,Level 4,Column Text,UOM,GHG Unit,Factor
-2025,ELEC_GRID,Scope 2,Electricity,UK grid,,,"Electricity: UK grid",kWh,kgCO2e,0.193
-2025,NAT_GAS,Scope 1,Stationary combustion,Natural gas,,,"Natural gas combustion",kWh,kgCO2e,0.183
-2025,DIESEL,Scope 1,Mobile combustion,Diesel,,,"Diesel fuel (road)",litre,kgCO2e,2.68
+Year,ID,Scope,Category,Level 2,Level 3,Level 4,UOM,GHG Unit,Factor
+2025,1_100_1004_6_1,Scope 1,Fuels,Natural Gas,Grid,,kWh,kgCO2e,0.18296
+2025,4_301_3061_9_1,Scope 1,Company Vehicles,Cars,Large car,Diesel,Miles,kgCO2e,0.33808
+2025,7_400_4000_5_1,Scope 2,Electricity,UK,,,kWh,kgCO2e,0.177
+2025,2_105_1047_5_1,Scope 1,Fuels,Bioenergy,Biogas,Grid,kWh,kgCO2e,0.00022
+2025,18_405_4006_1_1,Scope 3,Waste Generated in Operations,Water Treatment          ,,,kg,kgCO2e,0.17088
