@@ -1,0 +1,141 @@
+"""
+Quick dataset import endpoint for development/testing.
+Imports the 2025 DESNZ conversion factors CSV.
+"""
+
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException
+from api.auth import _current_user
+
+router = APIRouter()
+
+
+@router.post("/import-sample-dataset")
+def import_sample_dataset(_user: dict[str, str] = Depends(_current_user)):
+    """
+    Import the 2025 DESNZ Activity conversion factors as a sample dataset.
+    This is a quick import for development/testing purposes.
+    """
+    try:
+        # Import the ingest function
+        from ingest_conversion_factors import ingest_csv
+        
+        # Path to the sample CSV
+        csv_path = Path(__file__).parent.parent / "assets" / "conversion_factors" / "2025-DESNZ-Conversion-Factors-Activity.csv"
+        
+        if not csv_path.exists():
+            raise HTTPException(status_code=404, detail=f"Sample CSV not found at: {csv_path}")
+        
+        # Ingest the CSV
+        dataset_id, factor_count = ingest_csv(csv_path, replace=False)
+        
+        return {
+            "ok": True,
+            "dataset_id": dataset_id,
+            "factors_imported": factor_count,
+            "message": f"Successfully imported {factor_count} conversion factors into dataset {dataset_id}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import sample dataset: {str(e)}")
+
+
+@router.post("/import-all-datasets")
+def import_all_datasets(
+    replace: bool = False,
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """
+    Import all conversion factor CSVs from the assets/conversion_factors folder.
+    This imports both DESNZ Activity and DEFRA Spend datasets.
+    
+    Args:
+        replace: If True, deletes existing factors for each dataset before importing
+    """
+    try:
+        from ingest_conversion_factors import ingest_csv
+        
+        # Path to conversion factors folder
+        cf_folder = Path(__file__).parent.parent / "assets" / "conversion_factors"
+        
+        if not cf_folder.exists():
+            raise HTTPException(status_code=404, detail=f"Conversion factors folder not found at: {cf_folder}")
+        
+        # Find all CSV files
+        csv_files = sorted([p for p in cf_folder.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
+        
+        if not csv_files:
+            raise HTTPException(status_code=404, detail=f"No CSV files found in: {cf_folder}")
+        
+        # Import each CSV
+        results = []
+        total_factors = 0
+        
+        for csv_path in csv_files:
+            try:
+                dataset_id, factor_count = ingest_csv(csv_path, replace=replace)
+                total_factors += factor_count
+                results.append({
+                    "file": csv_path.name,
+                    "dataset_id": dataset_id,
+                    "factors": factor_count,
+                    "status": "success"
+                })
+            except Exception as e:
+                results.append({
+                    "file": csv_path.name,
+                    "error": str(e),
+                    "status": "failed"
+                })
+        
+        return {
+            "ok": True,
+            "total_factors": total_factors,
+            "datasets_imported": len([r for r in results if r["status"] == "success"]),
+            "results": results,
+            "replaced": replace
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import datasets: {str(e)}")
+
+
+@router.get("/check-datasets")
+def check_datasets(_user: dict[str, str] = Depends(_current_user)):
+    """Check if any datasets exist in the system."""
+    try:
+        from core.database import get_conn
+        
+        with get_conn() as con:
+            result = con.execute("SELECT COUNT(*) FROM datasets").fetchone()
+            count = result[0] if result else 0
+            
+            if count > 0:
+                # Get the first dataset
+                dataset_row = con.execute(
+                    "SELECT dataset_id, name, year, source FROM datasets LIMIT 1"
+                ).fetchone()
+                
+                return {
+                    "has_datasets": True,
+                    "count": count,
+                    "sample_dataset": {
+                        "dataset_id": dataset_row[0],
+                        "name": dataset_row[1],
+                        "year": dataset_row[2],
+                        "source": dataset_row[3]
+                    } if dataset_row else None
+                }
+            else:
+                return {
+                    "has_datasets": False,
+                    "count": 0,
+                    "message": "No datasets found. Import sample dataset to get started."
+                }
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check datasets: {str(e)}")

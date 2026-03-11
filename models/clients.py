@@ -92,7 +92,7 @@ def update_client(client_id:int, payload:dict):
         "logo_url", "crm_owner", "portfolio",
         "net_zero_year", "interim_year", "interim_s1_pct", "interim_s2_pct", "interim_s3_pct",
         "target_s1_year", "target_s2_year", "target_s3_year", "target_s1_pct", "target_s2_pct", "target_s3_pct",
-        "benchmark_year",
+        "benchmark_year", "benchmark_period_start", "benchmark_period_end", "currency",
     ]
     sets = []
     vals = []

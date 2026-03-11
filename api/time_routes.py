@@ -1,0 +1,270 @@
+"""Time tracking API routes"""
+from fastapi import APIRouter, HTTPException, Depends, Body
+from core.database import get_conn
+from api.auth import _current_user
+
+router = APIRouter()
+
+
+@router.get("/time-logs")
+def list_time_logs(
+    job_id: int | None = None,
+    user_id: str | None = None,
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Get all time logs, optionally filtered by job_id or user_id"""
+    try:
+        with get_conn() as con:
+            where_clauses = []
+            params = []
+            
+            if job_id is not None:
+                where_clauses.append("tl.job_id = ?")
+                params.append(int(job_id))
+            
+            if user_id is not None:
+                where_clauses.append("tl.user_id = ?")
+                params.append(user_id)
+            
+            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            
+            rows = con.execute(
+                f"""
+                SELECT tl.time_id, tl.job_id, tl.user_id, tl.subject, 
+                       tl.work_date, tl.minutes, tl.notes, tl.created_at,
+                       j.job_number, j.title as job_title, c.client_name,
+                       u.full_name as user_name
+                FROM time_logs tl
+                LEFT JOIN jobs j ON j.job_id = tl.job_id
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                LEFT JOIN users u ON u.user_id = tl.user_id
+                {where_sql}
+                ORDER BY tl.work_date DESC, tl.created_at DESC
+                """,
+                params
+            ).df()
+            
+            if rows.empty:
+                return {"items": []}
+            
+            items = []
+            for _, r in rows.iterrows():
+                items.append({
+                    "time_id": int(r.get("time_id")),
+                    "job_id": int(r.get("job_id")) if r.get("job_id") is not None else None,
+                    "job_number": r.get("job_number"),
+                    "job_title": r.get("job_title"),
+                    "client_name": r.get("client_name"),
+                    "user_id": r.get("user_id"),
+                    "user_name": r.get("user_name"),
+                    "subject": r.get("subject"),
+                    "work_date": str(r.get("work_date")) if r.get("work_date") else None,
+                    "minutes": int(r.get("minutes")) if r.get("minutes") is not None else 0,
+                    "hours": round(int(r.get("minutes")) / 60, 2) if r.get("minutes") is not None else 0,
+                    "notes": r.get("notes"),
+                    "created_at": str(r.get("created_at")) if r.get("created_at") else None,
+                })
+            
+            return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch time logs: {e}")
+
+
+@router.post("/time-logs")
+def create_time_log(
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Create a new time log entry"""
+    try:
+        job_id = body.get("job_id")
+        if not job_id:
+            raise HTTPException(status_code=400, detail="job_id is required")
+        
+        subject = body.get("subject", "").strip()
+        if not subject:
+            raise HTTPException(status_code=400, detail="subject is required")
+        
+        user_id = _user.get("user_id")
+        work_date = body.get("work_date")
+        minutes = body.get("minutes", 0)
+        notes = body.get("notes", "")
+        
+        if not work_date:
+            raise HTTPException(status_code=400, detail="work_date is required")
+        
+        with get_conn() as con:
+            # Verify job exists
+            job_exists = con.execute(
+                "SELECT 1 FROM jobs WHERE job_id = ?",
+                [int(job_id)]
+            ).fetchone()
+            
+            if not job_exists:
+                raise HTTPException(status_code=404, detail="Job not found")
+            
+            # Insert time log
+            result = con.execute(
+                """
+                INSERT INTO time_logs (job_id, user_id, subject, work_date, minutes, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                RETURNING time_id
+                """,
+                [int(job_id), user_id, subject, work_date, int(minutes), notes]
+            ).fetchone()
+            
+            time_id = result[0]
+            
+            return {"time_id": time_id, "message": "Time log created successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create time log: {e}")
+
+
+@router.patch("/time-logs/{time_id}")
+def update_time_log(
+    time_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Update an existing time log entry"""
+    try:
+        with get_conn() as con:
+            # Check if time log exists
+            existing = con.execute(
+                "SELECT user_id FROM time_logs WHERE time_id = ?",
+                [int(time_id)]
+            ).fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="Time log not found")
+            
+            # Only allow users to edit their own time logs (or admins could be added here)
+            if existing[0] != _user.get("user_id"):
+                raise HTTPException(status_code=403, detail="You can only edit your own time logs")
+            
+            updates = []
+            params = []
+            
+            if "job_id" in body:
+                updates.append("job_id = ?")
+                params.append(int(body["job_id"]))
+            
+            if "subject" in body:
+                updates.append("subject = ?")
+                params.append(body["subject"])
+            
+            if "work_date" in body:
+                updates.append("work_date = ?")
+                params.append(body["work_date"])
+            
+            if "minutes" in body:
+                updates.append("minutes = ?")
+                params.append(int(body["minutes"]))
+            
+            if "notes" in body:
+                updates.append("notes = ?")
+                params.append(body["notes"])
+            
+            if not updates:
+                return {"message": "No updates provided"}
+            
+            params.append(int(time_id))
+            con.execute(
+                f"UPDATE time_logs SET {', '.join(updates)} WHERE time_id = ?",
+                params
+            )
+            
+            return {"message": "Time log updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update time log: {e}")
+
+
+@router.delete("/time-logs/{time_id}")
+def delete_time_log(
+    time_id: int,
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Delete a time log entry"""
+    try:
+        with get_conn() as con:
+            # Check if time log exists
+            existing = con.execute(
+                "SELECT user_id FROM time_logs WHERE time_id = ?",
+                [int(time_id)]
+            ).fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail="Time log not found")
+            
+            # Only allow users to delete their own time logs
+            if existing[0] != _user.get("user_id"):
+                raise HTTPException(status_code=403, detail="You can only delete your own time logs")
+            
+            con.execute("DELETE FROM time_logs WHERE time_id = ?", [int(time_id)])
+            
+            return {"message": "Time log deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete time log: {e}")
+
+
+@router.get("/time-subjects")
+def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
+    """Get all active time subjects"""
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                """
+                SELECT subject_id, name, budget_hours
+                FROM time_subjects
+                WHERE is_active = TRUE
+                ORDER BY name
+                """
+            ).df()
+            
+            if rows.empty:
+                return {"items": []}
+            
+            items = []
+            for _, r in rows.iterrows():
+                items.append({
+                    "subject_id": int(r.get("subject_id")),
+                    "name": r.get("name"),
+                    "budget_hours": float(r.get("budget_hours", 0)),
+                })
+            
+            return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch time subjects: {e}")
+
+
+@router.patch("/time-subjects/{subject_id}")
+def update_time_subject(
+    subject_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Update a time subject's budget hours"""
+    try:
+        budget_hours = body.get("budget_hours")
+        if budget_hours is None:
+            raise HTTPException(status_code=400, detail="budget_hours is required")
+        
+        with get_conn() as con:
+            con.execute(
+                """
+                UPDATE time_subjects
+                SET budget_hours = ?
+                WHERE subject_id = ?
+                """,
+                [float(budget_hours), subject_id]
+            )
+            
+            return {"success": True, "message": "Time subject updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update time subject: {e}")

@@ -1,0 +1,52 @@
+{#
+  Cover Page Section
+  Title page with client info and report details
+  Expects: meta (report metadata), data (job/ emissions data), assets (logos)
+#}
+
+<div class="title-page page-break">
+    <div class="title-page-content">
+        <h1 class="title-main">Greenhouse Gas Emissions Report</h1>
+        
+        {% if data.reporting_year %}
+        <div class="title-subtitle">{{ data.reporting_year }}</div>
+        {% endif %}
+        
+        <div class="title-logo">
+            {% if assets.logo %}
+            <img src="{{ assets.logo }}" alt="Company Logo" class="logo-image">
+            {% endif %}
+        </div>
+        
+        <div class="title-info-box">
+            <table class="title-info-table">
+                <tr>
+                    <td class="label">Client:</td>
+                    <td class="value">{{ data.client_name }}</td>
+                </tr>
+                {% if data.title %}
+                <tr>
+                    <td class="label">Report Title:</td>
+                    <td class="value">{{ data.title }}</td>
+                </tr>
+                {% endif %}
+                {% if data.reporting_period %}
+                <tr>
+                    <td class="label">Reporting Period:</td>
+                    <td class="value">{{ data.reporting_period }}</td>
+                </tr>
+                {% endif %}
+                {% if data.job_number %}
+                <tr>
+                    <td class="label">Job Number:</td>
+                    <td class="value">{{ data.job_number }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td class="label">Generated:</td>
+                    <td class="value">{{ generation_date }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>

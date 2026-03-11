@@ -1,0 +1,91 @@
+{#
+  Scope Analysis Section
+  Detailed breakdown by Scope 1, 2, 3
+  Expects: meta (report metadata), data (emissions data, categories), assets (charts)
+#}
+
+<div class="report-section">
+    <h2 class="report-section-title">5. Analysis by Scope</h2>
+    
+    <p>
+        The total calculated emissions for the business for the period 
+        {{ data.period_start }} to {{ data.period_end }} are 
+        <strong>{{ data.scope_totals.Total|round(1) }} tCO₂e</strong>. 
+        The breakdown of emissions is analysed throughout this report.
+    </p>
+
+    <p>
+        The calculated emissions are based on the most up to date emissions factors at the time 
+        of the publication of this report. It should be noted that emissions factors are updated 
+        regularly and will be retrospectively applied. As such, emissions values may change when 
+        calculated in future years.
+    </p>
+
+    {# Chart slot - hero width #}
+    {% if assets.scope_breakdown %}
+    <div class="chart-slot chart-hero">
+        <div class="chart-title">Emissions by Scope (tCO₂e)</div>
+        <img src="{{ assets.scope_breakdown }}" alt="Scope Breakdown Chart" class="chart-image">
+        <div class="chart-caption">{{ data.period_start }} to {{ data.period_end }}</div>
+    </div>
+    {% endif %}
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Scope</th>
+                <th>Description</th>
+                <th class="text-right">tCO₂e</th>
+                <th class="text-right">%</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Scope 1</strong></td>
+                <td>Scope 1 emissions includes fuels used at company premises and company vehicles.</td>
+                <td class="text-right">{{ data.scope_totals['Scope 1']|round(1) }}</td>
+                <td class="text-right">
+                    {% if data.scope_totals.Total > 0 %}
+                        {{ ((data.scope_totals['Scope 1'] / data.scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Scope 2</strong></td>
+                <td>Emissions in scope 2 includes electricity used at the company's premises. The premises are on a mixed tariff.</td>
+                <td class="text-right">{{ data.scope_totals['Scope 2']|round(1) }}</td>
+                <td class="text-right">
+                    {% if data.scope_totals.Total > 0 %}
+                        {{ ((data.scope_totals['Scope 2'] / data.scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Scope 3</strong></td>
+                <td>Scope 3 emissions include:<br>• Business Travel<br>• Employee Commuting<br>• Transmission and Distribution of Electricity<br>• Waste and/or Water</td>
+                <td class="text-right">{{ data.scope_totals['Scope 3']|round(1) }}</td>
+                <td class="text-right">
+                    {% if data.scope_totals.Total > 0 %}
+                        {{ ((data.scope_totals['Scope 3'] / data.scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr class="total-row">
+                <td><strong>TOTAL</strong></td>
+                <td></td>
+                <td class="text-right"><strong>{{ data.scope_totals.Total|round(1) }}</strong></td>
+                <td class="text-right"><strong>100.0%</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer-note">
+        Reported Scope 3 emissions may increase in future years as more detailed data and information become available.
+    </div>
+</div>

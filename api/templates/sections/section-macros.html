@@ -1,0 +1,56 @@
+{#
+  Section Macros - Reusable components for report sections
+  Provides consistent styling and functionality across all sections
+#}
+
+{% macro section_header(title, subtitle=none) %}
+<h2 class="report-section-title">{{ title }}</h2>
+{% if subtitle %}
+<p class="report-section-subtitle">{{ subtitle }}</p>
+{% endif %}
+{% endmacro %}
+
+{% macro chart_slot(slot_name, title, chart_key) %}
+<div class="chart-slot chart-{{ slot_name }}">
+    <div class="chart-title">{{ title }}</div>
+    {% if assets[chart_key] %}
+    <img src="{{ assets[chart_key] }}" alt="{{ title }}" class="chart-image">
+    {% else %}
+    <div class="chart-placeholder">Chart: {{ chart_key }}</div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro data_table(headers, rows, caption=none) %}
+<table class="data-table">
+    {% if caption %}
+    <caption>{{ caption }}</caption>
+    {% endif %}
+    <thead>
+        <tr>
+            {% for header in headers %}
+            <th>{{ header }}</th>
+            {% endfor %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr>
+            {% for cell in row %}
+            <td>{{ cell }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{% macro info_box(content, type='info') %}
+<div class="info-box {{ type }}-box">
+    {{ content }}
+</div>
+{% endmacro %}
+
+{% macro footer_note(text) %}
+<div class="footer-note">{{ text }}</div>
+{% endmacro %}

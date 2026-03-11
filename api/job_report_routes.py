@@ -1,0 +1,2848 @@
+﻿"""
+API endpoints for job report generation.
+Generates comprehensive PDF reports with emissions data.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from pydantic import BaseModel
+import io
+from datetime import datetime
+import re
+import os
+import base64
+import json
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
+from typing import Optional, Any
+
+# Import heavyweight deps inside functions to avoid startup overhead and missing dep errors
+# - matplotlib: Used for chart generation (in chart_generation module)
+# - docraptor: Used for professional PDF generation
+# - python-docx: Used for DOCX export
+# - playwright: Used for Playwright-based PDF generation (legacy)
+
+from core.database import get_conn
+from api.auth import _current_user
+from api.report_template_routes import (
+    _validate_required_template_variables,
+    _get_job_report_metadata,
+    _build_report_render_values,
+)
+from api.chart_generation import (
+    generate_report_assets,
+    validate_report_assets,
+    REQUIRED_ASSETS,
+)
+
+# DocRaptor configuration
+DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
+
+ACTIVITY_GROUP_ORDER = [
+    'Energy',
+    'Business Travel',
+    'Employee Commuting',
+    'Purchased Goods & Services (PG&S)',
+    'Other Emissions',
+]
+
+ACTIVITY_GROUP_COLORS = {
+    'Energy': '#4472C4',
+    'Business Travel': '#ED7D31',
+    'Employee Commuting': '#A5A5A5',
+    'Purchased Goods & Services (PG&S)': '#8064A2',
+    'Other Emissions': '#70AD47',
+}
+
+DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
+    {"term": "Absolute Emissions", "definition": "The total amount of greenhouse gasses calculated, measured in tonnes of CO2e."},
+    {"term": "Benchmark Data", "definition": "The chosen 12-month period that sets the calculated emissions that need to be mitigated and/or offset."},
+    {"term": "Carbon Reduction", "definition": "Reduction in measured CO2e emissions."},
+    {"term": "Carbon Emissions (Gross)", "definition": "CO2e emissions from Company activities."},
+    {"term": "Carbon Reduction Plan", "definition": "Plan to reduce CO2e emissions over a period of time, updated annually."},
+    {"term": "tCO2e", "definition": "Tonnes of carbon dioxide equivalent - a standard unit for measuring carbon footprints."},
+    {"term": "Scope 1", "definition": "Direct GHG emissions from sources owned or controlled by the organisation."},
+    {"term": "Scope 2", "definition": "Indirect GHG emissions from purchased electricity, steam, heating and cooling."},
+    {"term": "Scope 3", "definition": "All other indirect emissions in the value chain."},
+    {"term": "GHG Protocol", "definition": "The globally recognized framework for measuring and managing greenhouse gas emissions."},
+    {"term": "Net Zero", "definition": "Achieving a balance between greenhouse gas emissions produced and emissions removed from the atmosphere."},
+    {"term": "Baseline Year", "definition": "The historical reference year against which emissions reductions are measured."},
+    {"term": "SECR", "definition": "Streamlined Energy and Carbon Reporting - UK reporting requirement"},
+    {"term": "Intensity Metric", "definition": "Emissions normalised by business activity (e.g., per employee, per GBP revenue)."},
+    {"term": "Emission Factor", "definition": "A coefficient that converts activity data into GHG emissions."},
+]
+
+router = APIRouter()
+
+
+class GenerateReportPayload(BaseModel):
+    template_id: Optional[int] = None
+    version_id: Optional[int] = None
+
+
+_SYSTEM_LOGO_PATH = (
+    Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "system" / "nzi-logo.png"
+)
+
+
+def _get_nzi_logo_src() -> str:
+    """Return NZI logo as data URI, with URL fallback if file is unavailable."""
+    try:
+        if _SYSTEM_LOGO_PATH.exists():
+            return "data:image/png;base64," + base64.b64encode(_SYSTEM_LOGO_PATH.read_bytes()).decode("ascii")
+    except Exception:
+        pass
+    return "/uploads/system/nzi-logo.png"
+
+
+def _normalize_render_value(value):
+    """Normalize DB values for template rendering (handle NULL/NaN)."""
+    if value is None:
+        return ""
+    try:
+        # NaN check (NaN != NaN)
+        if isinstance(value, float) and value != value:
+            return ""
+    except Exception:
+        pass
+    return value
+
+
+def _resolve_builtin_template_name(selection: dict | None) -> str:
+    """Choose a bundled template file when no custom template_content exists."""
+    if not selection:
+        return "report_template.html"
+
+    hint = (
+        f"{selection.get('template_type', '')} "
+        f"{selection.get('report_type', '')} "
+        f"{selection.get('template_key', '')} "
+        f"{selection.get('template_name', '')}"
+    ).lower()
+
+    # CRP templates use the previously developed interactive layout with full section set.
+    if (
+        ("crp" in hint)
+        or ("carbon_reduction_plan" in hint)
+        or ("carbon reduction plan" in hint)
+        or ("ppn_006" in hint)
+        or ("ppn 006" in hint)
+        or ("ppn06/21" in hint)
+    ):
+        return "interactive_report.html"
+
+    # Only explicitly professional templates should use the professional layout.
+    if "professional" in hint:
+        return "professional_report.html"
+
+    return "report_template.html"
+
+
+def _use_forced_builtin_template(selection: dict | None) -> bool:
+    """Force bundled template only for explicitly professional templates."""
+    if not selection:
+        return False
+    hint = (
+        f"{selection.get('template_type', '')} "
+        f"{selection.get('report_type', '')} "
+        f"{selection.get('template_key', '')} "
+        f"{selection.get('template_name', '')}"
+    ).lower()
+    return (
+        ("professional" in hint)
+        or ("crp" in hint)
+        or ("carbon_reduction_plan" in hint)
+        or ("carbon reduction plan" in hint)
+        or ("ppn_006" in hint)
+        or ("ppn 006" in hint)
+        or ("ppn06/21" in hint)
+    )
+
+
+def _resolve_template_for_render(env: Environment, selection: dict | None):
+    """Resolve template source (built-in or DB content) for rendering."""
+    if _use_forced_builtin_template(selection):
+        return env.get_template(_resolve_builtin_template_name(selection))
+
+    template_content = selection.get("template_content") if selection else None
+    if template_content and str(template_content).strip():
+        return env.from_string(str(template_content))
+
+    template_name = _resolve_builtin_template_name(selection)
+    return env.get_template(template_name)
+
+
+def _get_template_selection(template_id: int, version_id: int | None = None):
+    """Load template + version metadata, defaulting to latest version when missing."""
+    with get_conn() as con:
+        template_row = con.execute(
+            """
+            SELECT template_id, template_key, template_name, template_type, report_type, is_active
+            FROM report_templates
+            WHERE template_id = %s
+            """,
+            [int(template_id)],
+        ).fetchone()
+
+        if not template_row:
+            return None
+        if not bool(template_row[5]):
+            return None
+
+        if version_id is None:
+            version_row = con.execute(
+                """
+                SELECT version_id, version_number, version_label, status, template_content
+                FROM report_template_versions
+                WHERE template_id = %s
+                ORDER BY version_number DESC
+                LIMIT 1
+                """,
+                [int(template_id)],
+            ).fetchone()
+        else:
+            version_row = con.execute(
+                """
+                SELECT version_id, version_number, version_label, status, template_content
+                FROM report_template_versions
+                WHERE template_id = %s AND version_id = %s
+                LIMIT 1
+                """,
+                [int(template_id), int(version_id)],
+            ).fetchone()
+
+    if not version_row:
+        return {
+            "template_id": int(template_row[0]),
+            "template_key": template_row[1],
+            "template_name": template_row[2],
+            "template_type": template_row[3],
+            "report_type": template_row[4],
+            "version_id": None,
+            "version_number": None,
+            "version_label": None,
+            "version_status": None,
+            "template_content": None,
+        }
+
+    return {
+        "template_id": int(template_row[0]),
+        "template_key": template_row[1],
+        "template_name": template_row[2],
+        "template_type": template_row[3],
+        "report_type": template_row[4],
+        "version_id": int(version_row[0]),
+        "version_number": int(version_row[1]) if version_row[1] is not None else None,
+        "version_label": version_row[2],
+        "version_status": version_row[3],
+        "template_content": version_row[4],
+    }
+
+
+def _get_job_assigned_template_selection(job_id: int):
+    """Get currently assigned template/version for a job."""
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT a.template_id, a.version_id
+            FROM job_report_template_assignments a
+            WHERE a.job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+    if not row:
+        return None
+
+    return _get_template_selection(int(row[0]), int(row[1]) if row[1] is not None else None)
+
+
+def _get_job_assignment_template_and_version(job_id: int) -> tuple[int, int] | None:
+    """Return strictly assigned template_id/version_id for a job, or None if incomplete."""
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT template_id, version_id
+            FROM job_report_template_assignments
+            WHERE job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+    if not row:
+        return None
+
+    template_id = int(row[0]) if row[0] is not None else None
+    version_id = int(row[1]) if row[1] is not None else None
+    if template_id is None or version_id is None:
+        return None
+
+    return template_id, version_id
+
+
+def _get_template_variable_values_for_render(job_id: int, template_id: int, version_id: int | None = None):
+    """Build variable map for template rendering with version-aware preference."""
+    with get_conn() as con:
+        df = con.execute(
+            """
+            SELECT
+                rtv.variable_key,
+                COALESCE(
+                  (
+                    SELECT jrv.variable_value
+                    FROM job_report_variable_values jrv
+                    WHERE jrv.job_id = %s
+                      AND jrv.template_id = rtv.template_id
+                      AND jrv.variable_key = rtv.variable_key
+                      AND (%s IS NULL OR jrv.version_id = %s)
+                    ORDER BY
+                      CASE
+                        WHEN %s IS NOT NULL AND jrv.version_id = %s THEN 0
+                        ELSE 1
+                      END,
+                      jrv.updated_at DESC
+                    LIMIT 1
+                  ),
+                  rtv.default_value
+                ) AS value
+            FROM report_template_variables rtv
+            WHERE rtv.template_id = %s
+            ORDER BY rtv.display_order, rtv.variable_key
+            """,
+            [
+                int(job_id),
+                version_id,
+                version_id,
+                version_id,
+                version_id,
+                int(template_id),
+            ],
+        ).df()
+
+    values = {}
+    if df is None or df.empty:
+        return values
+
+    for _, row in df.iterrows():
+        key = str(row["variable_key"])
+        values[key] = _normalize_render_value(row["value"])
+    return values
+
+
+def _get_template_variable_metadata(template_id: int) -> dict[str, dict[str, object]]:
+    """Return metadata map by variable_key for display-friendly DOCX rendering."""
+    with get_conn() as con:
+        df = con.execute(
+            """
+            SELECT variable_key, variable_label, section, variable_type, display_order
+            FROM report_template_variables
+            WHERE template_id = %s
+            ORDER BY display_order, variable_key
+            """,
+            [int(template_id)],
+        ).df()
+
+    out: dict[str, dict[str, object]] = {}
+    if df is None or df.empty:
+        return out
+
+    for _, row in df.iterrows():
+        key = str(row.get("variable_key") or "").strip()
+        if not key:
+            continue
+        out[key] = {
+            "label": str(row.get("variable_label") or key),
+            "section": str(row.get("section") or "General"),
+            "type": str(row.get("variable_type") or "text"),
+            "order": int(row.get("display_order") or 0),
+        }
+    return out
+
+
+def _norm_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _classify_activity_group(scope: str, category: str, report_label: str) -> str:
+    """Classify a category into report activity group buckets."""
+    scope_norm = _norm_text(scope)
+    search_text = f"{_norm_text(category)} {_norm_text(report_label)}"
+
+    commuting_keywords = [
+        'commut',
+        'employee travel to work',
+        'home working',
+        'working from home',
+        'wfh',
+    ]
+    business_travel_keywords = [
+        'business travel',
+        'air travel',
+        'rail travel',
+        'hotel',
+        'taxi',
+        'car hire',
+        'rental',
+        'flight',
+    ]
+    pgs_keywords = [
+        'purchased goods',
+        'purchased services',
+        'purchased good',
+        'capital goods',
+        'procurement',
+        'supplier',
+        'supply chain',
+        'spend',
+    ]
+    energy_keywords = [
+        'electricity',
+        'gas',
+        'fuel',
+        'diesel',
+        'petrol',
+        'heating',
+        'cooling',
+        'energy',
+        'steam',
+        'refrigerant',
+    ]
+
+    if any(k in search_text for k in commuting_keywords):
+        return 'Employee Commuting'
+
+    if any(k in search_text for k in business_travel_keywords):
+        return 'Business Travel'
+
+    if any(k in search_text for k in pgs_keywords):
+        return 'Purchased Goods & Services (PG&S)'
+
+    if scope_norm in {'scope 1', 'scope 2'} or any(k in search_text for k in energy_keywords):
+        return 'Energy'
+
+    return 'Other Emissions'
+
+
+def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dict]], dict[str, float], list[dict]]:
+    """Return grouped activities, totals by group, and flattened detailed rows."""
+    groups: dict[str, list[dict]] = {k: [] for k in ACTIVITY_GROUP_ORDER}
+    totals: dict[str, float] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
+
+    for cat in categories:
+        group = _classify_activity_group(
+            str(cat.get('scope', '') or ''),
+            str(cat.get('category', '') or ''),
+            str(cat.get('report_label', '') or ''),
+        )
+        emissions = float(cat.get('emissions', 0) or 0)
+
+        enriched = dict(cat)
+        enriched['activity_group'] = group
+        groups[group].append(enriched)
+        totals[group] += emissions
+
+    details: list[dict] = []
+    for group in ACTIVITY_GROUP_ORDER:
+        sorted_rows = sorted(
+            groups[group],
+            key=lambda row: float(row.get('emissions', 0) or 0),
+            reverse=True,
+        )
+        for row in sorted_rows:
+            qty = float(row.get('qty', 0) or 0)
+            uom = row.get('uom') or ''
+            details.append(
+                {
+                    'activity_group': group,
+                    'scope': row.get('scope', ''),
+                    'emission_type': row.get('report_label') or row.get('category') or 'Uncategorised',
+                    'category': row.get('category', ''),
+                    'report_label': row.get('report_label', ''),
+                    'emissions': float(row.get('emissions', 0) or 0),
+                    'qty': qty,
+                    'uom': uom,
+                    'data_source': f"{uom} Data" if uom else 'Calculated',
+                    'data_confidence': 'High' if qty > 0 else 'Medium',
+                }
+            )
+
+    return groups, totals, details
+
+
+def create_donut_chart(data_dict, colors_dict, title, total_value, center_label="tCO2e"):
+    """
+    Create a high-quality donut chart and return it as a base64 encoded PNG.
+    Optimized for professional PDF rendering at 25% of page size.
+    
+    Args:
+        data_dict: Dictionary with labels as keys and values as values
+        colors_dict: Dictionary with labels as keys and hex colors as values
+        title: Chart title
+        total_value: Total value to display in center
+        center_label: Label to show under the center value
+    
+    Returns:
+        Base64 encoded PNG string
+    """
+    # Import matplotlib inside function to avoid startup overhead
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-interactive backend
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Circle
+    import base64
+    
+    # High-quality figure settings
+    plt.rcParams['figure.dpi'] = 300
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = ['Arial', 'Helvetica', 'DejaVu Sans']
+    plt.rcParams['axes.linewidth'] = 0.5
+
+    
+    # High-quality figure size (CSS will scale it down)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    
+    # Filter out zero values for the chart
+    labels = [k for k, v in data_dict.items() if v > 0]
+    values = [v for v in data_dict.values() if v > 0]
+    chart_colors = [colors_dict.get(k, '#999999') for k in labels]
+    
+    if not values:
+        # If no data, create a placeholder
+        labels = ['No Data']
+        values = [1]
+        chart_colors = ['#CCCCCC']
+    
+    # Create labels with scope name, value with thousand separator, and percentage
+    labels_with_data = []
+    total = sum(values)
+    for label, val in zip(labels, values):
+        pct = (val / total * 100) if total > 0 else 0
+        labels_with_data.append(f'{label}\n{val:,.1f} ({pct:.1f}%)')
+    
+    # Create donut chart with all info outside (no autopct)
+    # pctdistance is not used since we're not using autopct, but we ensure lines are drawn
+    wedges, texts = ax.pie(
+        values,
+        labels=labels_with_data,
+        colors=chart_colors,
+        startangle=90,
+        labeldistance=1.3,
+        wedgeprops=dict(width=0.35, edgecolor='white', linewidth=2),
+        textprops={'fontsize': 10, 'weight': 'normal', 'ha': 'center'}
+    )
+    
+    # Style the label text (outside with lines)
+    for text in texts:
+        text.set_fontsize(9)
+        text.set_weight('normal')
+    
+    # Add center circle for donut effect
+    centre_circle = Circle((0, 0), 0.60, fc='white', ec='none')
+    ax.add_artist(centre_circle)
+    
+    # Add total in center with thousand separator and doubled font size
+    ax.text(0, 0.05, f'{total_value:,.1f}', ha='center', va='center',
+            fontsize=32, fontweight='bold', color='#70AD47',
+            family='sans-serif')
+    ax.text(0, -0.18, center_label, ha='center', va='center',
+            fontsize=14, color='#70AD47', family='sans-serif')
+    
+    # Don't add title here - it will be in HTML
+    ax.axis('equal')
+    
+    # Save to bytes with high quality settings
+    img_buffer = io.BytesIO()
+    plt.savefig(img_buffer, format='png', dpi=300, bbox_inches='tight',
+                facecolor='white', edgecolor='none',
+                pad_inches=0.2, transparent=False)
+    plt.close(fig)
+    img_buffer.seek(0)
+    
+    # Encode to base64
+    img_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
+    return img_base64
+
+
+def create_activity_donut(
+    activity_totals: dict[str, float],
+    colors_dict: dict[str, str],
+    title: str = "Emissions by Activity",
+    center_label: str = "tCO2e",
+    period_from: object | None = None,
+    period_to: object | None = None,
+):
+    """
+    Backward-compatible wrapper for activity donut generation.
+    The date inputs are accepted for call-site compatibility but not required.
+    """
+    chart_data = {
+        group: float(activity_totals.get(group, 0.0) or 0.0)
+        for group in ACTIVITY_GROUP_ORDER
+    }
+    total_value = sum(chart_data.values())
+    return create_donut_chart(
+        chart_data,
+        colors_dict,
+        title,
+        total_value,
+        center_label=center_label,
+    )
+
+
+def get_job_data(job_id: int):
+    """Fetch job and client data for the report."""
+    with get_conn() as con:
+        job_row = con.execute("""
+            SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                   j.reporting_period_start, j.reporting_period_end,
+                   c.client_name, c.industry, c.logo_url, c.description_long,
+                   c.net_zero_year, c.interim_year, c.benchmark_year,
+                   c.benchmark_period_start, c.benchmark_period_end,
+                   c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
+                   c.target_s1_year, c.target_s2_year, c.target_s3_year,
+                   c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
+                   c.addr_city, c.addr_country
+            FROM jobs j
+            JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.job_id = %s
+        """, [int(job_id)]).fetchone()
+        
+        if not job_row:
+            return None
+        
+        # Fetch milestones
+        milestones = con.execute("""
+            SELECT data_collection_due, first_draft_due, final_report_due
+            FROM job_plan
+            WHERE job_id = %s
+        """, [int(job_id)]).fetchone()
+        
+        # Fetch CRP job details for Reporting Elements
+        crp_details = con.execute("""
+            SELECT num_employees, premises_owned, premises_leased, vehicles_owned, vehicles_leased
+            FROM crp_job_details
+            WHERE job_id = %s
+        """, [int(job_id)]).fetchone()
+        
+        return {
+            'job_id': job_row[0],
+            'job_number': job_row[1],
+            'title': job_row[2],
+            'reporting_year': job_row[3],
+            'status': job_row[4],
+            'period_start': job_row[5],
+            'period_end': job_row[6],
+            'client_name': job_row[7],
+            'industry': job_row[8],
+            'logo_url': job_row[9],
+            'description': job_row[10],
+            'net_zero_year': job_row[11],
+            'interim_year': job_row[12],
+            'benchmark_year': job_row[13],
+            'benchmark_period_start': job_row[14],
+            'benchmark_period_end': job_row[15],
+            'interim_s1_pct': job_row[16],
+            'interim_s2_pct': job_row[17],
+            'interim_s3_pct': job_row[18],
+            'target_s1_year': job_row[19],
+            'target_s2_year': job_row[20],
+            'target_s3_year': job_row[21],
+            'target_s1_pct': job_row[22],
+            'target_s2_pct': job_row[23],
+            'target_s3_pct': job_row[24],
+            'city': job_row[25],
+            'country': job_row[26],
+            'data_collection_due': milestones[0] if milestones else None,
+            'first_draft_due': milestones[1] if milestones else None,
+            'final_report_due': milestones[2] if milestones else None,
+            # Reporting Elements from crp_job_details
+            'no_of_staff': crp_details[0] if crp_details else None,
+            'no_premises_owned': crp_details[1] if crp_details else None,
+            'no_premises_leased': crp_details[2] if crp_details else None,
+            'no_vehicles_owned': crp_details[3] if crp_details else None,
+            'no_vehicles_leased': crp_details[4] if crp_details else None,
+        }
+
+
+def get_scope_totals(job_id: int):
+    """Get emissions totals by scope."""
+    with get_conn() as con:
+        df = con.execute("""
+            SELECT scope, qty, factor, ghg_unit, apply_pct,
+                   month_1, month_2, month_3, month_4, month_5, month_6,
+                   month_7, month_8, month_9, month_10, month_11, month_12
+            FROM job_scope_rows
+            WHERE job_id=%s AND enabled=TRUE
+        """, [int(job_id)]).df()
+        
+        # Use raw totals first, round only at the end to ensure Scope 1 + Scope 2 + Scope 3 = Total
+        raw_totals = {
+            "Scope 1": 0.0,
+            "Scope 2": 0.0,
+            "Scope 3": 0.0,
+        }
+        
+        if df is not None and not df.empty:
+            df = df.fillna(0)
+            for _, row in df.iterrows():
+                monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
+                qty_val = float(row.get('qty', 0) or monthly_total or 0)
+                factor_val = float(row.get('factor', 0) or 0)
+                apply_pct_val = float(row.get('apply_pct', 100) or 100)
+                
+                ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
+                emissions = qty_val * factor_val * (apply_pct_val / 100.0)
+                if 'kg' in ghg_unit:
+                    emissions = emissions / 1000.0
+                
+                scope = row.get('scope', '')
+                if scope in raw_totals:
+                    raw_totals[scope] += emissions
+        
+        # Round scope values to 2 decimal places, then sum them for total to ensure consistency
+        scope_1_rounded = round(raw_totals["Scope 1"], 2)
+        scope_2_rounded = round(raw_totals["Scope 2"], 2)
+        scope_3_rounded = round(raw_totals["Scope 3"], 2)
+        
+        totals = {
+            "Scope 1": scope_1_rounded,
+            "Scope 2": scope_2_rounded,
+            "Scope 3": scope_3_rounded,
+            "Total": scope_1_rounded + scope_2_rounded + scope_3_rounded
+        }
+        
+        return totals
+
+
+def get_emissions_by_category(job_id: int):
+    """Get emissions breakdown by category."""
+    with get_conn() as con:
+        df = con.execute("""
+            SELECT scope, category, report_label, qty, uom, factor, ghg_unit, apply_pct,
+                   month_1, month_2, month_3, month_4, month_5, month_6,
+                   month_7, month_8, month_9, month_10, month_11, month_12
+            FROM job_scope_rows
+            WHERE job_id=%s AND enabled=TRUE
+            ORDER BY scope, category, report_label
+        """, [int(job_id)]).df()
+        
+        if df is None or df.empty:
+            return []
+        
+        df = df.fillna({'category': 'Uncategorized', 'qty': 0, 'factor': 0, 'apply_pct': 100})
+        
+        categories = []
+        for _, row in df.iterrows():
+            monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
+            qty_val = float(row.get('qty', 0) or monthly_total or 0)
+            factor_val = float(row.get('factor', 0) or 0)
+            apply_pct_val = float(row.get('apply_pct', 100) or 100)
+            
+            ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
+            emissions = qty_val * factor_val * (apply_pct_val / 100.0)
+            if 'kg' in ghg_unit:
+                emissions = emissions / 1000.0
+            
+            categories.append({
+                'scope': row.get('scope', ''),
+                'category': row.get('category', 'Uncategorized'),
+                'report_label': row.get('report_label', ''),
+                'qty': qty_val,
+                'uom': row.get('uom', ''),
+                'emissions': emissions
+            })
+        
+        return categories
+
+
+def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) -> int | None:
+    """
+    Resolve benchmark comparison job for a given job.
+    Priority:
+    1) Explicit benchmark year job (excluding current), prefer is_benchmark then latest period.
+    2) Latest prior reporting period for same client.
+    3) Prior reporting year fallback.
+    """
+    with get_conn() as con:
+        current = con.execute(
+            """
+            SELECT job_id, client_db_id, reporting_year, reporting_period_end
+            FROM jobs
+            WHERE job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+        if not current:
+            return None
+
+        cur_job_id = int(current[0])
+        client_db_id = int(current[1])
+        cur_reporting_year = int(current[2]) if current[2] is not None else None
+        cur_period_end = current[3]
+
+        if benchmark_year is not None:
+            by_year = con.execute(
+                """
+                SELECT job_id
+                FROM jobs
+                WHERE client_db_id = %s
+                  AND reporting_year = %s
+                  AND job_id <> %s
+                ORDER BY COALESCE(is_benchmark, FALSE) DESC,
+                         reporting_period_end DESC NULLS LAST,
+                         job_id DESC
+                LIMIT 1
+                """,
+                [client_db_id, int(benchmark_year), cur_job_id],
+            ).fetchone()
+            if by_year and by_year[0] is not None:
+                return int(by_year[0])
+
+        if cur_period_end is not None:
+            prior_period = con.execute(
+                """
+                SELECT job_id
+                FROM jobs
+                WHERE client_db_id = %s
+                  AND reporting_period_end IS NOT NULL
+                  AND reporting_period_end < %s
+                  AND job_id <> %s
+                ORDER BY reporting_period_end DESC, job_id DESC
+                LIMIT 1
+                """,
+                [client_db_id, cur_period_end, cur_job_id],
+            ).fetchone()
+            if prior_period and prior_period[0] is not None:
+                return int(prior_period[0])
+
+        if cur_reporting_year is not None:
+            prior_year = con.execute(
+                """
+                SELECT job_id
+                FROM jobs
+                WHERE client_db_id = %s
+                  AND reporting_year IS NOT NULL
+                  AND reporting_year < %s
+                  AND job_id <> %s
+                ORDER BY reporting_year DESC, reporting_period_end DESC NULLS LAST, job_id DESC
+                LIMIT 1
+                """,
+                [client_db_id, cur_reporting_year, cur_job_id],
+            ).fetchone()
+            if prior_year and prior_year[0] is not None:
+                return int(prior_year[0])
+
+        return None
+
+
+def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
+    """Get benchmark emissions for comparison using period-aware benchmark resolution."""
+    benchmark_job_id = _resolve_benchmark_reference_job(int(job_id), benchmark_year)
+    if benchmark_job_id is None:
+        return {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}
+    return get_scope_totals(int(benchmark_job_id))
+
+
+def get_intensity_metrics(job_id: int):
+    """Get intensity metrics for the job.
+    
+    Reads from jobs.intensity_metrics JSONB column (where frontend saves data).
+    Falls back to job_report_metadata or crp_job_details for employee number.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        with get_conn() as con:
+            # Get intensity metrics from jobs.intensity_metrics JSONB column
+            job_row = con.execute("""
+                SELECT intensity_metrics 
+                FROM jobs 
+                WHERE job_id = %s
+            """, [int(job_id)]).fetchone()
+            
+            result = []
+            
+            # Get total emissions for intensity calculation
+            scope_totals = get_scope_totals(int(job_id))
+            total_emissions = scope_totals.get('Total', 0)
+            
+            logger.warning(f"[INTENSITY DEBUG] Job {job_id} intensity_metrics raw: {job_row[0] if job_row else 'None'}")
+            
+            # Parse the intensity_metrics JSON from the jobs table
+            if job_row and job_row[0]:
+                metrics_dict = job_row[0]
+                logger.warning(f"[INTENSITY DEBUG] metrics_dict type: {type(metrics_dict)}, content: {metrics_dict}")
+                
+                if isinstance(metrics_dict, dict):
+                    for key, metric in metrics_dict.items():
+                        logger.warning(f"[INTENSITY DEBUG] Processing metric key={key}, metric={metric}")
+                        
+                        if isinstance(metric, dict):
+                            metric_value = metric.get('value', 0) or 0
+                            metric_label = metric.get('label', key)
+                            divider = metric.get('divider', 1) or 1
+                            
+                            logger.warning(f"[INTENSITY DEBUG] Adding metric: name={metric_label}, value={metric_value}, divider={divider}")
+                            
+                            # Calculate emissions proportional to this metric's share
+                            # For now, use total emissions as the emissions for each metric
+                            # (a more accurate approach would calculate per-scope emissions)
+                            
+                            result.append({
+                                'name': metric_label,
+                                'value': metric_value,
+                                'divider': divider,
+                                'unit': key,
+                                'emissions': total_emissions
+                            })
+            
+            logger.warning(f"[INTENSITY DEBUG] Final result: {result}")
+            
+            # If no metrics found in jobs table, try legacy sources for employee number
+            if not result:
+                employee_number = None
+                
+                # Try job_report_metadata first
+                try:
+                    row = con.execute("""
+                        SELECT employee_number 
+                        FROM job_report_metadata 
+                        WHERE job_id = %s
+                    """, [int(job_id)]).fetchone()
+                    if row and row[0] is not None:
+                        employee_number = float(row[0])
+                except Exception:
+                    pass
+                
+                # Fall back to crp_job_details
+                if employee_number is None:
+                    try:
+                        row = con.execute("""
+                            SELECT num_employees 
+                            FROM crp_job_details 
+                            WHERE job_id = %s
+                        """, [int(job_id)]).fetchone()
+                        if row and row[0] is not None:
+                            employee_number = float(row[0])
+                    except Exception:
+                        pass
+                
+                # If we have an employee number, add it as FTE metric
+                if employee_number is not None and employee_number > 0:
+                    result.append({
+                        'name': 'Employees',
+                        'value': employee_number,
+                        'unit': 'employees',
+                        'emissions': total_emissions
+                    })
+            
+            return result
+    except Exception:
+        # Table doesn't exist or other error - return empty list
+        return []
+
+
+def get_job_sites(job_id: int):
+    """Get sites for a job's client for the Reporting Sites table."""
+    try:
+        with get_conn() as con:
+            # Get client_db_id from job
+            job_row = con.execute(
+                "SELECT client_db_id FROM jobs WHERE job_id = %s",
+                [int(job_id)]
+            ).fetchone()
+            
+            if not job_row or not job_row[0]:
+                return []
+            
+            client_db_id = job_row[0]
+            
+            # Get sites for this client (active and recently vacated)
+            sites = con.execute("""
+                SELECT site_name, location, is_registered_office, vacated_date
+                FROM client_sites
+                WHERE client_db_id = %s 
+                  AND (archived = FALSE OR archived IS NULL)
+                  AND (vacated_date IS NULL OR vacated_date >= CURRENT_DATE - INTERVAL '2 years')
+                ORDER BY is_registered_office DESC, site_name
+            """, [int(client_db_id)]).fetchall()
+            
+            result = []
+            for site in sites:
+                result.append({
+                    'site_name': site[0],
+                    'location': site[1],
+                    'is_registered_office': site[2],
+                    'vacated_date': site[3],
+                })
+            return result
+    except Exception:
+        return []
+
+
+def get_emissions_by_site(job_id: int):
+    """Get emissions breakdown by site."""
+    try:
+        with get_conn() as con:
+            df = con.execute("""
+                SELECT s.site_name, jsr.scope, 
+                       jsr.qty, jsr.factor, jsr.ghg_unit, jsr.apply_pct,
+                       jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
+                       jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                FROM job_scope_rows jsr
+                LEFT JOIN client_sites s ON s.site_id = jsr.site_id
+                WHERE jsr.job_id = %s AND jsr.enabled = TRUE
+            """, [int(job_id)]).df()
+
+            
+            if df is None or df.empty:
+                return {}
+            
+            df = df.fillna({'site_name': 'Unassigned', 'qty': 0, 'factor': 0, 'apply_pct': 100})
+            
+            sites = {}
+            for _, row in df.iterrows():
+                site_name = row.get('site_name', 'Unassigned')
+                scope = row.get('scope', '')
+                
+                monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
+                qty_val = float(row.get('qty', 0) or monthly_total or 0)
+                factor_val = float(row.get('factor', 0) or 0)
+                apply_pct_val = float(row.get('apply_pct', 100) or 100)
+                
+                ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
+                emissions = qty_val * factor_val * (apply_pct_val / 100.0)
+                if 'kg' in ghg_unit:
+                    emissions = emissions / 1000.0
+                
+                if site_name not in sites:
+                    sites[site_name] = {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}
+                
+                if scope in sites[site_name]:
+                    sites[site_name][scope] += emissions
+                    sites[site_name]['Total'] += emissions
+            
+            return sites
+    except Exception:
+        # Table doesn't exist or other error - return empty dict
+        return {}
+
+
+def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
+    """Build site-level emissions views for report sections and appendix.
+
+    Returns empty/hidden structures when there is 0-1 site in the reporting data.
+    """
+    with get_conn() as con:
+        job_row = con.execute(
+            "SELECT client_db_id FROM jobs WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+        client_db_id = int(job_row[0]) if job_row and job_row[0] is not None else None
+
+        configured_sites_df = None
+        if client_db_id is not None:
+            configured_sites_df = con.execute(
+                """
+                SELECT site_name
+                FROM client_sites
+                WHERE client_db_id = %s
+                  AND (archived = FALSE OR archived IS NULL)
+                  AND (vacated_date IS NULL OR vacated_date >= CURRENT_DATE - INTERVAL '2 years')
+                ORDER BY site_name
+                """,
+                [int(client_db_id)],
+            ).df()
+
+        df = con.execute(
+            """
+            SELECT
+                COALESCE(s.site_name, 'Unassigned') AS site_name,
+                jsr.scope,
+                COALESCE(jsr.category, 'Uncategorized') AS category,
+                COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label,
+                jsr.qty,
+                jsr.uom,
+                jsr.factor,
+                jsr.ghg_unit,
+                jsr.apply_pct,
+                jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
+                jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+            FROM job_scope_rows jsr
+            LEFT JOIN client_sites s ON s.site_id = jsr.site_id
+            WHERE jsr.job_id = %s AND jsr.enabled = TRUE
+            ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, jsr.category, jsr.report_label
+            """,
+            [int(job_id)],
+        ).df()
+
+    empty_result = {
+        "show_site_tables": False,
+        "site_count": 0,
+        "overall": [],
+        "scope": [],
+        "activity": [],
+        "appendix_rows": [],
+    }
+    configured_site_names: list[str] = []
+    if configured_sites_df is not None and not configured_sites_df.empty:
+        configured_site_names = [
+            str(r.get("site_name") or "").strip()
+            for _, r in configured_sites_df.iterrows()
+            if str(r.get("site_name") or "").strip()
+        ]
+
+    if df is None or df.empty:
+        # No emissions rows yet, but if client has multiple sites configured
+        # still show empty site tables to support the reporting structure.
+        if len(configured_site_names) > 1:
+            zero_scope_rows = [
+                {
+                    "site_name": s,
+                    "scope_1": 0.0,
+                    "scope_2": 0.0,
+                    "scope_3": 0.0,
+                    "total": 0.0,
+                }
+                for s in configured_site_names
+            ]
+            return {
+                "show_site_tables": True,
+                "site_count": len(configured_site_names),
+                "overall": [{"site_name": s, "total": 0.0, "pct_total": 0.0} for s in configured_site_names],
+                "scope": zero_scope_rows,
+                "activity": [
+                    {
+                        "site_name": s,
+                        "energy": 0.0,
+                        "business_travel": 0.0,
+                        "employee_commuting": 0.0,
+                        "pgs": 0.0,
+                        "other": 0.0,
+                        "total": 0.0,
+                    }
+                    for s in configured_site_names
+                ],
+                "appendix_rows": [],
+            }
+        return empty_result
+
+    df = df.fillna(
+        {
+            "site_name": "Unassigned",
+            "scope": "",
+            "category": "Uncategorized",
+            "report_label": "Uncategorized",
+            "qty": 0,
+            "uom": "",
+            "factor": 0,
+            "ghg_unit": "kgCO2e",
+            "apply_pct": 100,
+        }
+    )
+
+    site_scope_totals: dict[str, dict[str, float]] = {}
+    site_activity_totals: dict[str, dict[str, float]] = {}
+    appendix_rows: list[dict[str, Any]] = []
+
+    # Seed with configured sites so zero-emission sites are still shown.
+    for s in configured_site_names:
+        if s not in site_scope_totals:
+            site_scope_totals[s] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+        if s not in site_activity_totals:
+            site_activity_totals[s] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
+            site_activity_totals[s]["Total"] = 0.0
+
+    for _, row in df.iterrows():
+        site_name = str(row.get("site_name") or "Unassigned")
+        scope = str(row.get("scope") or "")
+        category = str(row.get("category") or "Uncategorized")
+        report_label = str(row.get("report_label") or category)
+
+        monthly_total = sum(float(row.get(f"month_{i}", 0) or 0) for i in range(1, 13))
+        qty_val = float(row.get("qty", 0) or monthly_total or 0)
+        factor_val = float(row.get("factor", 0) or 0)
+        apply_pct_val = float(row.get("apply_pct", 100) or 100)
+        uom = str(row.get("uom") or "")
+
+        ghg_unit = str(row.get("ghg_unit", "kgCO2e") or "kgCO2e").lower()
+        emissions = qty_val * factor_val * (apply_pct_val / 100.0)
+        if "kg" in ghg_unit:
+            emissions = emissions / 1000.0
+
+        if site_name not in site_scope_totals:
+            site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+        if scope in ("Scope 1", "Scope 2", "Scope 3"):
+            site_scope_totals[site_name][scope] += emissions
+        site_scope_totals[site_name]["Total"] += emissions
+
+        group = _classify_activity_group(scope, category, report_label)
+        if site_name not in site_activity_totals:
+            site_activity_totals[site_name] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
+            site_activity_totals[site_name]["Total"] = 0.0
+        site_activity_totals[site_name][group] += emissions
+        site_activity_totals[site_name]["Total"] += emissions
+
+        appendix_rows.append(
+            {
+                "site_name": site_name,
+                "scope": scope,
+                "activity_group": group,
+                "emission_type": report_label,
+                "category": category,
+                "qty": qty_val,
+                "uom": uom,
+                "emissions": emissions,
+            }
+        )
+
+    # Keep only non-empty sites and deterministic ordering.
+    scope_rows = [
+        {
+            "site_name": site,
+            "scope_1": round(vals.get("Scope 1", 0.0), 2),
+            "scope_2": round(vals.get("Scope 2", 0.0), 2),
+            "scope_3": round(vals.get("Scope 3", 0.0), 2),
+            "total": round(vals.get("Total", 0.0), 2),
+        }
+        for site, vals in site_scope_totals.items()
+    ]
+    scope_rows.sort(key=lambda r: (-float(r["total"]), str(r["site_name"]).lower()))
+
+    site_count = len(scope_rows)
+    if site_count <= 1:
+        return empty_result
+
+    grand_total = sum(float(r["total"]) for r in scope_rows)
+    overall_rows = [
+        {
+            "site_name": r["site_name"],
+            "total": r["total"],
+            "pct_total": (round((float(r["total"]) / grand_total) * 100.0, 1) if grand_total > 0 else 0.0),
+        }
+        for r in scope_rows
+    ]
+
+    activity_rows = []
+    for site_row in scope_rows:
+        site = str(site_row["site_name"])
+        vals = site_activity_totals.get(site, {})
+        activity_rows.append(
+            {
+                "site_name": site,
+                "energy": round(float(vals.get("Energy", 0.0) or 0.0), 2),
+                "business_travel": round(float(vals.get("Business Travel", 0.0) or 0.0), 2),
+                "employee_commuting": round(float(vals.get("Employee Commuting", 0.0) or 0.0), 2),
+                "pgs": round(float(vals.get("Purchased Goods & Services (PG&S)", 0.0) or 0.0), 2),
+                "other": round(float(vals.get("Other Emissions", 0.0) or 0.0), 2),
+                "total": round(float(vals.get("Total", 0.0) or 0.0), 2),
+            }
+        )
+
+    appendix_rows = sorted(
+        appendix_rows,
+        key=lambda r: (
+            str(r.get("site_name") or "").lower(),
+            str(r.get("scope") or "").lower(),
+            str(r.get("activity_group") or "").lower(),
+            str(r.get("emission_type") or "").lower(),
+        ),
+    )
+
+    return {
+        "show_site_tables": True,
+        "site_count": site_count,
+        "overall": overall_rows,
+        "scope": scope_rows,
+        "activity": activity_rows,
+        "appendix_rows": appendix_rows,
+    }
+
+
+def _get_benchmark_job_id(job_id: int, benchmark_year: int | None) -> int | None:
+    return _resolve_benchmark_reference_job(int(job_id), benchmark_year)
+
+
+def _safe_pct_change(current: float, benchmark: float) -> float | None:
+    if benchmark == 0:
+        return None
+    return round(((current - benchmark) / benchmark) * 100.0, 1)
+
+
+def _build_scope_comparison(scope_totals: dict[str, float], benchmark_totals: dict[str, float]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for label in ("Scope 1", "Scope 2", "Scope 3", "Total"):
+        cur = float(scope_totals.get(label, 0) or 0)
+        ben = float(benchmark_totals.get(label, 0) or 0)
+        rows.append(
+            {
+                "label": label,
+                "current": round(cur, 2),
+                "benchmark": round(ben, 2),
+                "change_pct": _safe_pct_change(cur, ben),
+            }
+        )
+    return rows
+
+
+def _build_activity_comparison(activity_totals: dict[str, float], benchmark_activity_totals: dict[str, float]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for group in ACTIVITY_GROUP_ORDER:
+        cur = float(activity_totals.get(group, 0) or 0)
+        ben = float(benchmark_activity_totals.get(group, 0) or 0)
+        rows.append(
+            {
+                "group": group,
+                "current": round(cur, 2),
+                "benchmark": round(ben, 2),
+                "change_pct": _safe_pct_change(cur, ben),
+            }
+        )
+    total_cur = sum(float(activity_totals.get(g, 0) or 0) for g in ACTIVITY_GROUP_ORDER)
+    total_ben = sum(float(benchmark_activity_totals.get(g, 0) or 0) for g in ACTIVITY_GROUP_ORDER)
+    rows.append(
+        {
+            "group": "Total",
+            "current": round(total_cur, 2),
+            "benchmark": round(total_ben, 2),
+            "change_pct": _safe_pct_change(total_cur, total_ben),
+        }
+    )
+    return rows
+
+
+def _build_site_overall_comparison(current_breakdowns: dict[str, Any], benchmark_breakdowns: dict[str, Any]) -> list[dict[str, Any]]:
+    current_rows = current_breakdowns.get("overall", []) if current_breakdowns else []
+    benchmark_rows = benchmark_breakdowns.get("overall", []) if benchmark_breakdowns else []
+    current_map = {str(r.get("site_name") or ""): float(r.get("total") or 0) for r in current_rows}
+    benchmark_map = {str(r.get("site_name") or ""): float(r.get("total") or 0) for r in benchmark_rows}
+    site_names = sorted(set(current_map.keys()) | set(benchmark_map.keys()))
+    rows: list[dict[str, Any]] = []
+    for site in site_names:
+        cur = current_map.get(site, 0.0)
+        ben = benchmark_map.get(site, 0.0)
+        rows.append(
+            {
+                "site_name": site,
+                "current": round(cur, 2),
+                "benchmark": round(ben, 2),
+                "change_pct": _safe_pct_change(cur, ben),
+            }
+        )
+    rows.sort(key=lambda r: (-float(r["current"]), str(r["site_name"]).lower()))
+    return rows
+
+
+def get_job_target_data(job_id: int) -> dict:
+    """
+    Get target data for a job including baseline year, net zero target, and interim targets.
+    Falls back to client-level data if job-specific data is not set.
+    """
+    with get_conn() as con:
+        # First try to get job-specific data
+        job_row = con.execute("""
+            SELECT j.baseline_year, j.net_zero_target_year, j.glossary_terms, j.interim_target_year,
+                   c.net_zero_year, c.interim_year,
+                   c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
+                   c.target_s1_year, c.target_s2_year, c.target_s3_year,
+                   c.target_s1_pct, c.target_s2_pct, c.target_s3_pct
+            FROM jobs j
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.job_id = %s
+        """, [int(job_id)]).fetchone()
+        
+        if not job_row:
+            return {}
+        
+        # Job-specific values (may be None)
+        baseline_year = job_row[0]
+        net_zero_target_year = job_row[1]
+        glossary_terms = job_row[2]
+        interim_target_year = job_row[3]
+        
+        # Client-level fallback values
+        client_net_zero_year = job_row[4] or 2050
+        client_interim_year = job_row[5] or 2035
+        
+        # Use job-specific if set, otherwise fall back to client values
+        if net_zero_target_year is None:
+            net_zero_target_year = client_net_zero_year
+        if interim_target_year is None:
+            interim_target_year = client_interim_year
+        if baseline_year is None:
+            # Default to reporting year - 1 if not set
+            baseline_year = None
+        
+        # Get interim percentages (use client values)
+        interim_pct = job_row[6] or 50  # Default 50% reduction
+        
+        # Get target percentages
+        target_pct = job_row[12] or 100  # Default 100% (net zero)
+        
+        return {
+            'baseline_year': baseline_year,
+            'net_zero_target_year': net_zero_target_year,
+            'glossary_terms': glossary_terms,
+            'interim_target_year': interim_target_year,
+            'interim_year': interim_target_year,
+            'interim_pct': interim_pct,
+            'target_pct': target_pct,
+        }
+
+
+def _parse_legacy_glossary_terms(raw: Any) -> list[dict[str, str]]:
+    if raw is None:
+        return []
+    data = raw
+    if isinstance(raw, str):
+        txt = raw.strip()
+        if not txt:
+            return []
+        try:
+            data = json.loads(txt)
+        except Exception:
+            return []
+    if not isinstance(data, list):
+        return []
+
+    out: list[dict[str, str]] = []
+    for item in data:
+        if isinstance(item, dict):
+            term = str(item.get("term") or item.get("title") or "").strip()
+            definition = str(item.get("definition") or item.get("content") or "").strip()
+            if term and definition:
+                out.append({"term": term, "definition": definition})
+    return out
+
+
+def _ensure_glossary_cards_and_fetch(job_id: int, job_data: dict[str, Any], legacy_glossary_terms: Any) -> list[dict[str, str]]:
+    """Ensure glossary cards exist in Data Bank, then return active glossary terms for report rendering."""
+    with get_conn() as con:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS databank_subjects_lookup (
+              subject_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+              name VARCHAR NOT NULL UNIQUE,
+              is_active BOOLEAN NOT NULL DEFAULT TRUE,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS databank_cards (
+              card_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+              subject_id INTEGER REFERENCES databank_subjects_lookup(subject_id),
+              category VARCHAR NOT NULL,
+              country VARCHAR,
+              reporting_year INTEGER,
+              title TEXT NOT NULL,
+              content TEXT NOT NULL,
+              source_type VARCHAR,
+              source_url TEXT,
+              reference_text TEXT,
+              tags TEXT,
+              created_by VARCHAR NOT NULL,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              updated_at TIMESTAMP,
+              is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS tags TEXT")
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS source_type VARCHAR")
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS source_url TEXT")
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS reference_text TEXT")
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP")
+        con.execute("ALTER TABLE databank_cards ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
+
+        con.execute(
+            """
+            INSERT INTO databank_subjects_lookup (name, is_active)
+            SELECT 'Glossary', TRUE
+            WHERE NOT EXISTS (
+              SELECT 1 FROM databank_subjects_lookup WHERE lower(name) = 'glossary'
+            )
+            """
+        )
+        subject_row = con.execute(
+            "SELECT subject_id FROM databank_subjects_lookup WHERE lower(name) = 'glossary' LIMIT 1"
+        ).fetchone()
+        if not subject_row:
+            return []
+        subject_id = int(subject_row[0])
+
+        report_year = job_data.get("reporting_year")
+        try:
+            report_year_val = int(report_year) if report_year is not None else None
+        except Exception:
+            report_year_val = None
+
+        report_country = str(job_data.get("country") or "").strip()
+
+        seed_entries = list(DEFAULT_GLOSSARY_ENTRIES)
+        seed_entries.extend(_parse_legacy_glossary_terms(legacy_glossary_terms))
+
+        seen: set[str] = set()
+        normalized_seed: list[dict[str, str]] = []
+        for entry in seed_entries:
+            term = str(entry.get("term") or "").strip()
+            definition = str(entry.get("definition") or "").strip()
+            key = term.lower()
+            if not term or not definition or key in seen:
+                continue
+            seen.add(key)
+            normalized_seed.append({"term": term, "definition": definition})
+
+        for entry in normalized_seed:
+            con.execute(
+                """
+                INSERT INTO databank_cards (
+                  subject_id, category, country, reporting_year,
+                  title, content, source_type, source_url, reference_text, tags,
+                  created_by, created_at, updated_at, is_active
+                )
+                SELECT %s, 'Glossary', %s, %s, %s, %s, 'System Seed', '', 'Seeded from default report glossary', 'report-glossary',
+                       'system', NOW(), NOW(), TRUE
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM databank_cards
+                  WHERE subject_id = %s
+                    AND lower(title) = lower(%s)
+                )
+                """,
+                [
+                    subject_id,
+                    report_country,
+                    report_year_val,
+                    entry["term"],
+                    entry["definition"],
+                    subject_id,
+                    entry["term"],
+                ],
+            )
+
+        params: list[Any] = [subject_id]
+        where_country = ""
+        if report_country:
+            where_country = "AND (c.country IS NULL OR trim(c.country) = '' OR lower(c.country) = lower(%s) OR lower(c.country) = 'global')"
+            params.append(report_country)
+
+        df = con.execute(
+            f"""
+            SELECT c.title, c.content
+            FROM databank_cards c
+            WHERE c.subject_id = %s
+              AND c.is_active = TRUE
+              {where_country}
+            ORDER BY lower(c.title)
+            """
+            ,
+            params,
+        ).df()
+
+    terms: list[dict[str, str]] = []
+    if df is not None and not df.empty:
+        for _, row in df.iterrows():
+            term = str(row.get("title") or "").strip()
+            definition = str(row.get("content") or "").strip()
+            if term and definition:
+                terms.append({"term": term, "definition": definition})
+    return terms
+
+
+def _safe_filename(text: str | None, ext: str) -> str:
+    raw = str(text or "report").strip().replace(" ", "_")
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in raw).strip("_")
+    return f"{safe or 'report'}.{ext}"
+
+
+def _format_template_value(value: object, variable_type: str) -> str:
+    if value is None:
+        return ""
+    txt = str(value).strip()
+    if not txt:
+        return ""
+    if variable_type == "boolean":
+        norm = txt.lower()
+        if norm in {"true", "1", "yes", "y", "on"}:
+            return "Yes"
+        if norm in {"false", "0", "no", "n", "off"}:
+            return "No"
+    return txt
+
+
+def _docx_add_section_heading(doc: "DocxDocument", text: str, level: int = 1):
+    heading = doc.add_heading(text, level=level)
+    return heading
+
+
+def _docx_add_variable_sections(
+    doc: "DocxDocument",
+    template_variables: dict[str, object],
+    template_var_meta: dict[str, dict[str, object]],
+):
+    """Render template variables grouped by section and ordered by display_order."""
+    try:
+        from docx.shared import Pt as DocxPt
+    except Exception:  # pragma: no cover
+        DocxPt = None
+
+    if not template_variables:
+        return
+
+    grouped: dict[str, list[tuple[str, str, int]]] = {}
+    for key, raw_value in template_variables.items():
+        meta = template_var_meta.get(key, {})
+        variable_type = str(meta.get("type") or "text")
+        label = str(meta.get("label") or key)
+        section = str(meta.get("section") or "General")
+        order = int(meta.get("order") or 0)
+
+        value = _format_template_value(raw_value, variable_type)
+        if value == "":
+            continue
+
+        grouped.setdefault(section, []).append((label, value, order))
+
+    if not grouped:
+        return
+
+    _docx_add_section_heading(doc, "Template Variables", level=1)
+    for section in sorted(grouped.keys()):
+        _docx_add_section_heading(doc, section, level=2)
+        rows = sorted(grouped[section], key=lambda item: (item[2], item[0].lower()))
+        for label, value, _order in rows:
+            p = doc.add_paragraph()
+            run_label = p.add_run(f"{label}: ")
+            run_label.bold = True
+            if DocxPt is not None:
+                run_label.font.size = DocxPt(10)
+            run_value = p.add_run(value)
+            if DocxPt is not None:
+                run_value.font.size = DocxPt(10)
+
+
+def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | None):
+    """Resolve template/version selection with strict assignment validation."""
+    selected_template = None
+    requested_template_id = payload.template_id if payload else None
+    requested_version_id = payload.version_id if payload else None
+
+    if requested_template_id is not None or requested_version_id is not None:
+        if requested_template_id is None or requested_version_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Both template_id and version_id are required when explicitly selecting a report template. "
+                    "Assign a template version first, then try again."
+                ),
+            )
+
+        selected_template = _get_template_selection(int(requested_template_id), int(requested_version_id))
+        if not selected_template or selected_template.get("version_id") is None:
+            raise HTTPException(status_code=404, detail="Selected report template/version not found")
+
+        assigned_pair = _get_job_assignment_template_and_version(int(job_id))
+        if assigned_pair is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No report template/version is assigned to this job. "
+                    "Assign a template version in the Report Generator before generating."
+                ),
+            )
+
+        assigned_template_id, assigned_version_id = assigned_pair
+        if int(requested_template_id) != assigned_template_id or int(requested_version_id) != assigned_version_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "The requested template/version does not match this job’s assigned template version. "
+                    "Re-assign the template version and try again."
+                ),
+            )
+
+        return selected_template
+
+    assigned_pair = _get_job_assignment_template_and_version(int(job_id))
+    if assigned_pair is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No report template/version is assigned to this job. "
+                "Please assign a report template version and save required variables before generating."
+            ),
+        )
+
+    assigned_template_id, assigned_version_id = assigned_pair
+    selected_template = _get_template_selection(int(assigned_template_id), int(assigned_version_id))
+    if not selected_template or selected_template.get("version_id") is None:
+        raise HTTPException(
+            status_code=404,
+            detail="The assigned report template/version could not be loaded. Please reassign and try again.",
+        )
+
+    return selected_template
+
+
+def _stringify_render_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+def _apply_braced_placeholder_substitution(content: str, render_values: dict[str, object]) -> str:
+    """
+    Replace one-to-one legacy placeholders like {Report Title} using merged render values.
+    Leaves unknown tokens untouched.
+    """
+    if not content:
+        return content
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        bare = token[1:-1].strip()
+
+        if token in render_values:
+            return _stringify_render_value(render_values.get(token))
+        if bare in render_values:
+            return _stringify_render_value(render_values.get(bare))
+        return token
+
+    # Ignore Jinja-style double braces (e.g. {{ job_data.client_name }})
+    return re.sub(r"(?<!\{)\{[^{}]+\}(?!\})", _replace, content)
+
+
+@router.get("/jobs/{job_id}/emissions-by-activity")
+def get_emissions_by_activity(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """
+    Get detailed emissions breakdown by activity with category groupings.
+    Returns data for donut chart, bar chart, and detailed table.
+    """
+    categories = get_emissions_by_category(job_id)
+    activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+    
+    return {
+        'activity_groups': activity_groups,
+        'activity_totals': activity_totals,
+        'activity_details': activity_details,
+        'activity_group_order': ACTIVITY_GROUP_ORDER,
+        'activity_group_colors': ACTIVITY_GROUP_COLORS,
+        'all_categories': categories,
+    }
+
+
+@router.get("/jobs/{job_id}/report-assets")
+def get_report_assets(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """
+    Generate all required chart assets for a carbon report.
+    This endpoint generates all charts and validates they're present before PDF generation.
+    
+    Returns:
+        Dictionary of chart assets (base64 encoded PNGs)
+        Includes validation status and any missing asset warnings
+    """
+    try:
+        # Fetch job data
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        activity_groups, activity_totals, _details = _build_activity_grouping(categories)
+        
+        # Get intensity metrics (optional)
+        intensity_metrics = get_intensity_metrics(job_id)
+        
+        # Get target data (for reduction pathway charts)
+        target_data = get_job_target_data(job_id)
+        
+        # Generate all chart assets
+        assets = generate_report_assets(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            intensity_metrics=intensity_metrics,
+            target_data=target_data
+        )
+        
+        # Validate required assets
+        is_valid, missing_keys = validate_report_assets(assets)
+        
+        return {
+            'job_id': job_id,
+            'assets': assets,
+            'validation': {
+                'is_valid': is_valid,
+                'missing_keys': missing_keys,
+                'required_assets': REQUIRED_ASSETS,
+                'generated_assets': list(assets.keys())
+            },
+            'target_data': target_data,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report assets: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/generate-report-with-assets")
+def generate_report_with_assets(
+    job_id: int,
+    skip_validation: bool = False,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """
+    Generate a comprehensive PDF report with all required chart assets.
+    Includes validation step to ensure all required assets are present before PDF generation.
+    
+    Args:
+        job_id: The job ID to generate the report for
+        skip_validation: If true, skip the assets validation check (not recommended)
+    """
+    try:
+        # Fetch job data
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        benchmark_totals = get_benchmark_emissions(job_id, job_data.get('benchmark_year'))
+        site_breakdowns = get_site_emissions_breakdowns(job_id)
+        
+        generation_date = datetime.now().strftime('%d %B %Y')
+
+        # Get activity grouping
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+        benchmark_job_id = _get_benchmark_job_id(job_id, job_data.get("benchmark_year"))
+        benchmark_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        _bg, benchmark_activity_totals, _bd = _build_activity_grouping(benchmark_categories) if benchmark_categories else ({}, {}, {})
+        benchmark_site_breakdowns = get_site_emissions_breakdowns(benchmark_job_id) if benchmark_job_id else {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+        benchmark_job_id = _get_benchmark_job_id(job_id, job_data.get("benchmark_year"))
+        benchmark_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        _bg, benchmark_activity_totals, _bd = _build_activity_grouping(benchmark_categories) if benchmark_categories else ({}, {}, {})
+        benchmark_site_breakdowns = get_site_emissions_breakdowns(benchmark_job_id) if benchmark_job_id else {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+        
+        # Get intensity metrics
+        intensity_metrics = get_intensity_metrics(job_id)
+        
+        # Get target data
+        target_data = get_job_target_data(job_id)
+        glossary_terms = _ensure_glossary_cards_and_fetch(job_id, job_data, target_data.get('glossary_terms'))
+        if not glossary_terms:
+            glossary_terms = list(DEFAULT_GLOSSARY_ENTRIES)
+        
+        # Generate all chart assets using the new comprehensive function
+        assets = generate_report_assets(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            intensity_metrics=intensity_metrics,
+            target_data=target_data
+        )
+        
+        # Validate required assets (unless skipped)
+        if not skip_validation:
+            is_valid, missing_keys = validate_report_assets(assets)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        'error': 'Missing required chart assets',
+                        'missing_keys': missing_keys,
+                        'required_assets': REQUIRED_ASSETS,
+                        'hint': 'Use skip_validation=true to bypass this check (not recommended for production)'
+                    }
+                )
+        
+        # Resolve template selection
+        selected_template = _get_job_assigned_template_selection(int(job_id))
+        template_variables = {}
+        render_meta = None
+        
+        if selected_template and selected_template.get("version_id") is not None:
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(selected_template["template_id"]),
+                int(selected_template["version_id"]),
+            )
+            render_meta = {
+                "template_id": selected_template.get("template_id"),
+                "template_key": selected_template.get("template_key"),
+                "template_name": selected_template.get("template_name"),
+                "template_type": selected_template.get("template_type"),
+                "report_type": selected_template.get("report_type"),
+                "version_id": selected_template.get("version_id"),
+                "version_number": selected_template.get("version_number"),
+                "version_label": selected_template.get("version_label"),
+                "version_status": selected_template.get("version_status"),
+                "source": "assignment",
+            }
+        
+        is_yoy_template = str((selected_template or {}).get("template_key") or "").strip().lower() == "crp_yoy_benchmark"
+        scope_comparison = _build_scope_comparison(scope_totals, benchmark_totals)
+        activity_comparison = _build_activity_comparison(activity_totals, benchmark_activity_totals)
+        site_overall_comparison = _build_site_overall_comparison(site_breakdowns, benchmark_site_breakdowns)
+
+        report_metadata = _get_job_report_metadata(
+            int(job_id),
+            updated_by=_user.get("email", "unknown"),
+        )
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            generation_date=generation_date,
+        )
+        
+        # Setup Jinja2 template environment
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir))
+        
+        # Use interactive report template which supports assets
+        template = env.get_template('interactive_report.html')
+        
+        # Prepare activity data for template
+        activity_labels = [g for g in ACTIVITY_GROUP_ORDER if float(activity_totals.get(g, 0) or 0) > 0]
+        if not activity_labels:
+            activity_labels = ACTIVITY_GROUP_ORDER
+        activity_values = [float(activity_totals.get(g, 0) or 0) for g in activity_labels]
+        
+        # Render HTML with data and all assets
+        html_content = template.render(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_groups=activity_groups,
+            activity_totals=activity_totals,
+            activity_details=activity_details,
+            activity_group_order=ACTIVITY_GROUP_ORDER,
+            activity_group_colors=ACTIVITY_GROUP_COLORS,
+            activity_labels=activity_labels,
+            activity_values=activity_values,
+            # Pass assets dictionary for template to use
+            assets=assets,
+            # Legacy individual chart support (for backward compatibility)
+            scope_chart_base64=assets.get('scope_breakdown', ''),
+            activity_chart_base64=assets.get('activity_breakdown', ''),
+            generation_date=generation_date,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            nzi_logo_src=_get_nzi_logo_src(),
+            render_values=render_values,
+            render_template=render_meta,
+            glossary_terms=glossary_terms,
+            # Pass target data for reduction pathway charts
+            target_data=target_data,
+            site_breakdowns=site_breakdowns,
+            is_yoy_template=is_yoy_template,
+            scope_comparison=scope_comparison,
+            benchmark_activity_totals=benchmark_activity_totals,
+            activity_comparison=activity_comparison,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            site_overall_comparison=site_overall_comparison,
+        )
+
+        html_content = _apply_braced_placeholder_substitution(html_content, render_values)
+        
+        # Convert HTML to PDF using Playwright
+        from playwright.sync_api import sync_playwright
+        
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.set_content(html_content)
+            pdf_bytes = page.pdf(
+                format='A4',
+                margin={
+                    'top': '20mm',
+                    'right': '20mm',
+                    'bottom': '20mm',
+                    'left': '20mm'
+                },
+                print_background=True
+            )
+            browser.close()
+        
+        # Return PDF
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/generate-report")
+def generate_job_report(
+    job_id: int,
+    payload: GenerateReportPayload | None = None,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """
+    Generate a comprehensive PDF emissions report for a job using HTML templates.
+    """
+    try:
+        # Fetch data
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        benchmark_totals = get_benchmark_emissions(job_id, job_data.get('benchmark_year'))
+        site_breakdowns = get_site_emissions_breakdowns(job_id)
+        
+        generation_date = datetime.now().strftime('%d %B %Y')
+
+        # Generate charts as base64 images
+        period_text = f"{job_data.get('period_start', 'N/A')} to {job_data.get('period_end', 'N/A')}"
+        
+        # Scope chart
+        scope_chart_data = {
+            'Scope 1': scope_totals['Scope 1'],
+            'Scope 2': scope_totals['Scope 2'],
+            'Scope 3': scope_totals['Scope 3']
+        }
+        scope_colors = {
+            'Scope 1': '#4472C4',
+            'Scope 2': '#ED7D31',
+            'Scope 3': '#70AD47'
+        }
+        scope_chart_base64 = create_donut_chart(
+            scope_chart_data,
+            scope_colors,
+            f'Emissions by Scope (tCO₂e)\n{period_text}',
+            scope_totals['Total']
+        )
+        
+        # Activity chart + detailed grouped rows
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+        benchmark_job_id = _get_benchmark_job_id(job_id, job_data.get("benchmark_year"))
+        benchmark_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        _bg, benchmark_activity_totals, _bd = _build_activity_grouping(benchmark_categories) if benchmark_categories else ({}, {}, {})
+        benchmark_site_breakdowns = get_site_emissions_breakdowns(benchmark_job_id) if benchmark_job_id else {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+        period_from = job_data.get("period_start")
+        period_to = job_data.get("period_end")
+        period_from = job_data.get("period_start")
+        period_to = job_data.get("period_end")
+
+        # Activity chart - using new professional donut style
+        activity_chart_base64 = create_activity_donut(
+            activity_totals,
+            ACTIVITY_GROUP_COLORS,
+            title="Emissions by Activity",
+            center_label="tCO2e",
+            period_from=period_from,
+            period_to=period_to
+        )
+        
+        # Resolve template selection priority (strict):
+        # 1) Explicit payload template/version (both required)
+        # 2) Job assignment template/version (both required)
+        # 3) No fallback for this endpoint; fail fast with clear guidance
+        selected_template = None
+        requested_template_id = payload.template_id if payload else None
+        requested_version_id = payload.version_id if payload else None
+
+        if requested_template_id is not None or requested_version_id is not None:
+            if requested_template_id is None or requested_version_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Both template_id and version_id are required when explicitly selecting a report template. "
+                        "Assign a template version first, then try again."
+                    ),
+                )
+            selected_template = _get_template_selection(
+                int(requested_template_id),
+                int(requested_version_id),
+            )
+            if not selected_template or selected_template.get("version_id") is None:
+                raise HTTPException(status_code=404, detail="Selected report template/version not found")
+
+            # Ensure requested template/version matches assignment for this job
+            assigned_pair = _get_job_assignment_template_and_version(int(job_id))
+            if assigned_pair is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No report template/version is assigned to this job. "
+                        "Assign a template version in the Report Generator before generating."
+                    ),
+                )
+
+            assigned_template_id, assigned_version_id = assigned_pair
+            if int(requested_template_id) != assigned_template_id or int(requested_version_id) != assigned_version_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "The requested template/version does not match this job’s assigned template version. "
+                        "Re-assign the template version and try again."
+                    ),
+                )
+        else:
+            assigned_pair = _get_job_assignment_template_and_version(int(job_id))
+            if assigned_pair is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No report template/version is assigned to this job. "
+                        "Please assign a report template version and save required variables before generating."
+                    ),
+                )
+            assigned_template_id, assigned_version_id = assigned_pair
+            selected_template = _get_template_selection(int(assigned_template_id), int(assigned_version_id))
+            if not selected_template or selected_template.get("version_id") is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="The assigned report template/version could not be loaded. Please reassign and try again.",
+                )
+
+        template_variables = {}
+        if selected_template:
+            with get_conn() as con:
+                _validate_required_template_variables(
+                    con=con,
+                    job_id=int(job_id),
+                    template_id=int(selected_template["template_id"]),
+                    version_id=int(selected_template["version_id"]),
+                    incoming_values=None,
+                )
+
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(selected_template["template_id"]),
+                int(selected_template["version_id"]) if selected_template.get("version_id") is not None else None,
+            )
+
+        report_metadata = _get_job_report_metadata(
+            int(job_id),
+            updated_by=_user.get("email", "unknown"),
+        )
+
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            generation_date=generation_date,
+        )
+
+        # Setup Jinja2 template environment
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir))
+
+        template = _resolve_template_for_render(env, selected_template)
+
+        render_meta = {
+            "template_id": selected_template.get("template_id") if selected_template else None,
+            "template_key": selected_template.get("template_key") if selected_template else None,
+            "template_name": selected_template.get("template_name") if selected_template else None,
+            "template_type": selected_template.get("template_type") if selected_template else None,
+            "report_type": selected_template.get("report_type") if selected_template else None,
+            "version_id": selected_template.get("version_id") if selected_template else None,
+            "version_number": selected_template.get("version_number") if selected_template else None,
+            "version_label": selected_template.get("version_label") if selected_template else None,
+            "version_status": selected_template.get("version_status") if selected_template else None,
+            "source": "assignment_or_request" if selected_template else "unreachable",
+        }
+        is_yoy_template = str((selected_template or {}).get("template_key") or "").strip().lower() == "crp_yoy_benchmark"
+        scope_comparison = _build_scope_comparison(scope_totals, benchmark_totals)
+        activity_comparison = _build_activity_comparison(activity_totals, benchmark_activity_totals)
+        site_overall_comparison = _build_site_overall_comparison(site_breakdowns, benchmark_site_breakdowns)
+        
+        # Get target data
+        target_data = get_job_target_data(job_id)
+        glossary_terms = _ensure_glossary_cards_and_fetch(job_id, job_data, target_data.get('glossary_terms'))
+        if not glossary_terms:
+            glossary_terms = list(DEFAULT_GLOSSARY_ENTRIES)
+
+        # Get intensity metrics for chart generation
+        intensity_metrics = get_intensity_metrics(job_id)
+        
+        # Generate chart assets
+        assets = generate_report_assets(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            intensity_metrics=intensity_metrics,
+            target_data=target_data
+        )
+        
+        # Render HTML with data
+        html_content = template.render(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_groups=activity_groups,
+            activity_totals=activity_totals,
+            activity_details=activity_details,
+            activity_group_order=ACTIVITY_GROUP_ORDER,
+            activity_group_colors=ACTIVITY_GROUP_COLORS,
+            assets=assets,
+            scope_chart_base64=scope_chart_base64,
+            activity_chart_base64=activity_chart_base64,
+            generation_date=generation_date,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            nzi_logo_src=_get_nzi_logo_src(),
+            render_values=render_values,
+            render_template=render_meta,
+            glossary_terms=glossary_terms,
+            target_data=target_data,
+            site_breakdowns=site_breakdowns,
+            is_yoy_template=is_yoy_template,
+            scope_comparison=scope_comparison,
+            benchmark_activity_totals=benchmark_activity_totals,
+            activity_comparison=activity_comparison,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            site_overall_comparison=site_overall_comparison,
+        )
+
+        html_content = _apply_braced_placeholder_substitution(html_content, render_values)
+        
+        # Import Playwright inside function to avoid startup overhead
+        from playwright.sync_api import sync_playwright
+        
+        # Convert HTML to PDF using Playwright
+        with sync_playwright() as p:
+
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.set_content(html_content)
+            pdf_bytes = page.pdf(
+                format='A4',
+                margin={
+                    'top': '20mm',
+                    'right': '20mm',
+                    'bottom': '20mm',
+                    'left': '20mm'
+                },
+                print_background=True
+            )
+            browser.close()
+        
+        # Return PDF
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/generate-html-report")
+def generate_html_report(
+    job_id: int,
+    template_id: int | None = Query(None),
+    version_id: int | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """
+    Generate an interactive HTML report that can be viewed in browser or printed to PDF.
+    This is the modern, dual-purpose report format.
+    """
+    try:
+        # Fetch data
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        benchmark_totals = get_benchmark_emissions(job_id, job_data.get('benchmark_year'))
+        site_breakdowns = get_site_emissions_breakdowns(job_id)
+        
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+        benchmark_job_id = _get_benchmark_job_id(job_id, job_data.get("benchmark_year"))
+        benchmark_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        _bg, benchmark_activity_totals, _bd = _build_activity_grouping(benchmark_categories) if benchmark_categories else ({}, {}, {})
+        benchmark_site_breakdowns = get_site_emissions_breakdowns(benchmark_job_id) if benchmark_job_id else {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+
+        # Prepare data for charts (ordered + non-zero by default)
+        activity_labels = [g for g in ACTIVITY_GROUP_ORDER if float(activity_totals.get(g, 0) or 0) > 0]
+        if not activity_labels:
+            activity_labels = ACTIVITY_GROUP_ORDER
+        activity_values = [float(activity_totals.get(g, 0) or 0) for g in activity_labels]
+
+        selected_template = _resolve_selected_template(
+            int(job_id),
+            GenerateReportPayload(template_id=template_id, version_id=version_id),
+        )
+        forced_builtin_template = _use_forced_builtin_template(selected_template)
+        if forced_builtin_template:
+            template_source = "builtin"
+        elif selected_template and str(selected_template.get("template_content") or "").strip():
+            template_source = "database"
+        else:
+            template_source = "builtin-fallback"
+        template_variables = {}
+        render_meta = None
+        if selected_template and selected_template.get("version_id") is not None:
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(selected_template["template_id"]),
+                int(selected_template["version_id"]),
+            )
+            render_meta = {
+                "template_id": selected_template.get("template_id"),
+                "template_key": selected_template.get("template_key"),
+                "template_name": selected_template.get("template_name"),
+                "template_type": selected_template.get("template_type"),
+                "report_type": selected_template.get("report_type"),
+                "version_id": selected_template.get("version_id"),
+                "version_number": selected_template.get("version_number"),
+                "version_label": selected_template.get("version_label"),
+                "version_status": selected_template.get("version_status"),
+                "source": "assignment",
+            }
+        is_yoy_template = str((selected_template or {}).get("template_key") or "").strip().lower() == "crp_yoy_benchmark"
+        scope_comparison = _build_scope_comparison(scope_totals, benchmark_totals)
+        activity_comparison = _build_activity_comparison(activity_totals, benchmark_activity_totals)
+        site_overall_comparison = _build_site_overall_comparison(site_breakdowns, benchmark_site_breakdowns)
+        is_yoy_template = str((selected_template or {}).get("template_key") or "").strip().lower() == "crp_yoy_benchmark"
+        scope_comparison = _build_scope_comparison(scope_totals, benchmark_totals)
+        activity_comparison = _build_activity_comparison(activity_totals, benchmark_activity_totals)
+        site_overall_comparison = _build_site_overall_comparison(site_breakdowns, benchmark_site_breakdowns)
+
+        generation_date = datetime.now().strftime('%d %B %Y')
+        report_metadata = _get_job_report_metadata(
+            int(job_id),
+            updated_by=_user.get("email", "unknown"),
+        )
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            generation_date=generation_date,
+        )
+        
+        # Get target data for the template
+        target_data = get_job_target_data(job_id)
+        glossary_terms = _ensure_glossary_cards_and_fetch(job_id, job_data, target_data.get('glossary_terms'))
+        if not glossary_terms:
+            glossary_terms = list(DEFAULT_GLOSSARY_ENTRIES)
+        
+        # Get intensity metrics for chart generation
+        intensity_metrics = get_intensity_metrics(job_id)
+        
+        # Generate ALL chart assets using the comprehensive function
+        print(f"[DEBUG] Generating report assets for job {job_id}...")
+        assets = generate_report_assets(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            intensity_metrics=intensity_metrics,
+            target_data=target_data
+        )
+        print(f"[DEBUG] Generated assets keys: {list(assets.keys())}")
+        
+        # Extract chart images from assets for template compatibility
+        scope_chart_base64 = assets.get('scope_breakdown', '')
+        activity_chart_base64 = assets.get('activity_breakdown', '')
+        print(f"[DEBUG] scope_chart_base64 length: {len(scope_chart_base64)}")
+        print(f"[DEBUG] activity_chart_base64 length: {len(activity_chart_base64)}")
+        
+        # Setup Jinja2 template environment
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir))
+        template = _resolve_template_for_render(env, selected_template)
+        
+        # Get sites for Reporting Sites table
+        report_sites = get_job_sites(job_id)
+        
+        # Render HTML with data
+        html_content = template.render(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_groups=activity_groups,
+            activity_totals=activity_totals,
+            activity_details=activity_details,
+            activity_group_order=ACTIVITY_GROUP_ORDER,
+            activity_group_colors=ACTIVITY_GROUP_COLORS,
+            activity_labels=activity_labels,
+            activity_values=activity_values,
+            scope_chart_base64=scope_chart_base64,
+            activity_chart_base64=activity_chart_base64,
+            assets=assets,
+            generation_date=generation_date,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            nzi_logo_src=_get_nzi_logo_src(),
+            render_values=render_values,
+            render_template=render_meta,
+            target_data=target_data,
+            intensity_metrics=intensity_metrics,
+            employee_number=report_metadata.get('employee_number'),
+            report_sites=report_sites,
+            glossary_terms=glossary_terms,
+            site_breakdowns=site_breakdowns,
+            is_yoy_template=is_yoy_template,
+            scope_comparison=scope_comparison,
+            benchmark_activity_totals=benchmark_activity_totals,
+            activity_comparison=activity_comparison,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            site_overall_comparison=site_overall_comparison,
+        )
+
+        html_content = _apply_braced_placeholder_substitution(html_content, render_values)
+        
+        # Return HTML
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.html",
+                "X-Rendered-Template-Key": str((selected_template or {}).get("template_key") or ""),
+                "X-Rendered-Template-Name": str((selected_template or {}).get("template_name") or ""),
+                "X-Rendered-Version-Id": str((selected_template or {}).get("version_id") or ""),
+                "X-Rendered-Template-Source": template_source,
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate HTML report: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/generate-professional-pdf")
+def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """
+    Generate a professional PDF report using DocRaptor service.
+    This produces high-quality, audit-ready PDFs from HTML templates.
+    """
+    try:
+        # Fetch data
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        benchmark_totals = get_benchmark_emissions(job_id, job_data.get('benchmark_year'))
+        site_breakdowns = get_site_emissions_breakdowns(job_id)
+        
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+
+        # Prepare data for charts
+        activity_labels = [g for g in ACTIVITY_GROUP_ORDER if float(activity_totals.get(g, 0) or 0) > 0]
+        if not activity_labels:
+            activity_labels = ACTIVITY_GROUP_ORDER
+        activity_values = [float(activity_totals.get(g, 0) or 0) for g in activity_labels]
+
+        selected_template = _get_job_assigned_template_selection(int(job_id))
+        template_variables = {}
+        render_meta = None
+        if selected_template and selected_template.get("version_id") is not None:
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(selected_template["template_id"]),
+                int(selected_template["version_id"]),
+            )
+            render_meta = {
+                "template_id": selected_template.get("template_id"),
+                "template_key": selected_template.get("template_key"),
+                "template_name": selected_template.get("template_name"),
+                "template_type": selected_template.get("template_type"),
+                "report_type": selected_template.get("report_type"),
+                "version_id": selected_template.get("version_id"),
+                "version_number": selected_template.get("version_number"),
+                "version_label": selected_template.get("version_label"),
+                "version_status": selected_template.get("version_status"),
+                "source": "assignment",
+            }
+
+        generation_date = datetime.now().strftime('%d %B %Y')
+        report_metadata = _get_job_report_metadata(
+            int(job_id),
+            updated_by=_user.get("email", "unknown"),
+        )
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            generation_date=generation_date,
+        )
+        
+
+        target_data = get_job_target_data(job_id)
+        glossary_terms = _ensure_glossary_cards_and_fetch(job_id, job_data, target_data.get('glossary_terms'))
+        if not glossary_terms:
+            glossary_terms = list(DEFAULT_GLOSSARY_ENTRIES)
+
+        # Generate chart images for PDF
+        # Scope chart
+        scope_chart_data = {
+            'Scope 1': scope_totals['Scope 1'],
+            'Scope 2': scope_totals['Scope 2'],
+            'Scope 3': scope_totals['Scope 3']
+        }
+        scope_colors = {
+            'Scope 1': '#4472C4',
+            'Scope 2': '#ED7D31',
+            'Scope 3': '#70AD47'
+        }
+        scope_chart_base64 = create_donut_chart(
+            scope_chart_data,
+            scope_colors,
+            f'Emissions by Scope (tCO₂e)',
+            scope_totals['Total']
+        )
+        
+        # Activity chart - using new professional donut style
+        activity_chart_base64 = create_activity_donut(
+            activity_totals,
+            ACTIVITY_GROUP_COLORS,
+            title="Emissions by Activity",
+            center_label="tCO2e",
+            period_from=period_from,
+            period_to=period_to
+        )
+        
+        # Setup Jinja2 template environment
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = Environment(loader=FileSystemLoader(template_dir))
+        template = _resolve_template_for_render(env, selected_template)
+        
+        # Render HTML with data
+        html_content = template.render(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_groups=activity_groups,
+            activity_totals=activity_totals,
+            activity_details=activity_details,
+            activity_group_order=ACTIVITY_GROUP_ORDER,
+            activity_group_colors=ACTIVITY_GROUP_COLORS,
+            activity_labels=activity_labels,
+            activity_values=activity_values,
+            scope_chart_base64=scope_chart_base64,
+            activity_chart_base64=activity_chart_base64,
+            generation_date=generation_date,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            nzi_logo_src=_get_nzi_logo_src(),
+            render_values=render_values,
+            render_template=render_meta,
+            glossary_terms=glossary_terms,
+            site_breakdowns=site_breakdowns,
+            is_yoy_template=is_yoy_template,
+            scope_comparison=scope_comparison,
+            benchmark_activity_totals=benchmark_activity_totals,
+            activity_comparison=activity_comparison,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            site_overall_comparison=site_overall_comparison,
+        )
+
+        html_content = _apply_braced_placeholder_substitution(html_content, render_values)
+        
+        # Import DocRaptor inside function to avoid startup overhead
+        import docraptor
+        
+        # Initialize DocRaptor client
+        doc_api = docraptor.DocApi()
+        doc_api.api_client.configuration.username = DOCRAPTOR_API_KEY
+        
+        # Get base URL from environment or use default
+        public_base_url = os.getenv('PUBLIC_BASE_URL', 'http://localhost:8001')
+        
+        # Create PDF using DocRaptor
+        try:
+            response = doc_api.create_doc(
+                {
+                    "test": True,  # test mode (watermarked)
+                    "document_content": html_content,
+                    "document_type": "pdf",
+                    "name": f"job-{job_id}-emissions-report.pdf",
+                    "prince_options": {
+                        "media": "print",
+                        "baseurl": public_base_url,
+                        "javascript": False,
+                    },
+                }
+            )
+
+            return Response(
+                content=response,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf"
+                },
+            )
+
+        except docraptor.rest.ApiException as error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"DocRaptor API error: {getattr(error, 'status', 'unknown')} - {getattr(error, 'reason', 'unknown')}",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate professional PDF: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/generate-report-docx")
+def generate_job_report_docx(
+    job_id: int,
+    payload: GenerateReportPayload | None = None,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Generate a DOCX report export for a job using strict template/version validation."""
+    # Import python-docx inside function to avoid startup overhead
+    try:
+        from docx import Document as DocxDocument
+        from docx.shared import Pt
+        from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+    except ImportError:
+        raise HTTPException(
+            status_code=501,
+            detail="DOCX export dependency is not installed. Add python-docx to requirements.",
+        )
+
+    try:
+        job_data = get_job_data(job_id)
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        scope_totals = get_scope_totals(job_id)
+        categories = get_emissions_by_category(job_id)
+        _activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+
+        selected_template = _resolve_selected_template(int(job_id), payload)
+
+        with get_conn() as con:
+            _validate_required_template_variables(
+                con=con,
+                job_id=int(job_id),
+                template_id=int(selected_template["template_id"]),
+                version_id=int(selected_template["version_id"]),
+                incoming_values=None,
+            )
+
+        template_variables = _get_template_variable_values_for_render(
+            int(job_id),
+            int(selected_template["template_id"]),
+            int(selected_template["version_id"]),
+        )
+        report_metadata = _get_job_report_metadata(
+            int(job_id),
+            updated_by=_user.get("email", "unknown"),
+        )
+        generation_date = datetime.now().strftime('%d %B %Y')
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            generation_date=generation_date,
+        )
+        template_var_meta = _get_template_variable_metadata(int(selected_template["template_id"]))
+
+        template_name = str(selected_template.get("template_name") or "")
+        template_type = str(selected_template.get("template_type") or "")
+        report_type = str(selected_template.get("report_type") or "")
+        version_number = selected_template.get("version_number")
+
+        template_hint = f"{template_name} {template_type} {report_type}".lower()
+        is_annual = ("annual" in template_hint) or ("carbon_report" in template_hint)
+        is_crp = ("crp" in template_hint) or ("carbon_reduction" in template_hint)
+
+        doc = DocxDocument()
+
+        heading = doc.add_heading(
+            str(
+                render_values.get("report_title")
+                or template_variables.get("report_title")
+                or f"Emissions Report – {job_data.get('client_name') or 'Client'}"
+            ),
+            level=0,
+        )
+        if WD_PARAGRAPH_ALIGNMENT is not None:
+            heading.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        subtitle = doc.add_paragraph(
+            f"Job {job_data.get('job_number') or job_id} • Reporting year {job_data.get('reporting_year') or 'N/A'}"
+        )
+        if WD_PARAGRAPH_ALIGNMENT is not None:
+            subtitle.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        doc.add_paragraph(
+            f"Generated: {generation_date}"
+        )
+
+        meta_p = doc.add_paragraph(
+            f"Template: {template_name or selected_template.get('template_key') or selected_template.get('template_id')}"
+        )
+        if version_number is not None:
+            meta_p.add_run(f" (v{version_number})")
+
+        if is_crp:
+            _docx_add_section_heading(doc, "Carbon Reduction Plan Summary", level=1)
+            crp_fields = [
+                ("Executive Summary", template_variables.get("executive_summary")),
+                ("Commitment Statement", template_variables.get("commitment_statement")),
+                ("Reduction Targets", template_variables.get("reduction_targets")),
+                ("Reduction Projects", template_variables.get("reduction_projects")),
+            ]
+            for label, raw in crp_fields:
+                value = _format_template_value(raw, "textarea")
+                if not value:
+                    continue
+                p = doc.add_paragraph()
+                p.add_run(f"{label}: ").bold = True
+                p.add_run(value)
+        elif is_annual:
+            _docx_add_section_heading(doc, "Annual Report Narrative", level=1)
+            annual_fields = [
+                ("Introduction", template_variables.get("introduction")),
+                ("Methodology", template_variables.get("methodology")),
+                ("Key Findings", template_variables.get("key_findings")),
+                ("Recommendations", template_variables.get("recommendations")),
+                ("Conclusion", template_variables.get("conclusion")),
+            ]
+            for label, raw in annual_fields:
+                value = _format_template_value(raw, "textarea")
+                if not value:
+                    continue
+                p = doc.add_paragraph()
+                p.add_run(f"{label}: ").bold = True
+                p.add_run(value)
+
+        doc.add_heading("Summary", level=1)
+        summary_table = doc.add_table(rows=4, cols=2)
+        summary_table.style = "Table Grid"
+        summary_rows = [
+            ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.1f} tCO₂e"),
+            ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.1f} tCO₂e"),
+            ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.1f} tCO₂e"),
+            ("Total", f"{scope_totals.get('Total', 0.0):,.1f} tCO₂e"),
+        ]
+        for idx, (label, value) in enumerate(summary_rows):
+            summary_table.cell(idx, 0).text = label
+            summary_table.cell(idx, 1).text = value
+
+        doc.add_heading("Activity Group Totals", level=1)
+        group_table = doc.add_table(rows=max(1, len(ACTIVITY_GROUP_ORDER)), cols=2)
+        group_table.style = "Table Grid"
+        for idx, group in enumerate(ACTIVITY_GROUP_ORDER):
+            group_table.cell(idx, 0).text = group
+            group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.1f} tCO₂e"
+
+        _docx_add_variable_sections(doc, template_variables, template_var_meta)
+
+        metadata_rows = [
+            (key, report_metadata.get(key))
+            for key in report_metadata.keys()
+            if report_metadata.get(key) not in (None, "")
+        ]
+        if metadata_rows:
+            doc.add_heading("Report Metadata", level=1)
+            meta_table = doc.add_table(rows=1, cols=2)
+            meta_table.style = "Table Grid"
+            meta_table.cell(0, 0).text = "Field"
+            meta_table.cell(0, 1).text = "Value"
+            for key, value in metadata_rows:
+                row_cells = meta_table.add_row().cells
+                row_cells[0].text = str(key).replace("_", " ").title()
+                row_cells[1].text = _stringify_render_value(value)
+
+        if activity_details:
+            doc.add_heading("Top Activity Rows", level=1)
+            details_table = doc.add_table(rows=1, cols=4)
+            details_table.style = "Table Grid"
+            headers = ["Group", "Emission Type", "Scope", "tCO₂e"]
+            for col, header in enumerate(headers):
+                details_table.cell(0, col).text = header
+
+            for row in activity_details[:50]:
+                cells = details_table.add_row().cells
+                cells[0].text = str(row.get("activity_group") or "")
+                cells[1].text = str(row.get("emission_type") or "")
+                cells[2].text = str(row.get("scope") or "")
+                cells[3].text = f"{float(row.get('emissions') or 0.0):,.1f}"
+
+        output = io.BytesIO()
+        doc.save(output)
+        output.seek(0)
+
+        file_name = _safe_filename(
+            f"job-{job_data.get('job_number') or job_id}-emissions-report",
+            "docx",
+        )
+
+        return Response(
+            content=output.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"',
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate DOCX report: {str(e)}")

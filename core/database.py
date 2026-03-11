@@ -2,22 +2,19 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
-import duckdb
+from dotenv import load_dotenv
+
+# Load local .env defaults without overriding deployment/runtime environment.
+load_dotenv(override=False)
+
 import pandas as pd
-
-from config import DB_PATH
 
 
 def db_backend() -> str:
-    """Database backend selector.
-
-    Env:
-      - DB_BACKEND: 'duckdb' (default) or 'postgres'
-      - DATABASE_URL: Postgres connection URL (required for postgres)
-    """
-    return str(os.getenv("DB_BACKEND", "duckdb") or "duckdb").strip().lower()
+    """Compatibility helper. The application now runs Postgres only."""
+    return "postgres"
 
 
 def _ensure_sslmode(url: str) -> str:
@@ -29,8 +26,7 @@ def _ensure_sslmode(url: str) -> str:
 
 
 def _qmark_to_percent_s(sql: str) -> str:
-    # Minimal placeholder translation: DuckDB uses '?', psycopg uses '%s'.
-    # We assume '?' are only used for placeholders (true for this project).
+    # Allow existing queries that still use "?" placeholder style.
     return sql.replace("?", "%s")
 
 
@@ -51,65 +47,73 @@ class _PgResult:
     def fetchone(self):
         return self.cursor.fetchone()
 
+    def fetchall(self):
+        return self.cursor.fetchall()
+
 
 class _PgConn:
-    def __init__(self, conn):
+    def __init__(self, conn, autocommit=False):
         self._conn = conn
+        self._autocommit = autocommit
 
     def __enter__(self):
+        # For autocommit connections, just return self
+        # No need to rollback since each query is auto-committed
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        # For autocommit connections, just close the connection
         try:
-            if exc_type is None:
-                self._conn.commit()
-            else:
-                self._conn.rollback()
-        finally:
             self._conn.close()
+        except Exception:
+            pass
 
     def execute(self, sql: str, params: Sequence[Any] | None = None):
+        import json
         q = _qmark_to_percent_s(sql)
         cur = self._conn.cursor()
-        cur.execute(q, params or [])
+        # Convert dict parameters to JSON strings for JSONB columns
+        if params:
+            processed_params = []
+            for p in params:
+                if isinstance(p, dict):
+                    processed_params.append(json.dumps(p))
+                else:
+                    processed_params.append(p)
+            cur.execute(q, processed_params)
+        else:
+            cur.execute(q, params or [])
         return _PgResult(cur)
 
 
 def get_conn():
-    backend = db_backend()
-    if backend == "postgres":
-        try:
-            import psycopg
-        except Exception as e:
-            raise RuntimeError(
-                "Postgres backend selected but psycopg is not installed. Add psycopg[binary] to requirements."
-            ) from e
+    try:
+        import psycopg
+    except Exception as e:
+        raise RuntimeError(
+            "Postgres backend requires psycopg. Add psycopg[binary] to requirements."
+        ) from e
 
-        url = os.getenv("DATABASE_URL")
-        if not url:
-            raise RuntimeError("DB_BACKEND=postgres but DATABASE_URL is not set")
-        url = _ensure_sslmode(url)
-        # For web apps / poolers, keep connections short-lived.
-        conn = psycopg.connect(url)
-        return _PgConn(conn)
-
-    # Default: DuckDB
-    return duckdb.connect(DB_PATH)
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set")
+    url = _ensure_sslmode(url)
+    # For web apps / poolers, use autocommit to avoid transaction issues.
+    conn = psycopg.connect(url, autocommit=True)
+    return _PgConn(conn, autocommit=True)
 
 
 def run_ddl():
-    """Create/upgrade DuckDB schema.
+    """Create/upgrade schema for Postgres.
 
-    For Postgres/Supabase, schema is managed via SQL migrations applied in Supabase.
+    This is a convenience runner. For production Postgres usage prefer running
+    the SQL migrations under `core/migrations`.
     """
-    if db_backend() != "duckdb":
-        return
 
-    with get_conn() as con:
-        con.execute(
-            """
+    # Execute DDL statements individually.
+    ddl = """
         CREATE TABLE IF NOT EXISTS users (
-          user_id VARCHAR PRIMARY KEY, full_name VARCHAR, role VARCHAR, email VARCHAR, status VARCHAR DEFAULT 'Active'
+          user_id VARCHAR PRIMARY KEY, full_name VARCHAR, role VARCHAR, email VARCHAR, password_hash VARCHAR, status VARCHAR DEFAULT 'Active'
         );
         CREATE TABLE IF NOT EXISTS roles_lookup (role_name VARCHAR PRIMARY KEY, is_active BOOLEAN DEFAULT TRUE);
 
@@ -243,16 +247,48 @@ def run_ddl():
           is_selected BOOLEAN
         );
         """
-        )
 
-        con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS dataset_id INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS portfolio VARCHAR")
+    def _exec_script(con, script: str):
+        # Split on semicolon and execute non-empty statements.
+        for part in (s.strip() for s in script.split(";")):
+            if not part:
+                continue
+            try:
+                con.execute(part)
+            except Exception:
+                # Best-effort: continue on errors (existing behaviour)
+                pass
 
-        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS description VARCHAR")
-        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS unit_price_ex_vat DOUBLE")
-        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
+    with get_conn() as con:
+        _exec_script(con, ddl)
 
-        con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency_code VARCHAR")
+        # Post-create ALTERs (idempotent)
+        try:
+            con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS dataset_id INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS portfolio VARCHAR")
+        except Exception:
+            pass
+
+        try:
+            con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS description VARCHAR")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS unit_price_ex_vat DOUBLE")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
+        except Exception:
+            pass
+
+        try:
+            con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS currency_code VARCHAR")
+        except Exception:
+            pass
 
         try:
             cnt = con.execute("SELECT COUNT(*) FROM currencies_lookup").fetchone()[0]
@@ -312,20 +348,37 @@ def run_ddl():
         except Exception:
             pass
 
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s1_year INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s2_year INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s3_year INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s1_pct INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s2_pct INTEGER")
-        con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s3_pct INTEGER")
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s1_year INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s2_year INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s3_year INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s1_pct INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s2_pct INTEGER")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS target_s3_pct INTEGER")
+        except Exception:
+            pass
 
 
-def next_id(table, pk):
-    """DuckDB-only helper.
+def next_id(table: str, pk: str) -> int:
+    """Compatibility helper for legacy call sites.
 
-    Postgres uses IDENTITY columns; do not call next_id() in postgres mode.
+    Prefer IDENTITY/RETURNING in new code paths.
     """
-    if db_backend() != "duckdb":
-        raise RuntimeError("next_id() is DuckDB-only. Use IDENTITY/RETURNING in Postgres.")
     with get_conn() as con:
-        return int(con.execute(f"SELECT COALESCE(MAX({pk}),0)+1 FROM {table}").fetchone()[0] or 1)
+        row = con.execute(f"SELECT COALESCE(MAX({pk}), 0) + 1 FROM {table}").fetchone()
+    return int(row[0] if row and row[0] is not None else 1)

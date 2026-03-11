@@ -1,0 +1,78 @@
+{#
+  Executive Summary Section
+  High-level overview of emissions
+  Expects: meta (report metadata), data (emissions totals, benchmark)
+#}
+
+<div class="report-section">
+    <h2 class="report-section-title">1. Executive Summary</h2>
+    
+    <p>
+        This report presents the greenhouse gas emissions for <strong>{{ data.client_name }}</strong> 
+        for the reporting year {{ data.reporting_year if data.reporting_year else 'N/A' }}. 
+        Total emissions for the period are <strong>{{ data.scope_totals.Total|round(1) }} tCO₂e</strong>.
+    </p>
+
+    <div class="overview-summary-table">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Scope</th>
+                    <th class="text-center">Current Year (tCO₂e)</th>
+                    <th class="text-center">Benchmark Year (tCO₂e)</th>
+                    <th class="text-center">Change</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Scope 1</td>
+                    <td class="text-center">{{ data.scope_totals['Scope 1']|round(2) }}</td>
+                    <td class="text-center">{{ data.benchmark_totals['Scope 1']|round(2) }}</td>
+                    <td class="text-center">
+                        {% if data.benchmark_totals['Scope 1'] > 0 %}
+                            {{ (((data.scope_totals['Scope 1'] - data.benchmark_totals['Scope 1']) / data.benchmark_totals['Scope 1']) * 100)|round(1) }}%
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Scope 2</td>
+                    <td class="text-center">{{ data.scope_totals['Scope 2']|round(2) }}</td>
+                    <td class="text-center">{{ data.benchmark_totals['Scope 2']|round(2) }}</td>
+                    <td class="text-center">
+                        {% if data.benchmark_totals['Scope 2'] > 0 %}
+                            {{ (((data.scope_totals['Scope 2'] - data.benchmark_totals['Scope 2']) / data.benchmark_totals['Scope 2']) * 100)|round(1) }}%
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Scope 3</td>
+                    <td class="text-center">{{ data.scope_totals['Scope 3']|round(2) }}</td>
+                    <td class="text-center">{{ data.benchmark_totals['Scope 3']|round(2) }}</td>
+                    <td class="text-center">
+                        {% if data.benchmark_totals['Scope 3'] > 0 %}
+                            {{ (((data.scope_totals['Scope 3'] - data.benchmark_totals['Scope 3']) / data.benchmark_totals['Scope 3']) * 100)|round(1) }}%
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr class="total-row">
+                    <td><strong>Total</strong></td>
+                    <td class="text-center"><strong>{{ data.scope_totals.Total|round(2) }}</strong></td>
+                    <td class="text-center"><strong>{{ data.benchmark_totals.Total|round(2) }}</strong></td>
+                    <td class="text-center">
+                        {% if data.benchmark_totals.Total > 0 %}
+                            <strong>{{ (((data.scope_totals.Total - data.benchmark_totals.Total) / data.benchmark_totals.Total) * 100)|round(1) }}%</strong>
+                        {% else %}
+                            <strong>N/A</strong>
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>

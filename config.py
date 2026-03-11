@@ -1,7 +1,8 @@
-
 import os
 from dotenv import load_dotenv
-load_dotenv()
+
+# Load local .env defaults without overriding deployment/runtime environment.
+load_dotenv(override=False)
 
 APP_TITLE = "NZI Pro"
 DB_PATH = os.getenv("NZI_DB_PATH", "carbon_business.db")

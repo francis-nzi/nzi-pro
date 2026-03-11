@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ render_values.get("report_title") or (job_data.client_name ~ " Carbon Report") }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm;
+      @bottom-right {
+        content: "Page " counter(page) " / " counter(pages);
+        font-size: 8.5pt;
+        color: #64748b;
+      }
+    }
+
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #d9e2ec;
+      --card: #ffffff;
+      --bg: #f4f7fb;
+      --brand: #14532d;
+      --brand-2: #0f3f23;
+      --accent: #ea580c;
+      --scope-1: #dc2626;
+      --scope-2: #ea580c;
+      --scope-3: #2563eb;
+      --ok: #059669;
+      --warn: #d97706;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Aptos", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      font-size: 10.2pt;
+      line-height: 1.5;
+    }
+
+    .report {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 0 2mm 8mm;
+    }
+
+    .page-break { page-break-after: always; }
+
+    .section {
+      margin-top: 7mm;
+      page-break-inside: avoid;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 5mm;
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+      page-break-inside: avoid;
+    }
+
+    .cover {
+      min-height: 255mm;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 10mm;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .cover-hero {
+      padding: 10mm 10mm 9mm;
+      background: linear-gradient(135deg, var(--brand-2) 0%, var(--brand) 62%, #1f7a46 100%);
+      color: #fff;
+    }
+
+    .cover-brand {
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 8.8pt;
+      opacity: 0.92;
+    }
+
+    .cover-title {
+      font-size: 29pt;
+      line-height: 1.12;
+      font-weight: 760;
+      margin: 7mm 0 2mm;
+      max-width: 170mm;
+    }
+
+    .cover-subtitle {
+      font-size: 12pt;
+      opacity: 0.96;
+      margin: 0;
+    }
+
+    .cover-body {
+      padding: 0 10mm;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 3mm;
+    }
+
+    .meta-item {
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 3mm;
+    }
+
+    .meta-label {
+      color: var(--muted);
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 1mm;
+      font-weight: 700;
+    }
+
+    .meta-value {
+      font-size: 11pt;
+      font-weight: 650;
+      word-break: break-word;
+    }
+
+    .cover-foot {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 8.8pt;
+      margin: 0 10mm 8mm;
+      padding-top: 4mm;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 5mm;
+      margin-bottom: 2mm;
+    }
+
+    .h2 {
+      margin: 0;
+      font-size: 18pt;
+      font-weight: 760;
+      letter-spacing: -0.01em;
+    }
+
+    .eyebrow {
+      margin: 0 0 1mm;
+      font-size: 8.2pt;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    .lead {
+      margin: 0 0 4mm;
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 999px;
+      padding: 1.1mm 2.4mm;
+      font-size: 8pt;
+      color: var(--muted);
+      font-weight: 700;
+      margin-left: 1.5mm;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 3mm;
+      margin-top: 3mm;
+    }
+
+    .kpi {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 3mm;
+    }
+
+    .kpi-label {
+      color: var(--muted);
+      font-size: 8.5pt;
+      margin-bottom: 1mm;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      font-weight: 700;
+    }
+
+    .kpi-value {
+      font-size: 18pt;
+      line-height: 1.05;
+      font-weight: 760;
+    }
+
+    .kpi-sub {
+      color: var(--muted);
+      font-size: 8.4pt;
+      margin-top: 0.8mm;
+    }
+
+    .scope-1 { color: var(--scope-1); }
+    .scope-2 { color: var(--scope-2); }
+    .scope-3 { color: var(--scope-3); }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4mm;
+      margin-top: 4mm;
+    }
+
+    .chart-box {
+      min-height: 106mm;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 2.5mm;
+    }
+
+    .chart-title {
+      margin: 0;
+      font-size: 11pt;
+      font-weight: 700;
+    }
+
+    .chart-sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 8.6pt;
+    }
+
+    .chart-wrap {
+      border: 1px dashed #d8e1ec;
+      border-radius: 10px;
+      padding: 2.5mm;
+      display: grid;
+      place-items: center;
+      min-height: 95mm;
+      background: #fff;
+    }
+
+    .chart {
+      width: 100%;
+      max-height: 95mm;
+      object-fit: contain;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9pt;
+      margin-top: 2mm;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 2.2mm 1.8mm;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 7.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .num { text-align: right; white-space: nowrap; }
+
+    .badge {
+      display: inline-block;
+      padding: 1mm 2.1mm;
+      border-radius: 999px;
+      font-size: 7.8pt;
+      font-weight: 700;
+      line-height: 1;
+      color: #fff;
+    }
+
+    .b1 { background: var(--scope-1); }
+    .b2 { background: var(--scope-2); }
+    .b3 { background: var(--scope-3); }
+    .bh { background: var(--ok); }
+    .bm { background: var(--warn); }
+    .bl { background: #64748b; }
+
+    .callout {
+      margin-top: 3mm;
+      border-left: 4px solid var(--accent);
+      background: #fff7ed;
+      border-radius: 8px;
+      padding: 2.8mm 3.2mm;
+    }
+
+    .stack > * + * { margin-top: 3mm; }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 3mm;
+      margin-top: 2mm;
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 2.4mm;
+      background: #f8fafc;
+    }
+
+    .mini-label {
+      color: var(--muted);
+      font-size: 8pt;
+      margin-bottom: 0.8mm;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .mini-value {
+      font-size: 10.8pt;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .meta-table td:first-child {
+      width: 42mm;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    @media print {
+      .report { max-width: none; padding: 0; }
+      .card, .cover, .chart-box, table, tr, td, th { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  {% set tv = template_variables or {} %}
+  {% set rm = report_metadata or {} %}
+  {% set total = scope_totals.Total|default(0)|float %}
+  {% set s1 = scope_totals['Scope 1']|default(0)|float %}
+  {% set s2 = scope_totals['Scope 2']|default(0)|float %}
+  {% set s3 = scope_totals['Scope 3']|default(0)|float %}
+
+  {% set title = render_values.get("report_title") or tv.get("report_title") or rm.get("report_title") or "Annual Carbon Emissions Report" %}
+  {% set intro_raw = tv.get("introduction") %}
+  {% set intro = intro_raw or "This report summarises organisational emissions performance for the reporting period and highlights decision priorities." %}
+  {% if intro|string|trim|lower in ["this is where the intro goes", "tbc", "to be confirmed"] %}
+    {% set intro = "This report summarises organisational emissions performance for the reporting period and highlights decision priorities." %}
+  {% endif %}
+  {% set methodology = tv.get("methodology") or "Calculated using recognised conversion factors and aligned with GHG Protocol principles." %}
+  {% set key_findings_raw = tv.get("key_findings") %}
+  {% set key_findings = key_findings_raw or "Major emissions drivers are presented in the dashboard and ranked activity table." %}
+  {% if key_findings|string|trim|lower in ["this is where the findings goes", "this is where the findings go", "tbc", "to be confirmed"] %}
+    {% set key_findings = "Major emissions drivers are presented in the dashboard and ranked activity table." %}
+  {% endif %}
+  {% set recommendations = tv.get("recommendations") or "Focus reduction actions on highest contributors and lower-confidence sources first." %}
+  {% set conclusion = tv.get("conclusion") or "This report provides a clear baseline for reduction planning and tracking." %}
+  {% set period_label = rm.get("current_reporting_period_label") or ((job_data.period_start or "-") ~ " to " ~ (job_data.period_end or "-")) %}
+  {% set benchmark_label = rm.get("benchmark_period_label") or (job_data.benchmark_year or "-") %}
+
+  {% set has_targets = assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim")) %}
+  {% set has_activity_bar = assets and assets.get("activity_bar") %}
+
+  <div class="report">
+    <section class="cover">
+      <div class="cover-hero">
+        <div class="cover-brand">NZI Insights Pro</div>
+        <h1 class="cover-title">{{ title }}</h1>
+        <p class="cover-subtitle">{{ job_data.client_name or "Client" }}{% if job_data.reporting_year %} • Reporting year {{ job_data.reporting_year }}{% endif %}</p>
+      </div>
+      <div class="cover-body">
+        <div class="meta-grid">
+          <div class="meta-item">
+            <div class="meta-label">Job Number</div>
+            <div class="meta-value">{{ job_data.job_number or "-" }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Generated</div>
+            <div class="meta-value">{{ generation_date }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Reporting Period</div>
+            <div class="meta-value">{{ period_label }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Benchmark Period</div>
+            <div class="meta-value">{{ benchmark_label or "-" }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Consultant</div>
+            <div class="meta-value">{{ rm.get("consultant_name") or "-" }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">Consultant Position</div>
+            <div class="meta-value">{{ rm.get("consultant_position") or "-" }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="cover-foot">Confidential. Professional management report for emissions governance and decision support.</div>
+    </section>
+
+    <div class="page-break"></div>
+
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Section 1</p>
+          <h2 class="h2">Executive Dashboard</h2>
+        </div>
+        <div class="pill">{{ period_label }}</div>
+      </div>
+      <p class="lead">{{ intro }}</p>
+
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-label">Total Emissions</div>
+          <div class="kpi-value">{{ "{:,.1f}".format(total) }}</div>
+          <div class="kpi-sub">tCO2e</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Scope 1</div>
+          <div class="kpi-value scope-1">{{ "{:,.1f}".format(s1) }}</div>
+          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %} of total</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Scope 2</div>
+          <div class="kpi-value scope-2">{{ "{:,.1f}".format(s2) }}</div>
+          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %} of total</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Scope 3</div>
+          <div class="kpi-value scope-3">{{ "{:,.1f}".format(s3) }}</div>
+          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %} of total</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card chart-box">
+          <div>
+            <h3 class="chart-title">Scope Profile</h3>
+            <p class="chart-sub">Distribution across Scope 1, Scope 2 and Scope 3.</p>
+          </div>
+          <div class="chart-wrap">
+            {% if assets and assets.get("total_emissions") %}
+              <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown chart">
+            {% elif assets and assets.get("scope_breakdown") %}
+              <img class="chart" src="data:image/png;base64,{{ assets.get('scope_breakdown') }}" alt="Scope breakdown chart">
+            {% elif scope_chart_base64 %}
+              <img class="chart" src="data:image/png;base64,{{ scope_chart_base64 }}" alt="Scope breakdown chart">
+            {% else %}
+              <p class="lead">No chart available.</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="card chart-box">
+          <div>
+            <h3 class="chart-title">Activity Profile</h3>
+            <p class="chart-sub">Distribution by activity group across reporting boundary.</p>
+          </div>
+          <div class="chart-wrap">
+            {% if assets and assets.get("activity_breakdown") %}
+              <img class="chart" src="data:image/png;base64,{{ assets.get('activity_breakdown') }}" alt="Activity breakdown chart">
+            {% elif activity_chart_base64 %}
+              <img class="chart" src="data:image/png;base64,{{ activity_chart_base64 }}" alt="Activity breakdown chart">
+            {% else %}
+              <p class="lead">No chart available.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% if has_activity_bar %}
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Activity Group Comparison</h3>
+        <p class="chart-sub">Relative magnitude across activity groups.</p>
+        <div class="chart-wrap" style="min-height:70mm">
+          <img class="chart" style="max-height:65mm" src="data:image/png;base64,{{ assets.get('activity_bar') }}" alt="Activity bar chart">
+        </div>
+      </div>
+      {% endif %}
+    </section>
+
+    <div class="page-break"></div>
+
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Section 2</p>
+          <h2 class="h2">Performance Story</h2>
+        </div>
+      </div>
+      <p class="lead">{{ key_findings }}</p>
+
+      <div class="card">
+        <h3 class="chart-title">Scope Summary</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Scope</th>
+              <th class="num">Emissions (tCO2e)</th>
+              <th class="num">% of Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="badge b1">Scope 1</span></td>
+              <td class="num">{{ "{:,.1f}".format(s1) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %}</td>
+            </tr>
+            <tr>
+              <td><span class="badge b2">Scope 2</span></td>
+              <td class="num">{{ "{:,.1f}".format(s2) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %}</td>
+            </tr>
+            <tr>
+              <td><span class="badge b3">Scope 3</span></td>
+              <td class="num">{{ "{:,.1f}".format(s3) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %}</td>
+            </tr>
+            <tr>
+              <td><strong>Total</strong></td>
+              <td class="num"><strong>{{ "{:,.1f}".format(total) }}</strong></td>
+              <td class="num"><strong>100.0%</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Top Emission Drivers</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Activity Group</th>
+              <th>Emission Type</th>
+              <th class="num">tCO2e</th>
+              <th>Data Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in (activity_details[:12] if activity_details else []) %}
+            {% set dc = (row.data_confidence or '-') %}
+            <tr>
+              <td>{{ row.activity_group or "-" }}</td>
+              <td>{{ row.emission_type or row.report_label or "-" }}</td>
+              <td class="num">{{ "{:,.2f}".format(row.emissions|default(0)|float) }}</td>
+              <td>
+                {% if dc|string|lower == "high" %}
+                  <span class="badge bh">High</span>
+                {% elif dc|string|lower == "medium" %}
+                  <span class="badge bm">Medium</span>
+                {% elif dc|string|lower == "low" %}
+                  <span class="badge bl">Low</span>
+                {% else %}
+                  {{ dc }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not activity_details %}
+            <tr><td colspan="4">No activity details available.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if tv.get("activity_analysis_introduction") or tv.get("energy_commentary") or tv.get("business_travel_commentary") or tv.get("employee_commuting_commentary") or tv.get("pgs_commentary") or tv.get("purchased_goods_services_commentary") or tv.get("other_emissions_commentary") %}
+      <div class="card stack" style="margin-top:4mm">
+        <h3 class="chart-title">Activity Commentary</h3>
+        {% if tv.get("activity_analysis_introduction") %}<p><strong>Introduction:</strong> {{ tv.get("activity_analysis_introduction") }}</p>{% endif %}
+        {% if tv.get("energy_commentary") %}<p><strong>Energy:</strong> {{ tv.get("energy_commentary") }}</p>{% endif %}
+        {% if tv.get("business_travel_commentary") %}<p><strong>Business Travel:</strong> {{ tv.get("business_travel_commentary") }}</p>{% endif %}
+        {% if tv.get("employee_commuting_commentary") %}<p><strong>Employee Commuting:</strong> {{ tv.get("employee_commuting_commentary") }}</p>{% endif %}
+        {% if tv.get("pgs_commentary") or tv.get("purchased_goods_services_commentary") %}<p><strong>Purchased Goods &amp; Services:</strong> {{ tv.get("purchased_goods_services_commentary") or tv.get("pgs_commentary") }}</p>{% endif %}
+        {% if tv.get("other_emissions_commentary") %}<p><strong>Other Emissions:</strong> {{ tv.get("other_emissions_commentary") }}</p>{% endif %}
+      </div>
+      {% endif %}
+    </section>
+
+    <div class="page-break"></div>
+
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Section 3</p>
+          <h2 class="h2">Methodology, Data Quality and Governance</h2>
+        </div>
+      </div>
+
+      <div class="card stack">
+        <h3 class="chart-title">Methodology and Data Quality</h3>
+        <p>{{ methodology }}</p>
+        {% if rm.get("methodologies_used") %}<p><strong>Methodologies used:</strong> {{ rm.get("methodologies_used") }}</p>{% endif %}
+        <p><strong>Datasets used:</strong> {{ rm.get("datasets_names") or "Not specified" }}</p>
+        <p><strong>Data confidence commentary:</strong> {{ rm.get("data_confidence_commentary") or "No specific commentary provided." }}</p>
+      </div>
+
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Boundary and Organisation Profile</h3>
+        <div class="mini-grid">
+          <div class="mini"><div class="mini-label">Employee Number</div><div class="mini-value">{{ rm.get("employee_number") if rm.get("employee_number") is not none else "-" }}</div></div>
+          <div class="mini"><div class="mini-label">Premises Owned</div><div class="mini-value">{{ rm.get("premises_owned") if rm.get("premises_owned") is not none else "-" }}</div></div>
+          <div class="mini"><div class="mini-label">Premises Leased</div><div class="mini-value">{{ rm.get("premises_leased") if rm.get("premises_leased") is not none else "-" }}</div></div>
+          <div class="mini"><div class="mini-label">Vehicles Owned</div><div class="mini-value">{{ rm.get("vehicles_owned") if rm.get("vehicles_owned") is not none else "-" }}</div></div>
+          <div class="mini"><div class="mini-label">Vehicles Leased</div><div class="mini-value">{{ rm.get("vehicles_leased") if rm.get("vehicles_leased") is not none else "-" }}</div></div>
+          <div class="mini"><div class="mini-label">Company Number</div><div class="mini-value">{{ rm.get("company_number") or "-" }}</div></div>
+        </div>
+        <table class="meta-table" style="margin-top:3mm">
+          <tbody>
+            <tr><td>Registered Address</td><td>{{ rm.get("registered_address") or "-" }}</td></tr>
+            <tr><td>Operational Control</td><td>{% if rm.get("operational_control") is none %}-{% else %}{{ "Yes" if rm.get("operational_control") else "No" }}{% endif %}</td></tr>
+            <tr><td>Financial Control</td><td>{% if rm.get("financial_control") is none %}-{% else %}{{ "Yes" if rm.get("financial_control") else "No" }}{% endif %}</td></tr>
+            <tr><td>Equity Share</td><td>{% if rm.get("equity_share") is none %}-{% else %}{{ "Yes" if rm.get("equity_share") else "No" }}{% endif %}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Energy and Offsets</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th class="num">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>UK Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("energy_consumption_uk_kwh") or 0)|float) }}</td></tr>
+            <tr><td>Non-UK Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("energy_consumption_non_uk_kwh") or 0)|float) }}</td></tr>
+            <tr><td>Energy Reporting Basis</td><td class="num">{{ rm.get("energy_reporting_basis") or "-" }}</td></tr>
+            <tr><td>Renewable Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("renewable_energy_kwh") or 0)|float) }}</td></tr>
+            <tr><td>Renewables %</td><td class="num">{{ "{:,.1f}%".format((rm.get("renewable_energy_pct") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Location-based tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Market-based tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Carbon Offsets (tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {% if has_targets %}
+    <div class="page-break"></div>
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Section 4</p>
+          <h2 class="h2">Target Pathways</h2>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        {% if assets.get("reduction_pathway_interim") %}
+        <div class="card chart-box">
+          <div>
+            <h3 class="chart-title">Interim Reduction Pathway</h3>
+            <p class="chart-sub">Trajectory to interim target year.</p>
+          </div>
+          <div class="chart-wrap">
+            <img class="chart" src="data:image/png;base64,{{ assets.get('reduction_pathway_interim') }}" alt="Interim reduction pathway">
+          </div>
+        </div>
+        {% endif %}
+        {% if assets.get("reduction_pathway_2050") %}
+        <div class="card chart-box">
+          <div>
+            <h3 class="chart-title">Net Zero Pathway</h3>
+            <p class="chart-sub">Long-range pathway to target year.</p>
+          </div>
+          <div class="chart-wrap">
+            <img class="chart" src="data:image/png;base64,{{ assets.get('reduction_pathway_2050') }}" alt="Net zero reduction pathway">
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    <div class="page-break"></div>
+
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Section 5</p>
+          <h2 class="h2">Recommendations and Sign-off</h2>
+        </div>
+      </div>
+
+      <div class="card stack">
+        <h3 class="chart-title">Recommendations</h3>
+        <p>{{ recommendations }}</p>
+        {% if rm.get("emissions_reduction_targets_commentary") %}
+        <p><strong>Targets Commentary:</strong> {{ rm.get("emissions_reduction_targets_commentary") }}</p>
+        {% endif %}
+        {% if rm.get("commitment_commentary") %}
+        <p><strong>Commitment Commentary:</strong> {{ rm.get("commitment_commentary") }}</p>
+        {% endif %}
+        {% if rm.get("activity_commentary") %}
+        <p><strong>Activity Commentary:</strong> {{ rm.get("activity_commentary") }}</p>
+        {% endif %}
+        {% if rm.get("intensity_commentary") %}
+        <p><strong>Intensity Commentary:</strong> {{ rm.get("intensity_commentary") }}</p>
+        {% endif %}
+        <div class="callout">Prioritise near-term action on top contributors, and track confidence improvements in parallel with emissions reductions.</div>
+      </div>
+
+      <div class="card stack" style="margin-top:4mm">
+        <h3 class="chart-title">Conclusion</h3>
+        <p>{{ conclusion }}</p>
+      </div>
+
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Sign-off</h3>
+        <table class="meta-table">
+          <tbody>
+            <tr><td>Consultant Name</td><td>{{ rm.get("consultant_name") or "-" }}</td></tr>
+            <tr><td>Consultant Position</td><td>{{ rm.get("consultant_position") or "-" }}</td></tr>
+            <tr><td>Consultant Signature Date</td><td>{{ rm.get("consultant_signature_date") or "-" }}</td></tr>
+            <tr><td>Client Signee</td><td>{{ rm.get("client_signee_name") or "-" }}</td></tr>
+            <tr><td>Client Signee Position</td><td>{{ rm.get("client_signee_position") or "-" }}</td></tr>
+            <tr><td>Client Signature Date</td><td>{{ rm.get("client_signature_date") or "-" }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="page-break"></div>
+
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Appendix</p>
+          <h2 class="h2">Template Variables Coverage</h2>
+        </div>
+      </div>
+      <p class="lead">All saved non-empty template variables are listed below to confirm report coverage.</p>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable Key</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set ns = namespace(non_empty_count=0) %}
+            {% for k, v in tv.items() %}
+              {% if v is not none and (v|string)|trim != "" %}
+                {% set ns.non_empty_count = ns.non_empty_count + 1 %}
+                <tr>
+                  <td><code>{{ k }}</code></td>
+                  <td>{{ v }}</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+            {% if ns.non_empty_count == 0 %}
+            <tr><td colspan="2">No saved template variables found.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

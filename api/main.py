@@ -1,38 +1,224 @@
 import io
 import os
+import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-load_dotenv()
+
+# Load local .env defaults without overriding deployment/runtime environment.
+load_dotenv(override=False)
+
+# Ensure UTF-8 console output on Windows so startup logs never crash under cp1252.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except Exception:
+        # Keep startup resilient even if stream reconfiguration is unavailable.
+        pass
+
+
+def _safe_startup_log(level: str, message: str) -> None:
+    """Best-effort startup logger that never raises on console encoding issues."""
+    text = f"[{level}] {message}"
+    try:
+        print(text)
+        return
+    except UnicodeEncodeError:
+        pass
+
+    fallback = text.encode("ascii", errors="backslashreplace").decode("ascii")
+    try:
+        print(fallback)
+    except Exception:
+        # Last resort: avoid raising during import/startup logging.
+        return
+
+
+def _env_truthy(name: str, default: str = "false") -> bool:
+    val = str(os.getenv(name, default) or "").strip().lower()
+    return val in ("1", "true", "yes", "y", "on")
+
+
+def _strict_auth_required() -> bool:
+    env = str(os.getenv("APP_ENV", "") or "").strip().lower()
+    if env in ("prod", "production"):
+        return True
+    return _env_truthy("ENFORCE_JWT_AUTH", "false")
+
+
+if _strict_auth_required() and not str(os.getenv("NZI_JWT_SECRET") or "").strip():
+    _safe_startup_log("WARN", "Strict auth mode is enabled but NZI_JWT_SECRET is missing.")
 
 import pandas as pd
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
-from nzi_pages.job_folder_excel import build_excel_template_bytes
+from services.job_folder_excel import build_excel_template_bytes
 from services.sites import list_sites
+from services.dataset_selector import (
+    resolve_dataset_resolution,
+)
 from api.admin_routes import router as admin_router
+from api.job_scope_data_routes import router as job_scope_data_router
+from api.dataset_import_routes import router as dataset_import_router
+from api.custom_factors_routes import router as custom_factors_router
+from api.client_dashboard_routes import router as client_dashboard_router
+from api.client_reporting_routes import router as client_reporting_router
+from api.job_intensity_routes import router as job_intensity_router
+from api.main_dashboard_routes import router as main_dashboard_router
+from api.job_data_output_routes import router as job_data_output_router
+from api.job_report_routes import router as job_report_router
+from api.job_files_routes import router as job_files_router
+from api.job_communications_routes import router as job_communications_router
+from api.milestone_template_routes import router as milestone_template_router
+from api.theme_routes import router as theme_router
+from api.time_routes import router as time_router
+from api.report_template_routes import router as report_template_router
+from api.system_settings_routes import router as system_settings_router
+from api.custom_fields_routes import router as custom_fields_router
+from api.databank_routes import router as databank_router
+from api.feedback_routes import router as feedback_router
+from api.messaging_templates_routes import router as messaging_templates_router
+from api.user_settings_routes import router as user_settings_router
+from api.crm_timeline_routes import router as crm_timeline_router
+from api.crm_automation_routes import router as crm_automation_router
+from api.business_development_routes import router as business_development_router
+from api.lca_routes import router as lca_router
+from api.feedback_routes import (
+    create_feedback_item as _create_feedback_item,
+    list_feedback_items as _list_feedback_items,
+    update_feedback_item as _update_feedback_item,
+)
+from api.spend_data_routes import router as spend_data_router
+from api.quotes_routes import router as quotes_router
+from api.auth import _current_user
+from api.auth_routes import router as auth_router
 
 app = FastAPI(title="NZI Pro API", version="0.1.0")
+
+# Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Include admin routes
 app.include_router(admin_router)
 
+# Include job scope data routes
+app.include_router(job_scope_data_router)
 
-def _current_user(
-    x_user: str | None = Header(default=None, alias="X-User"),
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
-) -> dict[str, str]:
-    # Auth placeholder: later replace with real auth.
-    # For now, accept either header and fall back to anonymous.
-    user = (x_user_email or x_user or "").strip()
-    if not user:
-        return {"user": "anonymous"}
-    return {"user": user}
+# Include dataset import routes
+app.include_router(dataset_import_router)
+
+# Include custom factors routes
+app.include_router(custom_factors_router)
+
+# Include client dashboard routes
+app.include_router(client_dashboard_router)
+
+# Include client reporting routes
+app.include_router(client_reporting_router)
+
+# Include job intensity routes
+app.include_router(job_intensity_router)
+
+# Include main dashboard routes
+app.include_router(main_dashboard_router)
+
+# Include job data output routes
+app.include_router(job_data_output_router)
+
+# Include job report routes
+app.include_router(job_report_router)
+
+# Include job files routes
+app.include_router(job_files_router)
+
+# Include job communications routes
+app.include_router(job_communications_router)
+
+# Include milestone template routes
+app.include_router(milestone_template_router)
+
+# Include theme routes
+app.include_router(theme_router)
+
+# Include time tracking routes
+app.include_router(time_router)
+
+# Include report template routes
+app.include_router(report_template_router)
+
+# Include system settings routes (NZI logo upload and system configuration)
+app.include_router(system_settings_router)
+_safe_startup_log("OK", f"System settings router registered with {len(system_settings_router.routes)} routes")
+
+# Include custom fields routes
+app.include_router(custom_fields_router)
+app.include_router(databank_router)
+app.include_router(feedback_router)
+app.include_router(auth_router)
+app.include_router(spend_data_router)
+app.include_router(quotes_router)
+app.include_router(messaging_templates_router)
+app.include_router(user_settings_router)
+app.include_router(crm_timeline_router)
+app.include_router(crm_automation_router)
+app.include_router(business_development_router)
+app.include_router(lca_router)
+_safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")
+_safe_startup_log("OK", f"Feedback router registered with {len(feedback_router.routes)} routes")
+
+
+# Explicit feedback endpoints to guarantee availability on the main app.
+@app.get("/feedback/items")
+def app_list_feedback_items(
+    feedback_type: str = Query(default="all"),
+    include_completed: bool = Query(default=True),
+    _user: dict = Depends(_current_user),
+):
+    return _list_feedback_items(
+        feedback_type=feedback_type,
+        include_completed=include_completed,
+        _user=_user,
+    )
+
+
+@app.post("/feedback/items")
+def app_create_feedback_item(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    return _create_feedback_item(body=body, _user=_user)
+
+
+@app.patch("/feedback/items/{feedback_id}")
+def app_update_feedback_item(
+    feedback_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    return _update_feedback_item(feedback_id=feedback_id, body=body, _user=_user)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Run migrations on startup if RUN_STARTUP_MIGRATIONS is set."""
+    if os.getenv("RUN_STARTUP_MIGRATIONS") == "1":
+        try:
+            from core.migrations import run_migrations
+            run_migrations()
+            _safe_startup_log("OK", "Startup migrations completed successfully")
+        except Exception as e:
+            _safe_startup_log("WARN", f"Startup migrations failed: {e}")
 
 
 def _job_template_paths(job_id: int) -> dict[str, str | None]:
@@ -75,6 +261,73 @@ def _job_template_paths(job_id: int) -> dict[str, str | None]:
     }
 
 
+def _load_legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
+    ds_map: dict[str, int] = {}
+    try:
+        with get_conn() as con:
+            df_scopes = con.execute(
+                """
+                SELECT scope, dataset_id
+                FROM job_scope_config
+                WHERE job_id=?
+                """,
+                [int(job_id)],
+            ).df()
+        if df_scopes is not None and (not df_scopes.empty):
+            for _, rr in df_scopes.iterrows():
+                scope = str(rr.get("scope") or "").strip()
+                dsid = rr.get("dataset_id")
+                if scope and dsid is not None and str(dsid) != "nan":
+                    ds_map[scope] = int(dsid)
+    except Exception:
+        return {}
+    return ds_map
+
+
+def _ensure_job_additional_datasets_table() -> None:
+    try:
+        with get_conn() as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_additional_datasets (
+                    job_id INTEGER NOT NULL,
+                    dataset_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (job_id, dataset_id)
+                )
+                """
+            )
+    except Exception:
+        # Keep existing flows resilient if schema migration is in progress.
+        pass
+
+
+def _resolve_scope_dataset_map(
+    job_id: int,
+) -> tuple[dict[str, int], dict[str, object] | None, list[str]]:
+    """Resolve effective scope->dataset map with automatic mode first, legacy fallback."""
+    warnings: list[str] = []
+    auto_resolution: dict[str, object] | None = None
+    ds_map: dict[str, int] = {}
+
+    try:
+        auto_resolution = resolve_dataset_resolution(int(job_id))
+        auto_primary = auto_resolution.get("scope_primary_datasets") or {}
+        for scope, dsid in auto_primary.items():
+            if dsid is None:
+                continue
+            ds_map[str(scope)] = int(dsid)
+    except Exception as e:
+        warnings.append(f"Automatic dataset resolution unavailable: {e}")
+
+    if not ds_map:
+        ds_map = _load_legacy_scope_dataset_map(int(job_id))
+        if ds_map:
+            warnings.append("Using legacy job_scope_config dataset mapping fallback.")
+
+    return ds_map, auto_resolution, warnings
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -86,63 +339,37 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 
+# ... existing code ...
 @app.get("/health")
-def health(_user: dict[str, str] = Depends(_current_user)):
-    url = os.getenv("DATABASE_URL") or ""
-    host = ""
-    user = ""
-    dbname = ""
-    port: int | None = None
-    try:
-        if url:
-            parsed = urlparse(url)
-            host = parsed.hostname or ""
-            user = parsed.username or ""
-            dbname = (parsed.path or "").lstrip("/")
-            port = parsed.port
-    except Exception:
-        host = ""
-        user = ""
-        dbname = ""
-        port = None
+def health():
     return {
         "ok": True,
-        "db_backend": db_backend(),
-        "database_url_host": host,
-        "database_url_user": user,
-        "database_url_dbname": dbname,
-        "database_url_port": port,
-        "database_url_has_sslmode": ("sslmode=" in url),
+        "service": "NZI Pro API",
     }
+# ... existing code ...
 
 
 @app.get("/debug/env")
 def debug_env(_user: dict[str, str] = Depends(_current_user)):
     url = os.getenv("DATABASE_URL") or ""
     host = ""
-    user = ""
-    dbname = ""
     port: int | None = None
     try:
         if url:
             parsed = urlparse(url)
             host = parsed.hostname or ""
-            user = parsed.username or ""
-            dbname = (parsed.path or "").lstrip("/")
             port = parsed.port
     except Exception:
         host = ""
-        user = ""
-        dbname = ""
         port = None
     return {
         "db_backend": db_backend(),
+        "database_url_is_set": bool(url),
         "database_url_host": host,
-        "database_url_user": user,
-        "database_url_dbname": dbname,
         "database_url_port": port,
         "database_url_has_sslmode": ("sslmode=" in url),
     }
@@ -150,39 +377,130 @@ def debug_env(_user: dict[str, str] = Depends(_current_user)):
 
 @app.post("/jobs")
 def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
-    """Create a new job."""
+    """Create a new job with automatic period calculation."""
     try:
+        from datetime import date, timedelta
+        from dateutil.relativedelta import relativedelta
+        
         client_db_id = body.get("client_db_id")
-        job_type = body.get("job_type")
+        job_type_name = body.get("job_type")
         reporting_year = body.get("reporting_year")
+        is_benchmark = body.get("is_benchmark", False)
         start_date = body.get("start_date")
         due_date = body.get("due_date")
         
-        if not client_db_id or not job_type or not reporting_year:
-            raise HTTPException(status_code=400, detail="client_db_id, job_type, and reporting_year are required")
+        if not client_db_id or not job_type_name:
+            raise HTTPException(status_code=400, detail="client_db_id and job_type are required")
         
         if not start_date or not due_date:
             raise HTTPException(status_code=400, detail="start_date and due_date are required")
         
         with get_conn() as con:
+            # Lookup job_type_id and is_crp from job_types table
+            job_type_row = con.execute(
+                "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
+                [job_type_name]
+            ).fetchone()
+            
+            if not job_type_row:
+                raise HTTPException(status_code=400, detail=f"Job type '{job_type_name}' not found or inactive")
+            
+            job_type_id = job_type_row[0]
+            is_crp = job_type_row[1] or False
+            
+            # Get client's benchmark period and financial year info
+            client_row = con.execute(
+                """
+                SELECT benchmark_period_start, benchmark_period_end, 
+                       financial_year_end_month, financial_year_end_day,
+                       benchmark_year
+                FROM clients
+                WHERE db_id = ?
+                """,
+                [int(client_db_id)]
+            ).fetchone()
+            
+            if not client_row:
+                raise HTTPException(status_code=404, detail="Client not found")
+            
+            benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year = client_row
+            
+            # Calculate reporting period
+            reporting_period_start = None
+            reporting_period_end = None
+            
+            if is_benchmark:
+                # This is the benchmark job - use client's benchmark period
+                if benchmark_start and benchmark_end:
+                    reporting_period_start = benchmark_start
+                    reporting_period_end = benchmark_end
+                    if not reporting_year and benchmark_end:
+                        reporting_year = benchmark_end.year
+                elif reporting_year:
+                    # Calculate from reporting_year and financial year end
+                    fy_month = fy_month or 12
+                    fy_day = fy_day or 31
+                    reporting_period_end = date(int(reporting_year), fy_month, fy_day)
+                    reporting_period_start = reporting_period_end - relativedelta(years=1) + timedelta(days=1)
+            elif reporting_year:
+                # Subsequent job - calculate period based on reporting_year
+                fy_month = fy_month or 12
+                fy_day = fy_day or 31
+                reporting_period_end = date(int(reporting_year), fy_month, fy_day)
+                reporting_period_start = reporting_period_end - relativedelta(years=1) + timedelta(days=1)
+            elif benchmark_start and benchmark_end:
+                # Auto-calculate next period after benchmark
+                # Find the latest job for this client
+                latest_job = con.execute(
+                    """
+                    SELECT reporting_period_end, reporting_year
+                    FROM jobs
+                    WHERE client_db_id = ?
+                    ORDER BY reporting_period_end DESC NULLS LAST, reporting_year DESC NULLS LAST
+                    LIMIT 1
+                    """,
+                    [int(client_db_id)]
+                ).fetchone()
+                
+                if latest_job and latest_job[0]:
+                    # Add 1 year to the latest period
+                    reporting_period_start = latest_job[0] + timedelta(days=1)
+                    reporting_period_end = reporting_period_start + relativedelta(years=1) - timedelta(days=1)
+                    reporting_year = reporting_period_end.year
+                else:
+                    # First job after benchmark - use benchmark + 1 year
+                    reporting_period_start = benchmark_end + timedelta(days=1)
+                    reporting_period_end = reporting_period_start + relativedelta(years=1) - timedelta(days=1)
+                    reporting_year = reporting_period_end.year
+            
+            if not reporting_year:
+                raise HTTPException(status_code=400, detail="Cannot determine reporting year/period. Please provide reporting_year or ensure client has benchmark period set.")
+            
             row = con.execute(
                 """
                 INSERT INTO jobs (
-                    client_db_id, job_type, job_number, title, reporting_year,
-                    status, start_date, due_date
+                    client_db_id, job_type_id, job_type, job_number, title, reporting_year,
+                    reporting_period_start, reporting_period_end, is_benchmark, is_crp,
+                    status, start_date, due_date, legacy_job_no
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING job_id
                 """,
                 [
                     int(client_db_id),
-                    job_type,
+                    job_type_id,
+                    job_type_name,
                     "PENDING",
                     body.get("title", "Untitled").strip() or "Untitled",
                     int(reporting_year),
+                    reporting_period_start,
+                    reporting_period_end,
+                    is_benchmark,
+                    is_crp,
                     body.get("status", "Open"),
                     start_date,
                     due_date,
+                    body.get("legacy_job_no"),
                 ],
             ).fetchone()
             
@@ -194,7 +512,14 @@ def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_
                 [job_number, job_id],
             )
             
-            return {"ok": True, "job_id": job_id, "job_number": job_number}
+            return {
+                "ok": True, 
+                "job_id": job_id, 
+                "job_number": job_number,
+                "reporting_period_start": str(reporting_period_start) if reporting_period_start else None,
+                "reporting_period_end": str(reporting_period_end) if reporting_period_end else None,
+                "is_benchmark": is_benchmark
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -204,27 +529,40 @@ def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_
 @app.get("/jobs")
 def list_jobs(
     q: str | None = None,
+    crm: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
     query = (q or "").strip()
+    crm_filter = (crm or "").strip()
 
-    where_sql = ""
+    where_clauses = []
     params: list[object] = []
+    
     if query:
         if db_backend() == "postgres":
-            where_sql = (
-                "WHERE (j.job_number ILIKE ? OR j.title ILIKE ? OR c.client_name ILIKE ?)"
+            where_clauses.append(
+                "(j.job_number ILIKE ? OR j.title ILIKE ? OR c.client_name ILIKE ?)"
             )
             like = f"%{query}%"
             params.extend([like, like, like])
         else:
-            where_sql = (
-                "WHERE (lower(coalesce(j.job_number,'')) LIKE ? OR lower(coalesce(j.title,'')) LIKE ? OR lower(coalesce(c.client_name,'')) LIKE ?)"
+            where_clauses.append(
+                "(lower(coalesce(j.job_number,'')) LIKE ? OR lower(coalesce(j.title,'')) LIKE ? OR lower(coalesce(c.client_name,'')) LIKE ?)"
             )
             like = f"%{query.lower()}%"
             params.extend([like, like, like])
+    
+    if crm_filter:
+        if db_backend() == "postgres":
+            where_clauses.append("c.crm_owner ILIKE ?")
+            params.append(f"%{crm_filter}%")
+        else:
+            where_clauses.append("lower(coalesce(c.crm_owner,'')) LIKE ?")
+            params.append(f"%{crm_filter.lower()}%")
+    
+    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
     try:
         with get_conn() as con:
@@ -241,10 +579,15 @@ def list_jobs(
             rows = (
                 con.execute(
                     f"""
-                    SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                           j.client_db_id, c.client_name
+                    SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
+                           j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
+                           j.status, j.client_db_id, c.client_name, c.crm_owner as crm_name, j.due_date,
+                           jp.data_collection_due, jp.data_collection_completed_at,
+                           jp.first_draft_due, jp.first_draft_completed_at,
+                           jp.final_report_due, jp.final_report_completed_at
                     FROM jobs j
                     JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                     {where_sql}
                     ORDER BY j.job_id DESC
                     LIMIT ? OFFSET ?
@@ -256,20 +599,90 @@ def list_jobs(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/jobs failed: {e}")
 
+    # Helper function to calculate milestone status
+    def get_milestone_status(due_date, completed_at):
+        """Calculate traffic light status: green, amber, red, completed"""
+        if completed_at:
+            return "completed"
+        if not due_date:
+            return "green"
+        
+        from datetime import date, timedelta
+        import pandas as pd
+        
+        # Handle pandas Timestamp
+        if isinstance(due_date, pd.Timestamp):
+            due_date = due_date.date()
+        
+        today = date.today()
+        days_until_due = (due_date - today).days
+        
+        if days_until_due < -1:  # Overdue by more than 1 day
+            return "red"
+        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
+            return "amber"
+        else:
+            return "green"
+    
+    def get_overall_status(statuses):
+        """Get overall status: red if any red, amber if any amber, else green"""
+        if "red" in statuses:
+            return "red"
+        elif "amber" in statuses:
+            return "amber"
+        else:
+            return "green"
+
     items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
+            # Calculate individual milestone statuses
+            milestone_statuses = []
+            if r.get("data_collection_due"):
+                milestone_statuses.append(get_milestone_status(r.get("data_collection_due"), r.get("data_collection_completed_at")))
+            if r.get("first_draft_due"):
+                milestone_statuses.append(get_milestone_status(r.get("first_draft_due"), r.get("first_draft_completed_at")))
+            if r.get("final_report_due"):
+                milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
+            
+            # Calculate overall status
+            overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
+            
             items.append(
                 {
                     "job_id": int(r.get("job_id")),
                     "job_number": r.get("job_number"),
                     "title": r.get("title"),
-                    "reporting_year": (int(r.get("reporting_year")) if r.get("reporting_year") is not None else None),
+                    "reporting_year": (
+                        int(r.get("reporting_period_end").year)
+                        if r.get("reporting_period_end") is not None and hasattr(r.get("reporting_period_end"), "year")
+                        else (int(r.get("reporting_year")) if r.get("reporting_year") is not None else None)
+                    ),
+                    "reporting_period_start": (str(r.get("reporting_period_start")) if r.get("reporting_period_start") is not None else None),
+                    "reporting_period_end": (str(r.get("reporting_period_end")) if r.get("reporting_period_end") is not None else None),
+                    "is_benchmark": (bool(r.get("is_benchmark")) if r.get("is_benchmark") is not None else None),
                     "status": r.get("status"),
                     "client_db_id": int(r.get("client_db_id")),
                     "client_name": r.get("client_name"),
+                    "crm_name": r.get("crm_name"),
+                    "due_date": (str(r.get("due_date")) if r.get("due_date") is not None else None),
+                    "milestone_status": overall_milestone_status,
                 }
             )
+
+    # Sort by milestone status priority: red > amber > green > None/completed
+    def status_priority(item):
+        status = item.get("milestone_status")
+        if status == "red":
+            return 0
+        elif status == "amber":
+            return 1
+        elif status == "green":
+            return 2
+        else:
+            return 3
+    
+    items.sort(key=status_priority)
 
     total = int(total_row[0] if total_row else 0)
     return {"items": items, "limit": int(limit), "offset": int(offset), "total": total}
@@ -281,18 +694,46 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         row = con.execute(
             """
             SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
-                   j.reporting_period_start, j.reporting_period_end,
-                   j.status, j.job_template_id,
-                   j.client_db_id, c.client_name
+                   j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
+                   j.status, j.job_template_id, j.milestone_template_id,
+                   j.client_db_id, c.client_name,
+                   j.crm_name, j.start_date, j.due_date, j.legacy_job_no,
+                   j.job_type_id
             FROM jobs j
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id=?
             """,
             [int(job_id)],
         ).fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Try to get estimated_hours from job_types if the column exists
+        estimated_hours = 0
+        if row[16]:  # job_type_id (17th column, 0-indexed)
+            try:
+                jt_row = con.execute(
+                    "SELECT estimated_hours FROM job_types WHERE job_type_id=?",
+                    [row[16]]
+                ).fetchone()
+                if jt_row and jt_row[0] is not None:
+                    estimated_hours = float(jt_row[0])
+            except Exception:
+                pass  # Column might not exist yet
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+        # Fetch milestones with completion status
+        milestones = con.execute(
+            """
+            SELECT data_collection_due, first_draft_due, final_report_due,
+                   data_collection_completed_at, data_collection_completed_by,
+                   first_draft_completed_at, first_draft_completed_by,
+                   final_report_completed_at, final_report_completed_by
+            FROM job_plan
+            WHERE job_id=?
+            """,
+            [int(job_id)],
+        ).fetchone()
 
     (
         jid,
@@ -301,11 +742,54 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         reporting_year,
         reporting_period_start,
         reporting_period_end,
+        is_benchmark,
         status,
         job_template_id,
+        milestone_template_id,
         client_db_id,
         client_name,
+        crm_name,
+        start_date,
+        due_date,
+        legacy_job_no,
+        job_type_id,
     ) = row
+
+    # Calculate traffic light status for each milestone
+    def get_milestone_status(due_date, completed_at):
+        """Calculate traffic light status: green, amber, red"""
+        if completed_at:
+            return "completed"
+        if not due_date:
+            return "green"
+        
+        from datetime import date, timedelta
+        today = date.today()
+        days_until_due = (due_date - today).days
+        
+        if days_until_due < -1:  # Overdue by more than 1 day
+            return "red"
+        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
+            return "amber"
+        else:
+            return "green"
+    
+    milestone_data = {}
+    if milestones:
+        milestone_data = {
+            "data_collection_due": str(milestones[0]) if milestones[0] else None,
+            "data_collection_completed_at": str(milestones[3]) if milestones[3] else None,
+            "data_collection_completed_by": milestones[4] if milestones[4] else None,
+            "data_collection_status": get_milestone_status(milestones[0], milestones[3]),
+            "first_draft_due": str(milestones[1]) if milestones[1] else None,
+            "first_draft_completed_at": str(milestones[5]) if milestones[5] else None,
+            "first_draft_completed_by": milestones[6] if milestones[6] else None,
+            "first_draft_status": get_milestone_status(milestones[1], milestones[5]),
+            "final_report_due": str(milestones[2]) if milestones[2] else None,
+            "final_report_completed_at": str(milestones[7]) if milestones[7] else None,
+            "final_report_completed_by": milestones[8] if milestones[8] else None,
+            "final_report_status": get_milestone_status(milestones[2], milestones[7]),
+        }
 
     return {
         "job_id": int(jid),
@@ -314,10 +798,19 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "reporting_year": (int(reporting_year) if reporting_year is not None else None),
         "reporting_period_start": (str(reporting_period_start) if reporting_period_start else None),
         "reporting_period_end": (str(reporting_period_end) if reporting_period_end else None),
+        "is_benchmark": bool(is_benchmark) if is_benchmark is not None else False,
         "status": status,
         "job_template_id": (int(job_template_id) if job_template_id is not None else None),
+        "milestone_template_id": (int(milestone_template_id) if milestone_template_id is not None else None),
         "client_db_id": int(client_db_id),
         "client_name": client_name,
+        "crm_name": crm_name,
+        "start_date": (str(start_date) if start_date else None),
+        "due_date": (str(due_date) if due_date else None),
+        "legacy_job_no": legacy_job_no,
+        "job_type_id": (int(job_type_id) if job_type_id is not None else None),
+        "estimated_hours": estimated_hours,
+        **milestone_data,
     }
 
 
@@ -347,6 +840,34 @@ def update_job(
                 updates.append("reporting_period_end = ?")
                 params.append(body["reporting_period_end"])
             
+            if "title" in body:
+                updates.append("title = ?")
+                params.append(body["title"])
+            
+            if "status" in body:
+                updates.append("status = ?")
+                params.append(body["status"])
+            
+            if "crm_name" in body:
+                updates.append("crm_name = ?")
+                params.append(body["crm_name"])
+            
+            if "start_date" in body:
+                updates.append("start_date = ?")
+                params.append(body["start_date"])
+            
+            if "due_date" in body:
+                updates.append("due_date = ?")
+                params.append(body["due_date"])
+            
+            if "legacy_job_no" in body:
+                updates.append("legacy_job_no = ?")
+                params.append(body["legacy_job_no"])
+            
+            if "milestone_template_id" in body:
+                updates.append("milestone_template_id = ?")
+                params.append(body["milestone_template_id"])
+            
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
             
@@ -355,11 +876,204 @@ def update_job(
             
             con.execute(query, params)
             
+            # Auto-create/update milestones if anchor-driving fields changed:
+            # - start_date
+            # - reporting_period_start
+            # - milestone template
+            if ("start_date" in body) or ("reporting_period_start" in body) or ("milestone_template_id" in body):
+                from datetime import datetime, timedelta
+
+                def _to_date(value):
+                    if value is None:
+                        return None
+                    if hasattr(value, "date"):
+                        try:
+                            return value.date()
+                        except Exception:
+                            pass
+                    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+                        return value
+                    try:
+                        return datetime.strptime(str(value), "%Y-%m-%d").date()
+                    except Exception:
+                        return None
+
+                # Get both start_date and reporting_period_start from body (if provided) or DB.
+                if "start_date" in body:
+                    start_date = _to_date(body.get("start_date"))
+                else:
+                    start_date = None
+
+                if "reporting_period_start" in body:
+                    reporting_period_start = _to_date(body.get("reporting_period_start"))
+                else:
+                    reporting_period_start = None
+
+                if start_date is None or reporting_period_start is None:
+                    job_data = con.execute(
+                        "SELECT start_date, reporting_period_start FROM jobs WHERE job_id = ?",
+                        [int(job_id)]
+                    ).fetchone()
+                    if job_data:
+                        if start_date is None:
+                            start_date = _to_date(job_data[0])
+                        if reporting_period_start is None:
+                            reporting_period_start = _to_date(job_data[1])
+
+                # Anchor logic:
+                # - Use Job Start Date by default
+                # - If Reporting Period Start is later, use that instead
+                # - If one is missing, use the available date
+                anchor_date = None
+                if start_date and reporting_period_start:
+                    anchor_date = reporting_period_start if reporting_period_start > start_date else start_date
+                else:
+                    anchor_date = start_date or reporting_period_start
+
+                if anchor_date is None:
+                    return {"ok": True, "message": "Job updated successfully"}
+                
+                # Get the milestone template for this job (or use default)
+                job_template = con.execute(
+                    "SELECT milestone_template_id FROM jobs WHERE job_id = ?",
+                    [int(job_id)]
+                ).fetchone()
+                
+                template_id = job_template[0] if job_template and job_template[0] else None
+                
+                # If no template assigned, get the default template
+                if not template_id:
+                    default_template = con.execute(
+                        "SELECT template_id FROM milestone_templates WHERE is_default = TRUE LIMIT 1"
+                    ).fetchone()
+                    template_id = default_template[0] if default_template else None
+                
+                if template_id:
+                    # Get milestone items from template
+                    milestone_items_df = con.execute(
+                        """
+                        SELECT milestone_name, days_offset, sort_order
+                        FROM milestone_template_items
+                        WHERE template_id = %s
+                        ORDER BY sort_order
+                        """,
+                        [template_id]
+                    ).df()
+                    
+                    if not milestone_items_df.empty:
+                        # For backward compatibility, map to job_plan table
+                        # Assuming first 3 items map to data_collection, first_draft, final_report
+                        milestones = {}
+                        for idx, row in enumerate(milestone_items_df.head(3).iterrows()):
+                            item = row[1]  # row is (index, data)
+                            milestone_date = anchor_date + timedelta(days=int(item['days_offset']))
+                            if idx == 0:
+                                milestones['data_collection_due'] = milestone_date
+                            elif idx == 1:
+                                milestones['first_draft_due'] = milestone_date
+                            elif idx == 2:
+                                milestones['final_report_due'] = milestone_date
+                        
+                        # Check if job_plan exists
+                        plan_exists = con.execute(
+                            "SELECT 1 FROM job_plan WHERE job_id = ?",
+                            [int(job_id)]
+                        ).fetchone()
+                        
+                        if plan_exists:
+                            # Update only if override_dates is False
+                            con.execute(
+                                """
+                                UPDATE job_plan
+                                SET data_collection_due = %s,
+                                    first_draft_due = %s,
+                                    final_report_due = %s,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE job_id = %s AND (override_dates = FALSE OR override_dates IS NULL)
+                                """,
+                                [
+                                    milestones.get('data_collection_due'),
+                                    milestones.get('first_draft_due'),
+                                    milestones.get('final_report_due'),
+                                    int(job_id)
+                                ]
+                            )
+                        else:
+                            # Create new job_plan entry
+                            con.execute(
+                                """
+                                INSERT INTO job_plan (job_id, data_collection_due, first_draft_due, final_report_due, override_dates, updated_at)
+                                VALUES (%s, %s, %s, %s, FALSE, CURRENT_TIMESTAMP)
+                                """,
+                                [
+                                    int(job_id),
+                                    milestones.get('data_collection_due'),
+                                    milestones.get('first_draft_due'),
+                                    milestones.get('final_report_due')
+                                ]
+                            )
+            
             return {"ok": True, "message": "Job updated successfully"}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
+
+
+@app.post("/jobs/{job_id}/milestones/{milestone_type}/complete")
+def complete_milestone(
+    job_id: int,
+    milestone_type: str,
+    body: dict = Body(...),
+    user: dict[str, str] = Depends(_current_user)
+):
+    """Mark a milestone as complete or incomplete"""
+    try:
+        # Validate milestone type
+        valid_types = ["data_collection", "first_draft", "final_report"]
+        if milestone_type not in valid_types:
+            raise HTTPException(status_code=400, detail=f"Invalid milestone type. Must be one of: {valid_types}")
+        
+        completed = body.get("completed", True)
+        
+        with get_conn() as con:
+            # Check if job_plan exists
+            plan_exists = con.execute(
+                "SELECT 1 FROM job_plan WHERE job_id = %s",
+                [int(job_id)]
+            ).fetchone()
+            
+            if not plan_exists:
+                raise HTTPException(status_code=404, detail="Job plan not found")
+            
+            # Update completion status
+            if completed:
+                # Mark as complete with timestamp and user
+                from datetime import datetime
+                query = f"""
+                    UPDATE job_plan
+                    SET {milestone_type}_completed_at = %s,
+                        {milestone_type}_completed_by = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE job_id = %s
+                """
+                con.execute(query, [datetime.now(), user.get("email", "unknown"), int(job_id)])
+            else:
+                # Mark as incomplete (clear timestamp and user)
+                query = f"""
+                    UPDATE job_plan
+                    SET {milestone_type}_completed_at = NULL,
+                        {milestone_type}_completed_by = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE job_id = %s
+                """
+                con.execute(query, [int(job_id)])
+            
+            return {"ok": True, "message": f"Milestone {milestone_type} marked as {'complete' if completed else 'incomplete'}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update milestone: {e}")
 
 
 @app.get("/job-templates")
@@ -398,6 +1112,62 @@ def list_job_templates(_user: dict[str, str] = Depends(_current_user)):
             )
 
     return {"items": items}
+
+
+@app.get("/job-templates/{template_id}/download")
+def download_job_template(template_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """Download the template file for a job template."""
+    from pathlib import Path
+
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT
+                    template_key,
+                    template_name,
+                    template_type,
+                    COALESCE(file_path, excel_template_path, crp_template_path) AS resolved_path
+                FROM job_templates
+                WHERE job_template_id = %s
+                """,
+                [int(template_id)],
+            ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        template_key = str(row[0] or f"template_{template_id}")
+        template_name = str(row[1] or "").strip()
+        template_type = str(row[2] or "").strip().lower()
+        file_path_raw = str(row[3] or "").strip()
+
+        if not file_path_raw:
+            raise HTTPException(status_code=404, detail="Template file path is missing")
+
+        file_path = Path(file_path_raw)
+        if not file_path.is_absolute():
+            file_path = Path.cwd() / file_path
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="Template file not found on disk")
+
+        suffix = file_path.suffix
+        if not suffix:
+            suffix = ".xlsx" if template_type == "dataset" else ".docx"
+
+        preferred_name = template_name or template_key
+        safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_", " ") else "_" for ch in preferred_name).strip()
+        download_name = f"{safe_name or template_key}{suffix}"
+
+        return FileResponse(
+            path=str(file_path),
+            filename=download_name,
+            media_type="application/octet-stream",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Template download failed: {e}")
 
 
 @app.post("/job-templates")
@@ -541,6 +1311,53 @@ async def update_job_template(
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 
 
+@app.patch("/job-templates/{template_id}/archive")
+def archive_job_template(
+    template_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Archive or unarchive a job template."""
+    try:
+        with get_conn() as con:
+            # Check template exists
+            exists = con.execute(
+                "SELECT 1 FROM job_templates WHERE job_template_id = %s",
+                [int(template_id)]
+            ).fetchone()
+            
+            if not exists:
+                raise HTTPException(status_code=404, detail="Template not found")
+            
+            archived = body.get("archived", True)
+            user_name = _user.get("name", "system")
+            
+            if archived:
+                con.execute(
+                    """
+                    UPDATE job_templates 
+                    SET archived = %s, archived_at = NOW(), archived_by = %s
+                    WHERE job_template_id = %s
+                    """,
+                    [True, user_name, int(template_id)]
+                )
+            else:
+                con.execute(
+                    """
+                    UPDATE job_templates 
+                    SET archived = %s, archived_at = NULL, archived_by = NULL
+                    WHERE job_template_id = %s
+                    """,
+                    [False, int(template_id)]
+                )
+            
+            return {"ok": True, "message": "Template archived successfully" if archived else "Template restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Archive failed: {e}")
+
+
 @app.put("/jobs/{job_id}/job-template")
 def update_job_template(
     job_id: int,
@@ -616,7 +1433,7 @@ def list_datasets(_user: dict[str, str] = Depends(_current_user)):
             df = con.execute(
                 """
                 SELECT dataset_id, name, source, analysis_type, country, region,
-                       currency, year, version
+                       currency, year, version, archived, archived_at, archived_by
                 FROM datasets
                 ORDER BY dataset_id DESC
                 """
@@ -638,6 +1455,9 @@ def list_datasets(_user: dict[str, str] = Depends(_current_user)):
                     "currency": r.get("currency"),
                     "year": (int(r.get("year")) if r.get("year") is not None else None),
                     "version": r.get("version"),
+                    "archived": bool(r.get("archived")) if r.get("archived") is not None else False,
+                    "archived_at": r.get("archived_at"),
+                    "archived_by": r.get("archived_by"),
                 }
             )
 
@@ -647,6 +1467,7 @@ def list_datasets(_user: dict[str, str] = Depends(_current_user)):
 @app.get("/jobs/{job_id}/scope-config")
 def get_job_scope_config(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     try:
+        _ensure_job_additional_datasets_table()
         with get_conn() as con:
             exists_job = con.execute("SELECT 1 FROM jobs WHERE job_id=?", [int(job_id)]).fetchone()
             if not exists_job:
@@ -661,24 +1482,95 @@ def get_job_scope_config(job_id: int, _user: dict[str, str] = Depends(_current_u
                 """,
                 [int(job_id)],
             ).df()
+
+            add_df = con.execute(
+                """
+                SELECT dataset_id
+                FROM job_additional_datasets
+                WHERE job_id=?
+                ORDER BY dataset_id
+                """,
+                [int(job_id)],
+            ).df()
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load scope config: {e}")
 
-    items: list[dict[str, object]] = []
+    allowed_scopes = ["Scope 1", "Scope 2", "Scope 3"]
+    legacy_by_scope: dict[str, dict[str, object]] = {
+        scope: {
+            "scope": scope,
+            "include_scope": True,
+            "dataset_id": None,
+            "factor_method": None,
+        }
+        for scope in allowed_scopes
+    }
+
     if df is not None and (not df.empty):
         for _, r in df.iterrows():
-            items.append(
-                {
-                    "scope": r.get("scope"),
-                    "include_scope": bool(r.get("include_scope")) if r.get("include_scope") is not None else True,
-                    "dataset_id": (int(r.get("dataset_id")) if r.get("dataset_id") is not None and str(r.get("dataset_id")) != "nan" else None),
-                    "factor_method": r.get("factor_method"),
-                }
+            scope = str(r.get("scope") or "").strip()
+            if scope not in legacy_by_scope:
+                continue
+            dsid_raw = r.get("dataset_id")
+            dsid = (
+                int(dsid_raw)
+                if dsid_raw is not None and str(dsid_raw) != "nan"
+                else None
             )
+            legacy_by_scope[scope] = {
+                "scope": scope,
+                "include_scope": bool(r.get("include_scope")) if r.get("include_scope") is not None else True,
+                "dataset_id": dsid,
+                "factor_method": r.get("factor_method"),
+            }
 
-    return {"job_id": int(job_id), "items": items}
+    effective_ds_map, auto_resolution, auto_warnings = _resolve_scope_dataset_map(int(job_id))
+
+    items: list[dict[str, object]] = []
+    legacy_items: list[dict[str, object]] = []
+    for scope in allowed_scopes:
+        legacy_item = dict(legacy_by_scope.get(scope) or {})
+        legacy_items.append(legacy_item)
+
+        effective_item = dict(legacy_item)
+        if scope in effective_ds_map:
+            effective_item["dataset_id"] = int(effective_ds_map[scope])
+        items.append(effective_item)
+
+    auto_payload = None
+    if auto_resolution:
+        auto_payload = {
+            "country": auto_resolution.get("country"),
+            "reporting_period_start": auto_resolution.get("reporting_period_start"),
+            "reporting_period_end": auto_resolution.get("reporting_period_end"),
+            "uses_legacy_fallback": bool(auto_resolution.get("uses_legacy_fallback")),
+            "scope_summaries": auto_resolution.get("scope_summaries") or [],
+            "datasets_for_report": auto_resolution.get("datasets_for_report") or [],
+            "unresolved_scopes": auto_resolution.get("unresolved_scopes") or [],
+        }
+
+    additional_dataset_ids: list[int] = []
+    if add_df is not None and (not add_df.empty):
+        for _, row in add_df.iterrows():
+            raw = row.get("dataset_id")
+            if raw is None or str(raw) == "nan":
+                continue
+            try:
+                additional_dataset_ids.append(int(raw))
+            except Exception:
+                continue
+
+    return {
+        "job_id": int(job_id),
+        "mode": "automatic" if auto_resolution else "legacy",
+        "items": items,
+        "legacy_items": legacy_items,
+        "additional_dataset_ids": additional_dataset_ids,
+        "warnings": auto_warnings,
+        "auto_resolution": auto_payload,
+    }
 
 
 @app.put("/jobs/{job_id}/scope-config")
@@ -690,6 +1582,11 @@ def update_job_scope_config(
     raw_items = payload.get("items")
     if not isinstance(raw_items, list):
         raise HTTPException(status_code=400, detail="items must be a list")
+    raw_additional = payload.get("additional_dataset_ids")
+    if raw_additional is None:
+        raw_additional = []
+    if not isinstance(raw_additional, list):
+        raise HTTPException(status_code=400, detail="additional_dataset_ids must be a list")
 
     allowed_scopes = {"Scope 1", "Scope 2", "Scope 3"}
     updates: list[tuple[str, int | None, bool | None, str | None]] = []
@@ -724,7 +1621,18 @@ def update_job_scope_config(
     if not updates:
         raise HTTPException(status_code=400, detail="No valid scope config items")
 
+    additional_dataset_ids: list[int] = []
+    for raw in raw_additional:
+        if raw is None or str(raw).strip() in ("", "none", "null"):
+            continue
+        try:
+            additional_dataset_ids.append(int(raw))
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid additional dataset_id: {raw}")
+    additional_dataset_ids = sorted(set(additional_dataset_ids))
+
     try:
+        _ensure_job_additional_datasets_table()
         with get_conn() as con:
             exists_job = con.execute("SELECT 1 FROM jobs WHERE job_id=?", [int(job_id)]).fetchone()
             if not exists_job:
@@ -758,6 +1666,17 @@ def update_job_scope_config(
                         """,
                         [dsid, include_scope, factor_method, int(job_id), scope],
                     )
+
+            con.execute("DELETE FROM job_additional_datasets WHERE job_id=?", [int(job_id)])
+            for dsid in additional_dataset_ids:
+                con.execute(
+                    """
+                    INSERT INTO job_additional_datasets (job_id, dataset_id)
+                    VALUES (?, ?)
+                    ON CONFLICT (job_id, dataset_id) DO NOTHING
+                    """,
+                    [int(job_id), int(dsid)],
+                )
     except HTTPException:
         raise
     except Exception as e:
@@ -881,14 +1800,14 @@ def job_excel_import(
                     con.execute(
                         """
                         INSERT INTO job_scope_rows
-                          (job_id, site_id, scope, dataset_id, factor_db_id, original_id,
+                          (job_id, site_id, scope, category, dataset_id, factor_db_id, original_id,
                            level_1, level_2, level_3, level_4, column_text,
                            report_label, notes, enabled,
                            qty, uom, factor, ghg_unit,
                            calc_tco2e, override_tco2e, override_reason,
                            created_at, updated_at)
                         VALUES
-                          (?, ?, ?, ?, ?, ?,
+                          (?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?, ?, ?,
                            NULL, NULL, TRUE,
                            ?, ?, ?, ?,
@@ -899,6 +1818,7 @@ def job_excel_import(
                             int(job_id),
                             int(site_id),
                             str(scope),
+                            (str(level_2).strip() if level_2 is not None else None),  # category = level_2
                             int(dataset_id),
                             int(factor_db_id),
                             str(original_id),
@@ -932,38 +1852,62 @@ def job_excel_template(
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
+        # Get job/client metadata for filename convention.
+        with get_conn() as con:
+            job_row = con.execute(
+                """
+                SELECT j.job_number, j.reporting_year, j.reporting_period_start, j.reporting_period_end, c.client_name
+                FROM jobs j
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id = ?
+                """,
+                [job_id],
+            ).fetchone()
+        job_number = str(job_row[0] or f"Job-{job_id}") if job_row else f"Job-{job_id}"
+        reporting_year = job_row[1] if job_row and len(job_row) > 1 else ""
+        reporting_period_start = job_row[2] if job_row and len(job_row) > 2 else None
+        reporting_period_end = job_row[3] if job_row and len(job_row) > 3 else None
+        client_name = str(job_row[4] or "Client") if job_row and len(job_row) > 4 else "Client"
+
+        def _fmt_period_part(val):
+            if not val:
+                return ""
+            if hasattr(val, "strftime"):
+                return val.strftime("%d-%b-%Y")
+            txt = str(val).strip()
+            try:
+                return datetime.fromisoformat(txt[:10]).strftime("%d-%b-%Y")
+            except Exception:
+                return txt
+
+        def _safe_name_part(value: str) -> str:
+            s = str(value or "").strip()
+            s = re.sub(r'[<>:"/\\|?*]+', "", s)
+            s = re.sub(r"\s+", "-", s)
+            return s.strip("-") or "Unknown"
+
+        period_part = f"{_fmt_period_part(reporting_period_start)}-to-{_fmt_period_part(reporting_period_end)}"
+        if period_part == "-to-":
+            period_part = str(reporting_year or datetime.now().year)
+
         if template_format == "single":
-            from nzi_pages.generate_single_sheet_template import generate_single_sheet_template
-            
-            # Get job details for metadata
-            with get_conn() as con:
-                job_row = con.execute(
-                    "SELECT job_number, title, reporting_year FROM jobs WHERE job_id = ?",
-                    [job_id]
-                ).fetchone()
-                
-                client_row = con.execute(
-                    """
-                    SELECT c.client_name 
-                    FROM clients c
-                    JOIN jobs j ON j.client_db_id = c.client_db_id
-                    WHERE j.job_id = ?
-                    """,
-                    [job_id]
-                ).fetchone()
-            
-            job_number = job_row[0] if job_row else ""
-            client_name = client_row[0] if client_row else ""
-            
+            from services.generate_single_sheet_template import generate_single_sheet_template
+
+            print(f"DEBUG: job_number={job_number}, client_name={client_name}, site={site}, reporting_year={reporting_year}")
+
             data, filename = generate_single_sheet_template(
                 job_id=int(job_id),
                 client_name=client_name,
                 site_name=site,
                 job_number=job_number,
+                reporting_year=str(reporting_year) if reporting_year else "",
                 report_from="",
                 report_to="",
-                include_custom_factors=True
+                include_custom_factors=True,
+                include_prev_year=bool(include_prev_year),
             )
+            
+            print(f"DEBUG: Generated filename={filename}")
         else:
             # Legacy multi-sheet template
             paths = _job_template_paths(int(job_id))
@@ -973,12 +1917,26 @@ def job_excel_template(
                 selected_site=str(site),
                 include_prev_year=bool(include_prev_year),
             )
+        filename = "-".join(
+            [
+                _safe_name_part(job_number),
+                _safe_name_part(client_name),
+                _safe_name_part(str(site)),
+                "Data-Upload-Template",
+                _safe_name_part(period_part),
+            ]
+        ) + ".xlsx"
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build template: {e}")
 
-    headers = {"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    # Simple Content-Disposition header with quoted filename
+    safe_filename = filename.replace('"', '\\"')
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_filename}"'
+    }
+    print(f"DEBUG: Content-Disposition header: {headers['Content-Disposition']}")
     return Response(
         content=data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1018,29 +1976,23 @@ async def job_excel_upload(
         raise HTTPException(status_code=400, detail=f"Invalid xlsx file: {e}")
 
     details["sheets"] = list(wb.sheetnames)
+    ds_map, auto_resolution, auto_ds_warnings = _resolve_scope_dataset_map(int(job_id))
+    warnings.extend(auto_ds_warnings)
+    details["datasets_by_scope"] = ds_map
+    details["dataset_resolution_mode"] = "automatic" if auto_resolution else "legacy"
+    if auto_resolution:
+        details["dataset_resolution"] = {
+            "country": auto_resolution.get("country"),
+            "reporting_period_start": auto_resolution.get("reporting_period_start"),
+            "reporting_period_end": auto_resolution.get("reporting_period_end"),
+            "uses_legacy_fallback": bool(auto_resolution.get("uses_legacy_fallback")),
+            "scope_summaries": auto_resolution.get("scope_summaries") or [],
+            "datasets_for_report": auto_resolution.get("datasets_for_report") or [],
+        }
     
     # Detect format and route to appropriate parser
     if is_single_sheet_format(wb):
         details["template_format"] = "single-sheet"
-        
-        # Get dataset configuration
-        ds_map: dict[str, int] = {}
-        try:
-            with get_conn() as con:
-                df_scopes = con.execute(
-                    "SELECT scope, dataset_id FROM job_scope_config WHERE job_id=?",
-                    [int(job_id)],
-                ).df()
-            if df_scopes is not None and (not df_scopes.empty):
-                for _, rr in df_scopes.iterrows():
-                    scope = str(rr.get("scope") or "").strip()
-                    dsid = rr.get("dataset_id")
-                    if scope and dsid is not None and str(dsid) != "nan":
-                        ds_map[scope] = int(dsid)
-        except Exception as e:
-            warnings.append(f"Could not read job_scope_config: {e}")
-        
-        details["datasets_by_scope"] = ds_map
         
         # Parse single-sheet format
         rows_ready, parse_errors, parse_warnings, parse_details = parse_single_sheet_upload(
@@ -1193,28 +2145,6 @@ async def job_excel_upload(
     if not parsed_rows:
         errors.append("No rows found to import. Ensure you have filled 'Qty' and set 'Apply' to 1 where applicable.")
 
-    ds_map: dict[str, int] = {}
-    try:
-        with get_conn() as con:
-            df_scopes = con.execute(
-                """
-                SELECT scope, dataset_id
-                FROM job_scope_config
-                WHERE job_id=?
-                """,
-                [int(job_id)],
-            ).df()
-        if df_scopes is not None and (not df_scopes.empty):
-            for _, rr in df_scopes.iterrows():
-                scope = str(rr.get("scope") or "").strip()
-                dsid = rr.get("dataset_id")
-                if scope and dsid is not None and str(dsid) != "nan":
-                    ds_map[scope] = int(dsid)
-    except Exception as e:
-        warnings.append(f"Could not read job_scope_config: {e}")
-
-    details["datasets_by_scope"] = ds_map
-
     rows_ready: list[dict[str, object]] = []
     missing_ids: dict[str, list[str]] = {}
 
@@ -1225,7 +2155,7 @@ async def job_excel_upload(
 
         dsid = ds_map.get(scope_name)
         if dsid is None:
-            errors.append(f"{scope_name}: no dataset selected in Job Folder → Data Collection.")
+            errors.append(f"{scope_name}: no dataset selected in Job Folder -> Data Collection.")
             continue
 
         ids = [str(r.get("original_id") or "").strip() for r in scope_rows]
@@ -1309,17 +2239,33 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
             raise HTTPException(status_code=400, detail="client_name is required")
         
         with get_conn() as con:
+            existing = con.execute(
+                """
+                SELECT db_id
+                FROM clients
+                WHERE lower(trim(client_name)) = lower(trim(?))
+                ORDER BY db_id DESC
+                LIMIT 1
+                """,
+                [client_name],
+            ).fetchone()
+            if existing:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Client '{client_name}' already exists (ID: {int(existing[0])})",
+                )
+
             row = con.execute(
                 """
                 INSERT INTO clients (
                     client_name, industry, description_long, website, year_end_month,
                     company_reg, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
-                    crm_owner, status, net_zero_year, benchmark_year,
+                    crm_owner, currency, status, net_zero_year, benchmark_year,
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
                     target_s3_year, target_s3_pct
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -1339,6 +2285,7 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     body.get("logo_url"),
                     body.get("portfolio"),
                     body.get("crm_owner"),
+                    str(body.get("currency") or "GBP").upper(),
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
                     body.get("benchmark_year"),
@@ -1351,7 +2298,35 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                 ],
             ).fetchone()
             
-            return {"ok": True, "client_db_id": int(row[0])}
+            client_db_id = int(row[0])
+            
+            # Create site from address if requested
+            if body.get("create_site_from_address", False):
+                addr_parts = []
+                if body.get("addr_line1"):
+                    addr_parts.append(body.get("addr_line1"))
+                if body.get("addr_line2"):
+                    addr_parts.append(body.get("addr_line2"))
+                if body.get("addr_city"):
+                    addr_parts.append(body.get("addr_city"))
+                if body.get("addr_region"):
+                    addr_parts.append(body.get("addr_region"))
+                if body.get("addr_postcode"):
+                    addr_parts.append(body.get("addr_postcode"))
+                if body.get("addr_country"):
+                    addr_parts.append(body.get("addr_country"))
+                
+                location = ", ".join(addr_parts) if addr_parts else "Registered Office"
+                
+                con.execute(
+                    """
+                    INSERT INTO client_sites (client_db_id, site_name, location, is_registered_office)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    [client_db_id, "Registered Office", location, True]
+                )
+            
+            return {"ok": True, "client_db_id": client_db_id}
     except HTTPException:
         raise
     except Exception as e:
@@ -1361,23 +2336,28 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
 @app.get("/clients")
 def list_clients(
     q: str | None = None,
+    include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
     query = (q or "").strip()
 
-    where_sql = ""
+    where_clauses: list[str] = []
     params: list[object] = []
+    if not include_archived:
+        where_clauses.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
+
     if query:
         if db_backend() == "postgres":
-            where_sql = "WHERE (c.client_name ILIKE %s OR c.industry ILIKE %s)"
+            where_clauses.append("(c.client_name ILIKE %s OR c.industry ILIKE %s)")
             like = f"%{query}%"
             params.extend([like, like])
         else:
-            where_sql = "WHERE (lower(coalesce(c.client_name,'')) LIKE %s OR lower(coalesce(c.industry,'')) LIKE %s)"
+            where_clauses.append("(lower(coalesce(c.client_name,'')) LIKE %s OR lower(coalesce(c.industry,'')) LIKE %s)")
             like = f"%{query.lower()}%"
             params.extend([like, like])
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     try:
         with get_conn() as con:
@@ -1407,21 +2387,112 @@ def list_clients(
                 )
                 .df()
             )
+            
+            # Get milestone data for all jobs of these clients
+            if rows is not None and not rows.empty:
+                client_ids = [int(r['client_db_id']) for _, r in rows.iterrows()]
+                milestone_data = con.execute(
+                    f"""
+                    SELECT 
+                        j.client_db_id,
+                        jp.data_collection_due, jp.data_collection_completed_at,
+                        jp.first_draft_due, jp.first_draft_completed_at,
+                        jp.final_report_due, jp.final_report_completed_at
+                    FROM jobs j
+                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                    WHERE j.client_db_id IN ({','.join(['%s'] * len(client_ids))})
+                    """,
+                    client_ids
+                ).df()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/clients failed: {e}")
+
+    # Helper function to calculate milestone status
+    def get_milestone_status(due_date, completed_at):
+        """Calculate traffic light status: green, amber, red, completed"""
+        if completed_at:
+            return "completed"
+        if not due_date:
+            return "green"
+        
+        from datetime import date
+        import pandas as pd
+        
+        # Handle pandas Timestamp
+        if isinstance(due_date, pd.Timestamp):
+            due_date = due_date.date()
+        
+        today = date.today()
+        days_until_due = (due_date - today).days
+        
+        if days_until_due < -1:  # Overdue by more than 1 day
+            return "red"
+        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
+            return "amber"
+        else:
+            return "green"
+    
+    def get_overall_status(statuses):
+        """Get overall status: red if any red, amber if any amber, else green"""
+        if "red" in statuses:
+            return "red"
+        elif "amber" in statuses:
+            return "amber"
+        else:
+            return "green"
+    
+    # Calculate milestone status for each client
+    client_milestone_status = {}
+    if rows is not None and not rows.empty and 'milestone_data' in locals() and milestone_data is not None and not milestone_data.empty:
+        for client_id in client_ids:
+            client_jobs = milestone_data[milestone_data['client_db_id'] == client_id]
+            all_statuses = []
+            
+            for _, job in client_jobs.iterrows():
+                job_statuses = []
+                if job.get("data_collection_due"):
+                    job_statuses.append(get_milestone_status(job.get("data_collection_due"), job.get("data_collection_completed_at")))
+                if job.get("first_draft_due"):
+                    job_statuses.append(get_milestone_status(job.get("first_draft_due"), job.get("first_draft_completed_at")))
+                if job.get("final_report_due"):
+                    job_statuses.append(get_milestone_status(job.get("final_report_due"), job.get("final_report_completed_at")))
+                
+                if job_statuses:
+                    all_statuses.extend(job_statuses)
+            
+            if all_statuses:
+                client_milestone_status[client_id] = get_overall_status(all_statuses)
+            else:
+                client_milestone_status[client_id] = None
 
     items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
+            client_id = int(r.get("client_db_id"))
             items.append(
                 {
-                    "client_db_id": int(r.get("client_db_id")),
+                    "client_db_id": client_id,
                     "client_name": r.get("client_name"),
                     "industry": r.get("industry"),
                     "status": r.get("status"),
                     "crm_owner": r.get("crm_owner"),
+                    "milestone_status": client_milestone_status.get(client_id),
                 }
             )
+
+    # Sort by milestone status priority: red > amber > green > None/completed
+    def status_priority(item):
+        status = item.get("milestone_status")
+        if status == "red":
+            return 0
+        elif status == "amber":
+            return 1
+        elif status == "green":
+            return 2
+        else:
+            return 3
+    
+    items.sort(key=status_priority)
 
     total = int(total_row[0] if total_row else 0)
     return {"items": items, "limit": int(limit), "offset": int(offset), "total": total}
@@ -1437,7 +2508,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.addr_line1, c.addr_line2, c.addr_city, c.addr_region, 
                    c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
                    c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-                   c.interim_s3_pct, c.portfolio, c.benchmark_year
+                   c.interim_s3_pct, c.portfolio, c.benchmark_year,
+                   c.benchmark_period_start, c.benchmark_period_end, c.currency
             FROM clients c
             WHERE c.db_id=?
             """,
@@ -1472,6 +2544,9 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "interim_s3_pct": (int(row[21]) if row[21] is not None else None),
         "portfolio": row[22],
         "benchmark_year": (int(row[23]) if row[23] is not None else None),
+        "benchmark_period_start": str(row[24]) if row[24] is not None else None,
+        "benchmark_period_end": str(row[25]) if row[25] is not None else None,
+        "currency": row[26] if row[26] is not None else "GBP",
     }
 
 
@@ -1517,6 +2592,15 @@ def update_client(
                 "interim_s3_pct": "interim_s3_pct",
                 "portfolio": "portfolio",
                 "benchmark_year": "benchmark_year",
+                "benchmark_period_start": "benchmark_period_start",
+                "benchmark_period_end": "benchmark_period_end",
+                "currency": "currency",
+                "target_s1_year": "target_s1_year",
+                "target_s1_pct": "target_s1_pct",
+                "target_s2_year": "target_s2_year",
+                "target_s2_pct": "target_s2_pct",
+                "target_s3_year": "target_s3_year",
+                "target_s3_pct": "target_s3_pct",
             }
             
             for field_name, col_name in field_mapping.items():
@@ -1524,13 +2608,50 @@ def update_client(
                     updates.append(f"{col_name} = ?")
                     params.append(body[field_name])
             
-            if not updates:
-                return {"ok": True, "message": "No fields to update"}
+            if updates:
+                params.append(int(client_db_id))
+                query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ?"
+                con.execute(query, params)
             
-            params.append(int(client_db_id))
-            query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ?"
-            
-            con.execute(query, params)
+            # Handle site creation/update if requested
+            if body.get("create_site_from_address", False):
+                # Check if registered office site already exists
+                existing_site = con.execute(
+                    "SELECT site_id FROM client_sites WHERE client_db_id = ? AND is_registered_office = ?",
+                    [int(client_db_id), True]
+                ).fetchone()
+                
+                addr_parts = []
+                if body.get("addr_line1"):
+                    addr_parts.append(body.get("addr_line1"))
+                if body.get("addr_line2"):
+                    addr_parts.append(body.get("addr_line2"))
+                if body.get("addr_city"):
+                    addr_parts.append(body.get("addr_city"))
+                if body.get("addr_region"):
+                    addr_parts.append(body.get("addr_region"))
+                if body.get("addr_postcode"):
+                    addr_parts.append(body.get("addr_postcode"))
+                if body.get("addr_country"):
+                    addr_parts.append(body.get("addr_country"))
+                
+                location = ", ".join(addr_parts) if addr_parts else "Registered Office"
+                
+                if existing_site:
+                    # Update existing site
+                    con.execute(
+                        "UPDATE client_sites SET location = ? WHERE site_id = ?",
+                        [location, int(existing_site[0])]
+                    )
+                else:
+                    # Create new site
+                    con.execute(
+                        """
+                        INSERT INTO client_sites (client_db_id, site_name, location, is_registered_office)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        [int(client_db_id), "Registered Office", location, True]
+                    )
             
             return {"ok": True, "message": "Client updated successfully"}
     except HTTPException:
@@ -1541,18 +2662,322 @@ def update_client(
 
 @app.get("/clients/{client_db_id}/sites")
 def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
-    df = list_sites(int(client_db_id))
-    sites: list[dict[str, object]] = []
-    if df is not None and (not df.empty):
-        for _, r in df.iterrows():
-            sites.append(
-                {
-                    "site_name": r.get("site_name"),
-                    "location": r.get("location"),
-                    "is_registered_office": bool(r.get("is_registered_office")) if r.get("is_registered_office") is not None else False,
-                }
+    # Return both active and vacated sites
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                """
+                SELECT site_id, site_name, location, is_registered_office, vacated_date
+                FROM client_sites
+                WHERE client_db_id = %s AND (archived = FALSE OR archived IS NULL)
+                ORDER BY 
+                    CASE WHEN vacated_date IS NULL THEN 0 ELSE 1 END,
+                    is_registered_office DESC, 
+                    site_name ASC
+                """,
+                [int(client_db_id)]
+            ).df()
+            
+            active_sites: list[dict[str, object]] = []
+            vacated_sites: list[dict[str, object]] = []
+            
+            if df is not None and (not df.empty):
+                for _, r in df.iterrows():
+                    site_data = {
+                        "site_id": int(r.get("site_id")) if r.get("site_id") is not None else None,
+                        "site_name": r.get("site_name"),
+                        "location": r.get("location"),
+                        "is_registered_office": bool(r.get("is_registered_office")) if r.get("is_registered_office") is not None else False,
+                        "vacated_date": str(r.get("vacated_date")) if r.get("vacated_date") is not None else None,
+                    }
+                    
+                    if r.get("vacated_date") is None:
+                        active_sites.append(site_data)
+                    else:
+                        vacated_sites.append(site_data)
+            
+            return {
+                "client_db_id": int(client_db_id), 
+                "active_sites": active_sites,
+                "vacated_sites": vacated_sites
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sites: {e}")
+
+
+@app.post("/clients/{client_db_id}/sites")
+def create_client_site(
+    client_db_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Create a new site for a client."""
+    try:
+        with get_conn() as con:
+            # If this site is marked as registered office, unset other registered offices
+            if body.get("is_registered_office", False):
+                con.execute(
+                    "UPDATE client_sites SET is_registered_office = FALSE WHERE client_db_id = %s",
+                    [int(client_db_id)]
+                )
+            
+            row = con.execute(
+                """
+                INSERT INTO client_sites (client_db_id, site_name, location, is_registered_office)
+                VALUES (%s, %s, %s, %s)
+                RETURNING site_id
+                """,
+                [
+                    int(client_db_id),
+                    body.get("site_name"),
+                    body.get("location"),
+                    body.get("is_registered_office", False),
+                ]
+            ).fetchone()
+            
+            return {"ok": True, "site_id": int(row[0])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create site: {e}")
+
+
+@app.patch("/clients/{client_db_id}/sites/{site_id}")
+def update_client_site(
+    client_db_id: int,
+    site_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Update a client site."""
+    try:
+        with get_conn() as con:
+            # Check site exists
+            exists = con.execute(
+                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
+                [int(site_id), int(client_db_id)]
+            ).fetchone()
+            
+            if not exists:
+                raise HTTPException(status_code=404, detail="Site not found")
+            
+            # If this site is being marked as registered office, unset other registered offices
+            if body.get("is_registered_office", False):
+                con.execute(
+                    "UPDATE client_sites SET is_registered_office = FALSE WHERE client_db_id = %s AND site_id != %s",
+                    [int(client_db_id), int(site_id)]
+                )
+            
+            # Build update query
+            updates = []
+            params = []
+            
+            field_mapping = {
+                "site_name": "site_name",
+                "location": "location",
+                "is_registered_office": "is_registered_office",
+            }
+            
+            for field_name, col_name in field_mapping.items():
+                if field_name in body:
+                    updates.append(f"{col_name} = %s")
+                    params.append(body[field_name])
+            
+            if updates:
+                params.extend([int(site_id), int(client_db_id)])
+                query = f"UPDATE client_sites SET {', '.join(updates)} WHERE site_id = %s AND client_db_id = %s"
+                con.execute(query, params)
+            
+            return {"ok": True, "message": "Site updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update site: {e}")
+
+
+@app.patch("/clients/{client_db_id}/sites/{site_id}/vacate")
+def vacate_client_site(
+    client_db_id: int,
+    site_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Mark a site as vacated with a date (preserves historical emissions data)."""
+    try:
+        with get_conn() as con:
+            # Check site exists
+            exists = con.execute(
+                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
+                [int(site_id), int(client_db_id)]
+            ).fetchone()
+            
+            if not exists:
+                raise HTTPException(status_code=404, detail="Site not found")
+            
+            vacated_date = body.get("vacated_date")
+            if not vacated_date:
+                raise HTTPException(status_code=400, detail="vacated_date is required")
+            
+            # Mark site as vacated with date
+            # This preserves historical emissions data linked to this site
+            con.execute(
+                """
+                UPDATE client_sites 
+                SET vacated_date = %s,
+                    archived_by = %s,
+                    archived_at = CURRENT_TIMESTAMP
+                WHERE site_id = %s AND client_db_id = %s
+                """,
+                [vacated_date, _user.get("email", "unknown"), int(site_id), int(client_db_id)]
             )
-    return {"client_db_id": int(client_db_id), "sites": sites}
+            
+            return {"ok": True, "message": "Site vacated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to vacate site: {e}")
+
+
+@app.get("/clients/{client_db_id}/contacts")
+def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
+    """Get all contacts for a client."""
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                """
+                SELECT contact_id, client_db_id, full_name, job_title, email, phone, is_primary
+                FROM client_contacts
+                WHERE client_db_id = ?
+                ORDER BY is_primary DESC, full_name ASC
+                """,
+                [int(client_db_id)]
+            ).df()
+            
+            contacts = []
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    contacts.append({
+                        "contact_id": int(row["contact_id"]),
+                        "client_db_id": int(row["client_db_id"]),
+                        "full_name": row["full_name"],
+                        "job_title": row["job_title"],
+                        "email": row["email"],
+                        "phone": row["phone"],
+                        "is_primary": bool(row["is_primary"]) if row["is_primary"] is not None else False,
+                    })
+            
+            return {"client_db_id": int(client_db_id), "contacts": contacts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch contacts: {e}")
+
+
+@app.post("/clients/{client_db_id}/contacts")
+def create_client_contact(
+    client_db_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Create a new contact for a client."""
+    try:
+        with get_conn() as con:
+            # If this contact is marked as primary, unset other primary contacts
+            if body.get("is_primary", False):
+                con.execute(
+                    "UPDATE client_contacts SET is_primary = FALSE WHERE client_db_id = ?",
+                    [int(client_db_id)]
+                )
+            
+            row = con.execute(
+                """
+                INSERT INTO client_contacts (client_db_id, full_name, job_title, email, phone, is_primary)
+                VALUES (?, ?, ?, ?, ?, ?)
+                RETURNING contact_id
+                """,
+                [
+                    int(client_db_id),
+                    body.get("full_name"),
+                    body.get("job_title"),
+                    body.get("email"),
+                    body.get("phone"),
+                    body.get("is_primary", False),
+                ]
+            ).fetchone()
+            
+            return {"ok": True, "contact_id": int(row[0])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create contact: {e}")
+
+
+@app.patch("/clients/{client_db_id}/contacts/{contact_id}")
+def update_client_contact(
+    client_db_id: int,
+    contact_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Update a client contact."""
+    try:
+        with get_conn() as con:
+            # Check contact exists
+            exists = con.execute(
+                "SELECT 1 FROM client_contacts WHERE contact_id = ? AND client_db_id = ?",
+                [int(contact_id), int(client_db_id)]
+            ).fetchone()
+            
+            if not exists:
+                raise HTTPException(status_code=404, detail="Contact not found")
+            
+            # If this contact is being marked as primary, unset other primary contacts
+            if body.get("is_primary", False):
+                con.execute(
+                    "UPDATE client_contacts SET is_primary = FALSE WHERE client_db_id = ? AND contact_id != ?",
+                    [int(client_db_id), int(contact_id)]
+                )
+            
+            # Build update query
+            updates = []
+            params = []
+            
+            field_mapping = {
+                "full_name": "full_name",
+                "job_title": "job_title",
+                "email": "email",
+                "phone": "phone",
+                "is_primary": "is_primary",
+            }
+            
+            for field_name, col_name in field_mapping.items():
+                if field_name in body:
+                    updates.append(f"{col_name} = ?")
+                    params.append(body[field_name])
+            
+            if updates:
+                params.extend([int(contact_id), int(client_db_id)])
+                query = f"UPDATE client_contacts SET {', '.join(updates)} WHERE contact_id = ? AND client_db_id = ?"
+                con.execute(query, params)
+            
+            return {"ok": True, "message": "Contact updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update contact: {e}")
+
+
+@app.delete("/clients/{client_db_id}/contacts/{contact_id}")
+def delete_client_contact(
+    client_db_id: int,
+    contact_id: int,
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Delete a client contact."""
+    try:
+        with get_conn() as con:
+            result = con.execute(
+                "DELETE FROM client_contacts WHERE contact_id = ? AND client_db_id = ?",
+                [int(contact_id), int(client_db_id)]
+            )
+            
+            return {"ok": True, "message": "Contact deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete contact: {e}")
 
 
 @app.get("/clients/{client_db_id}/jobs")
@@ -1571,10 +2996,42 @@ def client_jobs(
         rows = (
             con.execute(
                 """
-                SELECT job_id, job_number, title, reporting_year, status
-                FROM jobs
-                WHERE client_db_id=?
-                ORDER BY job_id DESC
+                SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                       j.job_type, j.is_crp,
+                       jp.data_collection_due, jp.data_collection_completed_at,
+                       jp.first_draft_due, jp.first_draft_completed_at,
+                       jp.final_report_due, jp.final_report_completed_at,
+                       COALESCE(SUM(
+                           CASE 
+                               WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
+                               THEN (COALESCE(jsr.qty, 
+                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
+                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
+                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
+                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
+                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
+                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
+                               ELSE (COALESCE(jsr.qty, 
+                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
+                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
+                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
+                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
+                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
+                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
+                           END
+                       ), 0) as total_emissions
+                FROM jobs j
+                LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
+                WHERE j.client_db_id=?
+                GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                         j.job_type, j.is_crp,
+                         jp.data_collection_due, jp.data_collection_completed_at,
+                         jp.first_draft_due, jp.first_draft_completed_at,
+                         jp.final_report_due, jp.final_report_completed_at
+                ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                 LIMIT ? OFFSET ?
                 """,
                 [int(client_db_id), int(limit), int(offset)],
@@ -1582,9 +3039,55 @@ def client_jobs(
             .df()
         )
 
+    # Helper function to calculate milestone status
+    def get_milestone_status(due_date, completed_at):
+        """Calculate traffic light status: green, amber, red, completed"""
+        if completed_at:
+            return "completed"
+        if not due_date:
+            return "green"
+        
+        from datetime import date
+        import pandas as pd
+        
+        # Handle pandas Timestamp
+        if isinstance(due_date, pd.Timestamp):
+            due_date = due_date.date()
+        
+        today = date.today()
+        days_until_due = (due_date - today).days
+        
+        if days_until_due < -1:  # Overdue by more than 1 day
+            return "red"
+        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
+            return "amber"
+        else:
+            return "green"
+    
+    def get_overall_status(statuses):
+        """Get overall status: red if any red, amber if any amber, else green"""
+        if "red" in statuses:
+            return "red"
+        elif "amber" in statuses:
+            return "amber"
+        else:
+            return "green"
+
     items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
+            # Calculate individual milestone statuses
+            milestone_statuses = []
+            if r.get("data_collection_due"):
+                milestone_statuses.append(get_milestone_status(r.get("data_collection_due"), r.get("data_collection_completed_at")))
+            if r.get("first_draft_due"):
+                milestone_statuses.append(get_milestone_status(r.get("first_draft_due"), r.get("first_draft_completed_at")))
+            if r.get("final_report_due"):
+                milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
+            
+            # Calculate overall status
+            overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
+            
             items.append(
                 {
                     "job_id": int(r.get("job_id")),
@@ -1592,6 +3095,10 @@ def client_jobs(
                     "title": r.get("title"),
                     "reporting_year": (int(r.get("reporting_year")) if r.get("reporting_year") is not None else None),
                     "status": r.get("status"),
+                    "job_type": r.get("job_type"),
+                    "is_crp": bool(r.get("is_crp")) if r.get("is_crp") is not None else False,
+                    "milestone_status": overall_milestone_status,
+                    "total_emissions": float(r.get("total_emissions", 0)),
                 }
             )
 

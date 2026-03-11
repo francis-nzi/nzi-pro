@@ -3,6 +3,10 @@ import os
 from pathlib import Path
 
 import psycopg
+from dotenv import load_dotenv
+
+# Load local .env defaults without overriding explicitly provided runtime env.
+load_dotenv(override=False)
 
 
 def _ensure_sslmode(url: str) -> str:
@@ -19,7 +23,9 @@ def _sha256_text(text: str) -> str:
 def _get_db_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
-        raise RuntimeError("DATABASE_URL is not set")
+        raise RuntimeError(
+            "DATABASE_URL is not set. Define it in your shell or .env before running migrations."
+        )
     return _ensure_sslmode(url)
 
 

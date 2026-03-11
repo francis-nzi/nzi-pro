@@ -1,0 +1,512 @@
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+
+from api.auth import _current_user
+from core.database import get_conn
+
+router = APIRouter(tags=["crm-timeline"])
+
+
+def _actor(user: dict) -> str:
+    return str(user.get("email") or user.get("user_id") or "system").strip()
+
+
+def _ensure_tables(con) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_events (
+          event_id BIGSERIAL PRIMARY KEY,
+          client_db_id INTEGER NOT NULL,
+          job_id INTEGER,
+          event_type VARCHAR(50) NOT NULL,
+          channel VARCHAR(30) NOT NULL,
+          direction VARCHAR(20),
+          subject TEXT,
+          body_text TEXT,
+          body_html TEXT,
+          status VARCHAR(30) NOT NULL DEFAULT 'logged',
+          owner_user_id VARCHAR,
+          due_at TIMESTAMP,
+          source VARCHAR(50) NOT NULL DEFAULT 'manual',
+          source_ref VARCHAR(120),
+          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          is_private BOOLEAN NOT NULL DEFAULT FALSE,
+          created_by VARCHAR,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_client_created ON crm_events (client_db_id, created_at DESC)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_job_created ON crm_events (job_id, created_at DESC)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_type ON crm_events (event_type)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_status ON crm_events (status)")
+    con.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_events_source_ref
+        ON crm_events (source, source_ref)
+        WHERE source_ref IS NOT NULL AND source_ref <> ''
+        """
+    )
+
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_tasks (
+          task_id BIGSERIAL PRIMARY KEY,
+          event_id BIGINT REFERENCES crm_events(event_id) ON DELETE SET NULL,
+          client_db_id INTEGER NOT NULL,
+          job_id INTEGER,
+          title VARCHAR(255) NOT NULL,
+          details TEXT,
+          assignee_user_id VARCHAR,
+          priority VARCHAR(20) NOT NULL DEFAULT 'normal',
+          sla_due_at TIMESTAMP,
+          due_at TIMESTAMP,
+          status VARCHAR(30) NOT NULL DEFAULT 'open',
+          completed_at TIMESTAMP,
+          created_by VARCHAR,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_client_status ON crm_tasks (client_db_id, status, due_at)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_job_status ON crm_tasks (job_id, status, due_at)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_assignee_status ON crm_tasks (assignee_user_id, status, due_at)")
+
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_tags (
+          tag_id BIGSERIAL PRIMARY KEY,
+          tag_name VARCHAR(80) NOT NULL UNIQUE,
+          color_hex VARCHAR(7),
+          is_active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_event_tags (
+          event_id BIGINT NOT NULL REFERENCES crm_events(event_id) ON DELETE CASCADE,
+          tag_id BIGINT NOT NULL REFERENCES crm_tags(tag_id) ON DELETE CASCADE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (event_id, tag_id)
+        )
+        """
+    )
+
+    defaults = [
+        ("follow-up", "#F59E0B"),
+        ("risk", "#EF4444"),
+        ("finance", "#10B981"),
+        ("client-waiting", "#3B82F6"),
+    ]
+    for tag_name, color_hex in defaults:
+        con.execute(
+            """
+            INSERT INTO crm_tags (tag_name, color_hex, is_active)
+            SELECT %s, %s, TRUE
+            WHERE NOT EXISTS (SELECT 1 FROM crm_tags WHERE lower(tag_name) = lower(%s))
+            """,
+            [tag_name, color_hex, tag_name],
+        )
+
+
+def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": int(row.get("event_id") or 0),
+        "client_db_id": int(row.get("client_db_id") or 0),
+        "job_id": int(row.get("job_id")) if row.get("job_id") is not None else None,
+        "event_type": str(row.get("event_type") or ""),
+        "channel": str(row.get("channel") or ""),
+        "direction": str(row.get("direction") or ""),
+        "subject": str(row.get("subject") or ""),
+        "body_text": str(row.get("body_text") or ""),
+        "body_html": str(row.get("body_html") or ""),
+        "status": str(row.get("status") or "logged"),
+        "owner_user_id": str(row.get("owner_user_id") or ""),
+        "due_at": row.get("due_at").isoformat() if row.get("due_at") else None,
+        "source": str(row.get("source") or "manual"),
+        "source_ref": str(row.get("source_ref") or ""),
+        "payload_json": row.get("payload_json") if isinstance(row.get("payload_json"), dict) else {},
+        "is_private": bool(row.get("is_private") if row.get("is_private") is not None else False),
+        "created_by": str(row.get("created_by") or ""),
+        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+        "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
+    }
+
+
+def _serialize_task(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "task_id": int(row.get("task_id") or 0),
+        "event_id": int(row.get("event_id")) if row.get("event_id") is not None else None,
+        "client_db_id": int(row.get("client_db_id") or 0),
+        "job_id": int(row.get("job_id")) if row.get("job_id") is not None else None,
+        "title": str(row.get("title") or ""),
+        "details": str(row.get("details") or ""),
+        "assignee_user_id": str(row.get("assignee_user_id") or ""),
+        "priority": str(row.get("priority") or "normal"),
+        "sla_due_at": row.get("sla_due_at").isoformat() if row.get("sla_due_at") else None,
+        "due_at": row.get("due_at").isoformat() if row.get("due_at") else None,
+        "status": str(row.get("status") or "open"),
+        "completed_at": row.get("completed_at").isoformat() if row.get("completed_at") else None,
+        "created_by": str(row.get("created_by") or ""),
+        "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+        "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
+    }
+
+
+def _tags_for_event(con, event_id: int) -> list[str]:
+    df = con.execute(
+        """
+        SELECT t.tag_name
+        FROM crm_event_tags et
+        JOIN crm_tags t ON t.tag_id = et.tag_id
+        WHERE et.event_id = %s
+        ORDER BY lower(t.tag_name)
+        """,
+        [int(event_id)],
+    ).df()
+    if df is None or df.empty:
+        return []
+    return [str(r.get("tag_name") or "") for _, r in df.iterrows() if str(r.get("tag_name") or "").strip()]
+
+
+def _replace_event_tags(con, event_id: int, tags: list[str]) -> None:
+    con.execute("DELETE FROM crm_event_tags WHERE event_id = %s", [int(event_id)])
+    for raw in tags:
+        tag = str(raw or "").strip()
+        if not tag:
+            continue
+        con.execute(
+            """
+            INSERT INTO crm_tags (tag_name, is_active)
+            SELECT %s, TRUE
+            WHERE NOT EXISTS (SELECT 1 FROM crm_tags WHERE lower(tag_name)=lower(%s))
+            """,
+            [tag, tag],
+        )
+        tag_row = con.execute("SELECT tag_id FROM crm_tags WHERE lower(tag_name)=lower(%s) LIMIT 1", [tag]).fetchone()
+        if not tag_row:
+            continue
+        con.execute(
+            "INSERT INTO crm_event_tags (event_id, tag_id, created_at) VALUES (%s, %s, NOW()) ON CONFLICT DO NOTHING",
+            [int(event_id), int(tag_row[0])],
+        )
+
+
+@router.get("/clients/{client_id}/timeline")
+def list_client_timeline(
+    client_id: int,
+    job_id: int | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+    channel: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            where = ["e.client_db_id = %s"]
+            params: list[Any] = [int(client_id)]
+            if job_id is not None:
+                where.append("e.job_id = %s")
+                params.append(int(job_id))
+            if event_type:
+                where.append("lower(e.event_type) = lower(%s)")
+                params.append(str(event_type).strip())
+            if channel:
+                where.append("lower(e.channel) = lower(%s)")
+                params.append(str(channel).strip())
+            if status:
+                where.append("lower(e.status) = lower(%s)")
+                params.append(str(status).strip())
+            if q and str(q).strip():
+                needle = f"%{str(q).strip()}%"
+                where.append("(e.subject ILIKE %s OR e.body_text ILIKE %s)")
+                params.extend([needle, needle])
+
+            where_sql = " AND ".join(where)
+            count_row = con.execute(f"SELECT COUNT(*) FROM crm_events e WHERE {where_sql}", params).fetchone()
+            total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
+
+            rows_df = con.execute(
+                f"""
+                SELECT e.*
+                FROM crm_events e
+                WHERE {where_sql}
+                ORDER BY e.created_at DESC, e.event_id DESC
+                LIMIT %s OFFSET %s
+                """,
+                [*params, int(limit), int(offset)],
+            ).df()
+            items: list[dict[str, Any]] = []
+            if rows_df is not None and not rows_df.empty:
+                for _, row in rows_df.iterrows():
+                    item = _serialize_event(row.to_dict())
+                    item["tags"] = _tags_for_event(con, int(item["event_id"]))
+                    items.append(item)
+            return {"items": items, "count": total_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load timeline: {e}")
+
+
+@router.post("/clients/{client_id}/timeline/events")
+def create_client_timeline_event(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        actor = _actor(_user)
+        event_type = str(body.get("event_type") or "").strip() or "note"
+        channel = str(body.get("channel") or "").strip() or "internal"
+        with get_conn() as con:
+            _ensure_tables(con)
+            con.execute(
+                """
+                INSERT INTO crm_events (
+                  client_db_id, job_id, event_type, channel, direction, subject,
+                  body_text, body_html, status, owner_user_id, due_at, source, source_ref,
+                  payload_json, is_private, created_by, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, NOW(), NOW())
+                RETURNING event_id
+                """,
+                [
+                    int(client_id),
+                    int(body["job_id"]) if body.get("job_id") is not None else None,
+                    event_type,
+                    channel,
+                    str(body.get("direction") or "").strip() or None,
+                    str(body.get("subject") or "").strip() or None,
+                    str(body.get("body_text") or "").strip() or None,
+                    str(body.get("body_html") or "").strip() or None,
+                    str(body.get("status") or "logged"),
+                    str(body.get("owner_user_id") or "").strip() or None,
+                    str(body.get("due_at") or "").strip() or None,
+                    str(body.get("source") or "manual"),
+                    str(body.get("source_ref") or "").strip() or None,
+                    body.get("payload_json") or {},
+                    bool(body.get("is_private", False)),
+                    actor,
+                ],
+            )
+            event_row = con.execute("SELECT MAX(event_id) FROM crm_events WHERE client_db_id = %s", [int(client_id)]).fetchone()
+            if not event_row or event_row[0] is None:
+                raise HTTPException(status_code=500, detail="Failed to create event")
+            event_id = int(event_row[0])
+            tags = body.get("tags") or []
+            if isinstance(tags, list):
+                _replace_event_tags(con, event_id, tags)
+            row_df = con.execute("SELECT * FROM crm_events WHERE event_id = %s", [event_id]).df()
+            item = _serialize_event(row_df.iloc[0].to_dict()) if row_df is not None and not row_df.empty else {"event_id": event_id}
+            item["tags"] = _tags_for_event(con, event_id)
+            return item
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create timeline event: {e}")
+
+
+@router.patch("/timeline/events/{event_id}")
+def update_timeline_event(event_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            exists = con.execute("SELECT event_id FROM crm_events WHERE event_id = %s", [int(event_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Event not found")
+
+            updates: list[str] = []
+            params: list[Any] = []
+            for key in ("subject", "body_text", "body_html", "status", "owner_user_id", "due_at", "is_private"):
+                if key not in body:
+                    continue
+                updates.append(f"{key} = %s")
+                value = body.get(key)
+                if key == "is_private":
+                    params.append(bool(value))
+                else:
+                    params.append(str(value).strip() if value is not None else None)
+
+            if "payload_json" in body:
+                updates.append("payload_json = %s::jsonb")
+                params.append(body.get("payload_json") or {})
+
+            if updates:
+                updates.append("updated_at = NOW()")
+                params.append(int(event_id))
+                con.execute(f"UPDATE crm_events SET {', '.join(updates)} WHERE event_id = %s", params)
+
+            if "tags" in body and isinstance(body.get("tags"), list):
+                _replace_event_tags(con, int(event_id), body.get("tags") or [])
+
+            row_df = con.execute("SELECT * FROM crm_events WHERE event_id = %s", [int(event_id)]).df()
+            item = _serialize_event(row_df.iloc[0].to_dict()) if row_df is not None and not row_df.empty else {"event_id": int(event_id)}
+            item["tags"] = _tags_for_event(con, int(event_id))
+            return item
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update event: {e}")
+
+
+@router.post("/clients/{client_id}/tasks")
+def create_client_task(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        actor = _actor(_user)
+        title = str(body.get("title") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title is required")
+
+        with get_conn() as con:
+            _ensure_tables(con)
+            con.execute(
+                """
+                INSERT INTO crm_tasks (
+                  event_id, client_db_id, job_id, title, details, assignee_user_id,
+                  priority, sla_due_at, due_at, status, created_by, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                """,
+                [
+                    int(body["event_id"]) if body.get("event_id") is not None else None,
+                    int(client_id),
+                    int(body["job_id"]) if body.get("job_id") is not None else None,
+                    title,
+                    str(body.get("details") or "").strip() or None,
+                    str(body.get("assignee_user_id") or "").strip() or None,
+                    str(body.get("priority") or "normal"),
+                    str(body.get("sla_due_at") or "").strip() or None,
+                    str(body.get("due_at") or "").strip() or None,
+                    str(body.get("status") or "open"),
+                    actor,
+                ],
+            )
+            row = con.execute("SELECT MAX(task_id) FROM crm_tasks WHERE client_db_id = %s", [int(client_id)]).fetchone()
+            if not row or row[0] is None:
+                raise HTTPException(status_code=500, detail="Failed to create task")
+            task_id = int(row[0])
+            df = con.execute("SELECT * FROM crm_tasks WHERE task_id = %s", [task_id]).df()
+            return _serialize_task(df.iloc[0].to_dict()) if df is not None and not df.empty else {"task_id": task_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create task: {e}")
+
+
+@router.patch("/tasks/{task_id}")
+def update_task(task_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            exists = con.execute("SELECT task_id FROM crm_tasks WHERE task_id = %s", [int(task_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            updates: list[str] = []
+            params: list[Any] = []
+            for key in ("title", "details", "assignee_user_id", "priority", "sla_due_at", "due_at", "status"):
+                if key not in body:
+                    continue
+                updates.append(f"{key} = %s")
+                value = body.get(key)
+                params.append(str(value).strip() if value is not None else None)
+
+            status_val = str(body.get("status") or "").strip().lower()
+            if "status" in body:
+                if status_val == "done":
+                    updates.append("completed_at = NOW()")
+                elif status_val in ("open", "in_progress", "blocked", "cancelled"):
+                    updates.append("completed_at = NULL")
+
+            if not updates:
+                return {"ok": True, "message": "No fields to update"}
+
+            updates.append("updated_at = NOW()")
+            params.append(int(task_id))
+            con.execute(f"UPDATE crm_tasks SET {', '.join(updates)} WHERE task_id = %s", params)
+
+            df = con.execute("SELECT * FROM crm_tasks WHERE task_id = %s", [int(task_id)]).df()
+            return _serialize_task(df.iloc[0].to_dict()) if df is not None and not df.empty else {"task_id": int(task_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update task: {e}")
+
+
+@router.get("/clients/{client_id}/tasks")
+def list_client_tasks(
+    client_id: int,
+    job_id: int | None = Query(default=None),
+    assignee: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    due_before: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=300),
+    offset: int = Query(default=0, ge=0),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            where = ["client_db_id = %s"]
+            params: list[Any] = [int(client_id)]
+            if job_id is not None:
+                where.append("job_id = %s")
+                params.append(int(job_id))
+            if assignee:
+                where.append("lower(assignee_user_id) = lower(%s)")
+                params.append(str(assignee).strip())
+            if status:
+                where.append("lower(status) = lower(%s)")
+                params.append(str(status).strip())
+            if priority:
+                where.append("lower(priority) = lower(%s)")
+                params.append(str(priority).strip())
+            if due_before:
+                where.append("due_at <= %s")
+                params.append(str(due_before).strip())
+
+            where_sql = " AND ".join(where)
+            count_row = con.execute(f"SELECT COUNT(*) FROM crm_tasks WHERE {where_sql}", params).fetchone()
+            total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
+            df = con.execute(
+                f"""
+                SELECT *
+                FROM crm_tasks
+                WHERE {where_sql}
+                ORDER BY COALESCE(due_at, created_at) ASC, task_id DESC
+                LIMIT %s OFFSET %s
+                """,
+                [*params, int(limit), int(offset)],
+            ).df()
+            items: list[dict[str, Any]] = []
+            if df is not None and not df.empty:
+                for _, r in df.iterrows():
+                    items.append(_serialize_task(r.to_dict()))
+            return {"items": items, "count": total_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
+
+
+@router.post("/timeline/events/{event_id}/tags")
+def replace_event_tags(event_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        tags = body.get("tags") or []
+        if not isinstance(tags, list):
+            raise HTTPException(status_code=400, detail="tags must be an array")
+        with get_conn() as con:
+            _ensure_tables(con)
+            exists = con.execute("SELECT event_id FROM crm_events WHERE event_id = %s", [int(event_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Event not found")
+            _replace_event_tags(con, int(event_id), tags)
+            return {"ok": True, "event_id": int(event_id), "tags": _tags_for_event(con, int(event_id))}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update tags: {e}")

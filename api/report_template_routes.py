@@ -1,0 +1,2192 @@
+"""
+API endpoints for report template management, versioning, job assignment,
+and report variable handling.
+"""
+
+from datetime import date, datetime
+from decimal import Decimal
+import math
+import re
+from fastapi import APIRouter, Depends, HTTPException, Body
+from pydantic import BaseModel
+from typing import Optional, List, Any
+
+from core.database import get_conn
+from api.auth import _current_user
+from services.dataset_selector import get_datasets_names_for_report
+
+router = APIRouter()
+
+
+class JobVariableValue(BaseModel):
+    variable_key: str
+    variable_value: Optional[str] = None
+
+
+class SaveJobVariablesPayload(BaseModel):
+    variables: List[JobVariableValue]
+
+
+class AssignTemplatePayload(BaseModel):
+    template_id: int
+    version_id: Optional[int] = None
+
+
+class SaveReportMetadataPayload(BaseModel):
+    metadata: dict[str, Any]
+
+
+REPORT_METADATA_COLUMNS = [
+    "report_title",
+    "benchmark_period_label",
+    "current_reporting_period_label",
+    "company_number",
+    "registered_address",
+    "employee_number",
+    "premises_owned",
+    "premises_leased",
+    "vehicles_owned",
+    "vehicles_leased",
+    "operational_control",
+    "financial_control",
+    "equity_share",
+    "commitment_commentary",
+    "activity_commentary",
+    "intensity_commentary",
+    "emissions_reduction_targets_commentary",
+    "data_confidence_commentary",
+    "methodologies_used",
+    "datasets_names",
+    "energy_consumption_uk_kwh",
+    "energy_consumption_non_uk_kwh",
+    "energy_reporting_basis",
+    "renewable_energy_kwh",
+    "renewable_energy_pct",
+    "energy_emissions_tco2e",
+    "energy_emissions_market_tco2e",
+    "carbon_offsets_tco2e",
+    "consultant_name",
+    "consultant_position",
+    "consultant_signature_date",
+    "client_signee_name",
+    "client_signee_position",
+    "client_signature_date",
+]
+
+REPORT_METADATA_BOOLEAN_FIELDS = {
+    "operational_control",
+    "financial_control",
+    "equity_share",
+}
+
+REPORT_METADATA_INTEGER_FIELDS = {
+    "employee_number",
+    "premises_owned",
+    "premises_leased",
+    "vehicles_owned",
+    "vehicles_leased",
+}
+
+REPORT_METADATA_FLOAT_FIELDS = {
+    "energy_consumption_uk_kwh",
+    "energy_consumption_non_uk_kwh",
+    "renewable_energy_kwh",
+    "renewable_energy_pct",
+    "energy_emissions_tco2e",
+    "energy_emissions_market_tco2e",
+    "carbon_offsets_tco2e",
+}
+
+REPORT_METADATA_DATE_FIELDS = {
+    "consultant_signature_date",
+    "client_signature_date",
+}
+
+REPORT_METADATA_DEFAULTS: dict[str, Any] = {
+    "report_title": "Annual Carbon Emissions Report",
+    "operational_control": True,
+    "financial_control": False,
+    "equity_share": False,
+    "methodologies_used": "GHG Protocol Corporate Standard",
+    "datasets_names": "DESNZ Greenhouse Gas Conversion Factors",
+    "energy_reporting_basis": "Location-based",
+    "renewable_energy_kwh": 0.0,
+    "renewable_energy_pct": 0.0,
+    "energy_emissions_market_tco2e": 0.0,
+    "carbon_offsets_tco2e": 0.0,
+}
+
+REPORT_METADATA_LABELS: dict[str, str] = {
+    "report_title": "Report Title",
+    "benchmark_period_label": "Benchmark Period",
+    "current_reporting_period_label": "Reporting Period",
+    "company_number": "Company Number",
+    "registered_address": "Registered Address",
+    "employee_number": "Employee Number",
+    "premises_owned": "Premises Owned",
+    "premises_leased": "Premises Leased",
+    "vehicles_owned": "Vehicles Owned",
+    "vehicles_leased": "Vehicles Leased",
+    "operational_control": "Operational Control",
+    "financial_control": "Financial Control",
+    "equity_share": "Equity Share",
+    "commitment_commentary": "Commitment Commentary",
+    "activity_commentary": "Activity Commentary",
+    "intensity_commentary": "Intensity Commentary",
+    "emissions_reduction_targets_commentary": "Emissions Reduction Targets Commentary",
+    "data_confidence_commentary": "Data Confidence Commentary",
+    "methodologies_used": "Methodologies Used",
+    "datasets_names": "Datasets Names",
+    "energy_consumption_uk_kwh": "UK Energy kWh",
+    "energy_consumption_non_uk_kwh": "Non-UK Energy kWh",
+    "energy_reporting_basis": "Basis of Energy Reporting",
+    "renewable_energy_kwh": "Renewable Energy kWh",
+    "renewable_energy_pct": "Renewables % (Legacy)",
+    "energy_emissions_tco2e": "Energy Emissions (Location-based)",
+    "energy_emissions_market_tco2e": "Energy Emissions (Market-based)",
+    "carbon_offsets_tco2e": "Carbon Offsets",
+    "consultant_name": "Consultant Name",
+    "consultant_position": "Consultant Position",
+    "consultant_signature_date": "Consultant Signature Date",
+    "client_signee_name": "Client Signee",
+    "client_signee_position": "Client Signee Position",
+    "client_signature_date": "Client Signature Date",
+}
+
+REPORT_METADATA_TEXTAREA_FIELDS = {
+    "registered_address",
+    "commitment_commentary",
+    "activity_commentary",
+    "intensity_commentary",
+    "emissions_reduction_targets_commentary",
+    "data_confidence_commentary",
+    "methodologies_used",
+    "datasets_names",
+}
+
+REPORT_METADATA_EXTRA_ALIASES: dict[str, list[str]] = {
+    "report_title": ["{Report Title}"],
+    "benchmark_period_label": ["{Benchmark Period}"],
+    "current_reporting_period_label": ["Current Reporting Period", "{Reporting Period}"],
+    "company_number": ["{Company Number}"],
+    "registered_address": ["{Registered Address}"],
+    "employee_number": ["{Employee Number}"],
+    "premises_owned": ["{Premises Owned}"],
+    "premises_leased": ["{Premises Leased}"],
+    "vehicles_owned": ["{Vehicles Owned}"],
+    "vehicles_leased": ["{Vehicles Leased}"],
+    "operational_control": ["{Operational Control}"],
+    "financial_control": ["{Financial Control}"],
+    "equity_share": ["{Equity Share}"],
+    "commitment_commentary": ["{Commitment Commentary}"],
+    "activity_commentary": ["{Activity Commentary}"],
+    "intensity_commentary": ["{Intensity Commentary}"],
+    "emissions_reduction_targets_commentary": [
+        "{Emissions Reduction Targets Commentary}",
+        "Emissions Reductions Targets Commentary",
+        "{Emissions Reductions Targets Commentary}",
+    ],
+    "data_confidence_commentary": ["Data Confidence", "{Data Confidence Commentary}"],
+    "methodologies_used": ["Methodology", "{Methodologies Used}"],
+    "datasets_names": ["Datasets", "{Datasets Names}"],
+    "energy_consumption_uk_kwh": ["total kWh", "{total kWh}", "{UK Energy kWh}"],
+    "energy_consumption_non_uk_kwh": ["{Non-UK Energy kWh}"],
+    "energy_reporting_basis": ["{Basis of Energy Reporting}"],
+    "renewable_energy_kwh": ["Renewable Energy (kWh)", "{Renewable Energy kWh}", "{Renewable Energy (kWh)}"],
+    "renewable_energy_pct": ["Renewable Energy %", "{Renewables %}"],
+    "energy_emissions_tco2e": ["{Energy Emissions}", "Energy Emissions (Location-based)", "{Energy Emissions (Location-based)}"],
+    "energy_emissions_market_tco2e": [
+        "Energy Emissions (Market-based)",
+        "{Energy Emissions (Market-based)}",
+        "Energy Emissions Market",
+        "{Energy Emissions Market}",
+    ],
+    "carbon_offsets_tco2e": ["carbon offsets", "{carbon offsets}", "{Carbon Offsets}"],
+    "consultant_name": ["{Consultant Name}"],
+    "consultant_position": ["{Consultant Position}"],
+    "consultant_signature_date": ["Current Date", "{Current Date}", "{Consultant Signature Date}"],
+    "client_signee_name": ["Client Signatory", "{Client Signee}"],
+    "client_signee_position": ["{Client Signee Position}"],
+    "client_signature_date": ["{Client Signature Date}"],
+}
+
+REPORT_JOB_PLACEHOLDER_ALIASES: dict[str, str] = {
+    "Client Name": "client_name",
+    "Job Number": "job_number",
+    "Reporting Year": "reporting_year",
+    "Reporting Period Start": "period_start",
+    "Reporting Period End": "period_end",
+}
+
+# Optional template-specific required variable overrides.
+# When present, only these required keys are enforced for that template.
+_TEMPLATE_REQUIRED_KEY_OVERRIDES: dict[str, set[str]] = {
+    "crp_standard": {
+        "commitment_statement",
+        "baseline_year",
+        "target_year",
+        "declaration_statement",
+        "signatory_name",
+        "signatory_position",
+        "signature_date",
+        "executive_summary",
+        "reduction_projects",
+        "reduction_targets",
+    },
+}
+
+REPORT_SCOPE_PLACEHOLDER_ALIASES: dict[str, str] = {
+    "Scope 1 Emissions": "Scope 1",
+    "Scope 2 Emissions": "Scope 2",
+    "Scope 3 Emissions": "Scope 3",
+    "Total Emissions": "Total",
+}
+
+
+def _normalize_placeholder_key(raw_key: str) -> str:
+    token = str(raw_key or "").strip()
+    if token.startswith("{") and token.endswith("}"):
+        token = token[1:-1]
+    token = token.replace("&", " and ")
+    token = token.replace("%", " pct ")
+    token = token.replace("CO₂", "CO2").replace("co₂", "co2")
+    token = token.lower()
+    token = re.sub(r"[^a-z0-9]+", "_", token).strip("_")
+    return token
+
+
+REPORT_METADATA_NORMALIZED_KEY_MAP: dict[str, str] = {
+    _normalize_placeholder_key(k): k for k in REPORT_METADATA_COLUMNS
+}
+
+REPORT_METADATA_ALIAS_TO_KEY: dict[str, str] = {}
+for _meta_key in REPORT_METADATA_COLUMNS:
+    _aliases = {
+        _meta_key,
+        REPORT_METADATA_LABELS.get(_meta_key, _meta_key),
+        f"{{{REPORT_METADATA_LABELS.get(_meta_key, _meta_key)}}}",
+    }
+    _aliases.update(REPORT_METADATA_EXTRA_ALIASES.get(_meta_key, []))
+    for _alias in _aliases:
+        _normalized = _normalize_placeholder_key(_alias)
+        if _normalized:
+            REPORT_METADATA_ALIAS_TO_KEY[_normalized] = _meta_key
+
+
+def _report_meta_label(key: str) -> str:
+    return REPORT_METADATA_LABELS.get(key, key.replace("_", " ").title())
+
+
+def _report_meta_field_type(key: str) -> str:
+    if key in REPORT_METADATA_BOOLEAN_FIELDS:
+        return "boolean"
+    if key in REPORT_METADATA_INTEGER_FIELDS or key in REPORT_METADATA_FLOAT_FIELDS:
+        return "number"
+    if key in REPORT_METADATA_DATE_FIELDS:
+        return "date"
+    if key in REPORT_METADATA_TEXTAREA_FIELDS:
+        return "textarea"
+    return "text"
+
+
+def _report_meta_section(key: str) -> str:
+    if key in {
+        "report_title",
+        "benchmark_period_label",
+        "current_reporting_period_label",
+    }:
+        return "Report Details"
+    if key in {
+        "company_number",
+        "registered_address",
+        "employee_number",
+        "premises_owned",
+        "premises_leased",
+        "vehicles_owned",
+        "vehicles_leased",
+    }:
+        return "Organisation Details"
+    if key in {"operational_control", "financial_control", "equity_share"}:
+        return "Boundary Controls"
+    if key in {
+        "commitment_commentary",
+        "activity_commentary",
+        "intensity_commentary",
+        "emissions_reduction_targets_commentary",
+        "data_confidence_commentary",
+        "methodologies_used",
+        "datasets_names",
+    }:
+        return "Narrative"
+    if key in {
+        "energy_consumption_uk_kwh",
+        "energy_consumption_non_uk_kwh",
+        "energy_reporting_basis",
+        "renewable_energy_kwh",
+        "renewable_energy_pct",
+        "energy_emissions_tco2e",
+        "energy_emissions_market_tco2e",
+        "carbon_offsets_tco2e",
+    }:
+        return "Energy & Emissions"
+    return "Sign-off"
+
+
+def _get_report_metadata_fields() -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for key in REPORT_METADATA_COLUMNS:
+        fields.append(
+            {
+                "key": key,
+                "label": _report_meta_label(key),
+                "field_type": _report_meta_field_type(key),
+                "section": _report_meta_section(key),
+                "aliases": REPORT_METADATA_EXTRA_ALIASES.get(key, []),
+            }
+        )
+    return fields
+
+
+def _resolve_report_meta_key(raw_key: str) -> str | None:
+    raw = str(raw_key or "").strip()
+    if raw in REPORT_METADATA_COLUMNS:
+        return raw
+
+    normalized = _normalize_placeholder_key(raw)
+    if not normalized:
+        return None
+
+    direct = REPORT_METADATA_NORMALIZED_KEY_MAP.get(normalized)
+    if direct:
+        return direct
+    return REPORT_METADATA_ALIAS_TO_KEY.get(normalized)
+
+
+def _set_render_alias(render_values: dict[str, Any], alias: str, value: Any) -> None:
+    alias_text = str(alias or "").strip()
+    if not alias_text:
+        return
+
+    render_values[alias_text] = value
+    if alias_text.startswith("{") and alias_text.endswith("}"):
+        bare = alias_text[1:-1].strip()
+        if bare:
+            render_values[bare] = value
+    else:
+        render_values[f"{{{alias_text}}}"] = value
+
+
+def _build_report_render_values(
+    *,
+    job_data: dict[str, Any] | None = None,
+    scope_totals: dict[str, Any] | None = None,
+    template_variables: dict[str, Any] | None = None,
+    report_metadata: dict[str, Any] | None = None,
+    generation_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    Build a merged render dictionary that supports canonical keys and
+    one-to-one placeholder aliases (e.g. {Report Title}).
+    """
+    render_values: dict[str, Any] = {}
+
+    metadata_values = {
+        k: _serialize_meta_value(v) for k, v in (report_metadata or {}).items()
+    }
+    for key, value in metadata_values.items():
+        if value is not None:
+            render_values[key] = value
+
+    template_values = {
+        k: _serialize_meta_value(v) for k, v in (template_variables or {}).items()
+    }
+    for key, value in template_values.items():
+        if value is not None and str(value).strip() != "":
+            render_values[key] = value
+
+    for key, value in (job_data or {}).items():
+        serialized = _serialize_meta_value(value)
+        render_values[f"job_data.{key}"] = serialized
+        render_values.setdefault(str(key), serialized)
+
+    for scope, value in (scope_totals or {}).items():
+        serialized = _serialize_meta_value(value)
+        safe_scope = str(scope).strip().replace(" ", "_").lower()
+        render_values[f"scope_totals.{scope}"] = serialized
+        render_values[f"scope_totals_{safe_scope}"] = serialized
+
+    for key in REPORT_METADATA_COLUMNS:
+        if key not in render_values:
+            continue
+        value = render_values.get(key)
+        _set_render_alias(render_values, _report_meta_label(key), value)
+        for alias in REPORT_METADATA_EXTRA_ALIASES.get(key, []):
+            _set_render_alias(render_values, alias, value)
+
+    for placeholder, source_key in REPORT_JOB_PLACEHOLDER_ALIASES.items():
+        value = render_values.get(source_key)
+        if value is None and job_data is not None:
+            value = _serialize_meta_value(job_data.get(source_key))
+        if value is None or str(value).strip() == "":
+            continue
+        _set_render_alias(render_values, placeholder, value)
+
+    for placeholder, scope_name in REPORT_SCOPE_PLACEHOLDER_ALIASES.items():
+        value = None
+        if scope_totals is not None:
+            value = _serialize_meta_value(scope_totals.get(scope_name))
+        if value is None:
+            continue
+        _set_render_alias(render_values, placeholder, value)
+
+    if generation_date:
+        _set_render_alias(render_values, "Current Date", generation_date)
+        render_values["generation_date"] = generation_date
+
+    return render_values
+
+
+def _serialize_meta_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def _serialize_report_meta(meta: dict[str, Any]) -> dict[str, Any]:
+    return {k: _serialize_meta_value(meta.get(k)) for k in REPORT_METADATA_COLUMNS}
+
+
+def _format_period_label(start_value: Any, end_value: Any) -> str | None:
+    def _to_date(v: Any) -> date | None:
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        try:
+            return datetime.fromisoformat(str(v)).date()
+        except Exception:
+            return None
+
+    start_dt = _to_date(start_value)
+    end_dt = _to_date(end_value)
+    if start_dt and end_dt:
+        return f"{start_dt.strftime('%d %B %Y')} – {end_dt.strftime('%d %B %Y')}"
+    if start_dt:
+        return start_dt.strftime('%d %B %Y')
+    if end_dt:
+        return end_dt.strftime('%d %B %Y')
+    return None
+
+
+def _build_registered_address(parts: list[Any]) -> str | None:
+    cleaned = [str(p).strip() for p in parts if p is not None and str(p).strip()]
+    return ", ".join(cleaned) if cleaned else None
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _sync_renewables_pct_from_kwh(meta: dict[str, Any]) -> bool:
+    """
+    Keep legacy renewables % in sync from renewable kWh so legacy templates
+    continue to render correctly while UI inputs remain kWh-based.
+    """
+    renewable_kwh = _safe_float(meta.get("renewable_energy_kwh"))
+    uk_kwh = _safe_float(meta.get("energy_consumption_uk_kwh")) or 0.0
+    non_uk_kwh = _safe_float(meta.get("energy_consumption_non_uk_kwh")) or 0.0
+    total_kwh = uk_kwh + non_uk_kwh
+
+    if renewable_kwh is None:
+        return False
+
+    next_pct = 0.0 if total_kwh <= 0 else max(0.0, min(100.0, (renewable_kwh / total_kwh) * 100.0))
+    next_pct = round(next_pct, 2)
+
+    current_pct = _safe_float(meta.get("renewable_energy_pct"))
+    if current_pct is None or round(current_pct, 2) != next_pct:
+        meta["renewable_energy_pct"] = next_pct
+        return True
+
+    return False
+
+
+def _sync_datasets_names_from_resolver(job_id: int, meta: dict[str, Any]) -> bool:
+    """Keep datasets_names aligned with automatic dataset resolution output."""
+    try:
+        resolved_names = str(get_datasets_names_for_report(int(job_id)) or "").strip()
+    except Exception:
+        return False
+
+    if not resolved_names:
+        return False
+
+    current = str(meta.get("datasets_names") or "").strip()
+    if current != resolved_names:
+        meta["datasets_names"] = resolved_names
+        return True
+
+    return False
+
+
+def _sync_employee_number_from_intensity_metrics(con, job_id: int, meta: dict[str, Any]) -> bool:
+    """
+    Sync employee_number from intensity_metrics.employees.value to report metadata.
+    This ensures the Employee Number in reports reflects the value set in Intensity Metrics.
+    """
+    try:
+        row = con.execute(
+            "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+            [int(job_id)]
+        ).fetchone()
+        
+        if not row or not row[0]:
+            return False
+            
+        intensity_metrics = row[0]
+        if not isinstance(intensity_metrics, dict):
+            return False
+            
+        employees_metric = intensity_metrics.get("employees", {})
+        if employees_metric and isinstance(employees_metric, dict):
+            employees_value = employees_metric.get("value")
+            if employees_value is not None:
+                try:
+                    new_employee_number = int(employees_value)
+                    current_employee_number = meta.get("employee_number")
+                    
+                    # Sync if: current is None/0 OR intensity metrics value is different
+                    if current_employee_number is None or current_employee_number == 0:
+                        meta["employee_number"] = new_employee_number
+                        return True
+                    elif current_employee_number != new_employee_number:
+                        # Only update if user hasn't manually set a different value
+                        # For now, always sync to intensity metrics as the source of truth
+                        meta["employee_number"] = new_employee_number
+                        return True
+                except (ValueError, TypeError):
+                    pass
+                    
+        return False
+    except Exception:
+        return False
+
+
+def _sync_reporting_elements_from_intensity_metrics(con, job_id: int, meta: dict[str, Any]) -> bool:
+    """
+    Sync reporting elements (premises and vehicles) from intensity_metrics to report metadata.
+    This ensures these values in reports reflect what's set in Intensity Metrics.
+    
+    Intensity Metrics JSONB structure expected:
+    {
+        "employees": {"value": 100, "label": "Employees", "divider": 1},
+        "premises_owned": {"value": 5, "label": "Premises Owned", "divider": 1},
+        "premises_leased": {"value": 3, "label": "Premises Leased", "divider": 1},
+        "vehicles_owned": {"value": 10, "label": "Vehicles Owned", "divider": 1},
+        "vehicles_leased": {"value": 5, "label": "Vehicles Leased", "divider": 1},
+        ...
+    }
+    """
+    try:
+        row = con.execute(
+            "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+            [int(job_id)]
+        ).fetchone()
+        
+        if not row or not row[0]:
+            return False
+            
+        intensity_metrics = row[0]
+        if not isinstance(intensity_metrics, dict):
+            return False
+        
+        changed = False
+        
+        # Map intensity_metrics keys to report_metadata keys
+        reporting_element_keys = {
+            "premises_owned": "premises_owned",
+            "premises_leased": "premises_leased",
+            "vehicles_owned": "vehicles_owned",
+            "vehicles_leased": "vehicles_leased",
+        }
+        
+        for im_key, meta_key in reporting_element_keys.items():
+            metric = intensity_metrics.get(im_key, {})
+            if metric and isinstance(metric, dict):
+                value = metric.get("value")
+                if value is not None:
+                    try:
+                        new_value = int(value)
+                        current_value = meta.get(meta_key)
+                        
+                        # Sync if: current is None/0 OR intensity metrics value is different
+                        if current_value is None or current_value == 0:
+                            meta[meta_key] = new_value
+                            changed = True
+                        elif current_value != new_value:
+                            # Always sync to intensity metrics as the source of truth
+                            meta[meta_key] = new_value
+                            changed = True
+                    except (ValueError, TypeError):
+                        pass
+        
+        return changed
+    except Exception:
+        return False
+
+
+def _current_actor_identifier(user: dict[str, Any] | None) -> str:
+    if not isinstance(user, dict):
+        return "unknown"
+    candidate = user.get("email") or user.get("user") or user.get("name")
+    normalized = str(candidate or "").strip()
+    return normalized if normalized else "unknown"
+
+
+def _normalize_actor_email(actor: str | None) -> str | None:
+    normalized = str(actor or "").strip().lower()
+    if not normalized or normalized in {"unknown", "anonymous"}:
+        return None
+    return normalized
+
+
+def _lookup_team_member(
+    con,
+    *,
+    consultant_name: str | None = None,
+    actor_email: str | None = None,
+) -> tuple[str | None, str | None]:
+    name = str(consultant_name or "").strip()
+    if name:
+        try:
+            row = con.execute(
+                """
+                SELECT full_name,
+                       NULLIF(TRIM(position), '') AS consultant_position
+                FROM users
+                WHERE LOWER(COALESCE(full_name, '')) = LOWER(%s)
+                   OR LOWER(COALESCE(email, '')) = LOWER(%s)
+                   OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
+                LIMIT 1
+                """,
+                [name, name, name],
+            ).fetchone()
+        except Exception:
+            try:
+                # Backward compatibility if users.position has not been migrated yet.
+                # Do NOT fall back to role for consultant_position.
+                row = con.execute(
+                    """
+                    SELECT full_name,
+                           NULL AS consultant_position
+                    FROM users
+                    WHERE LOWER(COALESCE(full_name, '')) = LOWER(%s)
+                       OR LOWER(COALESCE(email, '')) = LOWER(%s)
+                       OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
+                    LIMIT 1
+                    """,
+                    [name, name, name],
+                ).fetchone()
+            except Exception:
+                row = None
+        if row:
+            full_name = str(row[0]).strip() if row[0] is not None else None
+            position = str(row[1]).strip() if row[1] is not None else None
+            return (full_name if full_name else None, position if position else None)
+
+    normalized_actor = _normalize_actor_email(actor_email)
+    if normalized_actor:
+        try:
+            row = con.execute(
+                """
+                SELECT full_name,
+                       NULLIF(TRIM(position), '') AS consultant_position
+                FROM users
+                WHERE LOWER(COALESCE(email, '')) = LOWER(%s)
+                   OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
+                LIMIT 1
+                """,
+                [normalized_actor, normalized_actor],
+            ).fetchone()
+        except Exception:
+            try:
+                # Backward compatibility if users.position has not been migrated yet.
+                # Do NOT fall back to role for consultant_position.
+                row = con.execute(
+                    """
+                    SELECT full_name,
+                           NULL AS consultant_position
+                    FROM users
+                    WHERE LOWER(COALESCE(email, '')) = LOWER(%s)
+                       OR LOWER(COALESCE(user_id, '')) = LOWER(%s)
+                    LIMIT 1
+                    """,
+                    [normalized_actor, normalized_actor],
+                ).fetchone()
+            except Exception:
+                row = None
+        if row:
+            full_name = str(row[0]).strip() if row[0] is not None else None
+            position = str(row[1]).strip() if row[1] is not None else None
+            return (full_name if full_name else None, position if position else None)
+
+    return (None, None)
+
+
+def _sync_consultant_metadata_with_team_role(
+    con,
+    meta: dict[str, Any],
+    *,
+    actor_email: str | None = None,
+) -> bool:
+    changed = False
+    consultant_name = str(meta.get("consultant_name") or "").strip() or None
+    resolved_name, resolved_position = _lookup_team_member(
+        con,
+        consultant_name=consultant_name,
+        actor_email=actor_email,
+    )
+
+    if resolved_name and meta.get("consultant_name") != resolved_name:
+        meta["consultant_name"] = resolved_name
+        consultant_name = resolved_name
+        changed = True
+
+    if resolved_position and meta.get("consultant_position") != resolved_position:
+        meta["consultant_position"] = resolved_position
+        changed = True
+
+    return changed
+
+
+def _ensure_report_metadata_table(con) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_report_metadata (
+          job_id INTEGER PRIMARY KEY REFERENCES jobs(job_id) ON DELETE CASCADE,
+          report_title VARCHAR,
+          benchmark_period_label VARCHAR,
+          current_reporting_period_label VARCHAR,
+          company_number VARCHAR,
+          registered_address TEXT,
+          employee_number INTEGER,
+          premises_owned INTEGER,
+          premises_leased INTEGER,
+          vehicles_owned INTEGER,
+          vehicles_leased INTEGER,
+          operational_control BOOLEAN DEFAULT TRUE,
+          financial_control BOOLEAN DEFAULT FALSE,
+          equity_share BOOLEAN DEFAULT FALSE,
+          commitment_commentary TEXT,
+          activity_commentary TEXT,
+          intensity_commentary TEXT,
+          emissions_reduction_targets_commentary TEXT,
+          data_confidence_commentary TEXT,
+          methodologies_used TEXT,
+          datasets_names TEXT,
+          energy_consumption_uk_kwh NUMERIC,
+          energy_consumption_non_uk_kwh NUMERIC,
+          energy_reporting_basis VARCHAR,
+          renewable_energy_kwh NUMERIC,
+          renewable_energy_pct NUMERIC,
+          energy_emissions_tco2e NUMERIC,
+          energy_emissions_market_tco2e NUMERIC,
+          carbon_offsets_tco2e NUMERIC,
+          consultant_name VARCHAR,
+          consultant_position VARCHAR,
+          consultant_signature_date DATE,
+          client_signee_name VARCHAR,
+          client_signee_position VARCHAR,
+          client_signature_date DATE,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_by VARCHAR
+        )
+        """
+    )
+
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS renewable_energy_kwh NUMERIC
+        """
+    )
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS energy_emissions_market_tco2e NUMERIC
+        """
+    )
+
+
+def _build_default_report_meta(con, job_id: int, actor_email: str | None = None) -> dict[str, Any]:
+    row = con.execute(
+        """
+        SELECT
+            j.reporting_period_start,
+            j.reporting_period_end,
+            j.reporting_year,
+            c.company_reg,
+            c.addr_line1,
+            c.addr_line2,
+            c.addr_city,
+            c.addr_region,
+            c.addr_postcode,
+            c.addr_country,
+            c.benchmark_period_start,
+            c.benchmark_period_end,
+            c.benchmark_year,
+            d.num_employees,
+            d.premises_owned,
+            d.premises_leased,
+            d.vehicles_owned,
+            d.vehicles_leased,
+            d.report_signee_name,
+            d.report_signee_position,
+            j.intensity_metrics
+        FROM jobs j
+        JOIN clients c ON c.db_id = j.client_db_id
+        LEFT JOIN crp_job_details d ON d.job_id = j.job_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    current_period_label = _format_period_label(row[0], row[1])
+    benchmark_label = _format_period_label(row[10], row[11])
+    if not benchmark_label and row[12] is not None:
+        benchmark_label = f"Benchmark reporting year: {int(row[12])}"
+    if not benchmark_label:
+        benchmark_label = current_period_label
+
+    # Get employee number from intensity_metrics first (employees.value), then fall back to crp_job_details
+    employee_number_from_details = row[13]  # d.num_employees
+    intensity_metrics = row[20]  # j.intensity_metrics
+    employee_number = employee_number_from_details
+    
+    # Try to get employee count from intensity_metrics.employees.value
+    if intensity_metrics and isinstance(intensity_metrics, dict):
+        employees_metric = intensity_metrics.get("employees", {})
+        if employees_metric and isinstance(employees_metric, dict):
+            employees_value = employees_metric.get("value")
+            if employees_value is not None:
+                try:
+                    employee_number = int(employees_value)
+                except (ValueError, TypeError):
+                    # Keep the fallback value if conversion fails
+                    pass
+
+    defaults = dict(REPORT_METADATA_DEFAULTS)
+    defaults.update(
+        {
+            "current_reporting_period_label": current_period_label,
+            "benchmark_period_label": benchmark_label,
+            "company_number": row[3],
+            "registered_address": _build_registered_address(
+                [row[4], row[5], row[6], row[7], row[8], row[9]]
+            ),
+            "employee_number": employee_number,
+            "premises_owned": row[14],
+            "premises_leased": row[15],
+            "vehicles_owned": row[16],
+            "vehicles_leased": row[17],
+            "client_signee_name": row[18],
+            "client_signee_position": row[19],
+            "consultant_signature_date": date.today(),
+        }
+    )
+    _sync_consultant_metadata_with_team_role(con, defaults, actor_email=actor_email)
+    return defaults
+
+
+def _fetch_report_meta_row(con, job_id: int) -> dict[str, Any] | None:
+    row = con.execute(
+        f"SELECT {', '.join(REPORT_METADATA_COLUMNS)} FROM job_report_metadata WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {k: row[idx] for idx, k in enumerate(REPORT_METADATA_COLUMNS)}
+
+
+def _upsert_report_meta(con, job_id: int, meta: dict[str, Any], updated_by: str) -> None:
+    columns_sql = ", ".join(REPORT_METADATA_COLUMNS)
+    placeholders_sql = ", ".join(["%s"] * len(REPORT_METADATA_COLUMNS))
+    update_sql = ",\n                      ".join(
+        [f"{col} = EXCLUDED.{col}" for col in REPORT_METADATA_COLUMNS]
+    )
+    values = [meta.get(col) for col in REPORT_METADATA_COLUMNS]
+
+    con.execute(
+        f"""
+        INSERT INTO job_report_metadata
+          (job_id, {columns_sql}, updated_by, updated_at)
+        VALUES (%s, {placeholders_sql}, %s, CURRENT_TIMESTAMP)
+        ON CONFLICT (job_id)
+        DO UPDATE SET
+          {update_sql},
+          updated_by = EXCLUDED.updated_by,
+          updated_at = CURRENT_TIMESTAMP
+        """,
+        [int(job_id), *values, updated_by],
+    )
+
+
+def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dict[str, Any]:
+    _ensure_report_metadata_table(con)
+    defaults = _build_default_report_meta(con, int(job_id), actor_email=updated_by)
+    existing = _fetch_report_meta_row(con, int(job_id))
+
+    merged: dict[str, Any] = {}
+    changed = existing is None
+    for key in REPORT_METADATA_COLUMNS:
+        stored_value = existing.get(key) if existing else None
+        default_value = defaults.get(key)
+        if stored_value is None and default_value is not None:
+            merged[key] = default_value
+            if existing is not None:
+                changed = True
+        else:
+            merged[key] = stored_value
+
+    if _sync_consultant_metadata_with_team_role(con, merged, actor_email=updated_by):
+        changed = True
+
+    if _sync_renewables_pct_from_kwh(merged):
+        changed = True
+
+    if _sync_datasets_names_from_resolver(int(job_id), merged):
+        changed = True
+
+    # Sync employee_number from intensity_metrics (employees.value) whenever metadata is accessed
+    if _sync_employee_number_from_intensity_metrics(con, int(job_id), merged):
+        changed = True
+
+    # Sync premises and vehicles from intensity_metrics whenever metadata is accessed
+    if _sync_reporting_elements_from_intensity_metrics(con, int(job_id), merged):
+        changed = True
+
+    if changed:
+        _upsert_report_meta(con, int(job_id), merged, updated_by)
+
+    return merged
+
+
+def _coerce_report_meta_value(key: str, value: Any) -> Any:
+    if value is None:
+        return None
+
+    if key in REPORT_METADATA_BOOLEAN_FIELDS:
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off"}:
+            return False
+        raise HTTPException(status_code=400, detail=f"Invalid boolean value for '{key}'")
+
+    if key in REPORT_METADATA_INTEGER_FIELDS:
+        txt = str(value).strip()
+        if txt == "":
+            return None
+        try:
+            return int(float(txt))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid integer value for '{key}'") from exc
+
+    if key in REPORT_METADATA_FLOAT_FIELDS:
+        txt = str(value).strip()
+        if txt == "":
+            return None
+        try:
+            return float(txt)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid numeric value for '{key}'") from exc
+
+    if key in REPORT_METADATA_DATE_FIELDS:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        txt = str(value).strip()
+        if txt == "":
+            return None
+        try:
+            return datetime.fromisoformat(txt).date()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid date value for '{key}' (expected YYYY-MM-DD)") from exc
+
+    txt = str(value).strip()
+    return txt if txt != "" else None
+
+
+def _get_job_report_metadata(job_id: int, updated_by: str = "system") -> dict[str, Any]:
+    with get_conn() as con:
+        _get_job_client_id(con, int(job_id))
+        meta = _ensure_job_report_meta(con, int(job_id), updated_by=updated_by)
+    return _serialize_report_meta(meta)
+
+
+@router.get("/jobs/{job_id}/report-metadata")
+def get_job_report_metadata(job_id: int, _user: dict = Depends(_current_user)):
+    actor_identifier = _current_actor_identifier(_user)
+    metadata = _get_job_report_metadata(
+        int(job_id),
+        updated_by=actor_identifier,
+    )
+    return {
+        "job_id": int(job_id),
+        "metadata": metadata,
+        "fields": _get_report_metadata_fields(),
+        "placeholder_key_map": dict(REPORT_METADATA_LABELS),
+    }
+
+
+@router.post("/jobs/{job_id}/report-metadata")
+def save_job_report_metadata(
+    job_id: int,
+    payload: SaveReportMetadataPayload = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    actor_identifier = _current_actor_identifier(_user)
+    updates = payload.metadata or {}
+    unknown_keys: list[str] = []
+    resolved_updates: dict[str, Any] = {}
+
+    for raw_key, value in updates.items():
+        resolved_key = _resolve_report_meta_key(str(raw_key))
+        if not resolved_key:
+            unknown_keys.append(str(raw_key))
+            continue
+        resolved_updates[resolved_key] = _coerce_report_meta_value(resolved_key, value)
+
+    if unknown_keys:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Unknown report metadata keys",
+                "unknown_keys": unknown_keys,
+                "supported_keys": REPORT_METADATA_COLUMNS,
+            },
+        )
+
+    with get_conn() as con:
+        _get_job_client_id(con, int(job_id))
+        merged = _ensure_job_report_meta(
+            con,
+            int(job_id),
+            updated_by=actor_identifier,
+        )
+        merged.update(resolved_updates)
+        _sync_consultant_metadata_with_team_role(
+            con,
+            merged,
+            actor_email=actor_identifier,
+        )
+        _sync_renewables_pct_from_kwh(merged)
+        _sync_datasets_names_from_resolver(int(job_id), merged)
+        _upsert_report_meta(
+            con,
+            int(job_id),
+            merged,
+            updated_by=actor_identifier,
+        )
+
+        refreshed = _fetch_report_meta_row(con, int(job_id)) or merged
+
+    return {
+        "job_id": int(job_id),
+        "metadata": _serialize_report_meta(refreshed),
+        "updated_keys": sorted(list(resolved_updates.keys())),
+    }
+
+
+def _get_job_client_id(con, job_id: int) -> int:
+    row = con.execute(
+        "SELECT client_db_id FROM jobs WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return int(row[0])
+
+
+def _get_job_reporting_context(con, job_id: int) -> dict[str, Any]:
+    row = con.execute(
+        """
+        SELECT job_id, client_db_id, COALESCE(is_benchmark, FALSE) AS is_benchmark,
+               reporting_year, reporting_period_end, COALESCE(is_crp, FALSE) AS is_crp
+        FROM jobs
+        WHERE job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": int(row[0]),
+        "client_db_id": int(row[1]),
+        "is_benchmark": bool(row[2]),
+        "reporting_year": int(row[3]) if row[3] is not None else None,
+        "reporting_period_end": row[4],
+        "is_crp": bool(row[5]),
+    }
+
+
+def _ensure_crp_yoy_template(con) -> int | None:
+    """Ensure a global CRP YoY template exists by cloning the standard CRP template."""
+    existing = con.execute(
+        """
+        SELECT template_id, is_active, COALESCE(archived, FALSE) AS archived
+        FROM report_templates
+        WHERE LOWER(template_key) = 'crp_yoy_benchmark'
+        LIMIT 1
+        """
+    ).fetchone()
+    if existing and existing[0] is not None:
+        template_id = int(existing[0])
+        if not bool(existing[1]) or bool(existing[2]):
+            con.execute(
+                """
+                UPDATE report_templates
+                SET is_active = TRUE, archived = FALSE, updated_at = NOW()
+                WHERE template_id = %s
+                """,
+                [template_id],
+            )
+        return template_id
+
+    source = con.execute(
+        """
+        SELECT template_id, template_name, template_type, report_type, description
+        FROM report_templates
+        WHERE (
+            LOWER(template_key) = 'crp_standard'
+            OR LOWER(template_name) LIKE %s
+        )
+          AND is_active = TRUE
+        ORDER BY template_id
+        LIMIT 1
+        """,
+        ["%carbon reduction plan%standard%"],
+    ).fetchone()
+    if not source:
+        return None
+
+    source_template_id = int(source[0])
+    source_name = str(source[1] or "Carbon Reduction Plan - Standard")
+    template_type = source[2] or "carbon_reduction_plan"
+    report_type = source[3] or "annual_report"
+    source_description = source[4]
+
+    source_version = con.execute(
+        """
+        SELECT version_id, version_number, version_label, status, template_content
+        FROM report_template_versions
+        WHERE template_id = %s
+        ORDER BY version_number DESC
+        LIMIT 1
+        """,
+        [source_template_id],
+    ).fetchone()
+    if not source_version:
+        return None
+
+    new_description = (
+        str(source_description or "").strip()
+        or f"YoY vs benchmark variant cloned from {source_name}"
+    )
+    if "YoY" not in new_description:
+        new_description = f"{new_description} (YoY vs Benchmark)"
+
+    new_template = con.execute(
+        """
+        INSERT INTO report_templates
+            (template_key, template_name, template_type, report_type, description, is_active, is_global, client_db_id)
+        VALUES
+            (%s, %s, %s, %s, %s, TRUE, TRUE, NULL)
+        RETURNING template_id
+        """,
+        [
+            "crp_yoy_benchmark",
+            "Carbon Reduction Plan - YoY vs Benchmark",
+            template_type,
+            report_type,
+            new_description,
+        ],
+    ).fetchone()
+    new_template_id = int(new_template[0])
+
+    con.execute(
+        """
+        INSERT INTO report_template_versions
+            (template_id, version_number, version_label, status, template_content, created_by)
+        VALUES
+            (%s, %s, %s, %s, %s, %s)
+        """,
+        [
+            new_template_id,
+            int(source_version[1] or 1),
+            (source_version[2] or "Initial"),
+            (source_version[3] or "published"),
+            source_version[4],
+            "system",
+        ],
+    )
+
+    con.execute(
+        """
+        INSERT INTO report_template_variables
+            (template_id, variable_key, variable_label, variable_type, default_value, placeholder, help_text, is_required, display_order, section)
+        SELECT %s, variable_key, variable_label, variable_type, default_value, placeholder, help_text, is_required, display_order, section
+        FROM report_template_variables
+        WHERE template_id = %s
+        """,
+        [new_template_id, source_template_id],
+    )
+
+    return new_template_id
+
+
+def _auto_assign_default_crp_template(con, job_id: int, actor_email: str) -> tuple[int, int] | None:
+    """
+    Auto-assign default CRP template if no assignment exists.
+    - Benchmark jobs: use `crp_standard`.
+    - Non-benchmark jobs: use `crp_yoy_benchmark` (auto-created from standard if missing).
+    """
+    already = con.execute(
+        "SELECT template_id, version_id FROM job_report_template_assignments WHERE job_id = %s",
+        [int(job_id)],
+    ).fetchone()
+    if already and already[0] is not None and already[1] is not None:
+        return int(already[0]), int(already[1])
+
+    ctx = _get_job_reporting_context(con, int(job_id))
+    if not ctx.get("is_crp"):
+        return None
+
+    current_period_end = ctx.get("reporting_period_end")
+    current_year = ctx.get("reporting_year")
+    current_sort_key = (
+        str(current_period_end) if current_period_end is not None else "",
+        int(current_year) if current_year is not None else -1,
+        int(job_id),
+    )
+
+    peer_rows = con.execute(
+        """
+        SELECT job_id, reporting_period_end, reporting_year
+        FROM jobs
+        WHERE client_db_id = %s
+          AND COALESCE(is_crp, FALSE) = TRUE
+          AND job_id <> %s
+        """,
+        [int(ctx["client_db_id"]), int(job_id)],
+    ).fetchall()
+
+    has_prior_reporting_job = False
+    for prow in peer_rows or []:
+        peer_key = (
+            str(prow[1]) if prow[1] is not None else "",
+            int(prow[2]) if prow[2] is not None else -1,
+            int(prow[0]),
+        )
+        if peer_key < current_sort_key:
+            has_prior_reporting_job = True
+            break
+
+    use_standard = bool(ctx["is_benchmark"]) or (not has_prior_reporting_job)
+    preferred_key = "crp_standard" if use_standard else "crp_yoy_benchmark"
+
+    if preferred_key == "crp_yoy_benchmark":
+        _ensure_crp_yoy_template(con)
+
+    tpl = con.execute(
+        """
+        SELECT template_id
+        FROM report_templates
+        WHERE LOWER(template_key) = %s
+          AND is_active = TRUE
+          AND COALESCE(archived, FALSE) = FALSE
+          AND COALESCE(is_global, TRUE) = TRUE
+        ORDER BY template_id
+        LIMIT 1
+        """,
+        [preferred_key],
+    ).fetchone()
+
+    if not tpl and preferred_key == "crp_yoy_benchmark":
+        tpl = con.execute(
+            """
+            SELECT template_id
+            FROM report_templates
+            WHERE LOWER(template_key) = 'crp_standard'
+              AND is_active = TRUE
+              AND COALESCE(archived, FALSE) = FALSE
+              AND COALESCE(is_global, TRUE) = TRUE
+            ORDER BY template_id
+            LIMIT 1
+            """
+        ).fetchone()
+
+    if not tpl:
+        return None
+
+    template_id = int(tpl[0])
+    vrow = con.execute(
+        """
+        SELECT version_id
+        FROM report_template_versions
+        WHERE template_id = %s
+        ORDER BY version_number DESC
+        LIMIT 1
+        """,
+        [template_id],
+    ).fetchone()
+    if not vrow or vrow[0] is None:
+        return None
+
+    version_id = int(vrow[0])
+    con.execute(
+        """
+        INSERT INTO job_report_template_assignments
+          (job_id, template_id, version_id, assigned_at, assigned_by)
+        VALUES (%s, %s, %s, NOW(), %s)
+        ON CONFLICT (job_id)
+        DO UPDATE SET
+          template_id = EXCLUDED.template_id,
+          version_id = EXCLUDED.version_id,
+          assigned_at = NOW(),
+          assigned_by = EXCLUDED.assigned_by
+        """,
+        [int(job_id), template_id, version_id, actor_email or "system:auto-template"],
+    )
+    return template_id, version_id
+
+
+def _resolve_effective_version_id(con, job_id: int, template_id: int, version_id: int | None) -> int | None:
+    """Resolve version by explicit value or job assignment fallback."""
+    effective = int(version_id) if version_id is not None else None
+    if effective is not None:
+        return effective
+
+    assignment = con.execute(
+        """
+        SELECT version_id
+        FROM job_report_template_assignments
+        WHERE job_id = %s AND template_id = %s
+        """,
+        [int(job_id), int(template_id)],
+    ).fetchone()
+    if assignment and assignment[0] is not None:
+        return int(assignment[0])
+    return None
+
+
+def _validate_template_version(con, template_id: int, version_id: int | None) -> None:
+    if version_id is None:
+        return
+    vex = con.execute(
+        """
+        SELECT 1 FROM report_template_versions
+        WHERE template_id = %s AND version_id = %s
+        """,
+        [int(template_id), int(version_id)],
+    ).fetchone()
+    if not vex:
+        raise HTTPException(status_code=404, detail="Template version not found")
+
+
+def _is_blank(value: object) -> bool:
+    if value is None:
+        return True
+    return str(value).strip() == ""
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return default
+    text = str(value).strip()
+    if text == "" or text.lower() in {"nan", "none", "null"}:
+        return default
+    try:
+        return int(float(text))
+    except Exception:
+        return default
+
+
+def _validate_required_template_variables(
+    con,
+    job_id: int,
+    template_id: int,
+    version_id: int,
+    incoming_values: dict[str, Optional[str]] | None = None,
+) -> None:
+    """Validate required template variables using incoming + stored + default precedence."""
+    required_rows = con.execute(
+        """
+        SELECT variable_key, variable_label, default_value
+        FROM report_template_variables
+        WHERE template_id = %s AND COALESCE(is_required, FALSE) = TRUE
+        ORDER BY display_order, variable_key
+        """,
+        [int(template_id)],
+    ).fetchall()
+
+    # Apply template-specific required-key override when configured.
+    try:
+        template_row = con.execute(
+            "SELECT template_key FROM report_templates WHERE template_id = %s",
+            [int(template_id)],
+        ).fetchone()
+        template_key = str(template_row[0] or "").strip().lower() if template_row else ""
+    except Exception:
+        template_key = ""
+
+    override_keys = _TEMPLATE_REQUIRED_KEY_OVERRIDES.get(template_key)
+    if override_keys is not None:
+        required_rows = [
+            row for row in (required_rows or [])
+            if str(row[0] or "").strip() in override_keys
+        ]
+
+    if not required_rows:
+        return
+
+    stored_rows = con.execute(
+        """
+        SELECT variable_key, variable_value
+        FROM job_report_variable_values
+        WHERE job_id = %s AND template_id = %s AND version_id = %s
+        """,
+        [int(job_id), int(template_id), int(version_id)],
+    ).fetchall()
+
+    stored_map = {str(r[0]): r[1] for r in (stored_rows or [])}
+    incoming_map = incoming_values or {}
+
+    missing_labels: list[str] = []
+    missing_keys: list[str] = []
+
+    for key_raw, label_raw, default_value in required_rows:
+        key = str(key_raw)
+        label = str(label_raw) if label_raw else key
+
+        if key in incoming_map:
+            candidate = incoming_map.get(key)
+        elif key in stored_map:
+            candidate = stored_map.get(key)
+        else:
+            candidate = default_value
+
+        if _is_blank(candidate):
+            missing_labels.append(label)
+            missing_keys.append(key)
+
+    if missing_keys:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Missing required report template variables",
+                "missing_fields": missing_labels,
+                "missing_keys": missing_keys,
+            },
+        )
+
+
+@router.get("/report-templates")
+def list_report_templates(
+    client_db_id: int | None = None,
+    include_archived: bool = False,
+    _user: dict = Depends(_current_user),
+):
+    """List report templates with version metadata and optional client filter."""
+    where = ["1=1"]
+    params: list[object] = []
+
+    if not include_archived:
+        where.append("COALESCE(rt.archived, FALSE) = FALSE")
+    if client_db_id is not None:
+        where.append("(COALESCE(rt.is_global, TRUE) = TRUE OR rt.client_db_id = %s)")
+        params.append(int(client_db_id))
+
+    with get_conn() as con:
+        df = con.execute(
+            f"""
+            SELECT
+              rt.template_id,
+              rt.template_key,
+              rt.template_name,
+              rt.template_type,
+              rt.report_type,
+              rt.description,
+              rt.is_active,
+              COALESCE(rt.is_global, TRUE) AS is_global,
+              rt.client_db_id,
+              COALESCE(rt.archived, FALSE) AS archived,
+              rt.created_at,
+              rt.updated_at,
+              (
+                SELECT COUNT(*)
+                FROM report_template_versions rv
+                WHERE rv.template_id = rt.template_id
+              ) AS version_count,
+              (
+                SELECT MAX(rv.version_number)
+                FROM report_template_versions rv
+                WHERE rv.template_id = rt.template_id
+              ) AS latest_version_number
+            FROM report_templates rt
+            WHERE {' AND '.join(where)}
+            ORDER BY rt.template_name
+            """,
+            params,
+        ).df()
+
+    if df is None or df.empty:
+        return {"items": []}
+
+    items = []
+    for _, row in df.iterrows():
+        items.append(
+            {
+                "template_id": int(row["template_id"]),
+                "template_key": row["template_key"],
+                "template_name": row["template_name"],
+                "template_type": row["template_type"],
+                "report_type": row.get("report_type"),
+                "description": row.get("description"),
+                "is_active": bool(row.get("is_active")),
+                "is_global": bool(row.get("is_global")),
+                "client_db_id": (
+                    int(row["client_db_id"])
+                    if row.get("client_db_id") is not None and str(row.get("client_db_id")) != "nan"
+                    else None
+                ),
+                "archived": bool(row.get("archived")),
+                "version_count": int(row.get("version_count") or 0),
+                "latest_version_number": (
+                    int(row["latest_version_number"])
+                    if row.get("latest_version_number") is not None and str(row.get("latest_version_number")) != "nan"
+                    else None
+                ),
+                "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                "updated_at": str(row["updated_at"]) if row.get("updated_at") else None,
+            }
+        )
+
+    return {"items": items}
+
+
+@router.get("/report-templates/{template_id}/versions")
+def list_template_versions(template_id: int, _user: dict = Depends(_current_user)):
+    with get_conn() as con:
+        exists = con.execute(
+            "SELECT 1 FROM report_templates WHERE template_id = %s",
+            [int(template_id)],
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        df = con.execute(
+            """
+            SELECT version_id, template_id, version_number, version_label, status,
+                   created_at, created_by
+            FROM report_template_versions
+            WHERE template_id = %s
+            ORDER BY version_number DESC
+            """,
+            [int(template_id)],
+        ).df()
+
+    if df is None or df.empty:
+        return {"items": []}
+
+    items = []
+    for _, row in df.iterrows():
+        items.append(
+            {
+                "version_id": int(row["version_id"]),
+                "template_id": int(row["template_id"]),
+                "version_number": int(row["version_number"]),
+                "version_label": row.get("version_label"),
+                "status": row.get("status"),
+                "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                "created_by": row.get("created_by"),
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/report-templates/{template_id}/variables")
+def get_template_variables(
+    template_id: int,
+    version_id: int | None = None,
+    _user: dict = Depends(_current_user),
+):
+    """Get variable schema for a template. Version is accepted for forward compatibility."""
+    with get_conn() as con:
+        exists = con.execute(
+            "SELECT 1 FROM report_templates WHERE template_id = %s",
+            [int(template_id)],
+        ).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        if version_id is not None:
+            vexists = con.execute(
+                """
+                SELECT 1 FROM report_template_versions
+                WHERE template_id = %s AND version_id = %s
+                """,
+                [int(template_id), int(version_id)],
+            ).fetchone()
+            if not vexists:
+                raise HTTPException(status_code=404, detail="Template version not found")
+
+        df = con.execute(
+            """
+            SELECT variable_id, template_id, variable_key, variable_label,
+                   variable_type, default_value, placeholder, help_text,
+                   is_required, display_order, section
+            FROM report_template_variables
+            WHERE template_id = %s
+            ORDER BY display_order, variable_key
+            """,
+            [int(template_id)],
+        ).df()
+
+    if df is None or df.empty:
+        return {"items": []}
+
+    items = []
+    for _, row in df.iterrows():
+        items.append(
+            {
+                "variable_id": int(row["variable_id"]),
+                "template_id": int(row["template_id"]),
+                "version_id": int(version_id) if version_id is not None else None,
+                "variable_key": row["variable_key"],
+                "variable_label": row["variable_label"],
+                "variable_type": row["variable_type"],
+                "default_value": row.get("default_value"),
+                "placeholder": row.get("placeholder"),
+                "help_text": row.get("help_text"),
+                "is_required": bool(row.get("is_required")),
+                "display_order": int(row.get("display_order") or 0),
+                "section": row.get("section"),
+            }
+        )
+    return {"items": items}
+
+
+@router.get("/jobs/{job_id}/report-template-assignment")
+def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_current_user)):
+    with get_conn() as con:
+        client_db_id = _get_job_client_id(con, int(job_id))
+        _auto_assign_default_crp_template(
+            con,
+            int(job_id),
+            _user.get("email", "system:auto-template"),
+        )
+
+        row = con.execute(
+            """
+            SELECT a.job_id, a.template_id, a.version_id, a.assigned_at, a.assigned_by,
+                   rt.template_key, rt.template_name, rt.template_type,
+                   COALESCE(rt.is_global, TRUE) AS is_global, rt.client_db_id,
+                   rv.version_number, rv.version_label, rv.status
+            FROM job_report_template_assignments a
+            JOIN report_templates rt ON rt.template_id = a.template_id
+            LEFT JOIN report_template_versions rv ON rv.version_id = a.version_id
+            WHERE a.job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+        available_df = con.execute(
+            """
+            SELECT rt.template_id, rt.template_key, rt.template_name, rt.template_type,
+                   COALESCE(rt.is_global, TRUE) AS is_global, rt.client_db_id,
+                   (
+                     SELECT MAX(rv.version_number)
+                     FROM report_template_versions rv
+                     WHERE rv.template_id = rt.template_id
+                   ) AS latest_version_number,
+                   (
+                     SELECT rv.version_id
+                     FROM report_template_versions rv
+                     WHERE rv.template_id = rt.template_id
+                     ORDER BY rv.version_number DESC
+                     LIMIT 1
+                   ) AS latest_version_id
+            FROM report_templates rt
+            WHERE rt.is_active = TRUE
+              AND COALESCE(rt.archived, FALSE) = FALSE
+              AND (COALESCE(rt.is_global, TRUE) = TRUE OR rt.client_db_id = %s)
+            ORDER BY COALESCE(rt.is_global, TRUE) ASC, rt.template_name
+            """,
+            [int(client_db_id)],
+        ).df()
+
+    available = []
+    if available_df is not None and not available_df.empty:
+        for _, r in available_df.iterrows():
+            available.append(
+                {
+                    "template_id": int(r["template_id"]),
+                    "template_key": r["template_key"],
+                    "template_name": r["template_name"],
+                    "template_type": r["template_type"],
+                    "is_global": bool(r["is_global"]),
+                    "client_db_id": (
+                        int(r["client_db_id"])
+                        if r.get("client_db_id") is not None and str(r.get("client_db_id")) != "nan"
+                        else None
+                    ),
+                    "latest_version_number": (
+                        int(r["latest_version_number"])
+                        if r.get("latest_version_number") is not None and str(r.get("latest_version_number")) != "nan"
+                        else None
+                    ),
+                    "latest_version_id": (
+                        int(r["latest_version_id"])
+                        if r.get("latest_version_id") is not None and str(r.get("latest_version_id")) != "nan"
+                        else None
+                    ),
+                }
+            )
+
+    assignment = None
+    if row:
+        assignment = {
+            "job_id": int(row[0]),
+            "template_id": int(row[1]),
+            "version_id": int(row[2]) if row[2] is not None else None,
+            "assigned_at": str(row[3]) if row[3] else None,
+            "assigned_by": row[4],
+            "template_key": row[5],
+            "template_name": row[6],
+            "template_type": row[7],
+            "is_global": bool(row[8]),
+            "client_db_id": int(row[9]) if row[9] is not None else None,
+            "version_number": int(row[10]) if row[10] is not None else None,
+            "version_label": row[11],
+            "version_status": row[12],
+        }
+
+    return {
+        "job_id": int(job_id),
+        "assignment": assignment,
+        "available_templates": available,
+    }
+
+
+@router.put("/jobs/{job_id}/report-template-assignment")
+def upsert_job_report_template_assignment(
+    job_id: int,
+    payload: AssignTemplatePayload,
+    _user: dict = Depends(_current_user),
+):
+    with get_conn() as con:
+        client_db_id = _get_job_client_id(con, int(job_id))
+
+        template = con.execute(
+            """
+            SELECT template_id, is_active, COALESCE(is_global, TRUE) AS is_global,
+                   client_db_id
+            FROM report_templates
+            WHERE template_id = %s
+            """,
+            [int(payload.template_id)],
+        ).fetchone()
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        if not bool(template[1]):
+            raise HTTPException(status_code=400, detail="Template is inactive")
+
+        is_global = bool(template[2])
+        tpl_client_db_id = int(template[3]) if template[3] is not None else None
+        if not is_global and tpl_client_db_id != int(client_db_id):
+            raise HTTPException(status_code=400, detail="Template is not available for this client")
+
+        version_id = payload.version_id
+        if version_id is None:
+            vrow = con.execute(
+                """
+                SELECT version_id
+                FROM report_template_versions
+                WHERE template_id = %s
+                ORDER BY version_number DESC
+                LIMIT 1
+                """,
+                [int(payload.template_id)],
+            ).fetchone()
+            if not vrow:
+                raise HTTPException(status_code=400, detail="Template has no versions")
+            version_id = int(vrow[0])
+        else:
+            vrow = con.execute(
+                """
+                SELECT 1 FROM report_template_versions
+                WHERE template_id = %s AND version_id = %s
+                """,
+                [int(payload.template_id), int(version_id)],
+            ).fetchone()
+            if not vrow:
+                raise HTTPException(status_code=404, detail="Template version not found")
+
+        con.execute(
+            """
+            INSERT INTO job_report_template_assignments
+              (job_id, template_id, version_id, assigned_at, assigned_by)
+            VALUES (%s, %s, %s, NOW(), %s)
+            ON CONFLICT (job_id)
+            DO UPDATE SET
+              template_id = EXCLUDED.template_id,
+              version_id = EXCLUDED.version_id,
+              assigned_at = NOW(),
+              assigned_by = EXCLUDED.assigned_by
+            """,
+            [
+                int(job_id),
+                int(payload.template_id),
+                int(version_id),
+                _user.get("email", "unknown"),
+            ],
+        )
+
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "template_id": int(payload.template_id),
+        "version_id": int(version_id),
+    }
+
+
+@router.get("/jobs/{job_id}/report-variables/{template_id}")
+def get_job_report_variables(
+    job_id: int,
+    template_id: int,
+    version_id: int | None = None,
+    _user: dict = Depends(_current_user),
+):
+    """Get report variable values for a specific job/template (optionally version-bound)."""
+    with get_conn() as con:
+        _get_job_client_id(con, int(job_id))
+
+        version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
+        _validate_template_version(con, int(template_id), version_id)
+
+        df = con.execute(
+            """
+            SELECT
+                rtv.variable_id,
+                rtv.variable_key,
+                rtv.variable_label,
+                rtv.variable_type,
+                rtv.default_value,
+                rtv.placeholder,
+                rtv.help_text,
+                rtv.is_required,
+                rtv.display_order,
+                rtv.section,
+                jrv.variable_value,
+                jrv.updated_at AS value_updated_at
+            FROM report_template_variables rtv
+            LEFT JOIN LATERAL (
+                SELECT jrv.variable_value, jrv.updated_at
+                FROM job_report_variable_values jrv
+                WHERE jrv.job_id = %s
+                  AND jrv.template_id = rtv.template_id
+                  AND jrv.variable_key = rtv.variable_key
+                  AND (%s::INT IS NULL OR jrv.version_id = %s::INT)
+                ORDER BY
+                  CASE
+                    WHEN %s::INT IS NOT NULL AND jrv.version_id = %s::INT THEN 0
+                    ELSE 1
+                  END,
+                  jrv.updated_at DESC
+                LIMIT 1
+            ) jrv ON TRUE
+            WHERE rtv.template_id = %s
+            ORDER BY rtv.display_order, rtv.variable_key
+            """,
+            [
+                int(job_id),
+                version_id,
+                version_id,
+                version_id,
+                version_id,
+                int(template_id),
+            ],
+        ).df()
+
+    if df is None or df.empty:
+        return {"items": [], "version_id": version_id}
+
+    items = []
+    for _, row in df.iterrows():
+        variable_id = _safe_int(row.get("variable_id"), 0)
+        display_order = _safe_int(row.get("display_order"), 0)
+        items.append(
+            {
+                "variable_id": variable_id,
+                "variable_key": row["variable_key"],
+                "variable_label": row["variable_label"],
+                "variable_type": row["variable_type"],
+                "default_value": row.get("default_value"),
+                "placeholder": row.get("placeholder"),
+                "help_text": row.get("help_text"),
+                "is_required": bool(row.get("is_required")),
+                "display_order": display_order,
+                "section": row.get("section"),
+                "variable_value": row.get("variable_value"),
+                "value_updated_at": str(row["value_updated_at"]) if row.get("value_updated_at") else None,
+            }
+        )
+
+    return {"items": items, "version_id": version_id}
+
+
+@router.post("/jobs/{job_id}/report-variables/{template_id}")
+def save_job_report_variables(
+    job_id: int,
+    template_id: int,
+    variables: List[JobVariableValue] | SaveJobVariablesPayload,
+    version_id: int | None = None,
+    _user: dict = Depends(_current_user),
+):
+    """Save report variable values for a job/template (and optional version)."""
+    try:
+        normalized_variables = (
+            variables.variables if isinstance(variables, SaveJobVariablesPayload) else variables
+        )
+
+        with get_conn() as con:
+            _get_job_client_id(con, int(job_id))
+
+            version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
+            _validate_template_version(con, int(template_id), version_id)
+
+            if version_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A template version is required. Assign a template version to the job first.",
+                )
+
+            incoming_map = {v.variable_key: v.variable_value for v in normalized_variables}
+            _validate_required_template_variables(
+                con=con,
+                job_id=int(job_id),
+                template_id=int(template_id),
+                version_id=int(version_id),
+                incoming_values=incoming_map,
+            )
+
+            for var in normalized_variables:
+                con.execute(
+                    """
+                    INSERT INTO job_report_variable_values
+                        (job_id, template_id, version_id, variable_key, variable_value, updated_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (job_id, template_id, version_id, variable_key)
+                    DO UPDATE SET
+                        variable_value = EXCLUDED.variable_value,
+                        updated_at = CURRENT_TIMESTAMP,
+                        updated_by = EXCLUDED.updated_by
+                    """,
+                    [
+                        int(job_id),
+                        int(template_id),
+                        int(version_id),
+                        var.variable_key,
+                        var.variable_value,
+                        _user.get("email", "unknown"),
+                    ],
+                )
+
+        return {
+            "message": "Variables saved successfully",
+            "job_id": int(job_id),
+            "template_id": int(template_id),
+            "version_id": version_id,
+            "saved_count": len(normalized_variables),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save variables: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/report-data/{template_id}")
+def get_job_report_data(
+    job_id: int,
+    template_id: int,
+    version_id: int | None = None,
+    _user: dict = Depends(_current_user),
+):
+    """
+    Get complete report data for a job including emissions data and template variables.
+    """
+    try:
+        with get_conn() as con:
+            version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
+            _validate_template_version(con, int(template_id), version_id)
+
+            # Get job and client data
+            job_row = con.execute(
+                """
+                SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                       j.reporting_period_start, j.reporting_period_end,
+                       c.client_name, c.industry, c.logo_url, c.description_long,
+                       c.net_zero_year, c.interim_year, c.benchmark_year,
+                       c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
+                       c.target_s1_year, c.target_s2_year, c.target_s3_year,
+                       c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
+                       c.addr_city, c.addr_country
+                FROM jobs j
+                JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id = %s
+                """,
+                [int(job_id)],
+            ).fetchone()
+
+            if not job_row:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            scope_df = con.execute(
+                """
+                SELECT scope, SUM(calc_tco2e) as total
+                FROM job_scope_rows
+                WHERE job_id = %s AND enabled = TRUE
+                GROUP BY scope
+                """,
+                [int(job_id)],
+            ).df()
+
+            # Use raw totals first, round only at the end to ensure Scope 1 + Scope 2 + Scope 3 = Total
+            raw_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
+            if scope_df is not None and not scope_df.empty:
+                for _, row in scope_df.iterrows():
+                    scope = row["scope"]
+                    total = float(row["total"]) if row["total"] else 0.0
+                    if scope in raw_totals:
+                        raw_totals[scope] += total
+            
+            # Calculate Total from raw scope values (before rounding) to ensure mathematical accuracy
+            raw_total = raw_totals["Scope 1"] + raw_totals["Scope 2"] + raw_totals["Scope 3"]
+            
+            # Round only at the end for display consistency
+            scope_totals = {
+                "Scope 1": round(raw_totals["Scope 1"], 1),
+                "Scope 2": round(raw_totals["Scope 2"], 1),
+                "Scope 3": round(raw_totals["Scope 3"], 1),
+                "Total": round(raw_total, 1)
+            }
+
+            variables_df = con.execute(
+                """
+                SELECT
+                    rtv.variable_key,
+                    rtv.variable_label,
+                    rtv.variable_type,
+                    rtv.section,
+                    COALESCE(jrv.variable_value, rtv.default_value) AS value
+                FROM report_template_variables rtv
+                LEFT JOIN LATERAL (
+                    SELECT jrv.variable_value
+                    FROM job_report_variable_values jrv
+                    WHERE jrv.job_id = %s
+                      AND jrv.template_id = rtv.template_id
+                      AND jrv.variable_key = rtv.variable_key
+                      AND (%s::INT IS NULL OR jrv.version_id = %s::INT)
+                    ORDER BY
+                      CASE
+                        WHEN %s::INT IS NOT NULL AND jrv.version_id = %s::INT THEN 0
+                        ELSE 1
+                      END,
+                      jrv.updated_at DESC
+                    LIMIT 1
+                ) jrv ON TRUE
+                WHERE rtv.template_id = %s
+                ORDER BY rtv.display_order
+                """,
+                [
+                    int(job_id),
+                    version_id,
+                    version_id,
+                    version_id,
+                    version_id,
+                    int(template_id),
+                ],
+            ).df()
+
+            template_variables = {}
+            if variables_df is not None and not variables_df.empty:
+                for _, row in variables_df.iterrows():
+                    template_variables[row["variable_key"]] = row["value"]
+
+            report_metadata = _serialize_report_meta(
+                _ensure_job_report_meta(
+                    con,
+                    int(job_id),
+                    updated_by=_current_actor_identifier(_user),
+                )
+            )
+
+            job_payload = {
+                "job_id": job_row[0],
+                "job_number": job_row[1],
+                "title": job_row[2],
+                "reporting_year": job_row[3],
+                "period_start": str(job_row[5]) if job_row[5] else None,
+                "period_end": str(job_row[6]) if job_row[6] else None,
+                "client_name": job_row[7],
+                "industry": job_row[8],
+                "net_zero_year": job_row[11],
+                "benchmark_year": job_row[13],
+                "city": job_row[23],
+                "country": job_row[24],
+            }
+
+            render_values = _build_report_render_values(
+                job_data=job_payload,
+                scope_totals=scope_totals,
+                template_variables=template_variables,
+                report_metadata=report_metadata,
+                generation_date=datetime.now().strftime('%d %B %Y'),
+            )
+
+            return {
+                "job_data": job_payload,
+                "scope_totals": scope_totals,
+                "template_variables": template_variables,
+                "report_metadata": report_metadata,
+                "render_values": render_values,
+                "version_id": version_id,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get report data: {str(e)}")

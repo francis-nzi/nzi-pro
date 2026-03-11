@@ -1,0 +1,53 @@
+{#
+  Intensity Metrics Analysis Section
+  tCO2e per revenue, per FTE, etc.
+  Expects: meta (report metadata), data (emissions, employee numbers, revenue)
+#}
+
+<div class="report-section">
+    <h2 class="report-section-title">6. Intensity Metric Analysis</h2>
+    
+    <p>
+        Intensity metrics provide a normalised view of emissions that accounts for the 
+        scale of operations. The following metrics are presented based on 
+        {{ data.employee_number if data.employee_number else 'the available data' }}.
+    </p>
+
+    <div class="intensity-metrics-grid">
+        {% if data.intensity_per_revenue %}
+        <div class="intensity-metric-card">
+            <div class="metric-label">tCO₂e per £1m Revenue</div>
+            <div class="metric-value">{{ data.intensity_per_revenue|round(2) }}</div>
+        </div>
+        {% endif %}
+        
+        {% if data.intensity_per_fte %}
+        <div class="intensity-metric-card">
+            <div class="metric-label">tCO₂e per FTE</div>
+            <div class="metric-value">{{ data.intensity_per_fte|round(2) }}</div>
+        </div>
+        {% endif %}
+        
+        {% if data.intensity_per_sqft %}
+        <div class="intensity-metric-card">
+            <div class="metric-label">tCO₂e per 1,000 sq ft</div>
+            <div class="metric-value">{{ data.intensity_per_sqft|round(2) }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Intensity chart slot #}
+    {% if assets.intensity_trend %}
+    <div class="chart-slot chart-hero">
+        <div class="chart-title">Intensity Metrics Trend</div>
+        <img src="{{ assets.intensity_trend }}" alt="Intensity Metrics Trend" class="chart-image">
+    </div>
+    {% endif %}
+
+    {% if meta.intensity_commentary %}
+    <div class="narrative-box">
+        <h3>Intensity Analysis Commentary</h3>
+        <p>{{ meta.intensity_commentary }}</p>
+    </div>
+    {% endif %}
+</div>

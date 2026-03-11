@@ -1,0 +1,539 @@
+{% extends "report_base.html" %}
+
+{% block title %}{{ job_data.title }} - Emissions Report{% endblock %}
+
+{% block extra_styles %}
+<style>
+@page {
+            size: A4;
+            margin: 20mm;
+            @bottom-center {
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 9pt;
+                color: #666;
+            }
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        .page-break {
+            page-break-after: always;
+        }
+
+        /* Title Page */
+        .title-page {
+            text-align: center;
+            padding-top: 100px;
+        }
+
+        .title-page h1 {
+            font-size: 32pt;
+            color: #DC143C;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        .title-page .subtitle {
+            font-size: 18pt;
+            color: #666;
+            margin-bottom: 50px;
+        }
+
+        .title-page .nzi-logo {
+            max-height: 90px;
+            max-width: 320px;
+            width: auto;
+            margin: 0 auto 24px;
+            display: block;
+        }
+
+        .title-page .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #DC143C;
+            padding: 20px;
+            margin: 40px auto;
+            max-width: 500px;
+            text-align: left;
+        }
+
+        .title-page .info-box table {
+            width: 100%;
+        }
+
+        .title-page .info-box td {
+            padding: 8px 0;
+        }
+
+        .title-page .info-box td:first-child {
+            font-weight: 600;
+            width: 150px;
+            color: #666;
+        }
+
+        /* Section Headers */
+        h2 {
+            font-size: 18pt;
+            color: #DC143C;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #DC143C;
+        }
+
+        h3 {
+            font-size: 14pt;
+            color: #333;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        p {
+            margin-bottom: 12px;
+            text-align: justify;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 10pt;
+        }
+
+        table.data-table th {
+            background: #A8D08D;
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        table.data-table td {
+            padding: 10px 8px;
+            border: 1px solid #ddd;
+        }
+
+        table.data-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        table.scope-header {
+            background: #E2EFD9;
+            font-weight: 600;
+        }
+
+        table.total-row {
+            background: #e9ecef;
+            font-weight: 600;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            text-align: center;
+            margin: 20px auto;
+            max-width: 120mm;
+        }
+
+        .chart-container img {
+            width: 100%;
+            max-width: 110mm;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .chart-title {
+            font-size: 12pt;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        /* Overview Box */
+        .overview-box {
+            background: #A8D08D;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .overview-box h3 {
+            color: white;
+            margin-top: 0;
+        }
+
+        /* Footer Note */
+        .footer-note {
+            font-size: 9pt;
+            color: #666;
+            font-style: italic;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-left: 3px solid #70AD47;
+        }
+
+        /* Utility Classes */
+        .text-center {
+            text-align: center;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .mb-20 {
+            margin-bottom: 20px;
+        }
+
+        .mt-20 {
+            margin-top: 20px;
+        }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Title Page -->
+    <div class="title-page">
+        <img class="nzi-logo" src="{{ nzi_logo_src or '/uploads/system/nzi-logo.png' }}" alt="Net Zero International">
+        <h1>Greenhouse Gas Emissions Report</h1>
+        <div class="subtitle">{{ job_data.reporting_year or 'N/A' }}</div>
+        
+        <div class="info-box">
+            <table>
+                <tr>
+                    <td>Client:</td>
+                    <td>{{ job_data.client_name }}</td>
+                </tr>
+                <tr>
+                    <td>Report Title:</td>
+                    <td>{{ job_data.title or 'Emissions Report' }}</td>
+                </tr>
+                <tr>
+                    <td>Reporting Year:</td>
+                    <td>{{ job_data.reporting_year or 'N/A' }}</td>
+                </tr>
+                <tr>
+                    <td>Reporting Period:</td>
+                    <td>{{ job_data.period_start }} to {{ job_data.period_end }}</td>
+                </tr>
+                <tr>
+                    <td>Job Number:</td>
+                    <td>{{ job_data.job_number or 'N/A' }}</td>
+                </tr>
+                <tr>
+                    <td>Generated:</td>
+                    <td>{{ generation_date }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- Section 1: Executive Summary -->
+    <h2>1. Executive Summary</h2>
+    <p>
+        This report presents the greenhouse gas emissions for {{ job_data.client_name }} 
+        for the reporting year {{ job_data.reporting_year or 'N/A' }}. 
+        Total emissions for the period are <strong>{{ scope_totals.Total|round(1) }} tCO₂e</strong>.
+    </p>
+
+    <table class="data-table mt-20">
+        <thead>
+            <tr>
+                <th>Scope</th>
+                <th class="text-center">Current Year (tCO₂e)</th>
+                <th class="text-center">Benchmark Year (tCO₂e)</th>
+                <th class="text-center">Change</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Scope 1</td>
+                <td class="text-center">{{ scope_totals['Scope 1']|round(2) }}</td>
+                <td class="text-center">{{ benchmark_totals['Scope 1']|round(2) }}</td>
+                <td class="text-center">
+                    {% if benchmark_totals['Scope 1'] > 0 %}
+                        {{ (((scope_totals['Scope 1'] - benchmark_totals['Scope 1']) / benchmark_totals['Scope 1']) * 100)|round(1) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Scope 2</td>
+                <td class="text-center">{{ scope_totals['Scope 2']|round(2) }}</td>
+                <td class="text-center">{{ benchmark_totals['Scope 2']|round(2) }}</td>
+                <td class="text-center">
+                    {% if benchmark_totals['Scope 2'] > 0 %}
+                        {{ (((scope_totals['Scope 2'] - benchmark_totals['Scope 2']) / benchmark_totals['Scope 2']) * 100)|round(1) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td>Scope 3</td>
+                <td class="text-center">{{ scope_totals['Scope 3']|round(2) }}</td>
+                <td class="text-center">{{ benchmark_totals['Scope 3']|round(2) }}</td>
+                <td class="text-center">
+                    {% if benchmark_totals['Scope 3'] > 0 %}
+                        {{ (((scope_totals['Scope 3'] - benchmark_totals['Scope 3']) / benchmark_totals['Scope 3']) * 100)|round(1) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            <tr class="total-row">
+                <td><strong>Total</strong></td>
+                <td class="text-center"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
+                <td class="text-center"><strong>{{ benchmark_totals.Total|round(2) }}</strong></td>
+                <td class="text-center">
+                    {% if benchmark_totals.Total > 0 %}
+                        <strong>{{ (((scope_totals.Total - benchmark_totals.Total) / benchmark_totals.Total) * 100)|round(1) }}%</strong>
+                    {% else %}
+                        <strong>N/A</strong>
+                    {% endif %}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="page-break"></div>
+
+    <!-- Section 5: Analysis by Scope -->
+    <h2>5. Analysis by Scope</h2>
+    
+    <p>
+        The total calculated emissions for the business for the period 
+        {{ job_data.period_start }} to {{ job_data.period_end }} are 
+        <strong>{{ scope_totals.Total|round(1) }} tCO₂e</strong>. 
+        This is the first year the company has measured its carbon emissions. 
+        The breakdown of emissions is analysed throughout this report.
+    </p>
+
+    <p>
+        The calculated emissions are based on the most up to date emissions factors at the time 
+        of the publication of this report. It should be noted that emissions factors are updated 
+        regularly and will be retrospectively applied. As such, emissions values may change when 
+        calculated in future years.
+    </p>
+
+    <div class="chart-container">
+        <div class="chart-title">Emissions by Scope (tCO₂e)</div>
+        <img src="data:image/png;base64,{{ scope_chart_base64 }}" alt="Scope Breakdown Chart">
+        <div style="font-size: 9pt; color: #666; margin-top: 10px;">
+            {{ job_data.period_start }} to {{ job_data.period_end }}
+        </div>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Scope</th>
+                <th>Description</th>
+                <th class="text-right">tCO₂e</th>
+                <th class="text-right">%</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Scope 1</strong></td>
+                <td>Scope 1 emissions includes fuels used at company premises and company vehicles.</td>
+                <td class="text-right">{{ scope_totals['Scope 1']|round(1) }}</td>
+                <td class="text-right">
+                    {% if scope_totals.Total > 0 %}
+                        {{ ((scope_totals['Scope 1'] / scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Scope 2</strong></td>
+                <td>Emissions in scope 2 includes electricity used at the company's premises. The premises are on a mixed tariff.</td>
+                <td class="text-right">{{ scope_totals['Scope 2']|round(1) }}</td>
+                <td class="text-right">
+                    {% if scope_totals.Total > 0 %}
+                        {{ ((scope_totals['Scope 2'] / scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td><strong>Scope 3</strong></td>
+                <td>Scope 3 emissions include:<br>• Business Travel<br>• Employee Commuting<br>• Transmission and Distribution of Electricity<br>• Waste and/or Water</td>
+                <td class="text-right">{{ scope_totals['Scope 3']|round(1) }}</td>
+                <td class="text-right">
+                    {% if scope_totals.Total > 0 %}
+                        {{ ((scope_totals['Scope 3'] / scope_totals.Total) * 100)|round(1) }}%
+                    {% else %}
+                        0.0%
+                    {% endif %}
+                </td>
+            </tr>
+            <tr class="total-row">
+                <td><strong>TOTAL</strong></td>
+                <td></td>
+                <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
+                <td class="text-right"><strong>100.0%</strong></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="footer-note">
+        Reported Scope 3 emissions may increase in future years as more detailed data and information become available.
+    </div>
+
+    <div class="page-break"></div>
+
+    <!-- Section 6: Emissions by Activity -->
+    <h2>6. Emissions by Activity</h2>
+
+    <div class="chart-container">
+        <div class="chart-title">Emissions by Activity (tCO₂e)</div>
+        <img src="data:image/png;base64,{{ activity_chart_base64 }}" alt="Activity Breakdown Chart">
+        <div style="font-size: 9pt; color: #666; margin-top: 10px;">
+            {{ job_data.period_start }} to {{ job_data.period_end }}
+        </div>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th colspan="2">Data Details<br>Emission Type</th>
+                <th class="text-center">Scope</th>
+                <th class="text-center">{{ job_data.reporting_year }}<br>tCO₂e</th>
+                <th>Data Source</th>
+                <th>Data Confidence</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Scope 1 -->
+            <tr class="scope-header">
+                <td colspan="6"><strong>Scope 1 - Direct Emissions</strong></td>
+            </tr>
+            {% set scope1_cats = categories|selectattr('scope', 'equalto', 'Scope 1')|list %}
+            {% if scope1_cats %}
+                {% for cat in scope1_cats %}
+                <tr>
+                    <td colspan="2">{{ cat.report_label or cat.category }}</td>
+                    <td class="text-center">1</td>
+                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
+                    <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>{{ scope1_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="2" style="font-style: italic; color: #666;">No Scope 1 emissions</td>
+                    <td class="text-center">1</td>
+                    <td class="text-right">0.0</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% endif %}
+
+            <!-- Scope 2 -->
+            <tr class="scope-header">
+                <td colspan="6"><strong>Scope 2 - Indirect Emissions from Energy</strong></td>
+            </tr>
+            {% set scope2_cats = categories|selectattr('scope', 'equalto', 'Scope 2')|list %}
+            {% if scope2_cats %}
+                {% for cat in scope2_cats %}
+                <tr>
+                    <td colspan="2">{{ cat.report_label or cat.category }}</td>
+                    <td class="text-center">2</td>
+                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
+                    <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>{{ scope2_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="2" style="font-style: italic; color: #666;">No Scope 2 emissions</td>
+                    <td class="text-center">2</td>
+                    <td class="text-right">0.0</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% endif %}
+
+            <!-- Scope 3 -->
+            <tr class="scope-header">
+                <td colspan="6"><strong>Scope 3 - Other Indirect Emissions</strong></td>
+            </tr>
+            {% set scope3_cats = categories|selectattr('scope', 'equalto', 'Scope 3')|list %}
+            {% if scope3_cats %}
+                {% for cat in scope3_cats %}
+                <tr>
+                    <td colspan="2">{{ cat.report_label or cat.category }}</td>
+                    <td class="text-center">3</td>
+                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
+                    <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>{{ scope3_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="2" style="font-style: italic; color: #666;">No Scope 3 emissions</td>
+                    <td class="text-center">3</td>
+                    <td class="text-right">0.0</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+                <tr class="total-row">
+                    <td colspan="3"></td>
+                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="2"></td>
+                </tr>
+            {% endif %}
+
+            <!-- Total -->
+            <tr class="total-row" style="background: #d6d8db;">
+                <td colspan="3"><strong>TOTAL</strong></td>
+                <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
+                <td colspan="2"></td>
+            </tr>
+        </tbody>
+    </table>
+{% endblock %}

@@ -1,0 +1,43 @@
+{#
+  Methodology Section
+  Standards and methodologies used
+  Expects: meta (methodologies_used, datasets_names)
+#}
+
+<div class="report-section">
+    <h2 class="report-section-title">10. Standards and Methodology Used</h2>
+    
+    <p>
+        This emissions report has been prepared in accordance with the following standards and guidance:
+    </p>
+    
+    <div class="methodology-list">
+        <ul>
+            <li><strong>GHG Protocol Corporate Standard</strong> - The primary methodology used for calculating corporate emissions</li>
+            <li><strong>GHG Protocol Scope 2 Guidance</strong> - For reporting Scope 2 emissions using both location and market-based methods</li>
+            <li><strong>GHG Protocol Corporate Value Chain (Scope 3) Standard</strong> - For identifying and calculating Scope 3 emissions</li>
+        </ul>
+    </div>
+    
+    {% if meta.methodologies_used %}
+    <div class="methodology-details">
+        <h3>Additional Methodologies</h3>
+        <p>{{ meta.methodologies_used }}</p>
+    </div>
+    {% endif %}
+    
+    {% if meta.datasets_names %}
+    <div class="datasets-used">
+        <h3>Data Sources</h3>
+        <p>{{ meta.datasets_names }}</p>
+    </div>
+    {% endif %}
+    
+    <div class="methodology-note">
+        <p>
+            Emission factors have been sourced from the most recent available conversion factors 
+            at the time of reporting. All factors are UK Government DESNZ (Department for Energy Security 
+            and Net Zero) conversion factors unless otherwise stated.
+        </p>
+    </div>
+</div>

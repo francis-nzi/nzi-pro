@@ -1,0 +1,73 @@
+{#
+  Sign Off Section
+  Declaration and signatures
+  Expects: meta (consultant_name, position, date, client signee)
+#}
+
+<div class="report-section">
+    <h2 class="report-section-title">12. Declaration and Sign Off</h2>
+    
+    <div class="declaration-box">
+        <h3>Declaration</h3>
+        <p>
+            We confirm that the data presented in this Greenhouse Gas Emissions Report is a true 
+            and fair representation of our carbon footprint for the reporting period stated. The 
+            data has been calculated in accordance with the GHG Protocol Corporate Standard and uses 
+            the most recent conversion factors available at the time of reporting.
+        </p>
+    </div>
+    
+    <div class="signature-section">
+        <div class="signature-block consultant-signature">
+            <div class="signature-line"></div>
+            <div class="signature-name">
+                {% if meta.consultant_name %}
+                {{ meta.consultant_name }}
+                {% else %}
+                [Consultant Name]
+                {% endif %}
+            </div>
+            <div class="signature-position">
+                {% if meta.consultant_position %}
+                {{ meta.consultant_position }}
+                {% else %}
+                [Position]
+                {% endif %}
+            </div>
+            <div class="signature-title">Net Zero International</div>
+            <div class="signature-date">
+                {% if meta.consultant_signature_date %}
+                Date: {{ meta.consultant_signature_date }}
+                {% else %}
+                Date: [Date]
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="signature-block client-signature">
+            <div class="signature-line"></div>
+            <div class="signature-name">
+                {% if meta.client_signee_name %}
+                {{ meta.client_signee_name }}
+                {% else %}
+                [Client Signatory Name]
+                {% endif %}
+            </div>
+            <div class="signature-position">
+                {% if meta.client_signee_position %}
+                {{ meta.client_signee_position }}
+                {% else %}
+                [Position]
+                {% endif %}
+            </div>
+            <div class="signature-title">{{ data.client_name }}</div>
+            <div class="signature-date">
+                {% if meta.client_signature_date %}
+                Date: {{ meta.client_signature_date }}
+                {% else %}
+                Date: [Date]
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

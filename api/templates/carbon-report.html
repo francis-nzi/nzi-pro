@@ -1,0 +1,53 @@
+{% extends "report_base.html" %}
+{# 
+  Carbon Report Template - Main Template
+  Includes all section partials with proper ordering
+  Uses named chart slots with server-rendered images
+#}
+
+{% import "sections/section-macros.html" as macros %}
+
+{% block title %}{{ data.title | default('Carbon Emissions Report') }}{% endblock %}
+
+{% block extra_styles %}
+<style>
+.page-break-before {
+    page-break-before: always;
+}
+
+.no-break {
+    page-break-inside: avoid;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{# Cover Page #}
+{% include "sections/cover.html" %}
+
+<div class="page-break-before"></div>
+
+{# Executive Summary #}
+{% include "sections/executive-summary.html" %}
+
+<div class="page-break-before"></div>
+
+{# Scope Analysis #}
+{% include "sections/scope-analysis.html" %}
+
+<div class="page-break-before"></div>
+
+{# Intensity Metrics #}
+{% include "sections/intensity-metrics.html" %}
+
+<div class="page-break-before"></div>
+
+{# Methodology #}
+{% include "sections/methodology.html" %}
+
+<div class="page-break-before"></div>
+
+{# Sign Off #}
+{% include "sections/sign-off.html" %}
+
+{% endblock %}
