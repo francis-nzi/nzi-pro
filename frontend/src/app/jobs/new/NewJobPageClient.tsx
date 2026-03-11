@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Lock } from "lucide-react";
-import PageHeader from "@/components/PageHeader";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -462,19 +460,15 @@ function NewJobPageContent() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <PageHeader
-          title="New Job"
-          subtitle="Create a new job"
-          breadcrumbs={[
-            { label: "Jobs", href: "/jobs" },
-            { label: "New Job" },
-          ]}
-          actions={
-            <Button variant="secondary" asChild>
-              <Link href="/jobs">Cancel</Link>
-            </Button>
-          }
-        />
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">New Job</h1>
+            <p className="text-sm text-muted-foreground">Create a new job</p>
+          </div>
+          <Button variant="secondary" asChild>
+            <Link href="/jobs">Cancel</Link>
+          </Button>
+        </div>
 
         {status && (
           <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>
@@ -516,7 +510,11 @@ function NewJobPageContent() {
                         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Step {step.id}
                         </span>
-                        {isComplete && <Badge variant="secondary">Completed ✓</Badge>}
+                        {isComplete && (
+                          <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
+                            Completed
+                          </span>
+                        )}
                       </div>
                       <div className="mt-2 text-base font-semibold">
                         {step.title}
