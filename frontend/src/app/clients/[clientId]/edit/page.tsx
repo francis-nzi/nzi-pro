@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import PageHeader from "@/components/PageHeader";
+import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -67,6 +69,24 @@ type Client = {
   target_s2_pct: number | null;
   target_s3_year: number | null;
   target_s3_pct: number | null;
+  currency: string | null;
+  benchmark_period_start: string | null;
+  benchmark_period_end: string | null;
+};
+
+type Site = {
+  site_id: number;
+  site_name: string | null;
+  location: string | null;
+  is_registered_office: boolean;
+  vacated_date?: string | null;
+};
+
+type CurrencyOption = {
+  currency_code: string;
+  currency_name: string;
+  symbol: string;
+  is_default?: boolean;
 };
 
 export default function EditClientPage() {
@@ -83,6 +103,7 @@ export default function EditClientPage() {
   const [portfolios, setPortfolios] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [users, setUsers] = useState<Array<{email: string, full_name: string}>>([]);
+  const [currencies, setCurrencies] = useState<CurrencyOption[]>([]);
 
   // Form fields
   const [clientName, setClientName] = useState<string>("");
@@ -105,23 +126,56 @@ export default function EditClientPage() {
   const [netZeroYear, setNetZeroYear] = useState<string>("2050");
   const [interimYear, setInterimYear] = useState<string>("2035");
   const [benchmarkYear, setBenchmarkYear] = useState<string>("");
-  const [targetS1Year, setTargetS1Year] = useState<string>("2050");
-  const [targetS1Pct, setTargetS1Pct] = useState<string>("90");
-  const [targetS2Year, setTargetS2Year] = useState<string>("2050");
-  const [targetS2Pct, setTargetS2Pct] = useState<string>("90");
-  const [targetS3Year, setTargetS3Year] = useState<string>("2050");
-  const [targetS3Pct, setTargetS3Pct] = useState<string>("90");
+  const [targetS1Year, setTargetS1Year] = useState<string>("2035");
+  const [targetS1Pct, setTargetS1Pct] = useState<string>("50");
+  const [targetS2Year, setTargetS2Year] = useState<string>("2035");
+  const [targetS2Pct, setTargetS2Pct] = useState<string>("50");
+  const [targetS3Year, setTargetS3Year] = useState<string>("2035");
+  const [targetS3Pct, setTargetS3Pct] = useState<string>("50");
+  const [currency, setCurrency] = useState<string>("GBP");
+  const [benchmarkPeriodStart, setBenchmarkPeriodStart] = useState<string>("");
+  const [benchmarkPeriodEnd, setBenchmarkPeriodEnd] = useState<string>("");
+  const [createSiteFromAddress, setCreateSiteFromAddress] = useState<boolean>(true);
+  
+  // Site management state
+  const [activeSites, setActiveSites] = useState<Site[]>([]);
+  const [vacatedSites, setVacatedSites] = useState<Site[]>([]);
+  const [showAddSite, setShowAddSite] = useState<boolean>(false);
+  const [editingSite, setEditingSite] = useState<number | null>(null);
+  const [vacatingSite, setVacatingSite] = useState<number | null>(null);
+  const [vacatedDate, setVacatedDate] = useState<string>("");
+  const [siteForm, setSiteForm] = useState({
+    site_name: "",
+    location: "",
+    is_registered_office: false,
+  });
 
   useEffect(() => {
     loadLookups();
-  }, [baseUrl]);
+    loadSites();
+  }, [baseUrl, clientId]);
+
+  async function loadSites() {
+    if (!Number.isFinite(clientId) || clientId <= 0) return;
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites`);
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSites(data.active_sites || []);
+        setVacatedSites(data.vacated_sites || []);
+      }
+    } catch (e) {
+      console.error('Failed to load sites:', e);
+    }
+  }
 
   async function loadLookups() {
     try {
-      const [portfoliosRes, industriesRes, usersRes] = await Promise.all([
+      const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.all([
         fetch(`${baseUrl}/admin/lookups/portfolios_lookup`),
         fetch(`${baseUrl}/admin/lookups/industries_lookup`),
-        fetch(`${baseUrl}/admin/users`)
+        fetch(`${baseUrl}/admin/users`),
+        fetch(`${baseUrl}/admin/lookups/currency_lookup`)
       ]);
 
       if (portfoliosRes.ok) {
@@ -144,6 +198,20 @@ export default function EditClientPage() {
           new Map(userList.map((u: any) => [u.email || u.full_name, u])).values()
         ) as Array<{email: string, full_name: string}>;
         setUsers(uniqueUsers);
+      }
+
+      if (currenciesRes.ok) {
+        const data = await currenciesRes.json();
+        const currencyItems = Array.isArray(data.items) ? data.items : [];
+        const lookupCurrencies = currencyItems
+          .map((row: any) => ({
+            currency_code: String(row.currency_code || "").toUpperCase(),
+            currency_name: String(row.currency_name || ""),
+            symbol: String(row.symbol || ""),
+            is_default: Boolean(row.is_default),
+          }))
+          .filter((row: CurrencyOption) => row.currency_code);
+        setCurrencies(lookupCurrencies);
       }
     } catch (e) {
       console.error('Failed to load lookups:', e);
@@ -195,12 +263,15 @@ export default function EditClientPage() {
         setNetZeroYear(json.net_zero_year ? String(json.net_zero_year) : "2050");
         setInterimYear(json.interim_year ? String(json.interim_year) : "2035");
         setBenchmarkYear(json.benchmark_year ? String(json.benchmark_year) : "");
-        setTargetS1Year(json.target_s1_year ? String(json.target_s1_year) : "2050");
-        setTargetS1Pct(json.target_s1_pct ? String(json.target_s1_pct) : "90");
-        setTargetS2Year(json.target_s2_year ? String(json.target_s2_year) : "2050");
-        setTargetS2Pct(json.target_s2_pct ? String(json.target_s2_pct) : "90");
-        setTargetS3Year(json.target_s3_year ? String(json.target_s3_year) : "2050");
-        setTargetS3Pct(json.target_s3_pct ? String(json.target_s3_pct) : "90");
+        setTargetS1Year(json.target_s1_year ? String(json.target_s1_year) : "2035");
+        setTargetS1Pct(json.target_s1_pct ? String(json.target_s1_pct) : "50");
+        setTargetS2Year(json.target_s2_year ? String(json.target_s2_year) : "2035");
+        setTargetS2Pct(json.target_s2_pct ? String(json.target_s2_pct) : "50");
+        setTargetS3Year(json.target_s3_year ? String(json.target_s3_year) : "2035");
+        setTargetS3Pct(json.target_s3_pct ? String(json.target_s3_pct) : "50");
+        setCurrency(json.currency || "GBP");
+        setBenchmarkPeriodStart(json.benchmark_period_start || "");
+        setBenchmarkPeriodEnd(json.benchmark_period_end || "");
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
@@ -217,8 +288,101 @@ export default function EditClientPage() {
     };
   }, [baseUrl, clientId]);
 
+  async function handleAddSite() {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(siteForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to add site");
+
+      await loadSites();
+      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setShowAddSite(false);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function handleEditSite(siteId: number) {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(siteForm),
+      });
+
+      if (!res.ok) throw new Error("Failed to update site");
+
+      await loadSites();
+      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setEditingSite(null);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function handleVacateSite(siteId: number) {
+    if (!vacatedDate) {
+      alert("Please select a vacated date");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}/vacate`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vacated_date: vacatedDate }),
+      });
+
+      if (!res.ok) throw new Error("Failed to vacate site");
+
+      await loadSites();
+      setVacatingSite(null);
+      setVacatedDate("");
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  function startEditSite(site: Site) {
+    setSiteForm({
+      site_name: site.site_name ?? "",
+      location: site.location ?? "",
+      is_registered_office: site.is_registered_office,
+    });
+    setEditingSite(site.site_id);
+    setShowAddSite(false);
+  }
+
+  function cancelSiteEdit() {
+    setSiteForm({ site_name: "", location: "", is_registered_office: false });
+    setEditingSite(null);
+    setShowAddSite(false);
+  }
+
   async function saveClient() {
     if (!Number.isFinite(clientId) || clientId <= 0) return;
+
+    // Validate required fields
+    if (!crmOwner || !crmOwner.trim()) {
+      setError("CRM Owner is required");
+      return;
+    }
+    if (!portfolio || !portfolio.trim()) {
+      setError("Portfolio is required");
+      return;
+    }
+    if (!industry || !industry.trim()) {
+      setError("Industry is required");
+      return;
+    }
+    if (!yearEndMonth || !yearEndMonth.trim()) {
+      setError("Financial Year End is required");
+      return;
+    }
 
     setSaving(true);
     setStatus("Saving...");
@@ -257,6 +421,10 @@ export default function EditClientPage() {
           target_s2_pct: targetS2Pct ? Number(targetS2Pct) : null,
           target_s3_year: targetS3Year ? Number(targetS3Year) : null,
           target_s3_pct: targetS3Pct ? Number(targetS3Pct) : null,
+          currency: currency || "GBP",
+          benchmark_period_start: benchmarkPeriodStart || null,
+          benchmark_period_end: benchmarkPeriodEnd || null,
+          create_site_from_address: createSiteFromAddress,
         }),
       });
 
@@ -279,21 +447,27 @@ export default function EditClientPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold">Edit Client</h1>
-            <div className="text-sm text-muted-foreground">{clientName || "Loading..."}</div>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" asChild>
-              <Link href={`/clients/${clientId}`}>Cancel</Link>
-            </Button>
-            <Button onClick={saveClient} disabled={saving || loading}>
-              Save Changes
-            </Button>
-          </div>
-        </div>
+      <div className="mx-auto w-full max-w-7xl px-6 py-10">
+        <PageHeader
+          title="Edit Client"
+          subtitle={clientName || "Loading..."}
+          breadcrumbs={[
+            { label: "Clients", href: "/clients" },
+            { label: clientName || "Client", href: `/clients/${clientId}` },
+            { label: "Edit" },
+          ]}
+          titleSuffix={<StatusBadge status={clientStatus} label={clientStatus || "Status"} />}
+          actions={
+            <>
+              <Button variant="secondary" asChild>
+                <Link href={`/clients/${clientId}`}>Cancel</Link>
+              </Button>
+              <Button onClick={saveClient} disabled={saving || loading}>
+                Save Changes
+              </Button>
+            </>
+          }
+        />
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {status ? <div className="mb-4 text-sm text-muted-foreground">{status}</div> : null}
@@ -405,6 +579,30 @@ export default function EditClientPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="currency">Currency</Label>
+                  <Select value={currency} onValueChange={setCurrency}>
+                    <SelectTrigger id="currency">
+                      <SelectValue placeholder="Select currency..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currencies.length > 0 ? (
+                        currencies.map((c) => (
+                          <SelectItem key={c.currency_code} value={c.currency_code}>
+                            {c.currency_code}
+                            {c.symbol ? ` (${c.symbol})` : ""}
+                            {c.currency_name ? ` - ${c.currency_name}` : ""}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="GBP">GBP</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-1">
+                <div className="space-y-2">
                   <Label htmlFor="logoUrl">Logo URL</Label>
                   <Input
                     id="logoUrl"
@@ -436,6 +634,7 @@ export default function EditClientPage() {
                     <SelectItem value="Active">Active</SelectItem>
                     <SelectItem value="Inactive">Inactive</SelectItem>
                     <SelectItem value="Prospect">Prospect</SelectItem>
+                    <SelectItem value="Archived">Archived</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -460,7 +659,7 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="benchmarkYear">Benchmark Year</Label>
+                  <Label htmlFor="benchmarkYear">Benchmark Year (Legacy)</Label>
                   <Input
                     id="benchmarkYear"
                     type="number"
@@ -468,8 +667,40 @@ export default function EditClientPage() {
                     onChange={(e) => setBenchmarkYear(e.target.value)}
                     min="2000"
                     max="2100"
-                    placeholder="e.g., 2024"
+                    placeholder="e.g. 2024"
                   />
+                  <p className="text-xs text-muted-foreground">Use benchmark period dates below for new clients</p>
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-orange-50 p-4 space-y-4">
+                <div>
+                  <h3 className="font-semibold text-sm mb-1">Benchmark Period (Financial Year)</h3>
+                  <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client's financial year. All subsequent annual jobs will automatically follow this period structure.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkPeriodStart">Benchmark Period Start</Label>
+                    <Input
+                      id="benchmarkPeriodStart"
+                      type="date"
+                      value={benchmarkPeriodStart}
+                      onChange={(e) => setBenchmarkPeriodStart(e.target.value)}
+                      placeholder="dd/mm/yyyy"
+                    />
+                    <p className="text-xs text-muted-foreground">e.g. 01/08/2022</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkPeriodEnd">Benchmark Period End</Label>
+                    <Input
+                      id="benchmarkPeriodEnd"
+                      type="date"
+                      value={benchmarkPeriodEnd}
+                      onChange={(e) => setBenchmarkPeriodEnd(e.target.value)}
+                      placeholder="dd/mm/yyyy"
+                    />
+                    <p className="text-xs text-muted-foreground">e.g. 31/07/2023</p>
+                  </div>
                 </div>
               </div>
 
@@ -611,6 +842,187 @@ export default function EditClientPage() {
                   placeholder="United Kingdom"
                 />
               </div>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="createSiteFromAddress"
+                  checked={createSiteFromAddress}
+                  onChange={(e) => setCreateSiteFromAddress(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="createSiteFromAddress" className="font-normal cursor-pointer">
+                  Create site from this address (Registered Office)
+                </Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Active Sites ({activeSites.length})</CardTitle>
+                <Button 
+                  size="sm" 
+                  onClick={() => {
+                    setShowAddSite(true);
+                    setEditingSite(null);
+                    setSiteForm({ site_name: "", location: "", is_registered_office: false });
+                  }}
+                >
+                  + Add Site
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {showAddSite || editingSite ? (
+                <div className="mb-4 space-y-3 rounded-md border p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="siteName">Site Name</Label>
+                    <Input
+                      id="siteName"
+                      value={siteForm.site_name}
+                      onChange={(e) => setSiteForm({ ...siteForm, site_name: e.target.value })}
+                      placeholder="Main Office"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="siteLocation">Location</Label>
+                    <Input
+                      id="siteLocation"
+                      value={siteForm.location}
+                      onChange={(e) => setSiteForm({ ...siteForm, location: e.target.value })}
+                      placeholder="London, UK"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="is_registered_office"
+                      checked={siteForm.is_registered_office}
+                      onChange={(e) => setSiteForm({ ...siteForm, is_registered_office: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <Label htmlFor="is_registered_office" className="font-normal cursor-pointer">
+                      Registered Office
+                    </Label>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      onClick={() => editingSite ? handleEditSite(editingSite) : handleAddSite()}
+                    >
+                      {editingSite ? "Update" : "Add"}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={cancelSiteEdit}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeSites.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No active sites.</div>
+              ) : (
+                <div className="space-y-2">
+                  {activeSites.map((site) => (
+                    <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm">
+                      {vacatingSite === site.site_id ? (
+                        <div className="space-y-3">
+                          <div className="font-medium">Vacate Site: {site.site_name}</div>
+                          <div className="space-y-2">
+                            <Label htmlFor="vacatedDate">Vacated Date</Label>
+                            <Input
+                              id="vacatedDate"
+                              type="date"
+                              value={vacatedDate}
+                              onChange={(e) => setVacatedDate(e.target.value)}
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleVacateSite(site.site_id)}>
+                              Confirm Vacate
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => { setVacatingSite(null); setVacatedDate(""); }}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <div className="font-medium">
+                              {site.site_name ?? ""}
+                              {site.is_registered_office && (
+                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                                  Registered Office
+                                </span>
+                              )}
+                            </div>
+                            {site.location && (
+                              <div className="text-muted-foreground">{site.location}</div>
+                            )}
+                          </div>
+                          <div className="flex gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => startEditSite(site)}
+                            >
+                              Edit
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="destructive"
+                              onClick={() => { setVacatingSite(site.site_id); setVacatedDate(""); }}
+                            >
+                              Vacate
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Vacated Sites ({vacatedSites.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {vacatedSites.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No vacated sites.</div>
+              ) : (
+                <div className="space-y-2">
+                  {vacatedSites.map((site) => (
+                    <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm bg-muted/50">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium">
+                            {site.site_name ?? ""}
+                            {site.is_registered_office && (
+                              <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">
+                                Registered Office
+                              </span>
+                            )}
+                          </div>
+                          {site.location && (
+                            <div className="text-muted-foreground">{site.location}</div>
+                          )}
+                          {site.vacated_date && (
+                            <div className="text-sm text-muted-foreground mt-1">
+                              Vacated: {new Date(site.vacated_date).toLocaleDateString('en-GB')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

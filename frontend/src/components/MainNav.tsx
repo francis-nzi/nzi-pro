@@ -7,6 +7,41 @@ import { cn } from "@/lib/utils";
 import { clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
+const ADMIN_DOMAINS = [
+  "People & Access",
+  "Reference Data",
+  "Reporting & Delivery",
+  "System & Governance",
+] as const;
+
+const ADMIN_QUICK_LINKS: Array<{
+  label: string;
+  href: string;
+  domain: (typeof ADMIN_DOMAINS)[number];
+}> = [
+  { label: "Team Management", href: "/admin/team", domain: "People & Access" },
+  { label: "Lookups", href: "/admin/lookups", domain: "Reference Data" },
+  { label: "Job Items", href: "/admin/job-items", domain: "Reference Data" },
+  { label: "Suppliers", href: "/admin/suppliers", domain: "Reference Data" },
+  { label: "Datasets & Factors", href: "/admin/datasets", domain: "Reference Data" },
+  { label: "Custom Factors", href: "/admin/custom-factors", domain: "Reference Data" },
+  { label: "Templates", href: "/admin/templates", domain: "Reporting & Delivery" },
+  { label: "Milestone Templates", href: "/admin/milestone-templates", domain: "Reporting & Delivery" },
+  { label: "Automation Rules", href: "/admin/automations", domain: "Reporting & Delivery" },
+  { label: "Theme Settings", href: "/admin/theme", domain: "System & Governance" },
+  { label: "Custom Fields", href: "/admin/custom-fields", domain: "System & Governance" },
+  { label: "System Settings", href: "/admin/settings", domain: "System & Governance" },
+  { label: "Import / Export", href: "/admin/import-export", domain: "System & Governance" },
+  { label: "Email Outbox", href: "/admin/email-outbox", domain: "System & Governance" },
+  { label: "Archive Management", href: "/admin/archive", domain: "System & Governance" },
+];
+
+const HELP_LINKS = [
+  { label: "Support", href: "/support" },
+  { label: "Data Bank", href: "/support/data-bank" },
+  { label: "Feedback", href: "/feedback" },
+] as const;
+
 export function MainNav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -38,7 +73,14 @@ export function MainNav() {
     { href: "/jobs", label: "Jobs" },
     { href: "/business-development", label: "Sales" },
     { href: "/admin", label: "Admin" },
+    { href: "/support", label: "Help" },
   ];
+  const isAdminRoute = pathname === "/admin" || pathname?.startsWith("/admin/");
+  const isHelpRoute =
+    pathname === "/support" ||
+    pathname?.startsWith("/support/") ||
+    pathname === "/feedback" ||
+    pathname?.startsWith("/feedback/");
 
   return (
     <nav className="border-b bg-background">
@@ -50,7 +92,10 @@ export function MainNav() {
 
           <div className="flex items-center gap-1">
             {links.map((link) => {
-              const isActive = pathname === link.href || pathname?.startsWith(link.href + "/");
+              const isActive =
+                link.label === "Help"
+                  ? isHelpRoute
+                  : pathname === link.href || pathname?.startsWith(link.href + "/");
               return (
                 <Link
                   key={link.href}
@@ -110,6 +155,61 @@ export function MainNav() {
           )}
         </div>
       </div>
+      {isAdminRoute ? (
+        <div className="border-t bg-muted/20">
+          <div className="mx-auto w-full max-w-7xl px-6 py-4">
+            <div className="mb-3 text-sm font-semibold text-foreground">Admin Areas</div>
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {ADMIN_DOMAINS.map((domain) => (
+                <div key={domain}>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{domain}</div>
+                  <div className="space-y-1">
+                    {ADMIN_QUICK_LINKS.filter((x) => x.domain === domain).map((link) => {
+                      const isActive = pathname === link.href || pathname?.startsWith(`${link.href}/`);
+                      return (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          className={cn(
+                            "block rounded px-2 py-1 text-sm",
+                            isActive ? "bg-[#1c5026] text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          )}
+                        >
+                          {link.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {isHelpRoute ? (
+        <div className="border-t bg-muted/20">
+          <div className="mx-auto w-full max-w-7xl px-6 py-4">
+            <div className="mb-3 text-sm font-semibold text-foreground">Help</div>
+            <div className="flex flex-wrap gap-2">
+              {HELP_LINKS.map((link) => {
+                const isActive = pathname === link.href || pathname?.startsWith(`${link.href}/`);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={cn(
+                      "rounded px-3 py-1.5 text-sm",
+                      isActive ? "bg-[#1c5026] text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </nav>
   );
 }

@@ -75,7 +75,7 @@ export default function ArchivedClientsPage() {
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Archived Clients</h1>
+            <h1 className="text-2xl font-semibold" style={{ color: '#F26624' }}>Archived Clients</h1>
             <p className="text-sm text-muted-foreground">
               View and reactivate archived clients
             </p>

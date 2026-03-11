@@ -1,0 +1,537 @@
+"use client";
+
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+
+import PageHeader from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+function apiBaseUrl(): string {
+  return "/api/backend";
+}
+
+type LookupItem = {
+  item_id: number;
+  item_name: string;
+  description: string;
+  unit: string;
+  sell_amount: number;
+  vat_rate_id: number | null;
+  vat_rate: number;
+  category: string;
+};
+
+type LookupVatRate = {
+  vat_rate_id: number;
+  rate_pct: number;
+};
+
+type InvoiceLine = {
+  key: string;
+  invoice_line_id?: number;
+  item_id: number | null;
+  description: string;
+  unit: string;
+  qty: number;
+  rate: number;
+  vat_rate_id: number | null;
+  vat_rate_pct: number;
+  notes: string;
+};
+
+function newLine(): InvoiceLine {
+  return {
+    key: `line-${Math.random().toString(36).slice(2)}`,
+    item_id: null,
+    description: "",
+    unit: "",
+    qty: 1,
+    rate: 0,
+    vat_rate_id: null,
+    vat_rate_pct: 20,
+    notes: "",
+  };
+}
+
+export default function InvoiceDetailPage() {
+  const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const params = useParams<{ clientId: string; invoiceId: string }>();
+  const router = useRouter();
+  const clientId = Number(params?.clientId);
+  const invoiceId = Number(params?.invoiceId);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [emailTo, setEmailTo] = useState("");
+  const [pdfRefreshKey, setPdfRefreshKey] = useState<number>(Date.now());
+
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [statusValue, setStatusValue] = useState("Draft");
+  const [amountPaid, setAmountPaid] = useState("0.00");
+  const [paidDate, setPaidDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [quoteId, setQuoteId] = useState<string>("");
+  const [currencyCode, setCurrencyCode] = useState("GBP");
+  const [lines, setLines] = useState<InvoiceLine[]>([newLine()]);
+
+  const [items, setItems] = useState<LookupItem[]>([]);
+  const [vatRates, setVatRates] = useState<LookupVatRate[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!Number.isFinite(clientId) || !Number.isFinite(invoiceId) || clientId <= 0 || invoiceId <= 0) {
+        setError("Invalid client or invoice id");
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const [invRes, lookupsRes] = await Promise.all([
+          fetch(`${baseUrl}/invoices/${invoiceId}`, { credentials: "include" }),
+          fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" }),
+        ]);
+        if (!invRes.ok) {
+          const t = await invRes.text().catch(() => "");
+          throw new Error(`Failed to load invoice (${invRes.status})${t ? `: ${t}` : ""}`);
+        }
+        if (!lookupsRes.ok) {
+          const t = await lookupsRes.text().catch(() => "");
+          throw new Error(`Failed to load lookups (${lookupsRes.status})${t ? `: ${t}` : ""}`);
+        }
+        const inv = await invRes.json();
+        const lookups = await lookupsRes.json();
+        if (cancelled) return;
+
+        setInvoiceNumber(String(inv.invoice_number || ""));
+        setInvoiceDate(String(inv.invoice_date || new Date().toISOString().slice(0, 10)));
+        setDueDate(String(inv.due_date || ""));
+        setStatusValue(String(inv.status || "Draft"));
+        setAmountPaid(Number(inv.amount_paid || 0).toFixed(2));
+        setPaidDate(String(inv.paid_date || ""));
+        setNotes(String(inv.notes || ""));
+        setQuoteId(inv.quote_id != null ? String(inv.quote_id) : "");
+        setCurrencyCode(String(inv.currency_code || "GBP").toUpperCase());
+        setEmailTo(String(inv.contact_email || ""));
+        setItems(Array.isArray(lookups.items) ? lookups.items : []);
+        setVatRates(Array.isArray(lookups.vat_rates) ? lookups.vat_rates : []);
+
+        const invLines = Array.isArray(inv.lines) ? inv.lines : [];
+        setLines(
+          invLines.length > 0
+            ? invLines.map((l: { invoice_line_id?: number; item_id?: number; description?: string; unit?: string; qty?: number; rate?: number; vat_rate_id?: number; vat_rate_pct?: number; notes?: string }) => ({
+                key: `line-${Math.random().toString(36).slice(2)}`,
+                invoice_line_id: l.invoice_line_id,
+                item_id: l.item_id ?? null,
+                description: String(l.description || ""),
+                unit: String(l.unit || ""),
+                qty: Number(l.qty || 0),
+                rate: Number(l.rate || 0),
+                vat_rate_id: l.vat_rate_id ?? null,
+                vat_rate_pct: Number(l.vat_rate_pct || 0),
+                notes: String(l.notes || ""),
+              }))
+            : [newLine()]
+        );
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, clientId, invoiceId]);
+
+  const vatById = useMemo(() => {
+    const map = new Map<number, number>();
+    vatRates.forEach((v) => map.set(v.vat_rate_id, Number(v.rate_pct || 0)));
+    return map;
+  }, [vatRates]);
+
+  function lineAmount(line: InvoiceLine): number {
+    return Number((line.qty || 0) * (line.rate || 0));
+  }
+  const subtotal = lines.reduce((acc, line) => acc + lineAmount(line), 0);
+  const vat = lines.reduce((acc, line) => acc + lineAmount(line) * ((line.vat_rate_pct || 0) / 100), 0);
+  const total = subtotal + vat;
+
+  function updateLine(key: string, patch: Partial<InvoiceLine>) {
+    setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  }
+
+  function onItemChange(key: string, itemIdText: string) {
+    const itemId = Number(itemIdText);
+    const item = items.find((it) => it.item_id === itemId);
+    if (!item) return;
+    const vatPct = item.vat_rate_id ? (vatById.get(item.vat_rate_id) ?? Number(item.vat_rate || 0)) : Number(item.vat_rate || 0);
+    updateLine(key, {
+      item_id: item.item_id,
+      description: item.description || item.item_name,
+      unit: item.unit || "",
+      rate: Number(item.sell_amount || 0),
+      vat_rate_id: item.vat_rate_id ?? null,
+      vat_rate_pct: vatPct,
+    });
+  }
+
+  async function saveInvoice() {
+    setSaving(true);
+    setError("");
+    setStatus("");
+    try {
+      const payload = {
+        quote_id: quoteId ? Number(quoteId) : null,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate || null,
+        due_date: dueDate || null,
+        currency_code: currencyCode,
+        status: statusValue,
+        notes,
+        amount_paid: Number(amountPaid || 0),
+        paid_date: paidDate || null,
+        lines: lines.map((line, idx) => ({
+          sort_order: idx + 1,
+          item_id: line.item_id,
+          description: line.description,
+          unit: line.unit,
+          qty: Number(line.qty || 0),
+          rate: Number(line.rate || 0),
+          amount: Number(lineAmount(line)),
+          vat_rate_id: line.vat_rate_id,
+          vat_rate_pct: Number(line.vat_rate_pct || 0),
+          notes: line.notes || "",
+        })),
+      };
+      const res = await fetch(`${baseUrl}/invoices/${invoiceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to save invoice (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setStatus("Invoice saved.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markPaid() {
+    setSaving(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/invoices/${invoiceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          status: "Paid",
+          amount_paid: Number(total || 0),
+          paid_date: new Date().toISOString().slice(0, 10),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to mark paid (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setStatusValue("Paid");
+      setAmountPaid(Number(total || 0).toFixed(2));
+      setPaidDate(new Date().toISOString().slice(0, 10));
+      setStatus("Invoice marked as paid.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteInvoice() {
+    if (!confirm("Delete this invoice?")) return;
+    setSaving(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(`${baseUrl}/invoices/${invoiceId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to delete invoice (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      router.push(`/clients/${clientId}?section=financial`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function emailInvoicePdf() {
+    setSaving(true);
+    setError("");
+    setStatus("");
+    try {
+      if (!emailTo.trim()) throw new Error("Recipient email is required");
+      const res = await fetch(`${baseUrl}/invoices/${invoiceId}/email-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          to: emailTo.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed to email invoice PDF (${res.status})${t ? `: ${t}` : ""}`);
+      }
+      setStatus("Invoice PDF emailed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-7xl px-6 py-10">
+        <PageHeader
+          title="Invoice"
+          subtitle={invoiceNumber || `Invoice #${invoiceId}`}
+          breadcrumbs={[
+            { label: "Clients", href: "/clients" },
+            { label: `Client ${clientId}`, href: `/clients/${clientId}` },
+            { label: "Financial", href: `/clients/${clientId}?section=financial` },
+            { label: "Invoice" },
+          ]}
+          actions={
+            <>
+              <Button variant="outline" asChild>
+                <Link href={`/clients/${clientId}?section=financial`}>Back to Financial</Link>
+              </Button>
+            </>
+          }
+        />
+
+        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading invoice...</div> : null}
+        {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
+        {status ? <div className="mb-4 text-sm text-green-700">{status}</div> : null}
+
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="grid gap-6 md:grid-cols-3">
+              <div className="space-y-3">
+                <h1 className="text-5xl font-light tracking-wide">INVOICE</h1>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Quote ID</div>
+                  <Input value={quoteId} onChange={(e) => setQuoteId(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Amount Paid</div>
+                  <Input value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Paid Date</div>
+                  <Input type="date" value={paidDate} onChange={(e) => setPaidDate(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Date</div>
+                  <Input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Invoice Number</div>
+                  <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Due Date</div>
+                  <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Currency</div>
+                  <Input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())} />
+                </div>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Status</div>
+                  <select className="w-full rounded-md border px-3 py-2 text-sm" value={statusValue} onChange={(e) => setStatusValue(e.target.value)}>
+                    {["Draft", "Sent", "Part Paid", "Paid", "Overdue", "Void"].map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <img src="/uploads/system/nzi-logo.png" alt="Net Zero International" className="ml-auto mb-3 h-auto w-[220px] object-contain" />
+                <div className="text-2xl">Net Zero International</div>
+                <div className="mt-2 text-lg leading-8">
+                  167-169 Great Portland St
+                  <br />
+                  London
+                  <br />
+                  W1W 9PF
+                  <br />
+                  United Kingdom
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Invoice Lines</CardTitle>
+              <Button variant="outline" onClick={() => setLines((prev) => [...prev, newLine()])}>+ Add Line</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="overflow-auto rounded-md border">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  <col style={{ width: "45%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "5%" }} />
+                </colgroup>
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="p-2 text-left">Item</th>
+                    <th className="p-2 text-left">Unit</th>
+                    <th className="p-2 text-left">Qty</th>
+                    <th className="p-2 text-left">Rate</th>
+                    <th className="p-2 text-left">VAT %</th>
+                    <th className="p-2 text-left">Amount</th>
+                    <th className="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((line) => (
+                    <tr key={line.key} className="border-b">
+                      <td className="p-2">
+                        <select
+                          className="w-full rounded-md border px-2 py-1 text-sm"
+                          value={line.item_id != null ? String(line.item_id) : ""}
+                          onChange={(e) => onItemChange(line.key, e.target.value)}
+                        >
+                          <option value="">Select item...</option>
+                          {items.map((item) => (
+                            <option key={item.item_id} value={String(item.item_id)}>
+                              {item.item_name}
+                            </option>
+                          ))}
+                        </select>
+                        <Textarea
+                          className="mt-2"
+                          rows={3}
+                          value={line.description}
+                          onChange={(e) => updateLine(line.key, { description: e.target.value })}
+                          placeholder="Item description"
+                        />
+                      </td>
+                      <td className="p-2">
+                        <Input value={line.unit} onChange={(e) => updateLine(line.key, { unit: e.target.value })} />
+                      </td>
+                      <td className="p-2">
+                        <Input type="number" step="0.01" value={String(line.qty)} onChange={(e) => updateLine(line.key, { qty: Number(e.target.value || 0) })} />
+                      </td>
+                      <td className="p-2">
+                        <Input type="number" step="0.01" value={String(line.rate)} onChange={(e) => updateLine(line.key, { rate: Number(e.target.value || 0) })} />
+                      </td>
+                      <td className="p-2">
+                        <Input type="number" step="0.01" value={String(line.vat_rate_pct)} onChange={(e) => updateLine(line.key, { vat_rate_pct: Number(e.target.value || 0) })} />
+                      </td>
+                      <td className="p-2">{new Intl.NumberFormat("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(lineAmount(line))}</td>
+                      <td className="p-2 text-right">
+                        <Button variant="outline" size="sm" onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}>Remove</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="ml-auto w-full max-w-md space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Sub-total</span>
+                <span>{subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>VAT</span>
+                <span>{vat.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2 text-base font-semibold">
+                <span>Total</span>
+                <span>{total.toFixed(2)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader><CardTitle>Notes and Actions</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <div className="mb-1 text-xs text-muted-foreground">Notes</div>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+            <div>
+              <div className="mb-1 text-xs text-muted-foreground">Email To</div>
+              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="client@example.com" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={markPaid} disabled={saving}>Mark Paid</Button>
+              <Button onClick={saveInvoice} disabled={saving}>{saving ? "Saving..." : "Save Invoice"}</Button>
+              <Button variant="outline" onClick={emailInvoicePdf} disabled={saving}>Email PDF</Button>
+              <Button variant="destructive" onClick={deleteInvoice} disabled={saving}>Delete</Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>PDF Preview</CardTitle>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setPdfRefreshKey(Date.now())}>
+                  Refresh PDF
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[760px] overflow-hidden rounded-md border">
+              <iframe
+                title="Invoice PDF Preview"
+                src={`${baseUrl}/invoices/${invoiceId}/pdf?ts=${pdfRefreshKey}`}
+                className="h-full w-full"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
