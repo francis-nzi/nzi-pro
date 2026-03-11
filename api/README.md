@@ -1,6 +1,6 @@
 # NZI Pro API
 
-This folder contains a minimal FastAPI app intended to run alongside the Streamlit app.
+This folder contains the production FastAPI app for NZI Pro.
 
 ## Run locally
 
