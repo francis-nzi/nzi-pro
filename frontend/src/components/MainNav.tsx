@@ -7,11 +7,15 @@ import { cn } from "@/lib/utils";
 export function MainNav() {
   const pathname = usePathname();
 
+  if (pathname === "/login" || pathname === "/change-password") {
+    return null;
+  }
+
   const links = [
-    { href: "/", label: "Dashboard", icon: "🏠" },
-    { href: "/clients", label: "Clients", icon: "👥" },
-    { href: "/jobs", label: "Jobs", icon: "📋" },
-    { href: "/admin", label: "Admin", icon: "⚙️" },
+    { href: "/", label: "Dashboard", icon: "??" },
+    { href: "/clients", label: "Clients", icon: "??" },
+    { href: "/jobs", label: "Jobs", icon: "??" },
+    { href: "/admin", label: "Admin", icon: "??" },
   ];
 
   return (
@@ -21,7 +25,7 @@ export function MainNav() {
           <Link href="/" className="flex items-center gap-2">
             <span className="text-xl font-bold">NZI Pro</span>
           </Link>
-          
+
           <div className="flex items-center gap-1">
             {links.map((link) => {
               const isActive = pathname === link.href || pathname?.startsWith(link.href + "/");
@@ -45,9 +49,7 @@ export function MainNav() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="text-sm text-muted-foreground">
-            {/* User info can go here */}
-          </div>
+          <div className="text-sm text-muted-foreground">{/* User info can go here */}</div>
         </div>
       </div>
     </nav>
