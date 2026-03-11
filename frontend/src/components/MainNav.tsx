@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/components/ThemeProvider";
 
 const ADMIN_DOMAINS = [
   "People & Access",
@@ -45,6 +46,7 @@ const HELP_LINKS = [
 export function MainNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string }>({
     ready: false,
@@ -82,6 +84,7 @@ export function MainNav() {
     pathname?.startsWith("/support/") ||
     pathname === "/feedback" ||
     pathname?.startsWith("/feedback/");
+  const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
 
   return (
     <nav className="border-b bg-background">
@@ -104,9 +107,10 @@ export function MainNav() {
                   className={cn(
                     "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "text-white"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
+                  style={isActive ? { backgroundColor: accentColor } : undefined}
                 >
                   <span>{link.label}</span>
                 </Link>
@@ -122,9 +126,10 @@ export function MainNav() {
             <div className="relative">
               <button
                 type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1c5026] text-sm font-semibold text-white"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
                 onClick={() => setProfileOpen((v) => !v)}
                 aria-label="Open account menu"
+                style={{ backgroundColor: accentColor }}
               >
                 {(authUi.userId || "U").trim().charAt(0).toUpperCase() || "U"}
               </button>
@@ -173,8 +178,9 @@ export function MainNav() {
                           href={link.href}
                           className={cn(
                             "block rounded px-2 py-1 text-sm",
-                            isActive ? "bg-[#1c5026] text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            isActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                           )}
+                          style={isActive ? { backgroundColor: accentColor } : undefined}
                         >
                           {link.label}
                         </Link>
@@ -200,8 +206,9 @@ export function MainNav() {
                     href={link.href}
                     className={cn(
                       "rounded px-3 py-1.5 text-sm",
-                      isActive ? "bg-[#1c5026] text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      isActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
+                    style={isActive ? { backgroundColor: accentColor } : undefined}
                   >
                     {link.label}
                   </Link>

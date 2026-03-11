@@ -17,8 +17,8 @@ interface ThemeContextType {
 }
 
 const defaultTheme: ThemeSettings = {
-  primary_color: "#F26624",
-  button_color: "#F26624",
+  primary_color: "#1c5026",
+  button_color: "#1c5026",
   logo_url: null,
   company_name: "NZI",
 }
@@ -36,6 +36,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const candidateApiBases = (): string[] => {
     const out: string[] = []
+    out.push("/api/backend")
     if (typeof window !== "undefined") {
       const host = window.location.hostname || "localhost"
       out.push(`http://${host}:8002`)
