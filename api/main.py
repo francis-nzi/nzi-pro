@@ -2362,24 +2362,51 @@ def list_clients(
 ):
     query = (q or "").strip()
 
-    where_clauses: list[str] = []
-    params: list[object] = []
-    if not include_archived:
-        where_clauses.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
-
-    if query:
-        if db_backend() == "postgres":
-            where_clauses.append("(c.client_name ILIKE %s OR c.industry ILIKE %s)")
-            like = f"%{query}%"
-            params.extend([like, like])
-        else:
-            where_clauses.append("(lower(coalesce(c.client_name,'')) LIKE %s OR lower(coalesce(c.industry,'')) LIKE %s)")
-            like = f"%{query.lower()}%"
-            params.extend([like, like])
-    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    def _col_exists(con, table_name: str, col_name: str) -> bool:
+        try:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = ? AND column_name = ?
+                LIMIT 1
+                """,
+                [table_name, col_name],
+            ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
 
     try:
         with get_conn() as con:
+            has_industry = _col_exists(con, "clients", "industry")
+            has_status = _col_exists(con, "clients", "status")
+            has_crm_owner = _col_exists(con, "clients", "crm_owner")
+
+            where_clauses: list[str] = []
+            params: list[object] = []
+            if not include_archived and has_status:
+                where_clauses.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
+
+            if query:
+                if db_backend() == "postgres":
+                    if has_industry:
+                        where_clauses.append("(c.client_name ILIKE %s OR c.industry ILIKE %s)")
+                        like = f"%{query}%"
+                        params.extend([like, like])
+                    else:
+                        where_clauses.append("c.client_name ILIKE %s")
+                        params.append(f"%{query}%")
+                else:
+                    if has_industry:
+                        where_clauses.append("(lower(coalesce(c.client_name,'')) LIKE %s OR lower(coalesce(c.industry,'')) LIKE %s)")
+                        like = f"%{query.lower()}%"
+                        params.extend([like, like])
+                    else:
+                        where_clauses.append("lower(coalesce(c.client_name,'')) LIKE %s")
+                        params.append(f"%{query.lower()}%")
+            where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
             total_row = con.execute(
                 f"""
                 SELECT COUNT(*)
@@ -2389,14 +2416,18 @@ def list_clients(
                 params,
             ).fetchone()
 
+            industry_col = "c.industry" if has_industry else "NULL::text as industry"
+            status_col = "c.status" if has_status else "NULL::text as status"
+            crm_col = "c.crm_owner" if has_crm_owner else "NULL::text as crm_owner"
+
             rows = (
                 con.execute(
                     f"""
                     SELECT c.db_id as client_db_id,
                            c.client_name,
-                           c.industry,
-                           c.status,
-                           c.crm_owner
+                           {industry_col},
+                           {status_col},
+                           {crm_col}
                     FROM clients c
                     {where_sql}
                     ORDER BY c.db_id DESC
@@ -2427,7 +2458,40 @@ def list_clients(
                 except Exception:
                     milestone_data = None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"/clients failed: {e}")
+        # Final defensive fallback for schema drift: return a minimal list instead of 500.
+        try:
+            with get_conn() as con:
+                where_clauses = []
+                params: list[object] = []
+                if query:
+                    where_clauses.append("c.client_name ILIKE %s")
+                    params.append(f"%{query}%")
+                where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+                total_row = con.execute(
+                    f"SELECT COUNT(*) FROM clients c {where_sql}",
+                    params,
+                ).fetchone()
+                rows = (
+                    con.execute(
+                        f"""
+                        SELECT c.db_id as client_db_id,
+                               c.client_name,
+                               NULL::text as industry,
+                               NULL::text as status,
+                               NULL::text as crm_owner
+                        FROM clients c
+                        {where_sql}
+                        ORDER BY c.db_id DESC
+                        LIMIT %s OFFSET %s
+                        """,
+                        [*params, int(limit), int(offset)],
+                    )
+                    .df()
+                )
+                milestone_data = None
+        except Exception:
+            raise HTTPException(status_code=500, detail=f"/clients failed: {e}")
 
     # Helper function to calculate milestone status
     def get_milestone_status(due_date, completed_at):
