@@ -91,6 +91,7 @@ from api.crm_timeline_routes import router as crm_timeline_router
 from api.crm_automation_routes import router as crm_automation_router
 from api.business_development_routes import router as business_development_router
 from api.lca_routes import router as lca_router
+from api.onedrive_routes import router as onedrive_router
 from api.feedback_routes import (
     create_feedback_item as _create_feedback_item,
     list_feedback_items as _list_feedback_items,
@@ -184,6 +185,7 @@ app.include_router(crm_timeline_router)
 app.include_router(crm_automation_router)
 app.include_router(business_development_router)
 app.include_router(lca_router)
+app.include_router(onedrive_router)
 _safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")
 _safe_startup_log("OK", f"Feedback router registered with {len(feedback_router.routes)} routes")
 
