@@ -1,21 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
+import { Button } from "@/components/ui/button";
 
 export function MainNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string }>({
+    ready: false,
+    authed: false,
+    userId: "",
+  });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAuthUi({
+        ready: true,
+        authed: hasAuthState(),
+        userId: getAuthUserIdentifier() || "",
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [pathname]);
 
   if (pathname === "/login" || pathname === "/change-password") {
     return null;
   }
 
   const links = [
-    { href: "/", label: "Dashboard", icon: "??" },
-    { href: "/clients", label: "Clients", icon: "??" },
-    { href: "/jobs", label: "Jobs", icon: "??" },
-    { href: "/admin", label: "Admin", icon: "??" },
+    { href: "/", label: "Dashboard" },
+    { href: "/clients", label: "Clients" },
+    { href: "/jobs", label: "Jobs" },
+    { href: "/business-development", label: "Sales" },
+    { href: "/admin", label: "Admin" },
   ];
 
   return (
@@ -40,7 +62,6 @@ export function MainNav() {
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <span>{link.icon}</span>
                   <span>{link.label}</span>
                 </Link>
               );
@@ -49,7 +70,44 @@ export function MainNav() {
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="text-sm text-muted-foreground">{/* User info can go here */}</div>
+          {!authUi.ready ? (
+            <div className="h-9 w-24" aria-hidden />
+          ) : authUi.authed ? (
+            <div className="relative">
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1c5026] text-sm font-semibold text-white"
+                onClick={() => setProfileOpen((v) => !v)}
+                aria-label="Open account menu"
+              >
+                {(authUi.userId || "U").trim().charAt(0).toUpperCase() || "U"}
+              </button>
+              {profileOpen ? (
+                <div className="absolute right-0 z-50 mt-2 w-64 rounded-md border bg-background p-2 shadow-lg">
+                  <div className="rounded px-2 py-1.5 text-xs text-muted-foreground">Signed in as</div>
+                  <div className="truncate px-2 pb-2 text-sm font-medium">{authUi.userId}</div>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
+                    <Link href="/account/settings" onClick={() => setProfileOpen(false)}>User Admin</Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => {
+                      clearAuthState();
+                      router.replace("/login");
+                    }}
+                  >
+                    Sign out
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground">
+              Sign in
+            </Link>
+          )}
         </div>
       </div>
     </nav>
