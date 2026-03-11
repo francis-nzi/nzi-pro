@@ -98,7 +98,7 @@ export default function ChangePasswordPage() {
             {error ? <div className="text-sm text-destructive">{error}</div> : null}
             {ok ? <div className="text-sm text-green-700">{ok}</div> : null}
 
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button type="submit" className="w-full bg-[#1c5026] text-white hover:bg-[#153f1e]" disabled={busy}>
               {busy ? "Updating..." : "Update Password"}
             </Button>
           </form>

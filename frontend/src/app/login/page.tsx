@@ -60,8 +60,12 @@ function LoginPageContent() {
         return;
       }
 
-      const next = searchParams?.get("next");
-      router.replace(next || "/");
+      const next = searchParams?.get("next") || "/";
+      if (typeof window !== "undefined") {
+        window.location.assign(next);
+        return;
+      }
+      router.replace(next);
     } catch {
       setError("Login request failed. Please try again.");
     } finally {
@@ -101,7 +105,7 @@ function LoginPageContent() {
 
             {error ? <div className="text-sm text-destructive">{error}</div> : null}
 
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button type="submit" className="w-full bg-[#1c5026] text-white hover:bg-[#153f1e]" disabled={busy}>
               {busy ? "Signing in..." : "Sign in"}
             </Button>
           </form>

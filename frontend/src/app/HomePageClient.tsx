@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import MainDashboard from "@/components/MainDashboard";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
 }
 
 export default function HomePageClient() {

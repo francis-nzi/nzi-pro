@@ -56,7 +56,26 @@ export function mustChangePassword(): boolean {
 }
 
 function isApiRequest(url: string): boolean {
-  return url.startsWith("/api/backend/") || url.includes("/api/backend/");
+  if (!url) return false;
+  if (url.startsWith("/api/backend/") || url.includes("/api/backend/")) return true;
+
+  try {
+    const baseOrigin =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "http://localhost";
+    const reqUrl = new URL(url, baseOrigin);
+    const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+    if (!apiBase) return false;
+    const apiUrl = new URL(apiBase, baseOrigin);
+    return (
+      reqUrl.protocol === apiUrl.protocol &&
+      reqUrl.hostname === apiUrl.hostname &&
+      reqUrl.port === apiUrl.port
+    );
+  } catch {
+    return false;
+  }
 }
 
 declare global {
