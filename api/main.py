@@ -103,6 +103,16 @@ from api.auth_routes import router as auth_router
 
 app = FastAPI(title="NZI Pro API", version="0.1.0")
 
+
+def _json_null_if_na(value):
+    """Convert pandas/NumPy NA-like values to JSON-safe None."""
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    return value
+
 # Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"
@@ -670,21 +680,41 @@ def list_jobs(
             items.append(
                 {
                     "job_id": int(r.get("job_id")),
-                    "job_number": r.get("job_number"),
-                    "title": r.get("title"),
+                    "job_number": _json_null_if_na(r.get("job_number")),
+                    "title": _json_null_if_na(r.get("title")),
                     "reporting_year": (
                         int(r.get("reporting_period_end").year)
                         if r.get("reporting_period_end") is not None and hasattr(r.get("reporting_period_end"), "year")
-                        else (int(r.get("reporting_year")) if r.get("reporting_year") is not None else None)
+                        else (
+                            int(r.get("reporting_year"))
+                            if _json_null_if_na(r.get("reporting_year")) is not None
+                            else None
+                        )
                     ),
-                    "reporting_period_start": (str(r.get("reporting_period_start")) if r.get("reporting_period_start") is not None else None),
-                    "reporting_period_end": (str(r.get("reporting_period_end")) if r.get("reporting_period_end") is not None else None),
-                    "is_benchmark": (bool(r.get("is_benchmark")) if r.get("is_benchmark") is not None else None),
-                    "status": r.get("status"),
+                    "reporting_period_start": (
+                        str(r.get("reporting_period_start"))
+                        if _json_null_if_na(r.get("reporting_period_start")) is not None
+                        else None
+                    ),
+                    "reporting_period_end": (
+                        str(r.get("reporting_period_end"))
+                        if _json_null_if_na(r.get("reporting_period_end")) is not None
+                        else None
+                    ),
+                    "is_benchmark": (
+                        bool(r.get("is_benchmark"))
+                        if _json_null_if_na(r.get("is_benchmark")) is not None
+                        else None
+                    ),
+                    "status": _json_null_if_na(r.get("status")),
                     "client_db_id": int(r.get("client_db_id")),
-                    "client_name": r.get("client_name"),
-                    "crm_name": r.get("crm_name"),
-                    "due_date": (str(r.get("due_date")) if r.get("due_date") is not None else None),
+                    "client_name": _json_null_if_na(r.get("client_name")),
+                    "crm_name": _json_null_if_na(r.get("crm_name")),
+                    "due_date": (
+                        str(r.get("due_date"))
+                        if _json_null_if_na(r.get("due_date")) is not None
+                        else None
+                    ),
                     "milestone_status": overall_milestone_status,
                 }
             )
@@ -2558,11 +2588,11 @@ def list_clients(
             items.append(
                 {
                     "client_db_id": client_id,
-                    "client_name": r.get("client_name"),
-                    "industry": r.get("industry"),
-                    "status": r.get("status"),
-                    "crm_owner": r.get("crm_owner"),
-                    "milestone_status": client_milestone_status.get(client_id),
+                    "client_name": _json_null_if_na(r.get("client_name")),
+                    "industry": _json_null_if_na(r.get("industry")),
+                    "status": _json_null_if_na(r.get("status")),
+                    "crm_owner": _json_null_if_na(r.get("crm_owner")),
+                    "milestone_status": _json_null_if_na(client_milestone_status.get(client_id)),
                 }
             )
 
