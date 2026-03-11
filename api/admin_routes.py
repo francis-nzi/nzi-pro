@@ -2305,24 +2305,24 @@ def remove_job_type_item(
 def wfm_import_summary(_user: dict = Depends(_current_user)):
     try:
         raw_dir = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
-        if not raw_dir.exists():
-            raise HTTPException(status_code=404, detail=f"WFM raw_data folder not found: {raw_dir}")
+        raw_data_available = raw_dir.exists()
 
         files: list[dict] = []
         total_size = 0
-        for p in sorted(raw_dir.glob("*.csv")):
-            size = int(p.stat().st_size)
-            total_size += size
-            row_count = 0
-            try:
-                row_count = max(sum(1 for _ in p.open("r", encoding="utf-8", errors="ignore")) - 1, 0)
-            except Exception:
+        if raw_data_available:
+            for p in sorted(raw_dir.glob("*.csv")):
+                size = int(p.stat().st_size)
+                total_size += size
                 row_count = 0
-            files.append({"name": p.name, "size_bytes": size, "rows": row_count})
+                try:
+                    row_count = max(sum(1 for _ in p.open("r", encoding="utf-8", errors="ignore")) - 1, 0)
+                except Exception:
+                    row_count = 0
+                files.append({"name": p.name, "size_bytes": size, "rows": row_count})
 
         preview_clients = []
         clients_path = raw_dir / "clients.csv"
-        if clients_path.exists():
+        if raw_data_available and clients_path.exists():
             cdf = pd.read_csv(clients_path, dtype=str, keep_default_na=False, na_filter=False)
             for _, r in cdf.head(15).iterrows():
                 preview_clients.append(
@@ -2357,6 +2357,7 @@ def wfm_import_summary(_user: dict = Depends(_current_user)):
         return {
             "ok": True,
             "folder": str(raw_dir),
+            "raw_data_available": bool(raw_data_available),
             "file_count": len(files),
             "total_size_bytes": total_size,
             "files": files,
@@ -2499,7 +2500,19 @@ def wfm_mapping_summary(_user: dict = Depends(_current_user)):
         jobs_path = raw_dir / "jobs.csv"
         job_custom_values_path = raw_dir / "job_custom_field_values.csv"
         if not custom_fields_path.exists():
-            raise HTTPException(status_code=404, detail="custom_fields.csv not found in wfm_import/raw_data")
+            return {
+                "ok": True,
+                "raw_data_available": bool(raw_dir.exists()),
+                "mappings": {
+                    "job": WFM_JOB_FIELD_CANDIDATES,
+                    "client": WFM_CLIENT_FIELD_CANDIDATES,
+                },
+                "source_fields": {
+                    "job_custom_field_names": [],
+                    "client_custom_field_names": [],
+                },
+                "sample_job_custom_values": {},
+            }
 
         cdf = pd.read_csv(custom_fields_path, dtype=str, keep_default_na=False, na_filter=False)
         for col in cdf.columns:
@@ -2537,6 +2550,7 @@ def wfm_mapping_summary(_user: dict = Depends(_current_user)):
 
         return {
             "ok": True,
+            "raw_data_available": bool(raw_dir.exists()),
             "mappings": {
                 "job": WFM_JOB_FIELD_CANDIDATES,
                 "client": WFM_CLIENT_FIELD_CANDIDATES,
