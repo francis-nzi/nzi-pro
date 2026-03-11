@@ -602,21 +602,21 @@ def list_jobs(
     # Helper function to calculate milestone status
     def get_milestone_status(due_date, completed_at):
         """Calculate traffic light status: green, amber, red, completed"""
-        if completed_at:
-            return "completed"
-        if not due_date:
-            return "green"
-        
-        from datetime import date, timedelta
+        from datetime import date
         import pandas as pd
-        
-        # Handle pandas Timestamp
-        if isinstance(due_date, pd.Timestamp):
+
+        if completed_at is not None and not pd.isna(completed_at):
+            return "completed"
+        if due_date is None or pd.isna(due_date):
+            return "green"
+
+        # Handle pandas/python datetime values safely.
+        if hasattr(due_date, "date"):
             due_date = due_date.date()
-        
+
         today = date.today()
         days_until_due = (due_date - today).days
-        
+
         if days_until_due < -1:  # Overdue by more than 1 day
             return "red"
         elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
@@ -2410,21 +2410,21 @@ def list_clients(
     # Helper function to calculate milestone status
     def get_milestone_status(due_date, completed_at):
         """Calculate traffic light status: green, amber, red, completed"""
-        if completed_at:
-            return "completed"
-        if not due_date:
-            return "green"
-        
         from datetime import date
         import pandas as pd
-        
-        # Handle pandas Timestamp
-        if isinstance(due_date, pd.Timestamp):
+
+        if completed_at is not None and not pd.isna(completed_at):
+            return "completed"
+        if due_date is None or pd.isna(due_date):
+            return "green"
+
+        # Handle pandas/python datetime values safely.
+        if hasattr(due_date, "date"):
             due_date = due_date.date()
-        
+
         today = date.today()
         days_until_due = (due_date - today).days
-        
+
         if days_until_due < -1:  # Overdue by more than 1 day
             return "red"
         elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
