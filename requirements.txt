@@ -1,11 +1,23 @@
-streamlit>=1.33
-duckdb>=1.0.0
 pandas>=2.2.0
 plotly>=5.18.0
 python-dotenv>=1.0.0
 psycopg[binary]>=3.1.18
 openpyxl>=3.1.2
 reportlab>=4.0.0
-streamlit-aggrid>=1.0.5
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
+python-docx>=1.1.2
+anthropic>=0.45.0
+openai>=1.0.0
+
+# Report generation dependencies
+playwright>=1.40.0
+docraptor>=3.0.0
+matplotlib>=3.8.0
+kaleido>=0.2.1
+
+# Auth
+PyJWT>=2.8.0
+pyotp>=2.9.0
+cryptography>=43.0.0
+python-multipart==0.0.20
