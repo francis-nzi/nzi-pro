@@ -71,6 +71,7 @@ export function MainNav() {
     { href: "/", label: "Dashboard" },
     { href: "/clients", label: "Clients" },
     { href: "/jobs", label: "Jobs" },
+    { href: "/time", label: "Time" },
     { href: "/business-development", label: "Sales" },
     { href: "/admin", label: "Admin" },
     { href: "/support", label: "Help" },
