@@ -576,26 +576,45 @@ def list_jobs(
                 params,
             ).fetchone()
 
-            rows = (
-                con.execute(
-                    f"""
-                    SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
-                           j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
-                           j.status, j.client_db_id, c.client_name, c.crm_owner as crm_name, j.due_date,
-                           jp.data_collection_due, jp.data_collection_completed_at,
-                           jp.first_draft_due, jp.first_draft_completed_at,
-                           jp.final_report_due, jp.final_report_completed_at
-                    FROM jobs j
-                    JOIN clients c ON c.db_id = j.client_db_id
-                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                    {where_sql}
-                    ORDER BY j.job_id DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    [*params, int(limit), int(offset)],
+            try:
+                rows = (
+                    con.execute(
+                        f"""
+                        SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
+                               j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
+                               j.status, j.client_db_id, c.client_name, c.crm_owner as crm_name, j.due_date,
+                               jp.data_collection_due, jp.data_collection_completed_at,
+                               jp.first_draft_due, jp.first_draft_completed_at,
+                               jp.final_report_due, jp.final_report_completed_at
+                        FROM jobs j
+                        JOIN clients c ON c.db_id = j.client_db_id
+                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                        {where_sql}
+                        ORDER BY j.job_id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        [*params, int(limit), int(offset)],
+                    )
+                    .df()
                 )
-                .df()
-            )
+            except Exception:
+                # Fallback for environments where job_plan table/columns are not present yet.
+                rows = (
+                    con.execute(
+                        f"""
+                        SELECT j.job_id, j.job_number, j.title, j.reporting_year,
+                               j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
+                               j.status, j.client_db_id, c.client_name, c.crm_owner as crm_name, j.due_date
+                        FROM jobs j
+                        JOIN clients c ON c.db_id = j.client_db_id
+                        {where_sql}
+                        ORDER BY j.job_id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        [*params, int(limit), int(offset)],
+                    )
+                    .df()
+                )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/jobs failed: {e}")
 
@@ -2391,19 +2410,22 @@ def list_clients(
             # Get milestone data for all jobs of these clients
             if rows is not None and not rows.empty:
                 client_ids = [int(r['client_db_id']) for _, r in rows.iterrows()]
-                milestone_data = con.execute(
-                    f"""
-                    SELECT 
-                        j.client_db_id,
-                        jp.data_collection_due, jp.data_collection_completed_at,
-                        jp.first_draft_due, jp.first_draft_completed_at,
-                        jp.final_report_due, jp.final_report_completed_at
-                    FROM jobs j
-                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                    WHERE j.client_db_id IN ({','.join(['%s'] * len(client_ids))})
-                    """,
-                    client_ids
-                ).df()
+                try:
+                    milestone_data = con.execute(
+                        f"""
+                        SELECT 
+                            j.client_db_id,
+                            jp.data_collection_due, jp.data_collection_completed_at,
+                            jp.first_draft_due, jp.first_draft_completed_at,
+                            jp.final_report_due, jp.final_report_completed_at
+                        FROM jobs j
+                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                        WHERE j.client_db_id IN ({','.join(['%s'] * len(client_ids))})
+                        """,
+                        client_ids
+                    ).df()
+                except Exception:
+                    milestone_data = None
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/clients failed: {e}")
 
