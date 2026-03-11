@@ -2,8 +2,8 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, suppressHydrationWarning, ...props }: React.ComponentProps<"input">) {
-  const suppress = Boolean(suppressHydrationWarning) || type === "password"
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  const suppress = true
   return (
     <input
       type={type}
