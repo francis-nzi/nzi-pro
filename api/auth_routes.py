@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import secrets
+import string
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -90,6 +91,26 @@ def _ensure_mfa_columns(con) -> None:
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_setup_created_at TIMESTAMP")
     except Exception:
         pass
+
+
+def _ensure_users_invite_columns(con) -> None:
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by VARCHAR")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP")
+    except Exception:
+        pass
+
+
+def _temporary_password(length: int = 14) -> str:
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def _mfa_fernet() -> "Fernet":
@@ -611,6 +632,63 @@ def register(body: Dict):
 @router.get("/me")
 def me(user: Dict[str, str] = Depends(_current_user)):
     return {"user": user}
+
+
+@router.post("/forgot-password")
+def forgot_password(body: Dict):
+    """Self-service password reset for known active users.
+
+    Returns a temporary password and marks must_change_password=True.
+    """
+    identifier = str(body.get("identifier") or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="identifier required")
+
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT email, status
+            FROM users
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            LIMIT 1
+            """,
+            [identifier, identifier],
+        ).fetchone()
+
+    # Do not reveal account existence details.
+    if not row:
+        return {"ok": True, "message": "If the account exists, a temporary password has been generated."}
+
+    email = str(row[0] or "").strip()
+    status = str(row[1] or "").strip().lower()
+    if not email or status != "active":
+        return {"ok": True, "message": "If the account exists, a temporary password has been generated."}
+
+    temp_password = _temporary_password(14)
+    ok = set_user_password(email, temp_password, force_change=True)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to generate temporary password")
+
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    with get_conn() as con:
+        _ensure_users_invite_columns(con)
+        con.execute(
+            """
+            UPDATE users
+            SET invited_at = ?,
+                invited_by = ?,
+                invite_expires_at = ?
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            """,
+            [datetime.now(timezone.utc), "self-service-forgot-password", expires_at, email, email],
+        )
+
+    return {
+        "ok": True,
+        "message": "Temporary password generated. Change it after sign in.",
+        "temporary_password": temp_password,
+        "invite_expires_at": expires_at.isoformat(),
+    }
 
 
 @router.post("/change-password")

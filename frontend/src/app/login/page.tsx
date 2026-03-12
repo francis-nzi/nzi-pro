@@ -5,6 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setAuthState, setMustChangePassword } from "@/lib/auth-client";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type LoginResponse = {
   access_token?: string;
@@ -31,6 +39,12 @@ function LoginPageContent() {
   const [mfaChallengeToken, setMfaChallengeToken] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotIdentifier, setForgotIdentifier] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotStatus, setForgotStatus] = useState("");
+  const [forgotTempPassword, setForgotTempPassword] = useState("");
+  const [forgotExpiry, setForgotExpiry] = useState("");
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -133,6 +147,47 @@ function LoginPageContent() {
     }
   }
 
+  async function onForgotPasswordSubmit(e: FormEvent) {
+    e.preventDefault();
+    setForgotBusy(true);
+    setForgotStatus("");
+    setForgotTempPassword("");
+    setForgotExpiry("");
+    try {
+      const res = await fetch("/api/backend/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: forgotIdentifier.trim() }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        detail?: string;
+        message?: string;
+        temporary_password?: string;
+        invite_expires_at?: string;
+      };
+      if (!res.ok) {
+        setForgotStatus(payload.detail || `Request failed (HTTP ${res.status})`);
+        return;
+      }
+      setForgotStatus(payload.message || "Request processed.");
+      const temp = String(payload.temporary_password || "");
+      const expiry = String(payload.invite_expires_at || "");
+      setForgotTempPassword(temp);
+      setForgotExpiry(expiry);
+      if (temp) {
+        try {
+          await navigator.clipboard.writeText(temp);
+        } catch {
+          // best effort
+        }
+      }
+    } catch {
+      setForgotStatus("Forgot password request failed. Please try again.");
+    } finally {
+      setForgotBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">
@@ -162,6 +217,21 @@ function LoginPageContent() {
                   autoComplete="current-password"
                   required
                 />
+              </div>
+              <div className="text-right">
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setForgotIdentifier(identifier.trim());
+                    setForgotStatus("");
+                    setForgotTempPassword("");
+                    setForgotExpiry("");
+                    setForgotOpen(true);
+                  }}
+                >
+                  Forgot password?
+                </button>
               </div>
 
               {error ? <div className="text-sm text-destructive">{error}</div> : null}
@@ -206,6 +276,44 @@ function LoginPageContent() {
           )}
         </div>
       </div>
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Forgot Password</DialogTitle>
+            <DialogDescription>
+              Enter your email or username to generate a temporary password.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={onForgotPasswordSubmit}>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email or Username</label>
+              <Input
+                value={forgotIdentifier}
+                onChange={(e) => setForgotIdentifier(e.target.value)}
+                placeholder="name@company.com"
+                autoComplete="username"
+                required
+              />
+            </div>
+            {forgotStatus ? <div className="text-sm text-muted-foreground">{forgotStatus}</div> : null}
+            {forgotTempPassword ? (
+              <div className="rounded-md border bg-muted p-3 text-sm">
+                <div className="font-medium">Temporary password</div>
+                <div className="mt-1 break-all font-mono">{forgotTempPassword}</div>
+                {forgotExpiry ? <div className="mt-2 text-xs text-muted-foreground">Expires: {forgotExpiry}</div> : null}
+              </div>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>
+                Close
+              </Button>
+              <Button type="submit" className="bg-[#1c5026] text-white hover:bg-[#153f1e]" disabled={forgotBusy}>
+                {forgotBusy ? "Generating..." : "Generate Temporary Password"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

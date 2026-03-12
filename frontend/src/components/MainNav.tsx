@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ export function MainNav() {
   const router = useRouter();
   const { theme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [logoErrored, setLogoErrored] = useState(false);
   const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string }>({
     ready: false,
     authed: false,
@@ -65,10 +66,6 @@ export function MainNav() {
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  if (pathname === "/login" || pathname === "/change-password") {
-    return null;
-  }
-
   const links = [
     { href: "/", label: "Dashboard" },
     { href: "/clients", label: "Clients" },
@@ -85,12 +82,35 @@ export function MainNav() {
     pathname === "/feedback" ||
     pathname?.startsWith("/feedback/");
   const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
+  const logoUrl = useMemo(() => {
+    const raw = String(theme?.logo_url || "").trim();
+    if (!raw) return "/api/backend/uploads/system/nzi-logo.png";
+    if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+    if (raw.startsWith("/uploads/")) return `/api/backend${raw}`;
+    return raw;
+  }, [theme?.logo_url]);
+
+  useEffect(() => {
+    setLogoErrored(false);
+  }, [logoUrl]);
+
+  if (pathname === "/login" || pathname === "/change-password") {
+    return null;
+  }
 
   return (
     <nav className="border-b bg-background">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2">
+            {!logoErrored ? (
+              <img
+                src={logoUrl}
+                alt="NZI Pro"
+                className="h-8 w-auto object-contain"
+                onError={() => setLogoErrored(true)}
+              />
+            ) : null}
             <span className="text-xl font-bold">NZI Pro</span>
           </Link>
 

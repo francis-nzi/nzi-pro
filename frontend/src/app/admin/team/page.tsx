@@ -725,12 +725,34 @@ export default function TeamManagementPage() {
                   {(() => {
                     const currentUser = users.find((u) => u.email === editingEmail);
                     return (
-                      <div className="grid gap-1 md:grid-cols-2">
-                        <div>Invited At: {prettyDate(currentUser?.invited_at)}</div>
-                        <div>Invited By: {currentUser?.invited_by || "-"}</div>
-                        <div>Invite Expires: {prettyDate(currentUser?.invite_expires_at)}</div>
-                        <div>Password Set: {currentUser?.has_password ? "Yes" : "No"}</div>
-                      </div>
+                      <>
+                        <div className="grid gap-1 md:grid-cols-2">
+                          <div>Invited At: {prettyDate(currentUser?.invited_at)}</div>
+                          <div>Invited By: {currentUser?.invited_by || "-"}</div>
+                          <div>Invite Expires: {prettyDate(currentUser?.invite_expires_at)}</div>
+                          <div>Password Set: {currentUser?.has_password ? "Yes" : "No"}</div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => currentUser?.email && reinviteUser(currentUser.email)}
+                            disabled={!currentUser?.email}
+                          >
+                            Re-invite Team Member
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => currentUser?.email && resetPassword(currentUser.email)}
+                            disabled={!currentUser?.email}
+                          >
+                            Reset Password
+                          </Button>
+                        </div>
+                      </>
                     );
                   })()}
                 </div>
