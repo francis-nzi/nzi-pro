@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,6 +185,7 @@ export default function AdminEmailOutboxPage() {
                   <TableHead>Subject</TableHead>
                   <TableHead>Entity</TableHead>
                   <TableHead>Template</TableHead>
+                  <TableHead>Error</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Sent</TableHead>
                   <TableHead>By</TableHead>
@@ -192,34 +193,52 @@ export default function AdminEmailOutboxPage() {
               </TableHeader>
               <TableBody>
                 {filtered.map((item) => (
-                  <TableRow key={item.email_id}>
-                    <TableCell>{item.email_id}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          item.status === "sent"
-                            ? "default"
-                            : item.status === "failed"
-                              ? "destructive"
-                              : "secondary"
-                        }
-                      >
-                        {item.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="max-w-[180px] truncate">{item.to_email || "-"}</TableCell>
-                    <TableCell className="max-w-[320px] truncate" title={item.subject || ""}>{item.subject || "-"}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {item.entity_type || "-"}
-                      {item.entity_id ? ` #${item.entity_id}` : ""}
-                      {item.job_id ? ` | Job ${item.job_id}` : ""}
-                      {item.client_db_id ? ` | Client ${item.client_db_id}` : ""}
-                    </TableCell>
-                    <TableCell className="max-w-[180px] truncate">{item.template_key || "-"}</TableCell>
-                    <TableCell className="whitespace-nowrap">{fmtDateTime(item.created_at)}</TableCell>
-                    <TableCell className="whitespace-nowrap">{fmtDateTime(item.sent_at)}</TableCell>
-                    <TableCell className="max-w-[160px] truncate">{item.created_by || "-"}</TableCell>
-                  </TableRow>
+                  <Fragment key={item.email_id}>
+                    <TableRow key={item.email_id}>
+                      <TableCell>{item.email_id}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            item.status === "sent"
+                              ? "default"
+                              : item.status === "failed"
+                                ? "destructive"
+                                : "secondary"
+                          }
+                        >
+                          {item.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[180px] truncate">{item.to_email || "-"}</TableCell>
+                      <TableCell className="max-w-[320px] truncate" title={item.subject || ""}>{item.subject || "-"}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {item.entity_type || "-"}
+                        {item.entity_id ? ` #${item.entity_id}` : ""}
+                        {item.job_id ? ` | Job ${item.job_id}` : ""}
+                        {item.client_db_id ? ` | Client ${item.client_db_id}` : ""}
+                      </TableCell>
+                      <TableCell className="max-w-[180px] truncate">{item.template_key || "-"}</TableCell>
+                      <TableCell className="max-w-[260px]">
+                        {item.error_text ? (
+                          <span className="block truncate text-destructive" title={item.error_text}>
+                            {item.error_text}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{fmtDateTime(item.created_at)}</TableCell>
+                      <TableCell className="whitespace-nowrap">{fmtDateTime(item.sent_at)}</TableCell>
+                      <TableCell className="max-w-[160px] truncate">{item.created_by || "-"}</TableCell>
+                    </TableRow>
+                    {item.error_text ? (
+                      <TableRow>
+                        <TableCell colSpan={10} className="bg-destructive/5 text-xs text-destructive whitespace-pre-wrap break-words">
+                          Error details: {item.error_text}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -234,4 +253,3 @@ export default function AdminEmailOutboxPage() {
     </div>
   );
 }
-
