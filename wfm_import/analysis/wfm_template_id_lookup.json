@@ -1,0 +1,417 @@
+{
+  "generated_at_utc": "2026-03-12T20:21:42.659343+00:00",
+  "source_workbook": "C:\\Users\\franc\\Net Zero International\\NZI Company Documents - Documents\\Operations\\Technical Systems\\Carbon Reporting Python\\nzi_pro_v7-POSTGRES\\wfm_import\\Sample Data Sheet With IDs for Mapping.xlsx",
+  "source_sheet": "Master datasheet",
+  "row_count": 104,
+  "unique_key_count": 100,
+  "lookup_key_format": "section|activity|col_2|col_3|col_4|col_5|col_6|col_7",
+  "preferred_selection_rule": "last factor_original_id encountered in workbook order",
+  "preferred_items": {
+    "employee commuting|car - petrol|||3||small|miles": "25_301_3046_9_1",
+    "employee commuting|car - petrol|||3||medium|miles": "25_301_3054_9_1",
+    "employee commuting|car - petrol|||3||large|miles": "25_301_3062_9_1",
+    "employee commuting|car - petrol|||3||average|miles": "25_301_3070_9_1",
+    "employee commuting|car - diesel|||3||small|miles": "25_301_3045_9_1",
+    "employee commuting|car - diesel|||3||medium|miles": "25_301_3053_9_1",
+    "employee commuting|car - diesel|||3||large|miles": "25_301_3061_9_1",
+    "employee commuting|car - diesel|||3||average|miles": "25_301_3069_9_1",
+    "employee commuting|car - hybrid|||3||small|miles": "25_301_3047_9_1",
+    "employee commuting|car - hybrid|||3||medium|miles": "25_301_3055_9_1",
+    "employee commuting|car - hybrid|||3||large|miles": "25_301_3063_9_1",
+    "employee commuting|car - hybrid|||3||average|miles": "25_301_3071_9_1",
+    "employee commuting|car - electric|||3||small|miles": "25_301_3052_9_1",
+    "employee commuting|car - electric|||3||medium|miles": "25_301_3060_9_1",
+    "employee commuting|car - electric|||3||large|miles": "25_301_3068_9_1",
+    "employee commuting|car - electric|||3||average|miles": "25_301_3076_9_1",
+    "employee commuting|motorbike|||3|||miles": "25_302_3080_9_1",
+    "employee commuting|taxis|||3||regular|km": "25_313_3141_4_1",
+    "employee commuting|taxis|||3||black|km": "25_313_3142_4_1",
+    "employee commuting|bus|||3||local bus|km": "25_314_3145_11_1",
+    "employee commuting|bus|||3||local bus (london)|km": "25_314_3144_11_1",
+    "employee commuting|bus|||3||average|km": "25_314_3143_11_1",
+    "employee commuting|rail|||3||national|km": "25_315_3147_11_1",
+    "employee commuting|rail|||3||international|km": "25_315_3148_11_1",
+    "employee commuting|rail|||3||light/tram|km": "25_315_3149_11_1",
+    "employee commuting|rail|||3||london underground|km": "25_315_3150_11_1",
+    "employee commuting|ferry|||3||foot passenger|km": "23_318_3188_11_1",
+    "employee commuting|ferry|||3||car passenger|km": "23_318_3189_11_1",
+    "employee commuting|walking|||3|||km": "99_316_3160_11_2",
+    "employee commuting|cycling|||3|||km": "99_316_3160_11_3",
+    "business travel|car - petrol|||3||small|miles": "25_301_3046_9_1",
+    "business travel|car - petrol|||3||medium|miles": "25_301_3054_9_1",
+    "business travel|car - petrol|||3||large|miles": "25_301_3062_9_1",
+    "business travel|car - petrol|||3||average|miles": "25_301_3070_9_1",
+    "business travel|car - diesel|||3||small|miles": "25_301_3045_9_1",
+    "business travel|car - diesel|||3||medium|miles": "25_301_3053_9_1",
+    "business travel|car - diesel|||3||large|miles": "25_301_3061_9_1",
+    "business travel|car - diesel|||3||average|miles": "25_301_3069_9_1",
+    "business travel|car - hybrid|||3||small|miles": "25_301_3047_9_1",
+    "business travel|car - hybrid|||3||medium|miles": "25_301_3055_9_1",
+    "business travel|car - hybrid|||3||large|miles": "25_301_3063_9_1",
+    "business travel|car - hybrid|||3||average|miles": "25_301_3071_9_1",
+    "business travel|car - electric|||3||small|miles": "25_301_3052_9_1",
+    "business travel|car - electric|||3||medium|miles": "25_301_3060_9_1",
+    "business travel|car - electric|||3||large|miles": "25_301_3068_9_1",
+    "business travel|car - electric|||3||average|miles": "25_301_3076_9_1",
+    "business travel|vans|||1||class 1|km": "27_303_3081_4_1",
+    "business travel|vans|||1||class 2|km": "27_303_3088_4_1",
+    "business travel|vans|||1||class 3|km": "27_303_3095_4_1",
+    "business travel|vans|||1||average|km": "27_303_3102_4_1",
+    "business travel|hgv|||1||rigid 3.5 - 7.5|km": "27_304_3112_4_1",
+    "business travel|hgv|||1||rigid 7.5 - 17|km": "27_304_3116_4_1",
+    "business travel|hgv|||1||rigid > 17.5|km": "27_304_3120_4_1",
+    "business travel|hgv|||1||average|km": "27_304_3124_4_1",
+    "business travel|hgv - refrigerated|||1||rigid 3.5 - 7.5|km": "27_306_3112_4_1",
+    "business travel|hgv - refrigerated|||1||rigid 7.5 - 17|km": "27_306_3116_4_1",
+    "business travel|hgv - refrigerated|||1||rigid > 17.5|km": "27_306_3116_4_1",
+    "business travel|hgv - refrigerated|||1||average|km": "27_306_3120_4_1",
+    "business travel|rail|||3||national|km": "25_315_3147_11_1",
+    "business travel|rail|||3||international|km": "25_315_3148_11_1",
+    "business travel|rail|||3||light/tram|km": "25_315_3149_11_1",
+    "business travel|rail|||3||london underground|km": "25_315_3150_11_1",
+    "business travel|bus|||3||local bus|km": "25_314_3145_11_1",
+    "business travel|bus|||3||local bus (london)|km": "25_314_3144_11_1",
+    "business travel|bus|||3||average|km": "25_314_3143_11_1",
+    "business travel|plane|||3|domestic|average|km": "21_316_3160_11_1",
+    "business travel|plane|||3|short haul|average|km": "21_316_3162_11_1",
+    "business travel|plane|||3|short haul|economy|km": "21_316_3164_11_1",
+    "business travel|plane|||3|short haul|business|km": "21_316_3166_11_1",
+    "business travel|plane|||3|long haul|average|km": "21_316_3168_11_1",
+    "business travel|plane|||3|long haul|economy|km": "21_316_3170_11_1",
+    "business travel|plane|||3|long haul|premium economy|km": "21_316_3172_11_1",
+    "business travel|plane|||3|long haul|business|km": "21_316_3174_11_1",
+    "business travel|plane|||3|long haul|first|km": "21_316_3176_11_1",
+    "business travel|plane|||3|international|average|km": "21_316_3178_11_1",
+    "business travel|plane|||3|international|economy|km": "21_316_3180_11_1",
+    "business travel|plane|||3|international|premium economy|km": "21_316_3182_11_1",
+    "business travel|plane|||3|international|business|km": "21_316_3184_11_1",
+    "business travel|plane|||3|international|first|km": "21_316_3186_11_1",
+    "business travel|taxis|||3||regular|km": "25_313_3141_4_1",
+    "business travel|taxis|||3||black|km": "25_313_3142_4_1",
+    "business travel|ferry|||3||foot passenger|km": "23_318_3188_11_1",
+    "business travel|ferry|||3||car passenger|km": "23_318_3189_11_1",
+    "business travel|walking|||3|||km": "99_316_3160_11_2",
+    "business travel|cycling|||3|||km": "99_316_3160_11_3",
+    "energy|electricity|2|name|kwh|0|office|0": "7_400_4000_5_1",
+    "energy|green electricity|2|name|kwh|0|office|0": "99_400_4000_5_6",
+    "energy|gas|1||kwh|0|office|": "1_100_1004_6_1",
+    "energy|green gas|1||kwh|0|office|": "99_100_1004_7_1",
+    "fuels|fuels - liquid|1|fuel oil|litres|0|office|": "1_101_1013_8_1",
+    "detailed carbon|water supply|3||m3|0|0|": "17_404_4005_1_1",
+    "detailed carbon|water treatment|3||m3|0|0|": "18_405_4006_1_1",
+    "detailed carbon|waste disposal|3|average construction|tonnes|0|0|": "20_500_5177_15_1",
+    "detailed carbon|waste disposal|3|household|tonnes|0|0|": "20_507_5283_15_1",
+    "detailed carbon|waste disposal|3|commercial & industrial|tonnes|0|0|": "20_507_5311_15_1",
+    "detailed carbon|waste disposal|3|weee mixed|tonnes|0|0|": "20_503_5330_15_1",
+    "detailed carbon|waste disposal|3|scrap metal|tonnes|0|0|": "20_504_5366_15_1",
+    "detailed carbon|waste disposal|3|average plastics|tonnes|0|0|": "20_505_5380_15_1",
+    "detailed carbon|waste disposal|3|paper & board mixed|tonnes|0|0|": "20_506_5450_15_1",
+    "detailed carbon|wfh - electricity|3|wfh - electricity|hours|0.3337812045667021|0|": "32_603_9999_12_1"
+  },
+  "items": {
+    "employee commuting|car - petrol|||3||small|miles": [
+      "25_301_3046_9_1"
+    ],
+    "employee commuting|car - petrol|||3||medium|miles": [
+      "25_301_3054_9_1"
+    ],
+    "employee commuting|car - petrol|||3||large|miles": [
+      "25_301_3062_9_1"
+    ],
+    "employee commuting|car - petrol|||3||average|miles": [
+      "25_301_3070_9_1"
+    ],
+    "employee commuting|car - diesel|||3||small|miles": [
+      "25_301_3045_9_1"
+    ],
+    "employee commuting|car - diesel|||3||medium|miles": [
+      "25_301_3053_9_1"
+    ],
+    "employee commuting|car - diesel|||3||large|miles": [
+      "25_301_3061_9_1"
+    ],
+    "employee commuting|car - diesel|||3||average|miles": [
+      "25_301_3069_9_1"
+    ],
+    "employee commuting|car - hybrid|||3||small|miles": [
+      "25_301_3047_9_1"
+    ],
+    "employee commuting|car - hybrid|||3||medium|miles": [
+      "25_301_3055_9_1"
+    ],
+    "employee commuting|car - hybrid|||3||large|miles": [
+      "25_301_3063_9_1"
+    ],
+    "employee commuting|car - hybrid|||3||average|miles": [
+      "25_301_3071_9_1"
+    ],
+    "employee commuting|car - electric|||3||small|miles": [
+      "25_301_3052_9_1"
+    ],
+    "employee commuting|car - electric|||3||medium|miles": [
+      "25_301_3060_9_1"
+    ],
+    "employee commuting|car - electric|||3||large|miles": [
+      "25_301_3068_9_1"
+    ],
+    "employee commuting|car - electric|||3||average|miles": [
+      "25_301_3076_9_1"
+    ],
+    "employee commuting|motorbike|||3|||miles": [
+      "25_302_3080_9_1"
+    ],
+    "employee commuting|taxis|||3||regular|km": [
+      "25_313_3141_4_1"
+    ],
+    "employee commuting|taxis|||3||black|km": [
+      "25_313_3142_4_1"
+    ],
+    "employee commuting|bus|||3||local bus|km": [
+      "25_314_3145_11_1"
+    ],
+    "employee commuting|bus|||3||local bus (london)|km": [
+      "25_314_3144_11_1"
+    ],
+    "employee commuting|bus|||3||average|km": [
+      "25_314_3143_11_1"
+    ],
+    "employee commuting|rail|||3||national|km": [
+      "25_315_3147_11_1"
+    ],
+    "employee commuting|rail|||3||international|km": [
+      "25_315_3148_11_1"
+    ],
+    "employee commuting|rail|||3||light/tram|km": [
+      "25_315_3149_11_1"
+    ],
+    "employee commuting|rail|||3||london underground|km": [
+      "25_315_3150_11_1"
+    ],
+    "employee commuting|ferry|||3||foot passenger|km": [
+      "23_318_3188_11_1"
+    ],
+    "employee commuting|ferry|||3||car passenger|km": [
+      "23_318_3189_11_1"
+    ],
+    "employee commuting|walking|||3|||km": [
+      "99_316_3160_11_2"
+    ],
+    "employee commuting|cycling|||3|||km": [
+      "99_316_3160_11_3"
+    ],
+    "business travel|car - petrol|||3||small|miles": [
+      "25_301_3046_9_1"
+    ],
+    "business travel|car - petrol|||3||medium|miles": [
+      "25_301_3054_9_1"
+    ],
+    "business travel|car - petrol|||3||large|miles": [
+      "25_301_3062_9_1"
+    ],
+    "business travel|car - petrol|||3||average|miles": [
+      "25_301_3070_9_1"
+    ],
+    "business travel|car - diesel|||3||small|miles": [
+      "25_301_3045_9_1"
+    ],
+    "business travel|car - diesel|||3||medium|miles": [
+      "25_301_3053_9_1"
+    ],
+    "business travel|car - diesel|||3||large|miles": [
+      "25_301_3061_9_1"
+    ],
+    "business travel|car - diesel|||3||average|miles": [
+      "25_301_3069_9_1"
+    ],
+    "business travel|car - hybrid|||3||small|miles": [
+      "25_301_3047_9_1"
+    ],
+    "business travel|car - hybrid|||3||medium|miles": [
+      "25_301_3055_9_1"
+    ],
+    "business travel|car - hybrid|||3||large|miles": [
+      "25_301_3063_9_1"
+    ],
+    "business travel|car - hybrid|||3||average|miles": [
+      "25_301_3071_9_1"
+    ],
+    "business travel|car - electric|||3||small|miles": [
+      "25_301_3052_9_1"
+    ],
+    "business travel|car - electric|||3||medium|miles": [
+      "25_301_3060_9_1"
+    ],
+    "business travel|car - electric|||3||large|miles": [
+      "25_301_3068_9_1"
+    ],
+    "business travel|car - electric|||3||average|miles": [
+      "25_301_3076_9_1"
+    ],
+    "business travel|vans|||1||class 1|km": [
+      "27_303_3081_4_1"
+    ],
+    "business travel|vans|||1||class 2|km": [
+      "27_303_3088_4_1"
+    ],
+    "business travel|vans|||1||class 3|km": [
+      "27_303_3095_4_1"
+    ],
+    "business travel|vans|||1||average|km": [
+      "27_303_3102_4_1"
+    ],
+    "business travel|hgv|||1||rigid 3.5 - 7.5|km": [
+      "27_304_3112_4_1"
+    ],
+    "business travel|hgv|||1||rigid 7.5 - 17|km": [
+      "27_304_3116_4_1"
+    ],
+    "business travel|hgv|||1||rigid > 17.5|km": [
+      "27_304_3120_4_1"
+    ],
+    "business travel|hgv|||1||average|km": [
+      "27_304_3124_4_1"
+    ],
+    "business travel|hgv - refrigerated|||1||rigid 3.5 - 7.5|km": [
+      "27_306_3112_4_1"
+    ],
+    "business travel|hgv - refrigerated|||1||rigid 7.5 - 17|km": [
+      "27_306_3116_4_1"
+    ],
+    "business travel|hgv - refrigerated|||1||rigid > 17.5|km": [
+      "27_306_3116_4_1"
+    ],
+    "business travel|hgv - refrigerated|||1||average|km": [
+      "27_306_3120_4_1"
+    ],
+    "business travel|rail|||3||national|km": [
+      "25_315_3147_11_1"
+    ],
+    "business travel|rail|||3||international|km": [
+      "25_315_3148_11_1"
+    ],
+    "business travel|rail|||3||light/tram|km": [
+      "25_315_3149_11_1"
+    ],
+    "business travel|rail|||3||london underground|km": [
+      "25_315_3150_11_1"
+    ],
+    "business travel|bus|||3||local bus|km": [
+      "25_314_3145_11_1"
+    ],
+    "business travel|bus|||3||local bus (london)|km": [
+      "25_314_3144_11_1"
+    ],
+    "business travel|bus|||3||average|km": [
+      "25_314_3143_11_1"
+    ],
+    "business travel|plane|||3|domestic|average|km": [
+      "21_316_3160_11_1"
+    ],
+    "business travel|plane|||3|short haul|average|km": [
+      "21_316_3162_11_1"
+    ],
+    "business travel|plane|||3|short haul|economy|km": [
+      "21_316_3164_11_1"
+    ],
+    "business travel|plane|||3|short haul|business|km": [
+      "21_316_3166_11_1"
+    ],
+    "business travel|plane|||3|long haul|average|km": [
+      "21_316_3168_11_1"
+    ],
+    "business travel|plane|||3|long haul|economy|km": [
+      "21_316_3170_11_1"
+    ],
+    "business travel|plane|||3|long haul|premium economy|km": [
+      "21_316_3172_11_1"
+    ],
+    "business travel|plane|||3|long haul|business|km": [
+      "21_316_3174_11_1"
+    ],
+    "business travel|plane|||3|long haul|first|km": [
+      "21_316_3176_11_1"
+    ],
+    "business travel|plane|||3|international|average|km": [
+      "21_316_3178_11_1"
+    ],
+    "business travel|plane|||3|international|economy|km": [
+      "21_316_3180_11_1"
+    ],
+    "business travel|plane|||3|international|premium economy|km": [
+      "21_316_3182_11_1"
+    ],
+    "business travel|plane|||3|international|business|km": [
+      "21_316_3184_11_1"
+    ],
+    "business travel|plane|||3|international|first|km": [
+      "21_316_3186_11_1"
+    ],
+    "business travel|taxis|||3||regular|km": [
+      "25_313_3141_4_1"
+    ],
+    "business travel|taxis|||3||black|km": [
+      "25_313_3142_4_1"
+    ],
+    "business travel|ferry|||3||foot passenger|km": [
+      "23_318_3188_11_1"
+    ],
+    "business travel|ferry|||3||car passenger|km": [
+      "23_318_3189_11_1"
+    ],
+    "business travel|walking|||3|||km": [
+      "99_316_3160_11_2"
+    ],
+    "business travel|cycling|||3|||km": [
+      "99_316_3160_11_3"
+    ],
+    "energy|electricity|2|name|kwh|0|office|0": [
+      "7_400_4000_5_1"
+    ],
+    "energy|green electricity|2|name|kwh|0|office|0": [
+      "99_400_4000_5_2",
+      "99_400_4000_5_3",
+      "99_400_4000_5_4",
+      "99_400_4000_5_5",
+      "99_400_4000_5_6"
+    ],
+    "energy|gas|1||kwh|0|office|": [
+      "1_100_1004_6_1"
+    ],
+    "energy|green gas|1||kwh|0|office|": [
+      "99_100_1004_7_1"
+    ],
+    "fuels|fuels - liquid|1|fuel oil|litres|0|office|": [
+      "1_101_1013_8_1"
+    ],
+    "detailed carbon|water supply|3||m3|0|0|": [
+      "17_404_4005_1_1"
+    ],
+    "detailed carbon|water treatment|3||m3|0|0|": [
+      "18_405_4006_1_1"
+    ],
+    "detailed carbon|waste disposal|3|average construction|tonnes|0|0|": [
+      "20_500_5177_15_1"
+    ],
+    "detailed carbon|waste disposal|3|household|tonnes|0|0|": [
+      "20_507_5283_15_1"
+    ],
+    "detailed carbon|waste disposal|3|commercial & industrial|tonnes|0|0|": [
+      "20_507_5311_15_1"
+    ],
+    "detailed carbon|waste disposal|3|weee mixed|tonnes|0|0|": [
+      "20_503_5330_15_1"
+    ],
+    "detailed carbon|waste disposal|3|scrap metal|tonnes|0|0|": [
+      "20_504_5366_15_1"
+    ],
+    "detailed carbon|waste disposal|3|average plastics|tonnes|0|0|": [
+      "20_505_5380_15_1"
+    ],
+    "detailed carbon|waste disposal|3|paper & board mixed|tonnes|0|0|": [
+      "20_506_5450_15_1"
+    ],
+    "detailed carbon|wfh - electricity|3|wfh - electricity|hours|0.3337812045667021|0|": [
+      "32_603_9999_12_1"
+    ]
+  }
+}
