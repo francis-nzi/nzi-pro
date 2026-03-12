@@ -106,7 +106,7 @@ def get_setting(setting_key: str):
         }
 
 
-@router.get("/logo")
+@router.get("/logo/file")
 def get_nzi_logo():
     """Get NZI logo bytes, with DB fallback for redeploy-safe persistence."""
     filename = None

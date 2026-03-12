@@ -99,7 +99,7 @@ export default function SystemSettingsPage() {
     }
   }
 
-  const logoUrl = nziLogoFile ? `${baseUrl}/system-settings/logo?v=${logoVersion}` : null;
+  const logoUrl = nziLogoFile ? `${baseUrl}/system-settings/logo/file?v=${logoVersion}` : null;
 
   return (
     <div className="min-h-screen bg-background p-6">

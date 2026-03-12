@@ -84,9 +84,9 @@ export function MainNav() {
   const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
   const logoUrl = useMemo(() => {
     const raw = String(theme?.logo_url || "").trim();
-    if (!raw) return "/api/backend/system-settings/logo";
+    if (!raw) return "/api/backend/system-settings/logo/file";
     if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-    if (raw.startsWith("/uploads/system/nzi-logo")) return "/api/backend/system-settings/logo";
+    if (raw.startsWith("/uploads/system/nzi-logo")) return "/api/backend/system-settings/logo/file";
     if (raw.startsWith("/uploads/")) return `/api/backend${raw}`;
     return raw;
   }, [theme?.logo_url]);

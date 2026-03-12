@@ -558,11 +558,9 @@ export default function TeamManagementPage() {
                               <Button size="sm" variant="outline" onClick={() => startEdit(user)}>
                                 Edit
                               </Button>
-                              {(state === "Invited" || state === "Invite Lapsed") && (
-                                <Button size="sm" variant="secondary" onClick={() => reinviteUser(user.email)}>
-                                  Re-invite
-                                </Button>
-                              )}
+                              <Button size="sm" variant="secondary" onClick={() => reinviteUser(user.email)}>
+                                Send Invite Email
+                              </Button>
                               <Button size="sm" variant="secondary" onClick={() => resetPassword(user.email)}>
                                 Reset Password
                               </Button>
@@ -740,7 +738,7 @@ export default function TeamManagementPage() {
                             onClick={() => currentUser?.email && reinviteUser(currentUser.email)}
                             disabled={!currentUser?.email}
                           >
-                            Re-invite Team Member
+                            Send Invite Email
                           </Button>
                           <Button
                             type="button"
