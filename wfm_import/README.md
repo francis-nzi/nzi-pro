@@ -72,6 +72,11 @@ Uses `Sample Data Sheet With IDs for Mapping.xlsx` to generate mapping artifacts
 ```bash
 python wfm_import/build_template_id_mapping.py
 ```
+
+The importer auto-loads this lookup (if present) from:
+- `wfm_import/analysis/wfm_template_id_lookup.json`
+
+This enables automatic `factor_original_id` resolution for incoming template-based WFM rows that do not carry IDs directly.
 ```
 
 ## Trial import executed
