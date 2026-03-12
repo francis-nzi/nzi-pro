@@ -38,6 +38,14 @@ function fmtDateTime(value: string | null | undefined): string {
   return d.toLocaleString();
 }
 
+function cleanErrorText(value: string | null | undefined): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const lowered = raw.toLowerCase();
+  if (lowered === "nan" || lowered === "null" || lowered === "none" || lowered === "undefined") return "";
+  return raw;
+}
+
 export default function AdminEmailOutboxPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const [items, setItems] = useState<OutboxItem[]>([]);
@@ -219,9 +227,9 @@ export default function AdminEmailOutboxPage() {
                       </TableCell>
                       <TableCell className="max-w-[180px] truncate">{item.template_key || "-"}</TableCell>
                       <TableCell className="max-w-[260px]">
-                        {item.error_text ? (
-                          <span className="block truncate text-destructive" title={item.error_text}>
-                            {item.error_text}
+                        {item.status === "failed" && cleanErrorText(item.error_text) ? (
+                          <span className="block truncate text-destructive" title={cleanErrorText(item.error_text)}>
+                            {cleanErrorText(item.error_text)}
                           </span>
                         ) : (
                           "-"
@@ -231,10 +239,10 @@ export default function AdminEmailOutboxPage() {
                       <TableCell className="whitespace-nowrap">{fmtDateTime(item.sent_at)}</TableCell>
                       <TableCell className="max-w-[160px] truncate">{item.created_by || "-"}</TableCell>
                     </TableRow>
-                    {item.error_text ? (
+                    {item.status === "failed" && cleanErrorText(item.error_text) ? (
                       <TableRow>
                         <TableCell colSpan={10} className="bg-destructive/5 text-xs text-destructive whitespace-pre-wrap break-words">
-                          Error details: {item.error_text}
+                          Error details: {cleanErrorText(item.error_text)}
                         </TableCell>
                       </TableRow>
                     ) : null}
