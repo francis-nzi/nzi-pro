@@ -1,8 +1,8 @@
-import os
-import shutil
+import base64
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Body
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from core.database import get_conn
@@ -15,6 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads" / "system"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+LOGO_FILE_KEY = "nzi_logo_file"
+LOGO_B64_KEY = "nzi_logo_b64"
+LOGO_MIME_KEY = "nzi_logo_mime"
+
 class SystemSetting(BaseModel):
     setting_id: int
     setting_key: str
@@ -26,6 +30,38 @@ class SystemSetting(BaseModel):
 
 class UpdateSettingRequest(BaseModel):
     setting_value: str
+
+
+def _upsert_setting(
+    con,
+    *,
+    key: str,
+    value: str | None,
+    updated_by: str,
+    setting_type: str = "text",
+    description: str | None = None,
+) -> None:
+    existing = con.execute(
+        "SELECT setting_id FROM system_settings WHERE setting_key = %s",
+        [key],
+    ).fetchone()
+    if existing:
+        con.execute(
+            """
+            UPDATE system_settings
+            SET setting_value = %s, setting_type = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
+            WHERE setting_key = %s
+            """,
+            [value, setting_type, updated_by, key],
+        )
+        return
+    con.execute(
+        """
+        INSERT INTO system_settings (setting_key, setting_value, setting_type, description, updated_by)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        [key, value, setting_type, description, updated_by],
+    )
 
 @router.get("")
 def get_all_settings(_user: dict = Depends(_current_user)):
@@ -68,6 +104,42 @@ def get_setting(setting_key: str):
             "updated_at": row[5].isoformat() if row[5] else None,
             "updated_by": row[6],
         }
+
+
+@router.get("/logo")
+def get_nzi_logo():
+    """Get NZI logo bytes, with DB fallback for redeploy-safe persistence."""
+    filename = None
+    logo_b64 = None
+    mime = None
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT setting_key, setting_value
+            FROM system_settings
+            WHERE setting_key IN (%s, %s, %s)
+            """,
+            [LOGO_FILE_KEY, LOGO_B64_KEY, LOGO_MIME_KEY],
+        ).fetchall()
+        values = {str(r[0] or ""): r[1] for r in rows}
+        filename = values.get(LOGO_FILE_KEY)
+        logo_b64 = values.get(LOGO_B64_KEY)
+        mime = str(values.get(LOGO_MIME_KEY) or "").strip() or "image/png"
+
+    if filename:
+        file_path = UPLOAD_DIR / str(filename)
+        if file_path.exists():
+            return Response(content=file_path.read_bytes(), media_type=mime)
+
+    if logo_b64:
+        try:
+            decoded = base64.b64decode(str(logo_b64), validate=True)
+            if decoded:
+                return Response(content=decoded, media_type=mime)
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail="NZI logo not found")
 
 @router.post("/{setting_key}")
 def update_setting(
@@ -118,44 +190,56 @@ async def upload_nzi_logo(
     ext = Path(file.filename or "logo.png").suffix
     if not ext:
         ext = ".png"
-    
-    # Save file
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(raw) > (5 * 1024 * 1024):
+        raise HTTPException(status_code=400, detail="Logo exceeds 5MB limit")
+
+    # Save file (best effort for local/dev convenience)
     filename = f"nzi-logo{ext}"
     file_path = UPLOAD_DIR / filename
-    
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # Update database setting
+    try:
+        with file_path.open("wb") as buffer:
+            buffer.write(raw)
+    except Exception:
+        pass
+
+    # Update database settings (durable across redeploys)
+    actor = _user.get("email", "unknown")
+    logo_b64 = base64.b64encode(raw).decode("ascii")
     with get_conn() as con:
-        # Check if setting exists
-        existing = con.execute(
-            "SELECT setting_id FROM system_settings WHERE setting_key = 'nzi_logo_file'"
-        ).fetchone()
-        
-        if existing:
-            con.execute(
-                """
-                UPDATE system_settings 
-                SET setting_value = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
-                WHERE setting_key = 'nzi_logo_file'
-                """,
-                [filename, _user.get("email", "unknown")]
-            )
-        else:
-            con.execute(
-                """
-                INSERT INTO system_settings (setting_key, setting_value, setting_type, description, updated_by)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                ["nzi_logo_file", filename, "file", "Net Zero International logo file", _user.get("email", "unknown")]
-            )
-    
+        _upsert_setting(
+            con,
+            key=LOGO_FILE_KEY,
+            value=filename,
+            setting_type="file",
+            description="Net Zero International logo file",
+            updated_by=actor,
+        )
+        _upsert_setting(
+            con,
+            key=LOGO_B64_KEY,
+            value=logo_b64,
+            setting_type="text",
+            description="Net Zero International logo image bytes (base64)",
+            updated_by=actor,
+        )
+        _upsert_setting(
+            con,
+            key=LOGO_MIME_KEY,
+            value=str(file.content_type or "image/png"),
+            setting_type="text",
+            description="Net Zero International logo MIME type",
+            updated_by=actor,
+        )
+
     return {
         "ok": True,
         "message": "NZI logo uploaded successfully",
         "filename": filename,
-        "url": f"/uploads/system/{filename}"
+        "url": "/system-settings/logo"
     }
 
 @router.delete("/upload/nzi-logo")
@@ -164,7 +248,8 @@ def delete_nzi_logo(_user: dict = Depends(_current_user)):
     with get_conn() as con:
         # Get current filename
         row = con.execute(
-            "SELECT setting_value FROM system_settings WHERE setting_key = 'nzi_logo_file'"
+            "SELECT setting_value FROM system_settings WHERE setting_key = %s",
+            [LOGO_FILE_KEY],
         ).fetchone()
         
         if row and row[0]:
@@ -174,6 +259,9 @@ def delete_nzi_logo(_user: dict = Depends(_current_user)):
                 file_path.unlink()
             
             # Delete database record
-            con.execute("DELETE FROM system_settings WHERE setting_key = 'nzi_logo_file'")
+            con.execute(
+                "DELETE FROM system_settings WHERE setting_key IN (%s, %s, %s)",
+                [LOGO_FILE_KEY, LOGO_B64_KEY, LOGO_MIME_KEY],
+            )
         
         return {"ok": True, "message": "NZI logo deleted successfully"}

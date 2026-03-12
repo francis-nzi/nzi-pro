@@ -39,7 +39,7 @@ export default function ReportCoverPage({
       if (res.ok) {
         const data = await res.json();
         if (data.setting_value) {
-          setNziLogoUrl(`${baseUrl}/uploads/system/${data.setting_value}`);
+          setNziLogoUrl(`${baseUrl}/system-settings/logo`);
         }
       }
     } catch (e) {

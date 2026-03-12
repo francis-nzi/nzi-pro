@@ -16,6 +16,7 @@ export default function SystemSettingsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   
   const [nziLogoFile, setNziLogoFile] = useState<string | null>(null);
+  const [logoVersion, setLogoVersion] = useState<number>(Date.now());
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -32,6 +33,7 @@ export default function SystemSettingsPage() {
       if (!res.ok) throw new Error("Failed to load settings");
       const data = await res.json();
       setNziLogoFile(data.setting_value || null);
+      setLogoVersion(Date.now());
     } catch (e) {
       console.error("Error loading settings:", e);
     }
@@ -61,6 +63,7 @@ export default function SystemSettingsPage() {
 
       const data = await res.json();
       setNziLogoFile(data.filename);
+      setLogoVersion(Date.now());
       setStatus("✅ NZI logo uploaded successfully!");
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
@@ -86,6 +89,7 @@ export default function SystemSettingsPage() {
       if (!res.ok) throw new Error("Delete failed");
 
       setNziLogoFile(null);
+      setLogoVersion(Date.now());
       setStatus("✅ NZI logo deleted successfully!");
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
@@ -95,7 +99,7 @@ export default function SystemSettingsPage() {
     }
   }
 
-  const logoUrl = nziLogoFile ? `${baseUrl}/uploads/system/${nziLogoFile}` : null;
+  const logoUrl = nziLogoFile ? `${baseUrl}/system-settings/logo?v=${logoVersion}` : null;
 
   return (
     <div className="min-h-screen bg-background p-6">
