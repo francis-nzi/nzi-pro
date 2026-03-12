@@ -16,6 +16,7 @@ def send_email_with_attachment(
     subject: str,
     body_text: str,
     body_html: str | None = None,
+    reply_to: str | None = None,
     attachment_bytes: bytes,
     attachment_filename: str,
     attachment_mime: str = "application/pdf",
@@ -37,6 +38,8 @@ def send_email_with_attachment(
     msg["From"] = from_email
     msg["To"] = to_email
     msg["Subject"] = subject
+    if reply_to and str(reply_to).strip():
+        msg["Reply-To"] = str(reply_to).strip()
     msg.set_content(body_text or "")
     if body_html and str(body_html).strip():
         msg.add_alternative(str(body_html), subtype="html")
@@ -72,6 +75,7 @@ def send_plain_email(
     subject: str,
     body_text: str,
     body_html: str | None = None,
+    reply_to: str | None = None,
 ) -> None:
     host = str(os.getenv("SMTP_HOST") or "").strip()
     port = int(os.getenv("SMTP_PORT") or "587")
@@ -90,6 +94,8 @@ def send_plain_email(
     msg["From"] = from_email
     msg["To"] = to_email
     msg["Subject"] = subject
+    if reply_to and str(reply_to).strip():
+        msg["Reply-To"] = str(reply_to).strip()
     msg.set_content(body_text or "")
     if body_html and str(body_html).strip():
         msg.add_alternative(str(body_html), subtype="html")

@@ -48,6 +48,11 @@ def _safe_json(value: Any) -> str:
         return "{}"
 
 
+def _is_probable_email(value: str | None) -> bool:
+    s = str(value or "").strip()
+    return bool(s and "@" in s and "." in s.split("@")[-1])
+
+
 def send_tracked_email(
     con,
     *,
@@ -61,6 +66,7 @@ def send_tracked_email(
     entity_id: int | None = None,
     job_id: int | None = None,
     client_db_id: int | None = None,
+    reply_to: str | None = None,
     metadata: dict[str, Any] | None = None,
     attachment: dict[str, Any] | None = None,
     raise_on_error: bool = True,
@@ -100,6 +106,9 @@ def send_tracked_email(
         ],
     ).fetchone()
     email_id = int(row[0])
+    derived_reply_to = str(reply_to or "").strip() or None
+    if not derived_reply_to and _is_probable_email(created_by):
+        derived_reply_to = str(created_by or "").strip()
 
     try:
         if attachment:
@@ -108,6 +117,7 @@ def send_tracked_email(
                 subject=str(subject or "").strip(),
                 body_text=str(body_text or ""),
                 body_html=body_html,
+                reply_to=derived_reply_to,
                 attachment_bytes=bytes(attachment.get("bytes") or b""),
                 attachment_filename=str(attachment.get("filename") or "attachment.bin"),
                 attachment_mime=str(attachment.get("mime") or "application/octet-stream"),
@@ -118,6 +128,7 @@ def send_tracked_email(
                 subject=str(subject or "").strip(),
                 body_text=str(body_text or ""),
                 body_html=body_html,
+                reply_to=derived_reply_to,
             )
         con.execute(
             """
