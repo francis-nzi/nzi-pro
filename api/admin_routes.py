@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 from api.auth import _current_user
 from core.database import get_conn
 from core.auth import set_user_password
+from services.messaging_templates import build_email_content
+from services.outbound_email import send_tracked_email
 from pathlib import Path
 import io
 import zipfile
@@ -299,6 +301,64 @@ def _invite_expiry(days: int = 7) -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=days)
 
 
+def _send_team_access_email(
+    *,
+    to_email: str,
+    full_name: str,
+    role: str,
+    temporary_password: str,
+    invite_expires_at: datetime | None,
+    template_key: str,
+    sender_identifier: str,
+) -> dict:
+    if not str(to_email or "").strip():
+        return {"status": "skipped", "error": "Recipient email is blank"}
+
+    sender_name = sender_identifier
+    context = {
+        "full_name": str(full_name or "").strip() or str(to_email or "").strip(),
+        "email": str(to_email or "").strip(),
+        "role": str(role or "").strip(),
+        "temporary_password": str(temporary_password or "").strip(),
+        "invite_expires_at": invite_expires_at.isoformat() if invite_expires_at else "",
+        "sender_name": sender_name,
+    }
+
+    fallback_subject = "Your NZI Pro account details"
+    fallback_body = (
+        f"<p>Hi {context['full_name']},</p>"
+        "<p>Your NZI Pro access details are below:</p>"
+        f"<p>Username: <strong>{context['email']}</strong><br/>"
+        f"Temporary password: <strong>{context['temporary_password']}</strong><br/>"
+        f"Expires: <strong>{context['invite_expires_at']}</strong></p>"
+        "<p>Please sign in and change your password immediately.</p>"
+        f"<p>Kind regards,<br/>{sender_name}</p>"
+    )
+
+    with get_conn() as con:
+        rendered = build_email_content(
+            con=con,
+            template_key=template_key,
+            context=context,
+            fallback_subject=fallback_subject,
+            fallback_body=fallback_body,
+            sender_identifier=sender_identifier,
+        )
+        result = send_tracked_email(
+            con,
+            to_email=context["email"],
+            subject=rendered["subject"],
+            body_text=rendered["body_text"],
+            body_html=rendered["body_html"],
+            created_by=sender_identifier,
+            template_key=template_key,
+            entity_type="team_member",
+            metadata={"flow": template_key},
+            raise_on_error=False,
+        )
+    return result
+
+
 def _is_invite_lapsed(expires_at, has_password: bool, must_change_password: bool) -> bool:
     if not expires_at:
         return False
@@ -476,7 +536,11 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
         sell_per_hour = float(sell_per_hour_raw) if sell_per_hour_raw not in (None, "") else None
         status = body.get("status", "Active")
         password = str(body.get("password") or "")
+        manual_password_provided = bool(password)
         actor = _actor_identifier(_user)
+        is_new_user = False
+        generated_temp_password = ""
+        invite_expires_at: datetime | None = None
         
         if not email or not full_name:
             raise HTTPException(status_code=400, detail="Email and full name are required")
@@ -513,15 +577,36 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                     [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, email, email],
                 )
             else:
-                invited_at = datetime.now(timezone.utc) if not password else None
-                invite_expires_at = _invite_expiry(7) if not password else None
-                invited_by = actor if not password else None
+                is_new_user = True
+                if not password:
+                    generated_temp_password = "".join(
+                        secrets.choice(string.ascii_letters + string.digits + "!@#$%^&*")
+                        for _ in range(14)
+                    )
+                    password = generated_temp_password
+                invite_mode = not manual_password_provided
+                invited_at = datetime.now(timezone.utc) if invite_mode else None
+                invite_expires_at = _invite_expiry(7) if invite_mode else None
+                invited_by = actor if invite_mode else None
                 con.execute(
                     """
                     INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    [email, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at],
+                    [
+                        email,
+                        full_name,
+                        role,
+                        position,
+                        mobile_phone,
+                        cost_per_hour,
+                        sell_per_hour,
+                        email,
+                        status,
+                        invited_at,
+                        invited_by,
+                        invite_expires_at,
+                    ],
                 )
 
         if password:
@@ -536,10 +621,30 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                     SET invite_expires_at = %s
                     WHERE lower(email) = lower(%s)
                     """,
-                    [None, email],
+                    [invite_expires_at if is_new_user else None, email],
                 )
-        
-        return {"ok": True, "message": "User saved successfully"}
+
+        email_result = None
+        if is_new_user and generated_temp_password:
+            email_result = _send_team_access_email(
+                to_email=email,
+                full_name=full_name,
+                role=role,
+                temporary_password=generated_temp_password,
+                invite_expires_at=invite_expires_at,
+                template_key="team_member_invite",
+                sender_identifier=actor,
+            )
+
+        response = {"ok": True, "message": "User saved successfully"}
+        if generated_temp_password:
+            response["temporary_password"] = generated_temp_password
+            response["invite_expires_at"] = invite_expires_at.isoformat() if invite_expires_at else None
+        if email_result:
+            response["email_status"] = str(email_result.get("status") or "")
+            if email_result.get("error"):
+                response["email_error"] = str(email_result.get("error") or "")
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -649,15 +754,19 @@ def admin_reset_user_password(
         now = datetime.now(timezone.utc)
         expiry = _invite_expiry(7)
 
+        full_name = email
+        role = "Team Member"
         with get_conn() as con:
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
-            exists = con.execute(
-                "SELECT 1 FROM users WHERE lower(email) = lower(?) LIMIT 1",
+            row = con.execute(
+                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) LIMIT 1",
                 [email],
             ).fetchone()
-            if not exists:
+            if not row:
                 raise HTTPException(status_code=404, detail="User not found")
+            full_name = str(row[0] or "").strip() or email
+            role = str(row[1] or "").strip() or "Team Member"
 
         ok = set_user_password(email, temp_password, force_change=True)
         if not ok:
@@ -676,11 +785,23 @@ def admin_reset_user_password(
                 [now, _actor_identifier(_user), expiry, email],
             )
 
+        email_result = _send_team_access_email(
+            to_email=email,
+            full_name=full_name,
+            role=role,
+            temporary_password=temp_password,
+            invite_expires_at=expiry,
+            template_key="team_member_password_reset",
+            sender_identifier=_actor_identifier(_user),
+        )
+
         return {
             "ok": True,
             "message": "Temporary password generated",
             "temporary_password": temp_password,
             "invite_expires_at": expiry.isoformat(),
+            "email_status": str(email_result.get("status") or ""),
+            "email_error": str(email_result.get("error") or "") if email_result.get("error") else None,
         }
     except HTTPException:
         raise
@@ -700,15 +821,19 @@ def admin_reinvite_user(
         expiry = _invite_expiry(7)
         now = datetime.now(timezone.utc)
 
+        full_name = email
+        role = "Team Member"
         with get_conn() as con:
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
-            exists = con.execute(
-                "SELECT 1 FROM users WHERE lower(email) = lower(?) LIMIT 1",
+            row = con.execute(
+                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) LIMIT 1",
                 [email],
             ).fetchone()
-            if not exists:
+            if not row:
                 raise HTTPException(status_code=404, detail="User not found")
+            full_name = str(row[0] or "").strip() or email
+            role = str(row[1] or "").strip() or "Team Member"
 
         ok = set_user_password(email, temp_password, force_change=True)
         if not ok:
@@ -727,11 +852,23 @@ def admin_reinvite_user(
                 [now, _actor_identifier(_user), expiry, email],
             )
 
+        email_result = _send_team_access_email(
+            to_email=email,
+            full_name=full_name,
+            role=role,
+            temporary_password=temp_password,
+            invite_expires_at=expiry,
+            template_key="team_member_reinvite",
+            sender_identifier=_actor_identifier(_user),
+        )
+
         return {
             "ok": True,
             "message": "User re-invited",
             "temporary_password": temp_password,
             "invite_expires_at": expiry.isoformat(),
+            "email_status": str(email_result.get("status") or ""),
+            "email_error": str(email_result.get("error") or "") if email_result.get("error") else None,
         }
     except HTTPException:
         raise

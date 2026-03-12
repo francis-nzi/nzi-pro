@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.auth import authenticate_user, get_user_by_id, set_user_password
 from core.database import get_conn
 from api.auth import _current_user
+from services.messaging_templates import build_email_content
+from services.outbound_email import send_tracked_email
 
 try:
     import jwt
@@ -111,6 +113,54 @@ def _ensure_users_invite_columns(con) -> None:
 def _temporary_password(length: int = 14) -> str:
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _send_forgot_password_email(
+    *,
+    to_email: str,
+    full_name: str,
+    temporary_password: str,
+    invite_expires_at: datetime,
+) -> dict:
+    sender_identifier = "self-service-forgot-password"
+    context = {
+        "full_name": str(full_name or "").strip() or str(to_email or "").strip(),
+        "email": str(to_email or "").strip(),
+        "temporary_password": str(temporary_password or "").strip(),
+        "invite_expires_at": invite_expires_at.isoformat(),
+        "sender_name": "NZI Pro",
+    }
+    fallback_subject = "NZI Pro temporary password request"
+    fallback_body = (
+        f"<p>Hi {context['full_name']},</p>"
+        "<p>We received a password reset request for your NZI Pro account.</p>"
+        f"<p>Username: <strong>{context['email']}</strong><br/>"
+        f"Temporary password: <strong>{context['temporary_password']}</strong><br/>"
+        f"Reset expires: <strong>{context['invite_expires_at']}</strong></p>"
+        "<p>If you did not request this, contact your administrator.</p>"
+    )
+    with get_conn() as con:
+        rendered = build_email_content(
+            con=con,
+            template_key="forgot_password",
+            context=context,
+            fallback_subject=fallback_subject,
+            fallback_body=fallback_body,
+            sender_identifier=sender_identifier,
+        )
+        result = send_tracked_email(
+            con,
+            to_email=context["email"],
+            subject=rendered["subject"],
+            body_text=rendered["body_text"],
+            body_html=rendered["body_html"],
+            created_by=sender_identifier,
+            template_key="forgot_password",
+            entity_type="team_member",
+            metadata={"flow": "forgot_password"},
+            raise_on_error=False,
+        )
+    return result
 
 
 def _mfa_fernet() -> "Fernet":
@@ -647,7 +697,7 @@ def forgot_password(body: Dict):
     with get_conn() as con:
         row = con.execute(
             """
-            SELECT email, status
+            SELECT email, status, full_name
             FROM users
             WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
             LIMIT 1
@@ -661,6 +711,7 @@ def forgot_password(body: Dict):
 
     email = str(row[0] or "").strip()
     status = str(row[1] or "").strip().lower()
+    full_name = str(row[2] or "").strip() or email
     if not email or status != "active":
         return {"ok": True, "message": "If the account exists, a temporary password has been generated."}
 
@@ -683,11 +734,20 @@ def forgot_password(body: Dict):
             [datetime.now(timezone.utc), "self-service-forgot-password", expires_at, email, email],
         )
 
+    email_result = _send_forgot_password_email(
+        to_email=email,
+        full_name=full_name,
+        temporary_password=temp_password,
+        invite_expires_at=expires_at,
+    )
+
     return {
         "ok": True,
         "message": "Temporary password generated. Change it after sign in.",
         "temporary_password": temp_password,
         "invite_expires_at": expires_at.isoformat(),
+        "email_status": str(email_result.get("status") or ""),
+        "email_error": str(email_result.get("error") or "") if email_result.get("error") else None,
     }
 
 

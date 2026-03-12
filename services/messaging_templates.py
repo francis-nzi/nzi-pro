@@ -6,6 +6,62 @@ from typing import Any
 
 DEFAULT_EMAIL_TEMPLATES: list[dict[str, str]] = [
     {
+        "template_key": "team_member_invite",
+        "template_name": "Team Member Invite",
+        "subject_template": "You have been invited to NZI Pro",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>You have been invited to access NZI Pro as <strong>{{role}}</strong>.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong><br/>"
+            "Invite expires: <strong>{{invite_expires_at}}</strong></p>"
+            "<p>Please sign in and change your password immediately.</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
+        "template_key": "team_member_reinvite",
+        "template_name": "Team Member Re-invite",
+        "subject_template": "Your NZI Pro access has been refreshed",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your NZI Pro access has been re-issued.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong><br/>"
+            "Invite expires: <strong>{{invite_expires_at}}</strong></p>"
+            "<p>Please sign in and change your password immediately.</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
+        "template_key": "team_member_password_reset",
+        "template_name": "Team Member Password Reset",
+        "subject_template": "Your NZI Pro temporary password",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Your NZI Pro password has been reset.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong><br/>"
+            "Reset expires: <strong>{{invite_expires_at}}</strong></p>"
+            "<p>Please sign in and change your password immediately.</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
+        "template_key": "forgot_password",
+        "template_name": "Forgot Password",
+        "subject_template": "NZI Pro temporary password request",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>We received a password reset request for your NZI Pro account.</p>"
+            "<p>Username: <strong>{{email}}</strong><br/>"
+            "Temporary password: <strong>{{temporary_password}}</strong><br/>"
+            "Reset expires: <strong>{{invite_expires_at}}</strong></p>"
+            "<p>If you did not request this, contact your administrator.</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
         "template_key": "quote_send",
         "template_name": "Quote Email",
         "subject_template": "Quote {{quote_number}} from Net Zero International",
