@@ -96,7 +96,12 @@ export function MainNav() {
     setLogoErrored(false);
   }, [logoUrl]);
 
-  if (pathname === "/login" || pathname === "/change-password") {
+  if (
+    pathname === "/login" ||
+    pathname === "/change-password" ||
+    pathname === "/legal" ||
+    pathname?.startsWith("/legal/")
+  ) {
     return null;
   }
 

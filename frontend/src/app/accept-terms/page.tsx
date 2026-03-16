@@ -49,11 +49,11 @@ export default function AcceptTermsPage() {
             <p>
               Review the full documents here:
               {" "}
-              <Link href="/support/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms of Use</Link>
+              <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms of Use</Link>
               {", "}
-              <Link href="/support/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>
+              <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>
               {" and "}
-              <Link href="/support/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookie Notice</Link>.
+              <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookie Notice</Link>.
             </p>
           </div>
           {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}

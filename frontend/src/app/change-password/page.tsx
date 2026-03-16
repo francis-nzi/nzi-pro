@@ -65,7 +65,7 @@ export default function ChangePasswordPage() {
           <p className="mb-6 text-sm text-muted-foreground">You must change your temporary password to continue.</p>
           <p className="mb-6 text-xs text-muted-foreground">
             Legal documents are available in{" "}
-            <Link href="/support/legal" className="underline underline-offset-2 hover:text-foreground">Help</Link>.
+            <Link href="/legal" className="underline underline-offset-2 hover:text-foreground">Legal Documents</Link>.
           </p>
 
           <form className="space-y-4" onSubmit={onSubmit}>

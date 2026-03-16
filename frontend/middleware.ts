@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/support/legal"];
+const PUBLIC_PATHS = ["/login", "/legal", "/support/legal"];
 const FORCE_CHANGE_PATH = "/change-password";
 const ACCEPT_TERMS_PATH = "/accept-terms";
 

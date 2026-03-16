@@ -255,11 +255,11 @@ function LoginPageContent() {
               <div className="text-center text-xs text-muted-foreground">
                 Legal documents:
                 {" "}
-                <Link href="/support/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms</Link>
+                <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms</Link>
                 {" | "}
-                <Link href="/support/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy</Link>
+                <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy</Link>
                 {" | "}
-                <Link href="/support/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookies</Link>
+                <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookies</Link>
               </div>
             </form>
           ) : (
@@ -296,7 +296,7 @@ function LoginPageContent() {
               </div>
               <div className="text-center text-xs text-muted-foreground">
                 Legal documents are available in{" "}
-                <Link href="/support/legal" className="underline underline-offset-2 hover:text-foreground">Help</Link>.
+                <Link href="/legal" className="underline underline-offset-2 hover:text-foreground">Legal Documents</Link>.
               </div>
             </form>
           )}
