@@ -15,10 +15,11 @@ export function AuthBootstrap() {
   useEffect(() => {
     const isLoginPage = pathname === "/login";
     const isChangePasswordPage = pathname === "/change-password";
+    const isPublicPage = pathname === "/login" || pathname === "/support/legal" || pathname?.startsWith("/support/legal/");
     const loggedIn = hasAuthState();
     const mustChange = mustChangePassword();
 
-    if (!loggedIn && !isLoginPage) {
+    if (!loggedIn && !isPublicPage) {
       const next = encodeURIComponent(
         typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : pathname || "/"
       );
