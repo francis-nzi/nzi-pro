@@ -316,6 +316,7 @@ def _ensure_tables(con) -> None:
         )
 
     service_defaults = [
+        ("market-targeting", "Industry & Role Targeting", 0),
         ("carbon-reduction-plan", "Carbon Reduction Plans", 1),
         ("net-zero-support", "Net Zero Support", 2),
         ("consultancy", "Consultancy", 3),
@@ -1354,7 +1355,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             if selected_keys:
                 selected_services = [svc for svc in all_services if svc["service_key"] in selected_keys]
             else:
-                selected_services = all_services
+                selected_services = [{"service_key": "market-targeting", "service_name": "Industry & Role Targeting"}]
             if not selected_services:
                 raise HTTPException(status_code=400, detail="No matching active services found for service_keys")
 

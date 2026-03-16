@@ -174,10 +174,7 @@ export default function BusinessDevelopmentPage() {
     const json = await res.json();
     const items: LeadGenService[] = Array.isArray(json?.items) ? json.items : [];
     setLeadServices(items);
-    setServiceKeys((prev) => {
-      if (prev.length > 0) return prev;
-      return items.map((item) => item.service_key);
-    });
+    setServiceKeys((prev) => prev);
   }, [baseUrl]);
 
   const loadLeadBins = useCallback(async () => {
@@ -711,10 +708,13 @@ export default function BusinessDevelopmentPage() {
                   );
                 })}
               </div>
+              <div className="text-xs text-muted-foreground">
+                Optional. Leave all services unselected to generate leads purely from the revenue band, target industries and preferred contact roles.
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button onClick={() => void generateAIDailyLeads()} disabled={generatingLeads || serviceKeys.length === 0}>
+              <Button onClick={() => void generateAIDailyLeads()} disabled={generatingLeads}>
                 {generatingLeads ? "Generating..." : "Generate Daily Leads"}
               </Button>
               <Button variant="outline" onClick={() => void refreshBinWithStatus()}>
