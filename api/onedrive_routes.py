@@ -160,7 +160,7 @@ def onedrive_health(_user: dict = Depends(_current_user)):
     drive_base = _drive_base_path()
     remote_path = _joined_remote_path(None)
     if remote_path:
-        target = f"{drive_base}/root:{urllib.parse.quote(remote_path)}:"
+        target = f"{drive_base}/root:{urllib.parse.quote(remote_path, safe='/')}:"
     else:
         target = f"{drive_base}/root"
     meta = _graph_request("GET", target, token)
@@ -179,7 +179,7 @@ def onedrive_list(path: str | None = Query(default=None), _user: dict = Depends(
     drive_base = _drive_base_path()
     remote_path = _joined_remote_path(path)
     if remote_path:
-        encoded = urllib.parse.quote(remote_path)
+        encoded = urllib.parse.quote(remote_path, safe="/")
         target = f"{drive_base}/root:{encoded}:/children"
     else:
         target = f"{drive_base}/root/children"
@@ -215,7 +215,7 @@ async def onedrive_upload(
 
     remote_folder = _joined_remote_path(folder)
     full_path = f"{remote_folder}/{filename}" if remote_folder else f"/{filename}"
-    encoded = urllib.parse.quote(full_path)
+    encoded = urllib.parse.quote(full_path, safe="/")
 
     content = await file.read()
     if not content:

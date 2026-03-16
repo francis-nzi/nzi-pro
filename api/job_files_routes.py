@@ -119,7 +119,7 @@ def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
     current = ""
     for segment in segments:
         current = f"{current}/{segment}" if current else f"/{segment}"
-        encoded = urllib.parse.quote(current)
+        encoded = urllib.parse.quote(current, safe="/")
         try:
             _graph_request("GET", f"{drive_base}/root:{encoded}:", token)
             continue
@@ -127,7 +127,9 @@ def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
             if "Graph API error 404" not in str(e.detail):
                 raise
         parent = current.rsplit("/", 1)[0]
-        parent_target = f"{drive_base}/root:{urllib.parse.quote(parent)}:/children" if parent else f"{drive_base}/root/children"
+        parent_target = (
+            f"{drive_base}/root:{urllib.parse.quote(parent, safe='/')}:/children" if parent else f"{drive_base}/root/children"
+        )
         payload = json.dumps(
             {
                 "name": segment,
@@ -150,7 +152,7 @@ def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_t
     _onedrive_ensure_folder(token, remote_folder)
 
     full_path = f"{remote_folder}/{filename}" if remote_folder else f"/{filename}"
-    encoded = urllib.parse.quote(full_path)
+    encoded = urllib.parse.quote(full_path, safe="/")
 
     if len(content) <= 4 * 1024 * 1024:
         meta = _graph_request(
