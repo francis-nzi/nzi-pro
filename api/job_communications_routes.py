@@ -456,7 +456,14 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
     styles = getSampleStyleSheet()
     normal = ParagraphStyle("OverviewNormal", parent=styles["Normal"], fontSize=10.5, leading=14)
     label = ParagraphStyle("OverviewLabel", parent=styles["Normal"], fontSize=10.5, leading=13, fontName="Helvetica-Bold")
-    title = ParagraphStyle("OverviewTitle", parent=styles["Title"], fontSize=26, leading=30, spaceAfter=2 * mm)
+    title = ParagraphStyle(
+        "OverviewTitle",
+        parent=styles["Title"],
+        fontSize=16,
+        leading=20,
+        alignment=0,
+        spaceAfter=2 * mm,
+    )
     company_style = ParagraphStyle("OverviewCompany", parent=styles["Normal"], fontSize=9.5, leading=13, alignment=2)
     intro_heading = ParagraphStyle("OverviewHeading", parent=styles["Heading2"], fontSize=13.5, leading=16, fontName="Helvetica-Bold")
 
