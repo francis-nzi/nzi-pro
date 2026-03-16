@@ -253,6 +253,14 @@ function LoginPageContent() {
                 {busy ? "Signing in..." : "Sign in"}
               </Button>
               <div className="text-center text-xs text-muted-foreground">
+                By using NZI Pro, you agree to the{" "}
+                <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms of Use</Link>
+                {" and acknowledge the "}
+                <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>
+                {" and "}
+                <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookie Notice</Link>.
+              </div>
+              <div className="text-center text-xs text-muted-foreground">
                 Legal documents:
                 {" "}
                 <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms</Link>
