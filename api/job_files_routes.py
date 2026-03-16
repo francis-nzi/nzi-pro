@@ -84,17 +84,23 @@ def _safe_storage_filename(job_id: int, filename: str) -> str:
 
 
 def _onedrive_enabled() -> bool:
-    try:
-        _drive_base_path()
-    except Exception:
-        return False
-    return all(
+    required_auth = [
+        str(os.getenv("MS_TENANT_ID") or "").strip(),
+        str(os.getenv("MS_CLIENT_ID") or "").strip(),
+        str(os.getenv("MS_CLIENT_SECRET") or "").strip(),
+    ]
+    has_target = any(
         [
-            str(os.getenv("MS_TENANT_ID") or "").strip(),
-            str(os.getenv("MS_CLIENT_ID") or "").strip(),
-            str(os.getenv("MS_CLIENT_SECRET") or "").strip(),
+            str(os.getenv("MS_ONEDRIVE_DRIVE_ID") or "").strip(),
+            str(os.getenv("MS_ONEDRIVE_SITE_ID") or "").strip(),
+            (
+                str(os.getenv("MS_ONEDRIVE_SITE_HOST") or "").strip()
+                and str(os.getenv("MS_ONEDRIVE_SITE_PATH") or "").strip()
+            ),
+            str(os.getenv("MS_ONEDRIVE_USER_ID") or "").strip(),
         ]
     )
+    return all(required_auth) and bool(has_target)
 
 
 def _graph_raw_request(method: str, url: str, body: bytes | None = None, headers: dict[str, str] | None = None) -> bytes:
@@ -114,7 +120,7 @@ def _graph_raw_request(method: str, url: str, body: bytes | None = None, headers
 
 
 def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
     segments = [seg for seg in str(folder_path or "").strip("/").split("/") if seg]
     current = ""
     for segment in segments:
@@ -147,7 +153,7 @@ def _onedrive_job_folder(job_id: int, file_type: str) -> str:
 
 def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_type: str) -> dict[str, str | int | None]:
     token = _graph_token()
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
     remote_folder = _onedrive_job_folder(job_id, file_type)
     _onedrive_ensure_folder(token, remote_folder)
 
@@ -456,7 +462,7 @@ def delete_job_file(
 
         if storage_provider == "onedrive" and external_item_id:
             token = _graph_token()
-            drive_base = _drive_base_path()
+            drive_base = _drive_base_path(token)
             _graph_request("DELETE", f"{drive_base}/items/{urllib.parse.quote(external_item_id)}", token)
         elif file_path and os.path.exists(file_path):
             try:
@@ -501,7 +507,7 @@ def download_job_file(
             if not external_item_id:
                 raise HTTPException(status_code=404, detail="External file ID missing")
             token = _graph_token()
-            drive_base = _drive_base_path()
+            drive_base = _drive_base_path(token)
             content, content_type = _graph_download(
                 f"{drive_base}/items/{urllib.parse.quote(external_item_id)}/content",
                 token,

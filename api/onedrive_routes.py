@@ -25,7 +25,22 @@ def _graph_base() -> str:
     return "https://graph.microsoft.com/v1.0"
 
 
-def _drive_base_path() -> str:
+def _site_base_path_from_path(token: str) -> str:
+    site_host = str(os.getenv("MS_ONEDRIVE_SITE_HOST") or "").strip()
+    site_path = str(os.getenv("MS_ONEDRIVE_SITE_PATH") or "").strip()
+    if not (site_host and site_path):
+        raise HTTPException(status_code=500, detail="MS_ONEDRIVE_SITE_HOST and MS_ONEDRIVE_SITE_PATH must both be set")
+
+    normalized_path = "/" + site_path.strip("/")
+    encoded = urllib.parse.quote(normalized_path, safe="/")
+    site = _graph_request("GET", f"/sites/{site_host}:{encoded}", token)
+    site_id = str(site.get("id") or "").strip()
+    if not site_id:
+        raise HTTPException(status_code=500, detail="Failed to resolve SharePoint site id from host/path")
+    return f"/sites/{site_id}/drive"
+
+
+def _drive_base_path(token: str | None = None) -> str:
     drive_id = str(os.getenv("MS_ONEDRIVE_DRIVE_ID") or "").strip()
     site_id = str(os.getenv("MS_ONEDRIVE_SITE_ID") or "").strip()
     site_host = str(os.getenv("MS_ONEDRIVE_SITE_HOST") or "").strip()
@@ -37,9 +52,9 @@ def _drive_base_path() -> str:
     if site_id:
         return f"/sites/{site_id}/drive"
     if site_host and site_path:
-        normalized_path = "/" + site_path.strip("/")
-        encoded = urllib.parse.quote(normalized_path, safe="/")
-        return f"/sites/{site_host}:{encoded}:/drive"
+        if not token:
+            raise HTTPException(status_code=500, detail="SharePoint site host/path configured but token unavailable to resolve site id")
+        return _site_base_path_from_path(token)
     if user_id:
         return f"/users/{user_id}/drive"
 
@@ -157,7 +172,7 @@ def _joined_remote_path(path: str | None) -> str:
 @router.get("/health")
 def onedrive_health(_user: dict = Depends(_current_user)):
     token = _graph_token()
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
     remote_path = _joined_remote_path(None)
     if remote_path:
         target = f"{drive_base}/root:{urllib.parse.quote(remote_path, safe='/')}:"
@@ -176,7 +191,7 @@ def onedrive_health(_user: dict = Depends(_current_user)):
 @router.get("/list")
 def onedrive_list(path: str | None = Query(default=None), _user: dict = Depends(_current_user)):
     token = _graph_token()
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
     remote_path = _joined_remote_path(path)
     if remote_path:
         encoded = urllib.parse.quote(remote_path, safe="/")
@@ -207,7 +222,7 @@ async def onedrive_upload(
     _user: dict = Depends(_current_user),
 ):
     token = _graph_token()
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
 
     filename = str(file.filename or "").strip()
     if not filename:
@@ -240,7 +255,7 @@ async def onedrive_upload(
 @router.get("/download/{item_id}")
 def onedrive_download(item_id: str, _user: dict = Depends(_current_user)):
     token = _graph_token()
-    drive_base = _drive_base_path()
+    drive_base = _drive_base_path(token)
     safe_id = urllib.parse.quote(str(item_id).strip())
     meta = _graph_request("GET", f"{drive_base}/items/{safe_id}", token)
     name = str(meta.get("name") or "download.bin")
