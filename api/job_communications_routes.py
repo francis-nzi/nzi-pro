@@ -488,7 +488,9 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
     right_parts: list[Any] = []
     logo_path = _nzi_logo_path()
     if logo_path:
-        right_parts.append(Image(logo_path, width=48 * mm, height=24 * mm, kind="proportional"))
+        logo = Image(logo_path, width=48 * mm, height=24 * mm, kind="proportional")
+        logo.hAlign = "RIGHT"
+        right_parts.append(logo)
         right_parts.append(Spacer(1, 1 * mm))
     right_parts.append(
         Paragraph(
