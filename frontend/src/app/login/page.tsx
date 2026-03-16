@@ -260,15 +260,6 @@ function LoginPageContent() {
                 {" and "}
                 <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookie Notice</Link>.
               </div>
-              <div className="text-center text-xs text-muted-foreground">
-                Legal documents:
-                {" "}
-                <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms</Link>
-                {" | "}
-                <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy</Link>
-                {" | "}
-                <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookies</Link>
-              </div>
             </form>
           ) : (
             <form className="space-y-4" onSubmit={onSubmitMfa}>
