@@ -160,7 +160,7 @@ def onedrive_health(_user: dict = Depends(_current_user)):
     drive_base = _drive_base_path()
     remote_path = _joined_remote_path(None)
     if remote_path:
-        target = f"{drive_base}/root:{urllib.parse.quote(remote_path)}"
+        target = f"{drive_base}/root:{urllib.parse.quote(remote_path)}:"
     else:
         target = f"{drive_base}/root"
     meta = _graph_request("GET", target, token)

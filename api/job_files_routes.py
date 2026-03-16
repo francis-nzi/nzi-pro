@@ -121,7 +121,7 @@ def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
         current = f"{current}/{segment}" if current else f"/{segment}"
         encoded = urllib.parse.quote(current)
         try:
-            _graph_request("GET", f"{drive_base}/root:{encoded}", token)
+            _graph_request("GET", f"{drive_base}/root:{encoded}:", token)
             continue
         except HTTPException as e:
             if "Graph API error 404" not in str(e.detail):
