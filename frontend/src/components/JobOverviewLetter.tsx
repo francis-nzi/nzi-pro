@@ -79,8 +79,10 @@ export default function JobOverviewLetter({ jobId, baseUrl }: Props) {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/overview-letter/pdf?ts=${Date.now()}`, {
         credentials: "include",
       });
-      const txt = await res.text().catch(() => "");
-      if (!res.ok) throw new Error(`Failed to refresh preview (${res.status})${txt ? `: ${txt}` : ""}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Failed to refresh preview (${res.status})${txt ? `: ${txt}` : ""}`);
+      }
       const blob = await res.blob();
       const nextUrl = URL.createObjectURL(blob);
       setPreviewUrl((prev) => {
