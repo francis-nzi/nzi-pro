@@ -339,6 +339,40 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
     <div className="space-y-6">
       {status ? <div className="rounded-md bg-muted p-3 text-sm">{status}</div> : null}
 
+      {showEmail ? (
+        <Card>
+          <CardHeader><CardTitle>Email Client / Contact</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <Label>Contact</Label>
+              <Select value={emailTo} onValueChange={(v) => setEmailTo(v)}>
+                <SelectTrigger><SelectValue placeholder="Select contact email" /></SelectTrigger>
+                <SelectContent>
+                  {contacts.map((c) => (
+                    <SelectItem key={`contact-${c.contact_id}`} value={c.email || `contact-${c.contact_id}`}>
+                      {c.full_name}{c.email ? ` (${c.email})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Email To</Label>
+              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="name@client.com" />
+            </div>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={5} />
+            </div>
+            <Button onClick={sendEmail} disabled={saving}>Send Email</Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {showEmail ? <JobOverviewLetter jobId={jobId} baseUrl={baseUrl} /> : null}
 
       {showInbox ? (
@@ -489,40 +523,6 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                 <Textarea value={messageText} onChange={(e) => setMessageText(e.target.value)} rows={5} />
               </div>
               <Button onClick={addCommunication} disabled={saving}>Log Entry</Button>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {showEmail ? (
-          <Card>
-            <CardHeader><CardTitle>Email Client / Contact</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <Label>Contact</Label>
-                <Select value={emailTo} onValueChange={(v) => setEmailTo(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select contact email" /></SelectTrigger>
-                  <SelectContent>
-                    {contacts.map((c) => (
-                      <SelectItem key={`contact-${c.contact_id}`} value={c.email || `contact-${c.contact_id}`}>
-                        {c.full_name}{c.email ? ` (${c.email})` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Email To</Label>
-                <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="name@client.com" />
-              </div>
-              <div className="space-y-2">
-                <Label>Subject</Label>
-                <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Message</Label>
-                <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={5} />
-              </div>
-              <Button onClick={sendEmail} disabled={saving}>Send Email</Button>
             </CardContent>
           </Card>
         ) : null}
