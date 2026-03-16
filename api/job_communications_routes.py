@@ -21,7 +21,7 @@ from services.outbound_email import list_outbound_emails, send_tracked_email
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 router = APIRouter(tags=["job-communications"])
@@ -536,7 +536,8 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
     intro = (
         f"This document provides an overview of the discussions we have had regarding your job "
         f"<b>{html.escape(str(context.get('job_number') or ''))}</b>. "
-        f"We are working together to meet each milestone so your required report can be delivered on time and to a high standard."
+        f"We are working together to meet each milestone so that your required report can be delivered on time and to a high standard. "
+        f"Our services are provided subject to our Standard Terms and Conditions, available on our website and in our client portal."
     )
     milestone_note = (
         "You will receive automatic system emails 7 days before each milestone date, confirming the milestone status "
@@ -621,6 +622,45 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
         Spacer(1, 3 * mm),
         Paragraph(f"<b>{html.escape(str(context.get('crm_name') or 'NZI CRM'))}</b>", label),
         Paragraph("Client Relationship Manager", normal),
+        PageBreak(),
+        Paragraph("STANDARD TERMS SUMMARY", intro_heading),
+        Spacer(1, 3 * mm),
+        Paragraph(
+            "The services described in this Job Overview Letter are supplied by Net Zero International Limited subject to our Standard Terms and Conditions.",
+            normal,
+        ),
+        Spacer(1, 4 * mm),
+        Paragraph("<b>1. Scope of Services</b>", normal),
+        Paragraph("Services are provided with reasonable skill and care in accordance with the agreed scope, assumptions and timetable.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>2. Client Responsibilities</b>", normal),
+        Paragraph("The Client is responsible for providing accurate, complete and timely information, records, access and instructions required for the engagement.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>3. Reliance on Information</b>", normal),
+        Paragraph("NZI may rely on information supplied by the Client or third parties unless independent verification is expressly included in scope.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>4. Use of Deliverables</b>", normal),
+        Paragraph("Deliverables are provided for the Client's internal business purposes only and may not be relied on by third parties without NZI's prior written consent.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>5. Intellectual Property</b>", normal),
+        Paragraph("NZI retains ownership of its methodologies, tools, templates, software and underlying intellectual property. The Client receives a non-exclusive licence to use agreed deliverables for its internal business purposes, subject to payment in full.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>6. Confidentiality</b>", normal),
+        Paragraph("Each party shall keep the other's confidential information confidential, except where disclosure is required by law or reasonably necessary for professional advisers, insurers or subcontractors.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>7. Data Protection</b>", normal),
+        Paragraph("Each party shall comply with applicable data protection law. Depending on the nature of the services, NZI may act as controller, processor or separate controller for limited administrative, compliance and service-improvement purposes.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>8. Fees and Payment</b>", normal),
+        Paragraph("Unless otherwise agreed in writing, invoices are payable within 7 days of the invoice date.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>9. Liability</b>", normal),
+        Paragraph("Nothing excludes liability that cannot lawfully be excluded. Subject to that, NZI's total aggregate liability arising from the engagement shall not exceed the fees paid by the Client under the relevant engagement in the 12 months preceding the event giving rise to the claim. NZI shall not be liable for indirect or consequential loss, loss of profit, loss of revenue, loss of business or loss of goodwill.", normal),
+        Spacer(1, 2 * mm),
+        Paragraph("<b>10. Governing Law</b>", normal),
+        Paragraph("The engagement is governed by the laws of England and Wales, and the courts of England and Wales shall have exclusive jurisdiction.", normal),
+        Spacer(1, 4 * mm),
+        Paragraph("A copy of NZI's full Standard Terms and Conditions is available on our website and in our client portal.", normal),
     ]
 
     buf = io.BytesIO()

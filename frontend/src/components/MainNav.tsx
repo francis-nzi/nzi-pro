@@ -39,6 +39,7 @@ const ADMIN_QUICK_LINKS: Array<{
 
 const HELP_LINKS = [
   { label: "Support", href: "/support" },
+  { label: "Legal", href: "/support/legal" },
   { label: "Data Bank", href: "/support/data-bank" },
   { label: "Feedback", href: "/feedback" },
 ] as const;

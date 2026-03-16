@@ -79,6 +79,23 @@ export default function SupportPage() {
           </CardContent>
         </Card>
 
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Legal Documents</CardTitle>
+            <CardDescription>
+              Access NZI's Standard Terms &amp; Conditions, Portal Terms of Use, Privacy Policy and Cookie Notice.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              These documents apply to NZI services and use of the website, client portal and application.
+            </p>
+            <Button asChild>
+              <Link href="/support/legal">Open Legal Documents</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
         <div className="grid gap-4">
           {filteredTopics.length === 0 ? (
             <Card>
