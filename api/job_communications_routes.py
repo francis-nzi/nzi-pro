@@ -502,6 +502,7 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
     right_block.setStyle(
         TableStyle(
             [
+                ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
