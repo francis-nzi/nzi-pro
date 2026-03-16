@@ -148,7 +148,7 @@ def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
 
 def _onedrive_job_folder(job_id: int, file_type: str) -> str:
     suffix = "generated-reports" if file_type == "generated_report" else "client-provided"
-    return _joined_remote_path(f"job-files/job-{int(job_id)}/{suffix}")
+    return _joined_remote_path(f"job-{int(job_id)}/{suffix}")
 
 
 def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_type: str) -> dict[str, str | int | None]:
