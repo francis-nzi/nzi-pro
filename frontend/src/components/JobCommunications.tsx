@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import JobOverviewLetter from "@/components/JobOverviewLetter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -337,6 +338,8 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
   return (
     <div className="space-y-6">
       {status ? <div className="rounded-md bg-muted p-3 text-sm">{status}</div> : null}
+
+      {showEmail ? <JobOverviewLetter jobId={jobId} baseUrl={baseUrl} /> : null}
 
       {showInbox ? (
         <Card>

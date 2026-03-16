@@ -657,13 +657,6 @@ export default function JobDetailPage() {
   const [savingReportMetadata, setSavingReportMetadata] = useState<boolean>(false);
   const [reportMetadataStatus, setReportMetadataStatus] = useState<string>("");
   const [reportMetadataApiUnavailable, setReportMetadataApiUnavailable] = useState<boolean>(false);
-  const [overviewToEmail, setOverviewToEmail] = useState<string>("");
-  const [overviewSubject, setOverviewSubject] = useState<string>("");
-  const [overviewMessage, setOverviewMessage] = useState<string>("");
-  const [overviewPreviewUrl, setOverviewPreviewUrl] = useState<string>("");
-  const [overviewStatus, setOverviewStatus] = useState<string>("");
-  const [overviewError, setOverviewError] = useState<string>("");
-  const [overviewBusy, setOverviewBusy] = useState<boolean>(false);
 
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
   const ownerLabel = (crmName || job?.crm_name || "Unassigned").trim() || "Unassigned";
@@ -1090,24 +1083,6 @@ export default function JobDetailPage() {
             : []
         );
 
-        try {
-          const overviewRes = await fetch(`${baseUrl}/jobs/${jobId}/overview-letter`, {
-            credentials: "include",
-          });
-          if (overviewRes.ok) {
-            const overviewJson = await overviewRes.json();
-            if (!cancelled) {
-              setOverviewToEmail(String(overviewJson?.default_to_email || ""));
-              setOverviewSubject(String(overviewJson?.default_subject || ""));
-              setOverviewMessage(String(overviewJson?.default_message || ""));
-            }
-          }
-        } catch {
-          // Keep job setup load resilient even if overview endpoint is unavailable.
-        }
-        if (!cancelled) {
-          setOverviewPreviewUrl(`${baseUrl}/jobs/${jobId}/overview-letter/pdf?ts=${Date.now()}`);
-        }
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
@@ -1131,44 +1106,6 @@ export default function JobDetailPage() {
       cancelled = true;
     };
   }, [baseUrl, jobId]);
-
-  async function refreshOverviewPreview() {
-    if (!Number.isFinite(jobId) || jobId <= 0) return;
-    setOverviewPreviewUrl(`${baseUrl}/jobs/${jobId}/overview-letter/pdf?ts=${Date.now()}`);
-    setOverviewStatus("Overview letter preview refreshed.");
-    setTimeout(() => setOverviewStatus(""), 2000);
-  }
-
-  async function sendOverviewLetter() {
-    if (!Number.isFinite(jobId) || jobId <= 0) return;
-    setOverviewBusy(true);
-    setOverviewError("");
-    setOverviewStatus("");
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/overview-letter/email`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to_email: overviewToEmail.trim() || undefined,
-          subject: overviewSubject.trim() || undefined,
-          message_text: overviewMessage.trim() || undefined,
-        }),
-      });
-      const text = await res.text().catch(() => "");
-      if (!res.ok) {
-        throw new Error(`Failed to send overview letter (${res.status})${text ? `: ${text}` : ""}`);
-      }
-      setOverviewStatus("Overview letter sent.");
-      setTimeout(() => setOverviewStatus(""), 3000);
-    } catch (e) {
-      setOverviewError((e as Error).message);
-    } finally {
-      setOverviewBusy(false);
-    }
-  }
 
   useEffect(() => {
     let cancelled = false;
@@ -2193,75 +2130,6 @@ export default function JobDetailPage() {
                   </Card>
                 );
               })()}
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Job Overview Letter</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-sm text-muted-foreground">
-                    Review the PDF below before sending. This letter summarizes the job details, reporting period, and milestone commitments.
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="overview-to-email">Email To</Label>
-                      <Input
-                        id="overview-to-email"
-                        value={overviewToEmail}
-                        onChange={(e) => setOverviewToEmail(e.target.value)}
-                        placeholder="client@company.com"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="overview-subject">Subject</Label>
-                      <Input
-                        id="overview-subject"
-                        value={overviewSubject}
-                        onChange={(e) => setOverviewSubject(e.target.value)}
-                        placeholder="Job Overview Letter"
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="overview-message">Email Message</Label>
-                      <Textarea
-                        id="overview-message"
-                        rows={4}
-                        value={overviewMessage}
-                        onChange={(e) => setOverviewMessage(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => void refreshOverviewPreview()} disabled={overviewBusy}>
-                      Refresh PDF
-                    </Button>
-                    {overviewPreviewUrl ? (
-                      <Button variant="outline" asChild>
-                        <a href={overviewPreviewUrl} target="_blank" rel="noreferrer">
-                          Open PDF
-                        </a>
-                      </Button>
-                    ) : null}
-                    <Button onClick={() => void sendOverviewLetter()} disabled={overviewBusy}>
-                      {overviewBusy ? "Sending..." : "Send Overview Letter"}
-                    </Button>
-                  </div>
-
-                  {overviewError ? <div className="text-sm text-destructive">{overviewError}</div> : null}
-                  {overviewStatus ? <div className="text-sm text-muted-foreground">{overviewStatus}</div> : null}
-
-                  <div className="h-[780px] w-full overflow-hidden rounded-md border">
-                    {overviewPreviewUrl ? (
-                      <iframe title="Overview Letter PDF Preview" src={overviewPreviewUrl} className="h-full w-full" />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                        Preview unavailable.
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
 
               {/* Job Report Variables */}
               <Card>
