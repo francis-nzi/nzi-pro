@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearAuthState, setMustChangePassword } from "@/lib/auth-client";
+import { clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -48,7 +49,7 @@ export default function ChangePasswordPage() {
 
       setMustChangePassword(false);
       setOk(payload.message || "Password changed.");
-      setTimeout(() => router.replace("/"), 600);
+      setTimeout(() => router.replace(mustAcceptPortalTerms() ? "/accept-terms" : "/"), 600);
     } catch {
       setError("Password change request failed. Please try again.");
     } finally {
@@ -62,6 +63,10 @@ export default function ChangePasswordPage() {
         <div className="w-full rounded-xl border bg-card p-6 shadow-sm">
           <h1 className="mb-1 text-2xl font-semibold">Change Password</h1>
           <p className="mb-6 text-sm text-muted-foreground">You must change your temporary password to continue.</p>
+          <p className="mb-6 text-xs text-muted-foreground">
+            Legal documents are available in{" "}
+            <Link href="/support/legal" className="underline underline-offset-2 hover:text-foreground">Help</Link>.
+          </p>
 
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">

@@ -1,10 +1,11 @@
 "use client";
 
 import { FormEvent, Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { setAuthState, setMustChangePassword } from "@/lib/auth-client";
+import { setAuthState, setMustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 import {
   Dialog,
   DialogContent,
@@ -20,10 +21,12 @@ type LoginResponse = {
   mfa_required?: boolean;
   mfa_challenge_token?: string;
   must_change_password?: boolean;
+  must_accept_portal_terms?: boolean;
   user?: {
     user_id?: string;
     email?: string;
     must_change_password?: boolean;
+    accepted_portal_terms_version?: string | null;
   };
 };
 
@@ -79,11 +82,16 @@ function LoginPageContent() {
       const token = payload.access_token || null;
       const userIdentity = payload.user?.email || payload.user?.user_id || identifier.trim();
       setAuthState(token, userIdentity || null);
+      setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);
       setMustChangePassword(forceChange);
       if (forceChange) {
         router.replace("/change-password");
+        return;
+      }
+      if (payload.must_accept_portal_terms) {
+        router.replace("/accept-terms");
         return;
       }
 
@@ -126,11 +134,16 @@ function LoginPageContent() {
       const token = payload.access_token || null;
       const userIdentity = payload.user?.email || payload.user?.user_id || identifier.trim();
       setAuthState(token, userIdentity || null);
+      setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);
       setMustChangePassword(forceChange);
       if (forceChange) {
         router.replace("/change-password");
+        return;
+      }
+      if (payload.must_accept_portal_terms) {
+        router.replace("/accept-terms");
         return;
       }
 
@@ -239,6 +252,15 @@ function LoginPageContent() {
               <Button type="submit" className="w-full bg-[#1c5026] text-white hover:bg-[#153f1e]" disabled={busy}>
                 {busy ? "Signing in..." : "Sign in"}
               </Button>
+              <div className="text-center text-xs text-muted-foreground">
+                Legal documents:
+                {" "}
+                <Link href="/support/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms</Link>
+                {" | "}
+                <Link href="/support/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy</Link>
+                {" | "}
+                <Link href="/support/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookies</Link>
+              </div>
             </form>
           ) : (
             <form className="space-y-4" onSubmit={onSubmitMfa}>
@@ -271,6 +293,10 @@ function LoginPageContent() {
                 >
                   Back
                 </Button>
+              </div>
+              <div className="text-center text-xs text-muted-foreground">
+                Legal documents are available in{" "}
+                <Link href="/support/legal" className="underline underline-offset-2 hover:text-foreground">Help</Link>.
               </div>
             </form>
           )}

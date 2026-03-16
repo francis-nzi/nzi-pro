@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login"];
 const FORCE_CHANGE_PATH = "/change-password";
+const ACCEPT_TERMS_PATH = "/accept-terms";
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -21,6 +22,7 @@ export function middleware(request: NextRequest) {
   const hasToken = Boolean(request.cookies.get("nzi_token")?.value);
   const hasUser = Boolean(request.cookies.get("nzi_user")?.value);
   const mustChangePassword = request.cookies.get("nzi_force_pw_change")?.value === "1";
+  const mustAcceptTerms = request.cookies.get("nzi_accept_terms")?.value === "1";
   const isAuthed = hasToken || hasUser;
 
   if (!isAuthed && !isPublic) {
@@ -35,6 +37,14 @@ export function middleware(request: NextRequest) {
   }
 
   if (isAuthed && !mustChangePassword && pathname === FORCE_CHANGE_PATH) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  if (isAuthed && !mustChangePassword && mustAcceptTerms && pathname !== ACCEPT_TERMS_PATH) {
+    return NextResponse.redirect(new URL(ACCEPT_TERMS_PATH, request.url));
+  }
+
+  if (isAuthed && !mustAcceptTerms && pathname === ACCEPT_TERMS_PATH) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 

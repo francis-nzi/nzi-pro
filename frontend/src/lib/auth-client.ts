@@ -3,6 +3,7 @@
 export const TOKEN_COOKIE = "nzi_token";
 export const USER_COOKIE = "nzi_user";
 export const FORCE_PASSWORD_CHANGE_COOKIE = "nzi_force_pw_change";
+export const ACCEPT_TERMS_COOKIE = "nzi_accept_terms";
 
 function cookieValue(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -44,6 +45,7 @@ export function clearAuthState(): void {
   clearCookie(TOKEN_COOKIE);
   clearCookie(USER_COOKIE);
   clearCookie(FORCE_PASSWORD_CHANGE_COOKIE);
+  clearCookie(ACCEPT_TERMS_COOKIE);
 }
 
 export function setMustChangePassword(value: boolean): void {
@@ -53,6 +55,15 @@ export function setMustChangePassword(value: boolean): void {
 
 export function mustChangePassword(): boolean {
   return cookieValue(FORCE_PASSWORD_CHANGE_COOKIE) === "1";
+}
+
+export function setMustAcceptPortalTerms(value: boolean): void {
+  if (value) setCookie(ACCEPT_TERMS_COOKIE, "1");
+  else clearCookie(ACCEPT_TERMS_COOKIE);
+}
+
+export function mustAcceptPortalTerms(): boolean {
+  return cookieValue(ACCEPT_TERMS_COOKIE) === "1";
 }
 
 function isApiRequest(url: string): boolean {

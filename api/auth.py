@@ -48,7 +48,8 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
         with get_conn() as con:
             row = con.execute(
                 """
-                SELECT user_id, full_name, role, email, status, COALESCE(must_change_password, FALSE)
+                SELECT user_id, full_name, role, email, status, COALESCE(must_change_password, FALSE),
+                       accepted_portal_terms_at, accepted_portal_terms_version
                 FROM users
                 WHERE lower(email) = lower(?)
                 LIMIT 1
@@ -72,6 +73,8 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
         "email": row[3],
         "status": row[4],
         "must_change_password": bool(row[5]),
+        "accepted_portal_terms_at": row[6].isoformat() if row[6] else None,
+        "accepted_portal_terms_version": row[7],
     }
 
 

@@ -29,6 +29,7 @@ except Exception:  # pragma: no cover
     Fernet = None
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+PORTAL_TERMS_VERSION = "2026-03-16"
 
 
 def _jwt_secret() -> str:
@@ -108,6 +109,21 @@ def _ensure_users_invite_columns(con) -> None:
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_expires_at TIMESTAMP")
     except Exception:
         pass
+
+
+def _ensure_portal_terms_columns(con) -> None:
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS accepted_portal_terms_at TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS accepted_portal_terms_version VARCHAR")
+    except Exception:
+        pass
+
+
+def _must_accept_portal_terms(user: Dict) -> bool:
+    return str(user.get("accepted_portal_terms_version") or "").strip() != PORTAL_TERMS_VERSION
 
 
 def _temporary_password(length: int = 14) -> str:
@@ -231,7 +247,12 @@ def _issue_login_result(user: Dict) -> Dict:
     if _strict_auth_required() and not secret:
         raise HTTPException(status_code=500, detail="Server auth misconfigured: NZI_JWT_SECRET missing in strict mode")
     if not secret:
-        return {"user": user, "must_change_password": bool(user.get("must_change_password"))}
+        return {
+            "user": user,
+            "must_change_password": bool(user.get("must_change_password")),
+            "must_accept_portal_terms": _must_accept_portal_terms(user),
+            "portal_terms_version": PORTAL_TERMS_VERSION,
+        }
     if jwt is None:
         raise HTTPException(status_code=500, detail="Server auth misconfigured: PyJWT missing")
     now = datetime.utcnow()
@@ -246,6 +267,8 @@ def _issue_login_result(user: Dict) -> Dict:
         "token_type": "bearer",
         "user": user,
         "must_change_password": bool(user.get("must_change_password")),
+        "must_accept_portal_terms": _must_accept_portal_terms(user),
+        "portal_terms_version": PORTAL_TERMS_VERSION,
     }
 
 
@@ -337,6 +360,8 @@ def login(body: Dict):
                 "role": user.get("role"),
             },
             "must_change_password": bool(user.get("must_change_password")),
+            "must_accept_portal_terms": _must_accept_portal_terms(user),
+            "portal_terms_version": PORTAL_TERMS_VERSION,
         }
     result = _issue_login_result(user)
     result["mfa_required"] = False
@@ -681,7 +706,37 @@ def register(body: Dict):
 
 @router.get("/me")
 def me(user: Dict[str, str] = Depends(_current_user)):
-    return {"user": user}
+    return {
+        "user": user,
+        "must_accept_portal_terms": _must_accept_portal_terms(user),
+        "portal_terms_version": PORTAL_TERMS_VERSION,
+    }
+
+
+@router.post("/accept-portal-terms")
+def accept_portal_terms(user: Dict[str, str] = Depends(_current_user)):
+    ident = str(user.get("email") or user.get("user_id") or "").strip()
+    if not ident:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    accepted_at = datetime.now(timezone.utc)
+    with get_conn() as con:
+        _ensure_portal_terms_columns(con)
+        con.execute(
+            """
+            UPDATE users
+            SET accepted_portal_terms_at = ?,
+                accepted_portal_terms_version = ?
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            """,
+            [accepted_at, PORTAL_TERMS_VERSION, ident, ident],
+        )
+
+    return {
+        "ok": True,
+        "accepted_portal_terms_at": accepted_at.isoformat(),
+        "accepted_portal_terms_version": PORTAL_TERMS_VERSION,
+    }
 
 
 @router.post("/forgot-password")
