@@ -115,6 +115,7 @@ export default function BusinessDevelopmentPage() {
   const [leadServices, setLeadServices] = useState<LeadGenService[]>([]);
   const [serviceKeys, setServiceKeys] = useState<string[]>([]);
   const [binDate, setBinDate] = useState(todayIso);
+  const [generationMode, setGenerationMode] = useState<"market-scan" | "daily-leads">("market-scan");
   const [regions, setRegions] = useState("United Kingdom, Europe");
   const [revenueMin, setRevenueMin] = useState("5");
   const [revenueMax, setRevenueMax] = useState("15");
@@ -124,6 +125,7 @@ export default function BusinessDevelopmentPage() {
   );
   const [leadsPerService, setLeadsPerService] = useState("25");
   const [generatingLeads, setGeneratingLeads] = useState(false);
+  const [enrichingLeads, setEnrichingLeads] = useState(false);
   const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
   const [leadBinSummary, setLeadBinSummary] = useState<LeadBinSummary[]>([]);
   const [binReasons, setBinReasons] = useState<BinReason[]>([]);
@@ -449,6 +451,7 @@ export default function BusinessDevelopmentPage() {
       setGeneratingLeads(true);
       const payload = {
         bin_date: binDate || todayIso,
+        generation_mode: generationMode,
         regions: regions.split(",").map((x) => x.trim()).filter(Boolean),
         revenue_min_m_gbp: Number(revenueMin || 5),
         revenue_max_m_gbp: Number(revenueMax || 15),
@@ -476,13 +479,52 @@ export default function BusinessDevelopmentPage() {
         }
       }
       const inserted = Number(responsePayload?.inserted_or_updated || 0);
-      setStatus(`AI daily leads generated: ${inserted} verifiable leads added to today's bin.`);
+      setStatus(
+        generationMode === "market-scan"
+          ? `Market scan generated: ${inserted} companies added to today's bin.`
+          : `AI daily leads generated: ${inserted} verifiable leads added to today's bin.`
+      );
       await loadLeadBins();
       await load();
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
       setGeneratingLeads(false);
+    }
+  }
+
+  async function enrichVisibleLeads() {
+    try {
+      setEnrichingLeads(true);
+      const payload = {
+        bin_date: binDate || todayIso,
+        revenue_min_m_gbp: Number(revenueMin || 5),
+        revenue_max_m_gbp: Number(revenueMax || 15),
+        target_roles: targetRoles.split(",").map((x) => x.trim()).filter(Boolean),
+        limit: Math.min(visibleGeneratedLeads.length || 15, 25),
+      };
+      const res = await fetch(`${baseUrl}/bd/lead-generator/enrich`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const txt = await res.text();
+      if (!res.ok) throw new Error(`Failed to enrich leads (${res.status})${txt ? `: ${txt}` : ""}`);
+      let responsePayload: { updated?: number } = {};
+      if (txt && txt.trim()) {
+        try {
+          responsePayload = JSON.parse(txt) as { updated?: number };
+        } catch {
+          responsePayload = {};
+        }
+      }
+      setStatus(`Lead enrichment complete: ${Number(responsePayload.updated || 0)} leads updated.`);
+      await loadLeadBins();
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setEnrichingLeads(false);
     }
   }
 
@@ -651,6 +693,22 @@ export default function BusinessDevelopmentPage() {
             <CardTitle>AI Lead Generator</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={generationMode === "market-scan" ? "default" : "outline"}
+                onClick={() => setGenerationMode("market-scan")}
+              >
+                Market Scan
+              </Button>
+              <Button
+                type="button"
+                variant={generationMode === "daily-leads" ? "default" : "outline"}
+                onClick={() => setGenerationMode("daily-leads")}
+              >
+                Daily Lead Batch
+              </Button>
+            </div>
             <div className="grid gap-3 md:grid-cols-5">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Bin Date</label>
@@ -669,7 +727,9 @@ export default function BusinessDevelopmentPage() {
                 <Input type="number" value={revenueMax} onChange={(e) => setRevenueMax(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Leads / service / day</label>
+                <label className="text-xs text-muted-foreground">
+                  {generationMode === "market-scan" ? "Companies per scan" : "Leads / service / day"}
+                </label>
                 <Input type="number" value={leadsPerService} onChange={(e) => setLeadsPerService(e.target.value)} />
               </div>
             </div>
@@ -709,20 +769,25 @@ export default function BusinessDevelopmentPage() {
                 })}
               </div>
               <div className="text-xs text-muted-foreground">
-                Optional. Leave all services unselected to generate leads purely from the revenue band, target industries and preferred contact roles.
+                Optional. In Market Scan mode, service selection is ignored and the scan is driven by revenue band, target industries and preferred contact roles.
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <Button onClick={() => void generateAIDailyLeads()} disabled={generatingLeads}>
-                {generatingLeads ? "Generating..." : "Generate Daily Leads"}
+                {generatingLeads ? "Generating..." : generationMode === "market-scan" ? "Generate Market Scan" : "Generate Daily Leads"}
+              </Button>
+              <Button variant="outline" onClick={() => void enrichVisibleLeads()} disabled={enrichingLeads || visibleGeneratedLeads.length === 0}>
+                {enrichingLeads ? "Enriching..." : "Enrich Visible Leads"}
               </Button>
               <Button variant="outline" onClick={() => void refreshBinWithStatus()}>
                 Refresh Bin
               </Button>
             </div>
             <div className="text-xs text-muted-foreground">
-              Generates candidate leads for your selected services, currently tuned for mid-market companies in the specified revenue band, target industries and buyer/contact roles, then stores them in daily bins for team qualification.
+              {generationMode === "market-scan"
+                ? "Market Scan builds a broader pool of companies first, based on industry and revenue targeting. Use Enrich Visible Leads as a second pass to improve buyer-role and contact detail."
+                : "Daily Lead Batch generates a smaller, more targeted daily set using the selected criteria and optional service context."}
             </div>
 
             {leadBinSummary.length > 0 ? (

@@ -596,6 +596,207 @@ def _leadgen_fallback(
     return results[:limit]
 
 
+def _market_scan_search_terms(target_industries: list[str], regions: list[str]) -> list[str]:
+    region_text = str(regions[0]).strip() if regions else ""
+    mappings = {
+        "construction": [
+            "construction contractor",
+            "building contractor",
+            "civil engineering",
+            "fit out contractor",
+            "refurbishment contractor",
+            "building services",
+        ],
+        "healthcare": [
+            "healthcare provider",
+            "care home operator",
+            "private hospital",
+            "medical services",
+            "social care provider",
+            "clinical services",
+        ],
+    }
+    out: list[str] = []
+    for industry in target_industries or ["Construction", "Healthcare"]:
+        terms = mappings.get(str(industry).strip().lower(), [str(industry).strip()])
+        for term in terms:
+            out.append(term)
+            if region_text:
+                out.append(f"{term} {region_text}")
+    return list(dict.fromkeys([x for x in out if x.strip()]))
+
+
+def _companies_house_profile(company_number: str, api_key: str) -> dict[str, Any]:
+    return _companies_house_get_json(f"https://api.company-information.service.gov.uk/company/{quote_plus(company_number)}", api_key)
+
+
+def _market_scan_companies_house_leads(
+    regions: list[str],
+    target_industries: list[str],
+    limit: int,
+) -> tuple[list[dict[str, Any]], str | None]:
+    api_key = _env_value("COMPANIES_HOUSE_API_KEY", "")
+    if not api_key:
+        return [], "COMPANIES_HOUSE_API_KEY is not set"
+
+    candidates: list[dict[str, Any]] = []
+    seen_numbers: set[str] = set()
+    last_error: str | None = None
+    for term in _market_scan_search_terms(target_industries, regions):
+        if len(candidates) >= max(limit * 3, 60):
+            break
+        url = f"https://api.company-information.service.gov.uk/search/companies?q={quote_plus(term)}&items_per_page=50"
+        try:
+            payload = _companies_house_get_json(url, api_key)
+        except HTTPError as e:
+            last_error = f"Companies House HTTP error ({e.code})"
+            continue
+        except URLError as e:
+            last_error = f"Companies House network error: {e.reason}"
+            continue
+        except Exception as e:
+            last_error = f"Companies House request failed: {str(e)}"
+            continue
+        for item in payload.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            company_number = str(item.get("company_number") or "").strip()
+            if not company_number or company_number in seen_numbers:
+                continue
+            seen_numbers.add(company_number)
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            try:
+                profile = _companies_house_profile(company_number, api_key)
+            except Exception:
+                profile = {}
+            sic_list = profile.get("sic_codes") if isinstance(profile.get("sic_codes"), list) else item.get("sic_codes")
+            sic_text = ", ".join([str(s).strip() for s in (sic_list or []) if str(s).strip()])
+            candidate = {
+                "company_name": title,
+                "industry": sic_text or str(item.get("description") or "").strip(),
+                "country": "United Kingdom",
+                "city": str(item.get("address_snippet") or "").strip(),
+                "website": _ch_profile_link(company_number),
+                "contact_name": "",
+                "contact_role": "",
+                "contact_email": "",
+                "contact_phone": "",
+                "revenue_gbp_millions": 0.0,
+                "likelihood_score": _heuristic_likelihood_for_service("market-targeting", sic_text),
+                "why_good_lead": "Broad market-scan match based on Companies House sector signals. Revenue and contacts still need qualification.",
+                "trigger_reason": "Fits current industry targeting and should be reviewed for buyer role relevance.",
+                "source_references": _ch_profile_link(company_number),
+            }
+            if _is_consultancy_competitor_candidate(candidate):
+                continue
+            if not _matches_target_industries(candidate, target_industries):
+                continue
+            candidates.append(candidate)
+            if len(candidates) >= max(limit * 3, 60):
+                break
+
+    unique: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in candidates:
+        key = _normalize_company_key(item.get("company_name"))
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique.append(item)
+    unique.sort(key=lambda x: float(x.get("likelihood_score") or 0), reverse=True)
+    if unique:
+        return unique[:limit], None
+    return [], last_error or "Companies House returned no matching companies."
+
+
+def _parse_json_object(text: str) -> dict[str, Any]:
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        pass
+    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.DOTALL)
+    if not m:
+        return {}
+    try:
+        obj = json.loads(m.group(1))
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        return {}
+
+
+def _enrich_single_lead_with_ai(
+    item: dict[str, Any],
+    target_roles: list[str],
+    revenue_min: float,
+    revenue_max: float,
+) -> tuple[dict[str, Any] | None, str | None]:
+    prompt = (
+        "Return ONLY valid JSON object with keys: contact_name, contact_role, contact_email, contact_phone, "
+        "revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
+        "Only provide named contact, email or phone if publicly verifiable. If not verifiable, leave as empty strings.\n"
+        "Prefer identifying the best-fit buyer role from the target roles rather than inventing a person.\n"
+        f"Company: {item.get('company_name')}\n"
+        f"Industry: {item.get('industry')}\n"
+        f"Website: {item.get('website')}\n"
+        f"Country: {item.get('country')}\n"
+        f"Revenue target band (GBP millions): {revenue_min} to {revenue_max}\n"
+        f"Preferred contact roles: {', '.join(target_roles)}\n"
+        "likelihood_score must be 0-100.\n"
+        "source_references should include at least 2 URLs when possible, separated by ' | '."
+    )
+
+    api_key = _env_value("OPENAI_API_KEY", "")
+    if api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=_env_value("OPENAI_MODEL", "gpt-4.1"),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=900,
+            )
+            content = (response.choices[0].message.content or "").strip() if response.choices else ""
+            parsed = _parse_json_object(content)
+            if parsed:
+                return parsed, None
+        except Exception as e:
+            return None, f"OpenAI enrich failed: {e}"
+
+    gemini_key = _env_value("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{_env_value('GEMINI_MODEL', 'gemini-2.0-flash')}:generateContent?key={gemini_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 1200},
+            }
+            req = Request(url, method="POST", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+            with urlopen(req, timeout=40) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+            data = json.loads(body) if body else {}
+            candidates = data.get("candidates") if isinstance(data, dict) else None
+            text = ""
+            if isinstance(candidates, list) and candidates:
+                content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+                parts = content.get("parts") if isinstance(content, dict) else None
+                if isinstance(parts, list):
+                    text = " ".join([str(p.get("text") or "") for p in parts if isinstance(p, dict)]).strip()
+            parsed = _parse_json_object(text)
+            if parsed:
+                return parsed, None
+        except Exception as e:
+            return None, f"Gemini enrich failed: {e}"
+
+    return None, "No AI provider configured for enrichment."
+
+
 def _service_search_terms(service_key: str, regions: list[str]) -> list[str]:
     region_text = " ".join([r for r in regions if str(r).strip()]).strip()
     common = [region_text] if region_text else []
@@ -1338,6 +1539,7 @@ def list_bin_reasons(_user: dict = Depends(_current_user)):
 def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     try:
         actor = _actor(_user)
+        generation_mode = str(body.get("generation_mode") or "daily-leads").strip().lower()
         bin_day = _to_date(body.get("bin_date"))
         leads_per_service = int(max(1, min(100, _safe_int(body.get("leads_per_service"), 25) or 25)))
         revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
@@ -1410,7 +1612,9 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             selected_keys: set[str] = set()
             if isinstance(selected_keys_raw, list):
                 selected_keys = {str(x).strip() for x in selected_keys_raw if str(x).strip()}
-            if selected_keys:
+            if generation_mode == "market-scan":
+                selected_services = [{"service_key": "market-targeting", "service_name": "Industry & Role Targeting"}]
+            elif selected_keys:
                 selected_services = [svc for svc in all_services if svc["service_key"] in selected_keys]
             else:
                 selected_services = [{"service_key": "market-targeting", "service_name": "Industry & Role Targeting"}]
@@ -1437,19 +1641,16 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             for svc in selected_services:
                 service_key = svc["service_key"]
                 service_name = svc["service_name"]
-                generated, ai_diag = _openai_generate_service_leads(
-                    service_name=service_name,
-                    service_key=service_key,
-                    regions=regions,
-                    revenue_min=revenue_min,
-                    revenue_max=revenue_max,
-                    limit=leads_per_service,
-                    target_industries=target_industries,
-                    target_roles=target_roles,
-                    allow_fallback=allow_fallback,
-                )
-                if not generated:
-                    generated, gemini_diag = _gemini_generate_service_leads(
+                if generation_mode == "market-scan":
+                    generated, scan_diag = _market_scan_companies_house_leads(
+                        regions=regions,
+                        target_industries=target_industries,
+                        limit=leads_per_service,
+                    )
+                    if scan_diag:
+                        diagnostics[service_key] = scan_diag
+                else:
+                    generated, ai_diag = _openai_generate_service_leads(
                         service_name=service_name,
                         service_key=service_key,
                         regions=regions,
@@ -1460,10 +1661,22 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         target_roles=target_roles,
                         allow_fallback=allow_fallback,
                     )
-                    if gemini_diag:
-                        diagnostics[service_key] = gemini_diag
-                elif ai_diag:
-                    diagnostics[service_key] = ai_diag
+                    if not generated:
+                        generated, gemini_diag = _gemini_generate_service_leads(
+                            service_name=service_name,
+                            service_key=service_key,
+                            regions=regions,
+                            revenue_min=revenue_min,
+                            revenue_max=revenue_max,
+                            limit=leads_per_service,
+                            target_industries=target_industries,
+                            target_roles=target_roles,
+                            allow_fallback=allow_fallback,
+                        )
+                        if gemini_diag:
+                            diagnostics[service_key] = gemini_diag
+                    elif ai_diag:
+                        diagnostics[service_key] = ai_diag
                 if not generated:
                     diagnostics[service_key] = diagnostics.get(service_key) or "No verifiable open-source leads returned for current filters."
                 inserted_for_service = 0
@@ -1553,6 +1766,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "consultancy_competitor": excluded_competitor_count,
             },
             "criteria": {
+                "generation_mode": generation_mode,
                 "regions": regions,
                 "revenue_min_m_gbp": revenue_min,
                 "revenue_max_m_gbp": revenue_max,
@@ -1572,6 +1786,103 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate daily leads: {e}")
+
+
+@router.post("/bd/lead-generator/enrich")
+def enrich_generated_leads(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    try:
+        actor = _actor(_user)
+        bin_day = _to_date(body.get("bin_date"))
+        limit = int(max(1, min(50, _safe_int(body.get("limit"), 15) or 15)))
+        revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
+        revenue_max = float(max(revenue_min, _safe_float(body.get("revenue_max_m_gbp"), 15.0)))
+        target_roles_input = body.get("target_roles")
+        if isinstance(target_roles_input, list):
+            target_roles = [str(x).strip() for x in target_roles_input if str(x).strip()]
+        else:
+            target_roles = [part.strip() for part in str(target_roles_input or "").split(",") if part.strip()]
+        if not target_roles:
+            target_roles = [
+                "Business Development Manager",
+                "Business Development Director",
+                "Sales Manager",
+                "Sales Director",
+                "Sustainability Manager",
+                "ESG Manager",
+                "Social Value Manager",
+                "Bid Manager",
+            ]
+
+        updated = 0
+        diagnostics: list[str] = []
+        with get_conn() as con:
+            _ensure_tables(con)
+            df = con.execute(
+                """
+                SELECT generated_lead_id, company_name, industry, country, city, website,
+                       contact_name, contact_role, contact_email, contact_phone,
+                       revenue_gbp_millions, likelihood_score, why_good_lead,
+                       trigger_reason, source_references
+                FROM bd_ai_generated_leads
+                WHERE bin_date = ?
+                  AND lower(coalesce(qualification_status, 'new')) = 'new'
+                ORDER BY likelihood_score DESC, company_name ASC
+                LIMIT ?
+                """,
+                [bin_day.isoformat(), limit],
+            ).df()
+            if df is None or df.empty:
+                return {"ok": True, "updated": 0, "message": "No leads available for enrichment."}
+
+            for _, row in df.iterrows():
+                lead = _serialize_generated_lead(dict(row))
+                enriched, error = _enrich_single_lead_with_ai(lead, target_roles, revenue_min, revenue_max)
+                if error:
+                    diagnostics.append(error)
+                    continue
+                if not enriched:
+                    continue
+                con.execute(
+                    """
+                    UPDATE bd_ai_generated_leads
+                    SET contact_name = ?,
+                        contact_role = ?,
+                        contact_email = ?,
+                        contact_phone = ?,
+                        revenue_gbp_millions = ?,
+                        likelihood_score = ?,
+                        why_good_lead = ?,
+                        trigger_reason = ?,
+                        source_references = ?,
+                        updated_at = NOW()
+                    WHERE generated_lead_id = ?
+                    """,
+                    [
+                        str(enriched.get("contact_name") or lead.get("contact_name") or "").strip() or None,
+                        str(enriched.get("contact_role") or lead.get("contact_role") or "").strip() or None,
+                        str(enriched.get("contact_email") or lead.get("contact_email") or "").strip() or None,
+                        str(enriched.get("contact_phone") or lead.get("contact_phone") or "").strip() or None,
+                        _safe_float(enriched.get("revenue_gbp_millions"), _safe_float(lead.get("revenue_gbp_millions"), 0)),
+                        _normalize_likelihood_score(enriched.get("likelihood_score") if enriched.get("likelihood_score") is not None else lead.get("likelihood_score")),
+                        str(enriched.get("why_good_lead") or lead.get("why_good_lead") or "").strip() or None,
+                        str(enriched.get("trigger_reason") or lead.get("trigger_reason") or "").strip() or None,
+                        str(enriched.get("source_references") or lead.get("source_references") or "").strip() or None,
+                        int(lead.get("generated_lead_id") or 0),
+                    ],
+                )
+                updated += 1
+
+        return {
+            "ok": True,
+            "updated": updated,
+            "bin_date": bin_day.isoformat(),
+            "generated_by": actor,
+            "diagnostics": diagnostics[:10],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enrich generated leads: {e}")
 
 
 @router.get("/bd/lead-generator/bins")
