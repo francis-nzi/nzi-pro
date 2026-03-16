@@ -116,8 +116,12 @@ export default function BusinessDevelopmentPage() {
   const [serviceKeys, setServiceKeys] = useState<string[]>([]);
   const [binDate, setBinDate] = useState(todayIso);
   const [regions, setRegions] = useState("United Kingdom, Europe");
-  const [revenueMin, setRevenueMin] = useState("2");
-  const [revenueMax, setRevenueMax] = useState("150");
+  const [revenueMin, setRevenueMin] = useState("5");
+  const [revenueMax, setRevenueMax] = useState("15");
+  const [targetIndustries, setTargetIndustries] = useState("Construction, Healthcare");
+  const [targetRoles, setTargetRoles] = useState(
+    "Business Development Manager, Business Development Director, Sales Manager, Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
+  );
   const [leadsPerService, setLeadsPerService] = useState("10");
   const [generatingLeads, setGeneratingLeads] = useState(false);
   const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
@@ -449,8 +453,10 @@ export default function BusinessDevelopmentPage() {
       const payload = {
         bin_date: binDate || todayIso,
         regions: regions.split(",").map((x) => x.trim()).filter(Boolean),
-        revenue_min_m_gbp: Number(revenueMin || 2),
-        revenue_max_m_gbp: Number(revenueMax || 150),
+        revenue_min_m_gbp: Number(revenueMin || 5),
+        revenue_max_m_gbp: Number(revenueMax || 15),
+        target_industries: targetIndustries.split(",").map((x) => x.trim()).filter(Boolean),
+        target_roles: targetRoles.split(",").map((x) => x.trim()).filter(Boolean),
         leads_per_service: Number(leadsPerService || 10),
         service_keys: serviceKeys,
         replace_existing: true,
@@ -671,6 +677,21 @@ export default function BusinessDevelopmentPage() {
               </div>
             </div>
 
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Target Industries</label>
+                <Input value={targetIndustries} onChange={(e) => setTargetIndustries(e.target.value)} placeholder="Construction, Healthcare" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Preferred Contact Roles</label>
+                <Input
+                  value={targetRoles}
+                  onChange={(e) => setTargetRoles(e.target.value)}
+                  placeholder="Business Development Manager, Sales Director, ESG Manager, Bid Manager"
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground">Services</div>
               <div className="flex flex-wrap gap-2">
@@ -701,7 +722,7 @@ export default function BusinessDevelopmentPage() {
               </Button>
             </div>
             <div className="text-xs text-muted-foreground">
-              Generates candidate leads for Carbon Reduction Plans, Net Zero support, consultancy, and training/workshops, then stores them in daily bins for team qualification.
+              Generates candidate leads for your selected services, currently tuned for mid-market companies in the specified revenue band, target industries and buyer/contact roles, then stores them in daily bins for team qualification.
             </div>
 
             {leadBinSummary.length > 0 ? (

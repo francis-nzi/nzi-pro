@@ -496,22 +496,22 @@ def _leadgen_fallback(
     revenue_min: float,
     revenue_max: float,
     limit: int,
+    target_industries: list[str] | None = None,
+    target_roles: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     geo = regions[0] if regions else "United Kingdom"
+    normalized_industries = [str(x).strip() for x in (target_industries or []) if str(x).strip()]
     templates = [
-        ("Regional care services group", "Healthcare Support Services"),
-        ("Mid-market food producer", "Food Manufacturing"),
-        ("Logistics and distribution operator", "Transport & Logistics"),
-        ("Facilities management specialist", "Facilities Management"),
+        ("Regional care services group", "Healthcare"),
+        ("Private hospital operator", "Healthcare"),
+        ("Specialist care home provider", "Healthcare"),
         ("Construction subcontractor", "Construction"),
-        ("IT managed services provider", "IT Services"),
-        ("Private education provider", "Education"),
-        ("Waste and recycling contractor", "Waste Management"),
-        ("Engineering services SME", "Engineering Services"),
-        ("Industrial maintenance company", "Industrial Services"),
-        ("Specialist packaging manufacturer", "Packaging"),
-        ("Regional retail chain", "Retail"),
+        ("Regional building contractor", "Construction"),
+        ("Fit-out and refurbishment specialist", "Construction"),
     ]
+    if normalized_industries:
+        templates = [row for row in templates if any(ind.lower() in row[1].lower() for ind in normalized_industries)] or templates
+    role_templates = [str(x).strip() for x in (target_roles or []) if str(x).strip()]
     results: list[dict[str, Any]] = []
     for idx, (company, industry) in enumerate(templates[: max(1, limit)], start=1):
         company_name = f"{company} {idx}"
@@ -531,7 +531,7 @@ def _leadgen_fallback(
                 "city": "",
                 "website": "",
                 "contact_name": "",
-                "contact_role": "",
+                "contact_role": role_templates[(idx - 1) % len(role_templates)] if role_templates else "",
                 "contact_email": "",
                 "contact_phone": "",
                 "revenue_gbp_millions": round(revenue, 1),
@@ -723,19 +723,21 @@ def _openai_generate_service_leads(
     revenue_min: float,
     revenue_max: float,
     limit: int,
+    target_industries: list[str],
+    target_roles: list[str],
     allow_fallback: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     try:
         from openai import OpenAI
     except Exception:
         if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit), "OpenAI SDK unavailable; used fallback."
+            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "OpenAI SDK unavailable; used fallback."
         return [], "OpenAI SDK unavailable."
 
     api_key = _env_value("OPENAI_API_KEY", "")
     if not api_key:
         if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit), "OPENAI_API_KEY missing; used fallback."
+            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "OPENAI_API_KEY missing; used fallback."
         return [], "OPENAI_API_KEY missing."
 
     configured_model = _env_value("OPENAI_MODEL", "gpt-4.1")
@@ -743,6 +745,11 @@ def _openai_generate_service_leads(
     model_candidates = list(dict.fromkeys([m for m in model_candidates if str(m).strip()]))
     client = OpenAI(api_key=api_key)
     geography = ", ".join([r for r in regions if str(r).strip()]) or "United Kingdom, Europe"
+    industries_text = ", ".join([x for x in target_industries if str(x).strip()]) or "Construction, Healthcare"
+    roles_text = ", ".join([x for x in target_roles if str(x).strip()]) or (
+        "Business Development Manager, Business Development Director, Sales Manager, "
+        "Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
+    )
     service_guidance = _service_specific_prompt_guidance(service_key)
     prompt = (
         "Return ONLY valid JSON array with exactly up to "
@@ -755,6 +762,10 @@ def _openai_generate_service_leads(
         f"Service line: {service_name} ({service_key})\n"
         f"Regions: {geography}\n"
         f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+        f"Target industries: {industries_text}\n"
+        f"Preferred contact roles: {roles_text}\n"
+        "Prioritize leads only in the target industries.\n"
+        "Prefer leads where one of the preferred contact roles can be identified.\n"
         "Prioritize organizations likely to require carbon reduction plans or disclosure evidence as suppliers "
         "to NHS/public sector/large enterprise procurement chains.\n"
         "likelihood_score must be 0-100.\n"
@@ -828,7 +839,7 @@ def _openai_generate_service_leads(
                     break
             if out:
                 if len(out) < limit and allow_fallback:
-                    extra = _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out))
+                    extra = _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out), target_industries, target_roles)
                     out.extend(extra)
                 return out[:limit], None
             last_error = f"{model}: produced 0 qualifying leads"
@@ -836,7 +847,7 @@ def _openai_generate_service_leads(
             last_error = f"{model}: {str(e)}"
             continue
     if allow_fallback:
-        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit), (last_error or "OpenAI failed; used fallback.")
+        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), (last_error or "OpenAI failed; used fallback.")
     return [], (last_error or "OpenAI returned no qualifying leads.")
 
 
@@ -847,12 +858,14 @@ def _gemini_generate_service_leads(
     revenue_min: float,
     revenue_max: float,
     limit: int,
+    target_industries: list[str],
+    target_roles: list[str],
     allow_fallback: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     api_key = _env_value("GEMINI_API_KEY", "")
     if not api_key:
         if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit), "GEMINI_API_KEY missing; used fallback."
+            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "GEMINI_API_KEY missing; used fallback."
         return [], "GEMINI_API_KEY missing."
 
     configured_model = _env_value("GEMINI_MODEL", "gemini-2.0-flash")
@@ -895,6 +908,11 @@ def _gemini_generate_service_leads(
         others = [m for m in discovered_models if m not in preferred]
         model_candidates = preferred + others
     geography = ", ".join([r for r in regions if str(r).strip()]) or "United Kingdom, Europe"
+    industries_text = ", ".join([x for x in target_industries if str(x).strip()]) or "Construction, Healthcare"
+    roles_text = ", ".join([x for x in target_roles if str(x).strip()]) or (
+        "Business Development Manager, Business Development Director, Sales Manager, "
+        "Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
+    )
     service_guidance = _service_specific_prompt_guidance(service_key)
     prompt = (
         "Return ONLY valid JSON array with up to "
@@ -906,6 +924,10 @@ def _gemini_generate_service_leads(
         f"Service line: {service_name} ({service_key})\n"
         f"Regions: {geography}\n"
         f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+        f"Target industries: {industries_text}\n"
+        f"Preferred contact roles: {roles_text}\n"
+        "Prioritize leads only in the target industries.\n"
+        "Prefer leads where one of the preferred contact roles can be identified.\n"
         "Prioritize likely suppliers to NHS/public sector/large enterprise procurement chains.\n"
         "source_references should include at least 2 URLs, separated by ' | '."
     )
@@ -986,7 +1008,7 @@ def _gemini_generate_service_leads(
                     break
             if out:
                 if len(out) < limit and allow_fallback:
-                    out.extend(_leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out)))
+                    out.extend(_leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out), target_industries, target_roles))
                 return out[:limit], None
             errors.append(f"{model}: produced 0 qualifying leads")
         except HTTPError as e:
@@ -1005,7 +1027,7 @@ def _gemini_generate_service_leads(
             continue
     detail = "; ".join(errors[:5]) if errors else "Gemini returned no qualifying leads."
     if allow_fallback:
-        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit), detail + "; used fallback."
+        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), detail + "; used fallback."
     return [], detail
 
 
@@ -1259,10 +1281,40 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
         actor = _actor(_user)
         bin_day = _to_date(body.get("bin_date"))
         leads_per_service = int(max(1, min(25, _safe_int(body.get("leads_per_service"), 10) or 10)))
-        revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 2.0)))
-        revenue_max = float(max(revenue_min, _safe_float(body.get("revenue_max_m_gbp"), 150.0)))
+        revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
+        revenue_max = float(max(revenue_min, _safe_float(body.get("revenue_max_m_gbp"), 15.0)))
         replace_existing = bool(body.get("replace_existing", True))
         allow_fallback = bool(body.get("allow_fallback", False))
+        industries_input = body.get("target_industries")
+        if isinstance(industries_input, list):
+            target_industries = [str(x).strip() for x in industries_input if str(x).strip()]
+        else:
+            target_industries = [part.strip() for part in str(industries_input or "Construction, Healthcare").split(",") if part.strip()]
+        if not target_industries:
+            target_industries = ["Construction", "Healthcare"]
+        roles_input = body.get("target_roles")
+        if isinstance(roles_input, list):
+            target_roles = [str(x).strip() for x in roles_input if str(x).strip()]
+        else:
+            target_roles = [
+                part.strip()
+                for part in str(
+                    roles_input
+                    or "Business Development Manager, Business Development Director, Sales Manager, Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
+                ).split(",")
+                if part.strip()
+            ]
+        if not target_roles:
+            target_roles = [
+                "Business Development Manager",
+                "Business Development Director",
+                "Sales Manager",
+                "Sales Director",
+                "Sustainability Manager",
+                "ESG Manager",
+                "Social Value Manager",
+                "Bid Manager",
+            ]
         regions_input = body.get("regions")
         if isinstance(regions_input, list):
             regions = [str(r).strip() for r in regions_input if str(r).strip()]
@@ -1333,6 +1385,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     revenue_min=revenue_min,
                     revenue_max=revenue_max,
                     limit=leads_per_service,
+                    target_industries=target_industries,
+                    target_roles=target_roles,
                     allow_fallback=allow_fallback,
                 )
                 if not generated:
@@ -1343,6 +1397,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         revenue_min=revenue_min,
                         revenue_max=revenue_max,
                         limit=leads_per_service,
+                        target_industries=target_industries,
+                        target_roles=target_roles,
                         allow_fallback=allow_fallback,
                     )
                     if gemini_diag:
@@ -1441,6 +1497,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "regions": regions,
                 "revenue_min_m_gbp": revenue_min,
                 "revenue_max_m_gbp": revenue_max,
+                "target_industries": target_industries,
+                "target_roles": target_roles,
                 "leads_per_service": leads_per_service,
             },
             "note": "Leads are AI-generated candidates and should be team-qualified before outreach.",
