@@ -431,7 +431,51 @@ def _serialize_generated_lead(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_company_key(value: Any) -> str:
-    return " ".join(str(value or "").strip().lower().split())
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\b(limited|ltd|plc|llp|group|holdings|holding|uk)\b", " ", text)
+    return " ".join(text.split())
+
+
+def _normalize_likelihood_score(value: Any) -> float:
+    score = _safe_float(value, 0)
+    if 0 < score <= 1:
+        score *= 100.0
+    return round(max(0.0, min(100.0, score)), 1)
+
+
+def _matches_target_industries(item: dict[str, Any], target_industries: list[str]) -> bool:
+    targets = [str(x).strip().lower() for x in target_industries if str(x).strip()]
+    if not targets:
+        return True
+    text = " ".join(
+        [
+            str(item.get("industry") or ""),
+            str(item.get("company_name") or ""),
+            str(item.get("why_good_lead") or ""),
+            str(item.get("trigger_reason") or ""),
+            str(item.get("source_references") or ""),
+        ]
+    ).lower()
+    aliases = {
+        "construction": ["construction", "contractor", "housebuilding", "civil engineering", "fit-out", "refurbishment", "building"],
+        "healthcare": ["healthcare", "health care", "hospital", "care home", "care provider", "medical", "clinical", "nhs", "social care"],
+    }
+    for target in targets:
+        candidate_terms = aliases.get(target, [target])
+        if any(term in text for term in candidate_terms):
+            return True
+    return False
+
+
+def _matches_target_roles(item: dict[str, Any], target_roles: list[str]) -> bool:
+    targets = [str(x).strip().lower() for x in target_roles if str(x).strip()]
+    if not targets:
+        return True
+    role = str(item.get("contact_role") or "").strip().lower()
+    if not role:
+        return False
+    return any(target in role or role in target for target in targets)
 
 
 def _is_consultancy_competitor_candidate(item: dict[str, Any]) -> bool:
@@ -452,6 +496,10 @@ def _is_consultancy_competitor_candidate(item: dict[str, Any]) -> bool:
         "advisor",
         "professional services",
         "management services",
+        "social value consultant",
+        "bid consultancy",
+        "esg consultancy",
+        "sustainability consultancy",
     ]
     climate_markers = [
         "carbon",
@@ -522,7 +570,7 @@ def _leadgen_fallback(
             f"https://www.google.com/search?q={company_query}+{geo}+sustainability",
             "https://www.gov.uk/government/publications/procurement-policy-note-0621-taking-account-of-carbon-reduction-plans-ppn-0621",
         ]
-        score = max(45.0, min(95.0, 58.0 + (idx * 3.7)))
+        score = max(55.0, min(95.0, 62.0 + (idx * 4.2)))
         revenue = min(revenue_max, max(revenue_min, revenue_min + (idx * ((revenue_max - revenue_min) / max(2, limit + 1)))))
         results.append(
             {
@@ -536,7 +584,7 @@ def _leadgen_fallback(
                 "contact_email": "",
                 "contact_phone": "",
                 "revenue_gbp_millions": round(revenue, 1),
-                "likelihood_score": round(score, 1),
+                "likelihood_score": _normalize_likelihood_score(score),
                 "why_good_lead": (
                     f"Likely fit for {service_name} based on sector decarbonization pressure, buyer disclosure requirements, "
                     "and probable value-chain reporting requests."
@@ -804,9 +852,29 @@ def _openai_generate_service_leads(
                 if key in seen:
                     continue
                 seen.add(key)
-                score = _safe_float(row.get("likelihood_score"), 0)
+                score = _normalize_likelihood_score(row.get("likelihood_score"))
                 revenue = _safe_float(row.get("revenue_gbp_millions"), 0)
                 if revenue and (revenue < revenue_min or revenue > revenue_max):
+                    continue
+                candidate = {
+                    "company_name": company,
+                    "industry": str(row.get("industry") or "").strip(),
+                    "country": str(row.get("country") or "").strip(),
+                    "city": str(row.get("city") or "").strip(),
+                    "website": "",
+                    "contact_name": str(row.get("contact_name") or "").strip(),
+                    "contact_role": str(row.get("contact_role") or "").strip(),
+                    "contact_email": str(row.get("contact_email") or "").strip(),
+                    "contact_phone": str(row.get("contact_phone") or "").strip(),
+                    "revenue_gbp_millions": round(revenue, 2) if revenue else 0.0,
+                    "likelihood_score": score,
+                    "why_good_lead": str(row.get("why_good_lead") or "").strip(),
+                    "trigger_reason": str(row.get("trigger_reason") or "").strip(),
+                    "source_references": str(row.get("source_references") or "").strip(),
+                }
+                if not _matches_target_industries(candidate, target_industries):
+                    continue
+                if not _matches_target_roles(candidate, target_roles):
                     continue
                 website = str(row.get("website") or "").strip()
                 if not website or not website.lower().startswith(("http://", "https://")):
@@ -818,24 +886,9 @@ def _openai_generate_service_leads(
                         f"https://www.google.com/search?q={quote_plus(company + ' sustainability report')} | "
                         "https://www.gov.uk/government/publications/procurement-policy-note-0621-taking-account-of-carbon-reduction-plans-ppn-0621"
                     )
-                out.append(
-                    {
-                        "company_name": company,
-                        "industry": str(row.get("industry") or "").strip(),
-                        "country": str(row.get("country") or "").strip(),
-                        "city": str(row.get("city") or "").strip(),
-                        "website": website,
-                        "contact_name": str(row.get("contact_name") or "").strip(),
-                        "contact_role": str(row.get("contact_role") or "").strip(),
-                        "contact_email": str(row.get("contact_email") or "").strip(),
-                        "contact_phone": str(row.get("contact_phone") or "").strip(),
-                        "revenue_gbp_millions": round(revenue, 2) if revenue else 0.0,
-                        "likelihood_score": round(max(0.0, min(100.0, score)), 1),
-                        "why_good_lead": str(row.get("why_good_lead") or "").strip(),
-                        "trigger_reason": str(row.get("trigger_reason") or "").strip(),
-                        "source_references": source_refs,
-                    }
-                )
+                candidate["website"] = website
+                candidate["source_references"] = source_refs
+                out.append(candidate)
                 if len(out) >= limit:
                     break
             if out:
@@ -973,9 +1026,29 @@ def _gemini_generate_service_leads(
                 if key in seen:
                     continue
                 seen.add(key)
-                score = _safe_float(row.get("likelihood_score"), 0)
+                score = _normalize_likelihood_score(row.get("likelihood_score"))
                 revenue = _safe_float(row.get("revenue_gbp_millions"), 0)
                 if revenue and (revenue < revenue_min or revenue > revenue_max):
+                    continue
+                candidate = {
+                    "company_name": company,
+                    "industry": str(row.get("industry") or "").strip(),
+                    "country": str(row.get("country") or "").strip(),
+                    "city": str(row.get("city") or "").strip(),
+                    "website": "",
+                    "contact_name": str(row.get("contact_name") or "").strip(),
+                    "contact_role": str(row.get("contact_role") or "").strip(),
+                    "contact_email": str(row.get("contact_email") or "").strip(),
+                    "contact_phone": str(row.get("contact_phone") or "").strip(),
+                    "revenue_gbp_millions": round(revenue, 2) if revenue else 0.0,
+                    "likelihood_score": score,
+                    "why_good_lead": str(row.get("why_good_lead") or "").strip(),
+                    "trigger_reason": str(row.get("trigger_reason") or "").strip(),
+                    "source_references": str(row.get("source_references") or "").strip(),
+                }
+                if not _matches_target_industries(candidate, target_industries):
+                    continue
+                if not _matches_target_roles(candidate, target_roles):
                     continue
                 website = str(row.get("website") or "").strip()
                 if not website or not website.lower().startswith(("http://", "https://")):
@@ -987,24 +1060,9 @@ def _gemini_generate_service_leads(
                         f"https://www.google.com/search?q={quote_plus(company + ' sustainability report')} | "
                         "https://www.gov.uk/government/publications/procurement-policy-note-0621-taking-account-of-carbon-reduction-plans-ppn-0621"
                     )
-                out.append(
-                    {
-                        "company_name": company,
-                        "industry": str(row.get("industry") or "").strip(),
-                        "country": str(row.get("country") or "").strip(),
-                        "city": str(row.get("city") or "").strip(),
-                        "website": website,
-                        "contact_name": str(row.get("contact_name") or "").strip(),
-                        "contact_role": str(row.get("contact_role") or "").strip(),
-                        "contact_email": str(row.get("contact_email") or "").strip(),
-                        "contact_phone": str(row.get("contact_phone") or "").strip(),
-                        "revenue_gbp_millions": round(revenue, 2) if revenue else 0.0,
-                        "likelihood_score": round(max(0.0, min(100.0, score)), 1),
-                        "why_good_lead": str(row.get("why_good_lead") or "").strip(),
-                        "trigger_reason": str(row.get("trigger_reason") or "").strip(),
-                        "source_references": source_refs,
-                    }
-                )
+                candidate["website"] = website
+                candidate["source_references"] = source_refs
+                out.append(candidate)
                 if len(out) >= limit:
                     break
             if out:
@@ -1281,7 +1339,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
     try:
         actor = _actor(_user)
         bin_day = _to_date(body.get("bin_date"))
-        leads_per_service = int(max(1, min(25, _safe_int(body.get("leads_per_service"), 10) or 10)))
+        leads_per_service = int(max(1, min(100, _safe_int(body.get("leads_per_service"), 25) or 25)))
         revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
         revenue_max = float(max(revenue_min, _safe_float(body.get("revenue_max_m_gbp"), 15.0)))
         replace_existing = bool(body.get("replace_existing", True))

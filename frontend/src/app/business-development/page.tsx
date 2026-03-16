@@ -122,7 +122,7 @@ export default function BusinessDevelopmentPage() {
   const [targetRoles, setTargetRoles] = useState(
     "Business Development Manager, Business Development Director, Sales Manager, Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
   );
-  const [leadsPerService, setLeadsPerService] = useState("10");
+  const [leadsPerService, setLeadsPerService] = useState("25");
   const [generatingLeads, setGeneratingLeads] = useState(false);
   const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
   const [leadBinSummary, setLeadBinSummary] = useState<LeadBinSummary[]>([]);
