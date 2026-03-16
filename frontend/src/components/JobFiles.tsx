@@ -17,6 +17,10 @@ type JobFile = {
   description: string | null;
   uploaded_by: string | null;
   uploaded_at: string | null;
+  storage_provider?: string | null;
+  external_item_id?: string | null;
+  external_web_url?: string | null;
+  external_path?: string | null;
 };
 
 type JobScopeRow = {
@@ -175,6 +179,10 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     return `${row.scope}: ${label}`;
   }
 
+  function getStorageLabel(file: JobFile): string {
+    return file.storage_provider === "onedrive" ? "SharePoint / OneDrive" : "Local server";
+  }
+
   const clientFiles = files.filter(f => f.file_type === "client_provided");
   const generatedFiles = files.filter(f => f.file_type === "generated_report");
 
@@ -303,9 +311,30 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                           <div className="text-xs text-muted-foreground">
                             Uploaded by {file.uploaded_by || "unknown"} on {file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : "unknown"}
                           </div>
+                          <div className="text-xs text-muted-foreground">
+                            Stored in: {getStorageLabel(file)}
+                          </div>
+                          {file.external_path ? (
+                            <div className="text-xs text-muted-foreground break-all">
+                              Remote path: {file.external_path}
+                            </div>
+                          ) : file.file_path ? (
+                            <div className="text-xs text-muted-foreground break-all">
+                              Local path: {file.file_path}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        {file.external_web_url ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(file.external_web_url || "", "_blank")}
+                          >
+                            Open in SharePoint
+                          </Button>
+                        ) : null}
                         <Button
                           variant="outline"
                           size="sm"
@@ -355,9 +384,30 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                           <div className="text-xs text-muted-foreground">
                             Uploaded by {file.uploaded_by || "unknown"} on {file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : "unknown"}
                           </div>
+                          <div className="text-xs text-muted-foreground">
+                            Stored in: {getStorageLabel(file)}
+                          </div>
+                          {file.external_path ? (
+                            <div className="text-xs text-muted-foreground break-all">
+                              Remote path: {file.external_path}
+                            </div>
+                          ) : file.file_path ? (
+                            <div className="text-xs text-muted-foreground break-all">
+                              Local path: {file.file_path}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        {file.external_web_url ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(file.external_web_url || "", "_blank")}
+                          >
+                            Open in SharePoint
+                          </Button>
+                        ) : null}
                         <Button
                           variant="outline"
                           size="sm"

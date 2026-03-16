@@ -28,18 +28,27 @@ def _graph_base() -> str:
 def _drive_base_path() -> str:
     drive_id = str(os.getenv("MS_ONEDRIVE_DRIVE_ID") or "").strip()
     site_id = str(os.getenv("MS_ONEDRIVE_SITE_ID") or "").strip()
+    site_host = str(os.getenv("MS_ONEDRIVE_SITE_HOST") or "").strip()
+    site_path = str(os.getenv("MS_ONEDRIVE_SITE_PATH") or "").strip()
     user_id = str(os.getenv("MS_ONEDRIVE_USER_ID") or "").strip()
 
     if drive_id:
         return f"/drives/{drive_id}"
     if site_id:
         return f"/sites/{site_id}/drive"
+    if site_host and site_path:
+        normalized_path = "/" + site_path.strip("/")
+        encoded = urllib.parse.quote(normalized_path, safe="/")
+        return f"/sites/{site_host}:{encoded}:/drive"
     if user_id:
         return f"/users/{user_id}/drive"
 
     raise HTTPException(
         status_code=500,
-        detail="OneDrive target not configured. Set MS_ONEDRIVE_DRIVE_ID or MS_ONEDRIVE_SITE_ID or MS_ONEDRIVE_USER_ID.",
+        detail=(
+            "OneDrive target not configured. Set MS_ONEDRIVE_DRIVE_ID or MS_ONEDRIVE_SITE_ID "
+            "or MS_ONEDRIVE_SITE_HOST + MS_ONEDRIVE_SITE_PATH or MS_ONEDRIVE_USER_ID."
+        ),
     )
 
 
@@ -242,4 +251,3 @@ def onedrive_download(item_id: str, _user: dict = Depends(_current_user)):
         media_type=content_type or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
-
