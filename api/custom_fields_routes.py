@@ -8,6 +8,138 @@ from psycopg2.extras import RealDictCursor
 
 router = APIRouter(prefix="/custom-fields", tags=["custom_fields"])
 
+DEFAULT_CUSTOM_FIELDS = [
+    {
+        "field_name": "referral",
+        "field_type": "dropdown",
+        "field_label": "Referral",
+        "is_required": False,
+        "entity_type": "client",
+        "options": [
+            {"label": "David Hawes", "value": "david_hawes"},
+            {"label": "Chris Williams", "value": "chris_williams"},
+        ],
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "parent-client",
+        "field_type": "dropdown",
+        "field_label": "Parent Client",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "accelerator",
+        "field_type": "dropdown",
+        "field_label": "Accelerator",
+        "is_required": False,
+        "entity_type": "job",
+        "options": [
+            {"label": "Pilot", "value": "pilot"},
+            {"label": "National 1", "value": "national_1"},
+            {"label": "SOSE 1", "value": "sose_1"},
+            {"label": "EA 1", "value": "ea_1"},
+            {"label": "EA 2", "value": "ea_2"},
+            {"label": "EA 3", "value": "ea_3"},
+            {"label": "EA 4", "value": "ea_4"},
+            {"label": "EA 5", "value": "ea_5"},
+            {"label": "IR 1", "value": "ir_1"},
+            {"label": "NA 1", "value": "na_1"},
+            {"label": "Grangemouth 1", "value": "grangemouth_1"},
+            {"label": "Midlothian 1", "value": "midlothian_1"},
+            {"label": "Year 2", "value": "year_2"},
+            {"label": "Year 3", "value": "year_3"},
+            {"label": "Year 4", "value": "year_4"},
+            {"label": "Year 5", "value": "year_5"},
+            {"label": "Grangemouth 2", "value": "grangemouth_2"},
+            {"label": "FOCN 1", "value": "focn_1"},
+            {"label": "ROLL 1", "value": "roll_1"},
+            {"label": "ROLL 2", "value": "roll_2"},
+            {"label": "ROLL 3", "value": "roll_3"},
+            {"label": "DRY 1", "value": "dry_1"},
+            {"label": "NA 2", "value": "na_2"},
+            {"label": "FPL 1", "value": "fpl_1"},
+            {"label": "OPENREG", "value": "openreg"},
+        ],
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "multi-year-contract-end-date",
+        "field_type": "date",
+        "field_label": "Multi-Year Contract End Date",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "notch-expiry-date",
+        "field_type": "date",
+        "field_label": "notch Expiry Date",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "nzn-direct-debit",
+        "field_type": "checkbox",
+        "field_label": "NZN Direct Debit",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 0,
+        "default_value": "",
+    },
+    {
+        "field_name": "multi_year_contract",
+        "field_type": "checkbox",
+        "field_label": "Multi-Year Contract",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 1,
+        "default_value": None,
+    },
+    {
+        "field_name": "training_place_included",
+        "field_type": "checkbox",
+        "field_label": "Training Place Included",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 2,
+        "default_value": None,
+    },
+    {
+        "field_name": "free_training_place",
+        "field_type": "checkbox",
+        "field_label": "Free Training Place",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 3,
+        "default_value": None,
+    },
+    {
+        "field_name": "date_training_completed",
+        "field_type": "date",
+        "field_label": "Date Training Completed",
+        "is_required": False,
+        "entity_type": "job",
+        "options": None,
+        "display_order": 4,
+        "default_value": None,
+    },
+]
+
 def get_db_connection():
     db_url = os.getenv("DATABASE_URL")
     return psycopg2.connect(db_url, cursor_factory=RealDictCursor)
@@ -15,6 +147,41 @@ def get_db_connection():
 def _current_user():
     # Simplified auth - in production, validate JWT/session
     return {"user_id": "system"}
+
+
+def _ensure_default_custom_fields(conn) -> None:
+    cur = conn.cursor()
+    try:
+        for field in DEFAULT_CUSTOM_FIELDS:
+            cur.execute(
+                """
+                INSERT INTO custom_field_definitions
+                    (field_name, field_type, field_label, is_required, entity_type, options, display_order, default_value, is_active)
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s, TRUE
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM custom_field_definitions
+                    WHERE entity_type = %s
+                      AND lower(field_name) = lower(%s)
+                      AND is_active = TRUE
+                )
+                """,
+                (
+                    field["field_name"],
+                    field["field_type"],
+                    field["field_label"],
+                    field["is_required"],
+                    field["entity_type"],
+                    json.dumps(field["options"]) if field["options"] else None,
+                    field["display_order"],
+                    field["default_value"],
+                    field["entity_type"],
+                    field["field_name"],
+                ),
+            )
+        conn.commit()
+    finally:
+        cur.close()
 
 # Models
 class CustomFieldDefinition(BaseModel):
@@ -40,6 +207,7 @@ def list_field_definitions(
     _user: dict = Depends(_current_user)
 ):
     conn = get_db_connection()
+    _ensure_default_custom_fields(conn)
     cur = conn.cursor()
     
     if entity_type:
