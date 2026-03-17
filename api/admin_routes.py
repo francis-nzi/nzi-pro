@@ -2,7 +2,7 @@
 Admin API routes for team, lookups, datasets, and system management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from api.auth import _current_user
 from core.database import get_conn
@@ -16,10 +16,24 @@ import tempfile
 import secrets
 import string
 import re
+import json
+import os
 from datetime import datetime, timedelta, timezone
+import inspect
 import pandas as pd
+from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _ingest_csv_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -> tuple[int, int]:
+    """Call ingest_csv in a way that works with both older and newer signatures."""
+    from ingest_conversion_factors import ingest_csv
+
+    signature = inspect.signature(ingest_csv)
+    if "dataset_id" in signature.parameters:
+        return ingest_csv(csv_path, replace=replace, dataset_id=dataset_id)
+    return ingest_csv(csv_path, replace=replace)
 
 
 def _ensure_users_position_column(con) -> None:
@@ -1933,12 +1947,9 @@ async def upload_dataset_factors(
             tmp_path = Path(tmp_file.name)
         
         try:
-            # Import the CSV using existing ingest function
-            from ingest_conversion_factors import ingest_csv
-            
             # Full-replace behavior for dataset uploads.
             _ = replace
-            _, factor_count = ingest_csv(tmp_path, replace=True, dataset_id=dataset_id)
+            _, factor_count = _ingest_csv_for_dataset(tmp_path, replace=True, dataset_id=dataset_id)
             
             return {
                 "ok": True,
@@ -2438,10 +2449,101 @@ def remove_job_type_item(
 # Import / Export (WFM)
 # =========================
 
+@router.post("/import-export/legacy/preview")
+async def legacy_annual_preview(
+    job_id: int = Form(...),
+    file: UploadFile = File(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        if not file.filename or not str(file.filename).lower().endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Empty upload")
+        parsed = parse_legacy_annual_workbook(raw)
+        return {
+            "ok": True,
+            "job_id": int(job_id),
+            "filename": str(file.filename),
+            "summary": parsed.get("summary") or {},
+            "warnings": parsed.get("warnings") or [],
+            "rows_ready": parsed.get("rows_ready") or [],
+            "rows_unresolved": parsed.get("rows_unresolved") or [],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to preview legacy annual upload: {e}")
+
+
+@router.post("/import-export/legacy/commit")
+def legacy_annual_commit(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        job_id_raw = body.get("job_id")
+        site_id_raw = body.get("site_id")
+        rows = body.get("rows_ready")
+        if job_id_raw is None:
+            raise HTTPException(status_code=400, detail="job_id is required")
+        try:
+            job_id = int(job_id_raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="job_id must be an integer")
+        site_id = None
+        if site_id_raw is not None and str(site_id_raw).strip() != "":
+            try:
+                site_id = int(site_id_raw)
+            except Exception:
+                raise HTTPException(status_code=400, detail="site_id must be an integer")
+        if not isinstance(rows, list) or not rows:
+            raise HTTPException(status_code=400, detail="rows_ready must be a non-empty list")
+        return commit_legacy_rows(job_id=job_id, site_id=site_id, rows=rows)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to commit legacy annual upload: {e}")
+
+
+@router.post("/import-export/legacy/resolve")
+def legacy_annual_resolve(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        rows_ready = body.get("rows_ready") or []
+        rows_unresolved = body.get("rows_unresolved") or []
+        manual_entries = body.get("manual_lookup") or []
+        if not isinstance(rows_ready, list) or not isinstance(rows_unresolved, list):
+            raise HTTPException(status_code=400, detail="rows_ready and rows_unresolved must be lists")
+
+        manual_lookup: dict[str, str] = {}
+        if isinstance(manual_entries, list):
+            for it in manual_entries:
+                if not isinstance(it, dict):
+                    continue
+                lk = str(it.get("lookup_key") or "").strip()
+                oid = str(it.get("original_id") or "").strip()
+                if lk and oid:
+                    manual_lookup[lk] = oid
+
+        return resolve_unresolved_rows(
+            rows_ready=rows_ready,
+            rows_unresolved=rows_unresolved,
+            manual_lookup=manual_lookup,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to resolve legacy annual rows: {e}")
+
+
 @router.get("/import-export/wfm/summary")
 def wfm_import_summary(_user: dict = Depends(_current_user)):
     try:
-        raw_dir = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
+        raw_dir = _wfm_raw_dir()
         raw_data_available = raw_dir.exists()
 
         files: list[dict] = []
@@ -2560,6 +2662,42 @@ def _default_wfm_targets():
     }
 
 
+WFM_RECOMMENDED_MAPPING_FILES = {
+    "custom_fields.csv",
+    "job_custom_field_values.csv",
+    "client_custom_field_values.csv",
+}
+
+
+def _wfm_raw_dir() -> Path:
+    """Resolve WFM raw_data directory from env override or project default.
+
+    This keeps Render/local deployments resilient when the raw_data folder is not
+    present in the repository artifact yet.
+    """
+    env_path = str(os.getenv("WFM_RAW_DATA_DIR") or "").strip()
+    candidates: list[Path] = []
+    if env_path:
+        candidates.append(Path(env_path))
+    project_default = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
+    candidates.append(project_default)
+    candidates.append(Path.cwd() / "wfm_import" / "raw_data")
+
+    for c in candidates:
+        try:
+            if c.exists():
+                return c
+        except Exception:
+            continue
+
+    # Last resort: create project default so routes don't fail purely on missing dir.
+    try:
+        project_default.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return project_default
+
+
 def _normalize_tokens(value: str) -> list[str]:
     return [t for t in re.split(r"[^a-z0-9]+", str(value or "").lower()) if t]
 
@@ -2588,14 +2726,14 @@ def _score_field_mapping(field_name: str, source_entity: str, target_entity: str
             overlap = len(lt & ct)
             union = max(len(lt | ct), 1)
             jacc = overlap / union
-            score = 45.0 + (jacc * 45.0)
+            score = jacc * 60.0
             local_reason = f"token similarity to '{cand}' ({overlap} overlap)"
 
         # Scope-special boosts
-        if ("scope 1" in lname and "scope_1" in target_field) or ("scope 2" in lname and "scope_2" in target_field) or ("scope 3" in lname and "scope_3" in target_field):
+        if score > 0 and (("scope 1" in lname and "scope_1" in target_field) or ("scope 2" in lname and "scope_2" in target_field) or ("scope 3" in lname and "scope_3" in target_field)):
             score += 8.0
             local_reason += " + scope match"
-        if source_entity and target_entity and source_entity == target_entity:
+        if score > 0 and source_entity and target_entity and source_entity == target_entity:
             score += 4.0
             local_reason += " + entity match"
 
@@ -2632,7 +2770,7 @@ def wfm_mapping_summary(_user: dict = Depends(_current_user)):
     try:
         from wfm_import.wfm_import_routine import WFM_CLIENT_FIELD_CANDIDATES, WFM_JOB_FIELD_CANDIDATES
 
-        raw_dir = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
+        raw_dir = _wfm_raw_dir()
         custom_fields_path = raw_dir / "custom_fields.csv"
         jobs_path = raw_dir / "jobs.csv"
         job_custom_values_path = raw_dir / "job_custom_field_values.csv"
@@ -2705,18 +2843,110 @@ def wfm_mapping_summary(_user: dict = Depends(_current_user)):
 
 
 @router.post("/import-export/wfm/scan")
-def scan_wfm_fields(_user: dict = Depends(_current_user)):
+def scan_wfm_fields(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     try:
         defaults = _default_wfm_targets()
-        raw_dir = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
+        raw_dir = _wfm_raw_dir()
         if not raw_dir.exists():
             raise HTTPException(status_code=404, detail=f"WFM raw_data folder not found: {raw_dir}")
+        include_all = bool((body or {}).get("include_all", False))
+        min_suggest_score = float((body or {}).get("min_suggest_score", 70))
 
         suggestions: list[dict] = []
         with get_conn() as con:
             _ensure_wfm_mapping_tables(con)
             for p in sorted(raw_dir.glob("*.csv")):
+                if not include_all and p.name not in WFM_RECOMMENDED_MAPPING_FILES:
+                    continue
                 df = pd.read_csv(p, dtype=str, keep_default_na=False, na_filter=False)
+                # Special case: custom_fields.csv should catalog actual custom field definitions,
+                # not the metadata column names (e.g. "Dropdown List Options").
+                if p.name.lower() == "custom_fields.csv":
+                    for col in df.columns:
+                        df[col] = df[col].astype(str).str.strip()
+
+                    for _, fr in df.iterrows():
+                        field_name = str(fr.get("Name") or "").strip()
+                        if not field_name:
+                            continue
+                        usage_job = str(fr.get("Usage - Job") or "").strip()
+                        usage_client = str(fr.get("Usage - Client") or "").strip()
+                        source_entity = ""
+                        if "1" in usage_client and "1" not in usage_job:
+                            source_entity = "client"
+                        elif "1" in usage_job and "1" not in usage_client:
+                            source_entity = "job"
+                        elif "1" in usage_job and "1" in usage_client:
+                            source_entity = "job"
+
+                        sample_values = str(fr.get("Dropdown List Options") or "").strip()
+                        if sample_values:
+                            sample_values = sample_values[:400]
+
+                        suggested_entity = None
+                        suggested_target = None
+                        best_score = -1.0
+                        best_reason = ""
+                        ranked: list[dict[str, Any]] = []
+                        for entity, target_map in defaults.items():
+                            for target, candidates in target_map.items():
+                                score, reason = _score_field_mapping(field_name, source_entity, entity, target, candidates)
+                                ranked.append({"target_entity": entity, "target_field": target, "score": score, "reason": reason})
+                                if score > best_score:
+                                    best_score = score
+                                    best_reason = reason
+                                    suggested_entity = entity
+                                    suggested_target = target
+                        ranked = sorted(ranked, key=lambda x: float(x.get("score") or 0), reverse=True)[:3]
+                        if best_score < min_suggest_score:
+                            suggested_entity = None
+                            suggested_target = None
+                            best_reason = "below confidence threshold"
+
+                        con.execute(
+                            """
+                            INSERT INTO wfm_field_catalog (
+                              file_name, field_name, source_entity, sample_values, non_empty_count, distinct_count,
+                              suggested_entity, suggested_target, suggestion_score, suggestion_reason, suggested_candidates_json, updated_at
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                            ON CONFLICT (file_name, field_name) DO UPDATE SET
+                              source_entity = EXCLUDED.source_entity,
+                              sample_values = EXCLUDED.sample_values,
+                              non_empty_count = EXCLUDED.non_empty_count,
+                              distinct_count = EXCLUDED.distinct_count,
+                              suggested_entity = EXCLUDED.suggested_entity,
+                              suggested_target = EXCLUDED.suggested_target,
+                              suggestion_score = EXCLUDED.suggestion_score,
+                              suggestion_reason = EXCLUDED.suggestion_reason,
+                              suggested_candidates_json = EXCLUDED.suggested_candidates_json,
+                              updated_at = NOW()
+                            """,
+                            [
+                                p.name,
+                                field_name,
+                                source_entity or None,
+                                sample_values or None,
+                                1,
+                                1,
+                                suggested_entity,
+                                suggested_target,
+                                float(best_score if best_score >= 0 else 0),
+                                best_reason or None,
+                                json.dumps(ranked),
+                            ],
+                        )
+                        suggestions.append(
+                            {
+                                "file_name": p.name,
+                                "field_name": field_name,
+                                "source_entity": source_entity,
+                                "suggested_entity": suggested_entity,
+                                "suggested_target": suggested_target,
+                            }
+                        )
+                    continue
+
                 for col in df.columns:
                     series = df[col].astype(str).str.strip()
                     series = series.map(lambda s: s[2:-1].strip() if s.startswith('="') and s.endswith('"') else s)
@@ -2741,6 +2971,10 @@ def scan_wfm_fields(_user: dict = Depends(_current_user)):
                                 suggested_entity = entity
                                 suggested_target = target
                     ranked = sorted(ranked, key=lambda x: float(x.get("score") or 0), reverse=True)[:3]
+                    if best_score < min_suggest_score:
+                        suggested_entity = None
+                        suggested_target = None
+                        best_reason = "below confidence threshold"
 
                     con.execute(
                         """
@@ -2785,7 +3019,7 @@ def scan_wfm_fields(_user: dict = Depends(_current_user)):
                         }
                     )
 
-        return {"ok": True, "scanned_fields": len(suggestions)}
+        return {"ok": True, "scanned_fields": len(suggestions), "include_all": include_all}
     except HTTPException:
         raise
     except Exception as e:
@@ -2797,6 +3031,7 @@ def wfm_catalog(
     q: str | None = None,
     file_name: str | None = None,
     mapped_only: bool = False,
+    recommended_only: bool = True,
     _user: dict = Depends(_current_user),
 ):
     try:
@@ -2806,12 +3041,19 @@ def wfm_catalog(
                 SELECT
                   c.file_name, c.field_name, c.source_entity, c.sample_values, c.non_empty_count, c.distinct_count,
                   c.suggested_entity, c.suggested_target, c.suggestion_score, c.suggestion_reason, c.suggested_candidates_json,
-                  m.target_entity, m.target_field, m.priority, m.is_active, m.notes
+                  m.source_entity, m.target_entity, m.target_field, m.priority, m.is_active, m.notes
                 FROM wfm_field_catalog c
-                LEFT JOIN wfm_field_mappings m
-                  ON lower(COALESCE(m.source_entity,'')) = lower(COALESCE(c.source_entity,''))
-                 AND lower(COALESCE(m.source_field,'')) = lower(COALESCE(c.field_name,''))
-                 AND m.is_active = TRUE
+                LEFT JOIN LATERAL (
+                  SELECT mm.source_entity, mm.target_entity, mm.target_field, mm.priority, mm.is_active, mm.notes
+                  FROM wfm_field_mappings mm
+                  WHERE lower(COALESCE(mm.source_field,'')) = lower(COALESCE(c.field_name,''))
+                    AND (
+                      lower(COALESCE(c.source_entity, c.suggested_entity, '')) = ''
+                      OR lower(COALESCE(mm.source_entity,'')) = lower(COALESCE(c.source_entity, c.suggested_entity,''))
+                    )
+                  ORDER BY mm.is_active DESC, mm.updated_at DESC, mm.priority ASC
+                  LIMIT 1
+                ) m ON TRUE
                 WHERE 1=1
             """
             params: list[Any] = []
@@ -2822,8 +3064,13 @@ def wfm_catalog(
             if file_name:
                 sql += " AND c.file_name = %s"
                 params.append(str(file_name).strip())
+            elif recommended_only:
+                rec_files = sorted(WFM_RECOMMENDED_MAPPING_FILES)
+                placeholders = ",".join(["%s"] * len(rec_files))
+                sql += f" AND c.file_name IN ({placeholders})"
+                params.extend(rec_files)
             if mapped_only:
-                sql += " AND m.id IS NOT NULL"
+                sql += " AND m.target_field IS NOT NULL"
             sql += " ORDER BY c.file_name, c.field_name"
             rows = con.execute(sql, params).fetchall()
 
@@ -2833,7 +3080,7 @@ def wfm_catalog(
                     {
                         "file_name": r[0],
                         "field_name": r[1],
-                        "source_entity": r[2],
+                        "source_entity": (r[2] or r[6] or None),
                         "sample_values": r[3],
                         "non_empty_count": int(r[4] or 0),
                         "distinct_count": int(r[5] or 0),
@@ -2842,11 +3089,12 @@ def wfm_catalog(
                         "suggestion_score": float(r[8] or 0),
                         "suggestion_reason": r[9],
                         "suggested_candidates": json.loads(r[10]) if r[10] else [],
-                        "target_entity": r[11],
-                        "target_field": r[12],
-                        "priority": int(r[13] or 100) if r[13] is not None else 100,
-                        "is_active": bool(r[14]) if r[14] is not None else False,
-                        "notes": r[15],
+                        "source_entity": (r[11] or r[2] or r[6] or None),
+                        "target_entity": r[12],
+                        "target_field": r[13],
+                        "priority": int(r[14] or 100) if r[14] is not None else 100,
+                        "is_active": bool(r[15]) if r[15] is not None else False,
+                        "notes": r[16],
                     }
                 )
             return {"ok": True, "items": items}
@@ -2863,6 +3111,7 @@ def upsert_wfm_mapping(body: dict = Body(...), _user: dict = Depends(_current_us
         target_field = str(body.get("target_field") or "").strip()
         priority = int(body.get("priority") or 100)
         is_active = bool(body.get("is_active", True))
+        exclusive = bool(body.get("exclusive", True))
         notes = str(body.get("notes") or "").strip() or None
         if not source_entity or not source_field or not target_entity or not target_field:
             raise HTTPException(status_code=400, detail="source_entity, source_field, target_entity, target_field are required")
@@ -2883,6 +3132,22 @@ def upsert_wfm_mapping(body: dict = Body(...), _user: dict = Depends(_current_us
                 """,
                 [source_entity, source_field, target_entity, target_field, int(priority), bool(is_active), notes],
             )
+            # Keep a single effective mapping per source field unless explicitly disabled.
+            # This prevents stale earlier mappings from overriding the latest admin choice.
+            if exclusive:
+                con.execute(
+                    """
+                    UPDATE wfm_field_mappings
+                    SET is_active = FALSE, updated_at = NOW()
+                    WHERE lower(COALESCE(source_entity,'')) = lower(%s)
+                      AND lower(COALESCE(source_field,'')) = lower(%s)
+                      AND NOT (
+                        lower(COALESCE(target_entity,'')) = lower(%s)
+                        AND lower(COALESCE(target_field,'')) = lower(%s)
+                      )
+                    """,
+                    [source_entity, source_field, target_entity, target_field],
+                )
         return {"ok": True}
     except HTTPException:
         raise
@@ -2895,24 +3160,30 @@ def map_suggested_wfm_fields(body: dict = Body(...), _user: dict = Depends(_curr
     try:
         min_score = float(body.get("min_score") or 70)
         only_unmapped = bool(body.get("only_unmapped", True))
+        recommended_only = bool(body.get("recommended_only", True))
         applied = 0
         skipped = 0
         with get_conn() as con:
             _ensure_wfm_mapping_tables(con)
-            rows = con.execute(
-                """
+            sql = """
                 SELECT c.source_entity, c.field_name, c.suggested_entity, c.suggested_target, COALESCE(c.suggestion_score, 0),
                        m.id
                 FROM wfm_field_catalog c
                 LEFT JOIN wfm_field_mappings m
-                  ON lower(COALESCE(m.source_entity,'')) = lower(COALESCE(c.source_entity,''))
+                  ON lower(COALESCE(m.source_entity,'')) = lower(COALESCE(c.source_entity, c.suggested_entity,''))
                  AND lower(COALESCE(m.source_field,'')) = lower(COALESCE(c.field_name,''))
                  AND m.is_active = TRUE
                 WHERE c.suggested_entity IS NOT NULL
                   AND c.suggested_target IS NOT NULL
-                ORDER BY c.file_name, c.field_name
-                """
-            ).fetchall()
+            """
+            params: list[Any] = []
+            if recommended_only:
+                rec_files = sorted(WFM_RECOMMENDED_MAPPING_FILES)
+                ph = ",".join(["%s"] * len(rec_files))
+                sql += f" AND c.file_name IN ({ph})"
+                params.extend(rec_files)
+            sql += " ORDER BY c.file_name, c.field_name"
+            rows = con.execute(sql, params).fetchall()
             for source_entity, source_field, suggested_entity, suggested_target, score, existing_id in rows:
                 if float(score or 0) < min_score:
                     skipped += 1
@@ -2944,7 +3215,13 @@ def map_suggested_wfm_fields(body: dict = Body(...), _user: dict = Depends(_curr
                     ],
                 )
                 applied += 1
-        return {"ok": True, "applied": applied, "skipped": skipped, "min_score": min_score}
+        return {
+            "ok": True,
+            "applied": applied,
+            "skipped": skipped,
+            "min_score": min_score,
+            "recommended_only": recommended_only,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to map suggested fields: {e}")
 
@@ -2952,7 +3229,7 @@ def map_suggested_wfm_fields(body: dict = Body(...), _user: dict = Depends(_curr
 @router.post("/import-export/wfm/mappings/preview-impact")
 def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
-        raw_dir = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
+        raw_dir = _wfm_raw_dir()
         jobs_path = raw_dir / "jobs.csv"
         jvals_path = raw_dir / "job_custom_field_values.csv"
         cvals_path = raw_dir / "client_custom_field_values.csv"
@@ -3083,11 +3360,40 @@ def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_cu
 def wfm_mapping_targets(_user: dict = Depends(_current_user)):
     try:
         defaults = _default_wfm_targets()
+        job_targets = set(defaults.get("job", {}).keys())
+        client_targets = set(defaults.get("client", {}).keys())
+
+        # Include active Admin custom fields so they are selectable as mapping targets.
+        with get_conn() as con:
+            try:
+                rows = con.execute(
+                    """
+                    SELECT entity_type, field_name
+                    FROM custom_field_definitions
+                    WHERE is_active = TRUE
+                      AND entity_type IN ('job', 'client')
+                      AND field_name IS NOT NULL
+                    ORDER BY entity_type, display_order, field_name
+                    """
+                ).fetchall()
+                for entity_type, field_name in rows:
+                    et = str(entity_type or "").strip().lower()
+                    fn = str(field_name or "").strip()
+                    if not fn:
+                        continue
+                    if et == "job":
+                        job_targets.add(fn)
+                    elif et == "client":
+                        client_targets.add(fn)
+            except Exception:
+                # Keep endpoint resilient if custom field tables are not present in a local environment.
+                pass
+
         return {
             "ok": True,
             "targets": {
-                "job": sorted(list(defaults.get("job", {}).keys())),
-                "client": sorted(list(defaults.get("client", {}).keys())),
+                "job": sorted(list(job_targets)),
+                "client": sorted(list(client_targets)),
             },
         }
     except Exception as e:
