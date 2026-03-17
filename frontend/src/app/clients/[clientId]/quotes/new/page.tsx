@@ -5,6 +5,7 @@ import { Suspense, useMemo, useState, useEffect, type Dispatch, type SetStateAct
 import { useParams, useSearchParams } from "next/navigation";
 
 import PageHeader from "@/components/PageHeader";
+import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -662,19 +663,7 @@ function AddQuotePageContent() {
                 </div>
               </div>
 
-              <div className="text-right">
-                <img src="/uploads/system/nzi-logo.png" alt="Net Zero International" className="ml-auto mb-3 h-auto w-[220px] object-contain" />
-                <div className="text-2xl">Net Zero International</div>
-                <div className="mt-2 text-lg leading-8">
-                  167-169 Great Portland St
-                  <br />
-                  London
-                  <br />
-                  W1W 9PF
-                  <br />
-                  United Kingdom
-                </div>
-              </div>
+              <CompanyIdentityBlock baseUrl={baseUrl} />
             </div>
           </CardContent>
         </Card>
@@ -696,6 +685,7 @@ function AddQuotePageContent() {
                 <span>Total</span>
                 <span>{formatMoney(total)}</span>
               </div>
+              <CompanyLegalFooter baseUrl={baseUrl} className="pt-3 text-right text-xs text-muted-foreground" />
             </div>
           </CardContent>
         </Card>

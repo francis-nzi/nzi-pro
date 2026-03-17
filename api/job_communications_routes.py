@@ -16,6 +16,7 @@ from fastapi.responses import PlainTextResponse, Response
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content, get_user_signature_html
 from services.outbound_email import list_outbound_emails, send_tracked_email
 from reportlab.lib import colors
@@ -441,6 +442,7 @@ def _build_overview_letter_context(con, job_id: int) -> dict[str, Any]:
         "contact_title": contact_title,
         "milestones": milestones,
         "today": date.today().isoformat(),
+        "company_profile": get_company_profile(con),
     }
     context["default_to_email"] = contact_email
     context["default_subject"] = f"Job Overview Letter - {context['job_number']}"
@@ -467,6 +469,11 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
     company_style = ParagraphStyle("OverviewCompany", parent=styles["Normal"], fontSize=9.5, leading=13, alignment=2)
     intro_heading = ParagraphStyle("OverviewHeading", parent=styles["Heading2"], fontSize=13.5, leading=16, fontName="Helvetica-Bold")
 
+    company_profile = context.get("company_profile") or {}
+    company_name = str(company_profile.get("company_display_name") or company_profile.get("company_legal_name") or "Net Zero International")
+    company_legal_name = str(company_profile.get("company_legal_name") or company_name)
+    company_address = company_address_html(company_profile) or "167-169 Great Portland Street<br/>London<br/>W1W 9PF<br/>United Kingdom"
+
     left_lines = []
     if context.get("contact_name"):
         left_lines.append(f"Attention: {context['contact_name']}")
@@ -492,12 +499,7 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
         logo.hAlign = "RIGHT"
         right_parts.append(logo)
         right_parts.append(Spacer(1, 1 * mm))
-    right_parts.append(
-        Paragraph(
-            "Net Zero International<br/>167-169 Great Portland St<br/>London<br/>W1W 9PF<br/>United Kingdom",
-            company_style,
-        )
-    )
+    right_parts.append(Paragraph(f"{company_name}<br/>{company_address}", company_style))
     right_block = Table([[right_parts]], colWidths=[50 * mm])
     right_block.setStyle(
         TableStyle(
@@ -626,7 +628,7 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
         Paragraph("STANDARD TERMS SUMMARY", intro_heading),
         Spacer(1, 3 * mm),
         Paragraph(
-            "The services described in this Job Overview Letter are supplied by Net Zero International Limited subject to our Standard Terms and Conditions.",
+            f"The services described in this Job Overview Letter are supplied by {html.escape(company_legal_name)} subject to our Standard Terms and Conditions.",
             normal,
         ),
         Spacer(1, 4 * mm),
@@ -673,7 +675,16 @@ def _overview_letter_pdf(context: dict[str, Any]) -> bytes:
         bottomMargin=12 * mm,
         title=f"Overview Letter - {context.get('job_number') or context.get('job_id')}",
     )
-    doc.build(story)
+    footer_text = company_footer_text(company_profile) or company_legal_name
+
+    def _footer(canvas_obj, doc_obj) -> None:
+        canvas_obj.saveState()
+        canvas_obj.setFont("Helvetica", 8)
+        canvas_obj.setFillColor(colors.HexColor("#666666"))
+        canvas_obj.drawCentredString(A4[0] / 2.0, 7.5 * mm, footer_text[:180])
+        canvas_obj.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return buf.getvalue()
 
 

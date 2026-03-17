@@ -14,6 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 
@@ -492,6 +493,7 @@ def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
         "bill_to": bill_to,
         "job_number": job_number,
         "lines": lines,
+        "company_profile": get_company_profile(con),
     }
 
 
@@ -531,16 +533,19 @@ def _display_date(value: Any) -> str:
         return text
 
 
-def _pdf_footer(canvas_obj, doc) -> None:
-    canvas_obj.saveState()
-    canvas_obj.setFont("Helvetica", 8)
-    canvas_obj.setFillColor(colors.HexColor("#666666"))
-    canvas_obj.drawCentredString(
-        A4[0] / 2.0,
-        7.5 * mm,
-        "Subject to the Standard Terms & Conditions of Net Zero International",
-    )
-    canvas_obj.restoreState()
+def _pdf_footer(company_profile: dict[str, Any]):
+    footer_text = company_footer_text(company_profile)
+    legal_name = str(company_profile.get("company_legal_name") or company_profile.get("company_display_name") or "Net Zero International")
+    footer_line = footer_text or f"Subject to the Standard Terms & Conditions of {legal_name}"
+
+    def _render(canvas_obj, doc) -> None:
+        canvas_obj.saveState()
+        canvas_obj.setFont("Helvetica", 8)
+        canvas_obj.setFillColor(colors.HexColor("#666666"))
+        canvas_obj.drawCentredString(A4[0] / 2.0, 7.5 * mm, footer_line[:180])
+        canvas_obj.restoreState()
+
+    return _render
 
 
 def _build_financial_pdf_story(
@@ -555,6 +560,7 @@ def _build_financial_pdf_story(
     totals_rows: list[tuple[str, str]],
     notes: str | None,
     payment_terms_text: str | None,
+    company_profile: dict[str, Any],
 ) -> list[Any]:
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("FinancialTitle", parent=styles["Title"], fontSize=28, leading=30, spaceAfter=3 * mm)
@@ -575,16 +581,13 @@ def _build_financial_pdf_story(
     middle_text = "".join(middle_parts).strip()
 
     right_parts: list[Any] = []
+    company_name = str(company_profile.get("company_display_name") or company_profile.get("company_legal_name") or "Net Zero International")
+    company_address = company_address_html(company_profile) or "167-169 Great Portland Street<br/>London<br/>W1W 9PF<br/>United Kingdom"
     logo_path = _nzi_logo_path()
     if logo_path:
         right_parts.append(Image(logo_path, width=48 * mm, height=24 * mm, kind="proportional"))
         right_parts.append(Spacer(1, 1 * mm))
-    right_parts.append(
-        Paragraph(
-            "Net Zero International<br/>167-169 Great Portland St<br/>London<br/>W1W 9PF<br/>United Kingdom",
-            company_style,
-        )
-    )
+    right_parts.append(Paragraph(f"{company_name}<br/>{company_address}", company_style))
     right_block = Table([[right_parts]], colWidths=[50 * mm])
     right_block.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
 
@@ -702,6 +705,7 @@ def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
     import io
 
     currency_prefix = _currency_symbol(str(quote.get("currency_code") or "GBP"))
+    company_profile = quote.get("company_profile") or {}
     lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() != "option"]
     options_lines = [l for l in (quote.get("lines") or []) if str(l.get("line_type") or "main").lower() == "option"]
     totals = _compute_totals(quote.get("lines") or [])
@@ -739,8 +743,10 @@ def _render_quote_pdf_bytes(quote: dict[str, Any]) -> bytes:
         totals_rows=totals_rows,
         notes=str(quote.get("notes") or ""),
         payment_terms_text=str(quote.get("payment_term_name") or ""),
+        company_profile=company_profile,
     )
-    doc.build(story, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
+    footer = _pdf_footer(company_profile)
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()
 
 
@@ -748,6 +754,7 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
     import io
 
     currency_prefix = _currency_symbol(str(invoice.get("currency_code") or "GBP"))
+    company_profile = invoice.get("company_profile") or {}
     lines = invoice.get("lines") or []
     left_details = [f"Attention: {invoice.get('attention') or '-'}"] + [x for x in str(invoice.get("bill_to") or "").splitlines() if x.strip()]
     middle_details = [
@@ -783,8 +790,10 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
         totals_rows=totals_rows,
         notes=str(invoice.get("notes") or ""),
         payment_terms_text=None,
+        company_profile=company_profile,
     )
-    doc.build(story, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
+    footer = _pdf_footer(company_profile)
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return buf.getvalue()
 
 
@@ -864,6 +873,7 @@ def _serialize_quote(con, quote_id: int) -> dict[str, Any]:
         "updated_at": q[18].isoformat() if q[18] else None,
         "lines": lines,
         "totals": totals,
+        "company_profile": get_company_profile(con),
     }
 
 
@@ -1503,7 +1513,7 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
                 con=con,
                 template_key="quote_send",
                 context=email_ctx,
-                fallback_subject=f"Quote {quote.get('quote_number') or quote_id} from Net Zero International",
+                fallback_subject=f"Quote {quote.get('quote_number') or quote_id} from {str((quote.get('company_profile') or {}).get('company_display_name') or 'Net Zero International')}",
                 fallback_body="Please find the attached quote PDF.",
                 sender_identifier=sender,
                 override_subject=requested_subject or None,
@@ -2286,7 +2296,7 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
                 con=con,
                 template_key="invoice_send",
                 context=email_ctx,
-                fallback_subject=f"Invoice {invoice.get('invoice_number') or invoice_id} from Net Zero International",
+                fallback_subject=f"Invoice {invoice.get('invoice_number') or invoice_id} from {str((invoice.get('company_profile') or {}).get('company_display_name') or 'Net Zero International')}",
                 fallback_body="Please find the attached invoice PDF.",
                 sender_identifier=sender,
                 override_subject=requested_subject or None,

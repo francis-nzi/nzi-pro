@@ -7,6 +7,11 @@ from pydantic import BaseModel
 
 from core.database import get_conn
 from api.auth import _current_user
+from services.company_profile import (
+    COMPANY_PROFILE_DEFAULTS,
+    company_profile_metadata,
+    get_company_profile,
+)
 
 router = APIRouter(prefix="/system-settings", tags=["system-settings"])
 
@@ -30,6 +35,10 @@ class SystemSetting(BaseModel):
 
 class UpdateSettingRequest(BaseModel):
     setting_value: str
+
+
+class BulkUpdateSettingsRequest(BaseModel):
+    settings: dict[str, str | None]
 
 
 def _upsert_setting(
@@ -82,6 +91,17 @@ def get_all_settings(_user: dict = Depends(_current_user)):
                 for r in rows
             ]
         }
+
+@router.get("/profile")
+def get_company_profile_settings():
+    """Public company profile used for documents and public legal pages."""
+    with get_conn() as con:
+        profile = get_company_profile(con)
+    return {
+        "profile": profile,
+        "fields": company_profile_metadata(),
+    }
+
 
 @router.get("/{setting_key}")
 def get_setting(setting_key: str):
@@ -176,6 +196,40 @@ def update_setting(
             )
         
         return {"ok": True, "message": "Setting updated successfully"}
+
+
+@router.post("/bulk")
+def bulk_update_settings(
+    body: BulkUpdateSettingsRequest,
+    _user: dict = Depends(_current_user),
+):
+    """Bulk upsert of global system settings."""
+    actor = _user.get("email", "unknown")
+    updates = body.settings or {}
+    if not isinstance(updates, dict):
+        raise HTTPException(status_code=400, detail="settings must be an object")
+
+    with get_conn() as con:
+        for key, value in updates.items():
+            setting_key = str(key or "").strip()
+            if not setting_key:
+                continue
+            setting_value = None if value is None else str(value)
+            description = None
+            default_meta = next((item for item in company_profile_metadata() if item["key"] == setting_key), None)
+            if default_meta:
+                description = default_meta.get("description")
+            _upsert_setting(
+                con,
+                key=setting_key,
+                value=setting_value,
+                setting_type="text",
+                description=description,
+                updated_by=actor,
+            )
+        profile = get_company_profile(con)
+
+    return {"ok": True, "profile": profile}
 
 @router.post("/upload/nzi-logo")
 async def upload_nzi_logo(

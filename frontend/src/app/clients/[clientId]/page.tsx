@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
 import ClientCommunications from "@/components/ClientCommunications";
+import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import ClientReporting from "@/components/ClientReporting";
 import CustomFields from "@/components/CustomFields";
 import MilestoneBadge from "@/components/MilestoneBadge";
@@ -936,19 +937,7 @@ function ClientDetailPageContent() {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <img src="/uploads/system/nzi-logo.png" alt="Net Zero International" className="ml-auto mb-3 h-auto w-[220px] object-contain" />
-                  <div className="text-2xl">Net Zero International</div>
-                  <div className="mt-2 text-lg leading-8">
-                    167-169 Great Portland St
-                    <br />
-                    London
-                    <br />
-                    W1W 9PF
-                    <br />
-                    United Kingdom
-                  </div>
-                </div>
+                <CompanyIdentityBlock baseUrl={baseUrl} />
               </div>
             </CardContent>
           </Card>
@@ -1032,6 +1021,7 @@ function ClientDetailPageContent() {
                 <div className="flex justify-between"><span>Sub-total</span><span>{currencyFmt.format(draftSubtotal)}</span></div>
                 <div className="flex justify-between"><span>VAT</span><span>{currencyFmt.format(draftVat)}</span></div>
                 <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span>{currencyFmt.format(draftTotal)}</span></div>
+                <CompanyLegalFooter baseUrl={baseUrl} className="pt-3 text-right text-xs text-muted-foreground" />
               </div>
               <div className="flex justify-end">
                 <Button onClick={addInvoice}>Add Invoice</Button>
