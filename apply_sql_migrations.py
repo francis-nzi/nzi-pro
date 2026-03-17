@@ -70,6 +70,11 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
                 if already:
                     continue
 
+                # Some dump-style migrations reset search_path to empty.
+                # Re-apply public before every file so later unqualified CREATE TABLE
+                # statements continue to work.
+                cur.execute("SET search_path TO public")
+
                 # Apply migration.
                 cur.execute(sql_text)
 
