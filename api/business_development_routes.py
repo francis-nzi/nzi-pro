@@ -1950,6 +1950,76 @@ def list_daily_bins(
         raise HTTPException(status_code=500, detail=f"Failed to load daily bins: {e}")
 
 
+@router.get("/bd/lead-generator/database")
+def list_market_database(
+    q: str | None = Query(default=None),
+    service_key: str | None = Query(default=None),
+    industry: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=50),
+    offset: int = Query(default=0),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        take = int(max(1, min(limit, 200)))
+        skip = int(max(0, offset))
+        with get_conn() as con:
+            _ensure_tables(con)
+            where = ["1=1"]
+            params: list[Any] = []
+            if q and str(q).strip():
+                needle = f"%{str(q).strip()}%"
+                where.append(
+                    "(l.company_name ILIKE ? OR l.industry ILIKE ? OR l.contact_name ILIKE ? OR l.contact_role ILIKE ? OR l.website ILIKE ?)"
+                )
+                params.extend([needle, needle, needle, needle, needle])
+            if service_key and str(service_key).strip():
+                where.append("lower(l.service_key) = lower(?)")
+                params.append(str(service_key).strip())
+            if industry and str(industry).strip():
+                where.append("l.industry ILIKE ?")
+                params.append(f"%{str(industry).strip()}%")
+            if status and str(status).strip():
+                where.append("lower(l.qualification_status) = lower(?)")
+                params.append(str(status).strip())
+            where_sql = " AND ".join(where)
+
+            total_row = con.execute(
+                f"SELECT COUNT(*) AS total FROM bd_ai_generated_leads l WHERE {where_sql}",
+                params,
+            ).fetchone()
+            total = int(total_row[0] or 0) if total_row else 0
+
+            df = con.execute(
+                f"""
+                SELECT l.*, s.service_name
+                FROM bd_ai_generated_leads l
+                LEFT JOIN bd_service_lines s ON s.service_key = l.service_key
+                WHERE {where_sql}
+                ORDER BY l.updated_at DESC, l.likelihood_score DESC, l.company_name ASC
+                LIMIT ? OFFSET ?
+                """,
+                [*params, take, skip],
+            ).df()
+
+        items: list[dict[str, Any]] = []
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                obj = row.to_dict()
+                item = _serialize_generated_lead(obj)
+                item["service_name"] = str(obj.get("service_name") or obj.get("service_key") or "")
+                items.append(item)
+
+        return {
+            "items": items,
+            "total": total,
+            "limit": take,
+            "offset": skip,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load market database: {e}")
+
+
 @router.post("/bd/lead-generator/leads/{generated_lead_id}/qualify")
 def qualify_generated_lead(generated_lead_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     try:

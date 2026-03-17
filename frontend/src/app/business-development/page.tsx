@@ -87,6 +87,13 @@ type GeneratedLead = {
   bd_lead_id: number | null;
 };
 
+type MarketDatabaseResponse = {
+  items: GeneratedLead[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 type LeadBinSummary = {
   service_key: string;
   service_name: string;
@@ -102,7 +109,7 @@ type BinReason = {
   is_active?: boolean;
 };
 
-type BdSection = "overview" | "lead-generator" | "leads" | "opportunities" | "funnel-settings";
+type BdSection = "overview" | "lead-generator" | "market-database" | "leads" | "opportunities" | "funnel-settings";
 
 export default function BusinessDevelopmentPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
@@ -127,6 +134,11 @@ export default function BusinessDevelopmentPage() {
   const [generatingLeads, setGeneratingLeads] = useState(false);
   const [enrichingLeads, setEnrichingLeads] = useState(false);
   const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
+  const [marketDatabase, setMarketDatabase] = useState<MarketDatabaseResponse>({ items: [], total: 0, limit: 50, offset: 0 });
+  const [marketSearch, setMarketSearch] = useState("");
+  const [marketIndustryFilter, setMarketIndustryFilter] = useState("");
+  const [marketStatusFilter, setMarketStatusFilter] = useState("");
+  const [marketPage, setMarketPage] = useState(1);
   const [leadBinSummary, setLeadBinSummary] = useState<LeadBinSummary[]>([]);
   const [binReasons, setBinReasons] = useState<BinReason[]>([]);
   const [binReasonByLead, setBinReasonByLead] = useState<Record<number, string>>({});
@@ -218,6 +230,27 @@ export default function BusinessDevelopmentPage() {
     setBinReasons(items);
   }, [baseUrl]);
 
+  const loadMarketDatabase = useCallback(async () => {
+    const params = new URLSearchParams();
+    params.set("limit", "50");
+    params.set("offset", String((marketPage - 1) * 50));
+    if (marketSearch.trim()) params.set("q", marketSearch.trim());
+    if (marketIndustryFilter.trim()) params.set("industry", marketIndustryFilter.trim());
+    if (marketStatusFilter.trim()) params.set("status", marketStatusFilter.trim());
+    const res = await fetch(`${baseUrl}/bd/lead-generator/database?${params.toString()}`, { credentials: "include" });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Failed to load market database (${res.status})${t ? `: ${t}` : ""}`);
+    }
+    const json = await res.json();
+    setMarketDatabase({
+      items: Array.isArray(json?.items) ? json.items : [],
+      total: Number(json?.total || 0),
+      limit: Number(json?.limit || 50),
+      offset: Number(json?.offset || 0),
+    });
+  }, [baseUrl, marketIndustryFilter, marketPage, marketSearch, marketStatusFilter]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -254,12 +287,13 @@ export default function BusinessDevelopmentPage() {
       await loadLeadGeneratorServices();
       await loadBinReasons();
       await loadLeadBins();
+      await loadMarketDatabase();
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, loadLeadBins, loadLeadGeneratorServices, loadBinReasons]);
+  }, [baseUrl, loadBinReasons, loadLeadBins, loadLeadGeneratorServices, loadMarketDatabase]);
 
   useEffect(() => {
     void load();
@@ -268,6 +302,10 @@ export default function BusinessDevelopmentPage() {
   useEffect(() => {
     void loadLeadBins();
   }, [loadLeadBins]);
+
+  useEffect(() => {
+    void loadMarketDatabase();
+  }, [loadMarketDatabase]);
 
   async function createLead() {
     try {
@@ -521,6 +559,7 @@ export default function BusinessDevelopmentPage() {
       }
       setStatus(`Lead enrichment complete: ${Number(responsePayload.updated || 0)} leads updated.`);
       await loadLeadBins();
+      await loadMarketDatabase();
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
@@ -601,6 +640,7 @@ export default function BusinessDevelopmentPage() {
   const sectionButtons: { key: BdSection; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "lead-generator", label: "AI Lead Generator" },
+    { key: "market-database", label: "Market Database" },
     { key: "leads", label: "Leads" },
     { key: "opportunities", label: "Opportunities" },
     { key: "funnel-settings", label: "Funnel Settings" },
@@ -925,6 +965,119 @@ export default function BusinessDevelopmentPage() {
                           </Button>
                         </>
                       ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        ) : null}
+
+        {activeSection === "market-database" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Market Database</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs text-muted-foreground">Search</label>
+                <Input
+                  value={marketSearch}
+                  onChange={(e) => {
+                    setMarketSearch(e.target.value);
+                    setMarketPage(1);
+                  }}
+                  placeholder="Company, role, website, industry..."
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Industry Filter</label>
+                <Input
+                  value={marketIndustryFilter}
+                  onChange={(e) => {
+                    setMarketIndustryFilter(e.target.value);
+                    setMarketPage(1);
+                  }}
+                  placeholder="Construction"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Status Filter</label>
+                <select
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                  value={marketStatusFilter}
+                  onChange={(e) => {
+                    setMarketStatusFilter(e.target.value);
+                    setMarketPage(1);
+                  }}
+                >
+                  <option value="">All</option>
+                  <option value="new">New</option>
+                  <option value="funnel">Funnel</option>
+                  <option value="binned">Binned</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <div>{marketDatabase.total} total records</div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setMarketPage((p) => Math.max(1, p - 1))} disabled={marketPage <= 1}>
+                  Previous
+                </Button>
+                <span>Page {marketPage}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMarketPage((p) => p + 1)}
+                  disabled={marketDatabase.offset + marketDatabase.limit >= marketDatabase.total}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {marketDatabase.items.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No market database records match the current filters.</div>
+              ) : (
+                marketDatabase.items.map((item) => (
+                  <div key={`db-${item.generated_lead_id}`} className="rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{item.company_name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.service_name} | {item.industry || "-"} | {item.city ? `${item.city}, ` : ""}{item.country || "-"}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground">Likelihood</div>
+                        <div className="font-semibold">{Number(item.likelihood_score || 0).toFixed(1)}%</div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs">
+                      <span className="font-medium">Contact: </span>
+                      {item.contact_name || "-"} {item.contact_role ? `(${item.contact_role})` : ""} {item.contact_email ? `| ${item.contact_email}` : ""} {item.contact_phone ? `| ${item.contact_phone}` : ""}
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-medium">Revenue: </span>
+                      {item.revenue_gbp_millions ? `GBP ${item.revenue_gbp_millions.toFixed(1)}m` : "-"}
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-medium">Status: </span>
+                      {item.qualification_status}
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-medium">Website: </span>
+                      {item.website ? (
+                        <a className="text-[#1c5026] underline" href={item.website} target="_blank" rel="noreferrer">
+                          {item.website}
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">No website returned</span>
+                      )}
                     </div>
                   </div>
                 ))
