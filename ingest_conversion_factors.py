@@ -10,7 +10,8 @@ from core.database import db_backend, get_conn
 
 
 def _norm_col(c: str) -> str:
-    s = c.lower().strip().replace("_", " ")
+    s = str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "")
+    s = s.lower().strip().replace("_", " ")
     s = "".join(ch if (ch.isalnum() or ch.isspace()) else " " for ch in s)
     return " ".join(s.split())
 
@@ -158,48 +159,57 @@ def _ensure_dataset(*, name: str, source: str, analysis_type: str, country: str,
         return int(row2[0])
 
 
-def _delete_dataset_factors(dataset_id: int) -> None:
-    with get_conn() as con:
-        if db_backend() == "postgres":
-            con.execute("DELETE FROM factor_lookup WHERE dataset_id=%s", [int(dataset_id)])
-        else:
-            con.execute("DELETE FROM factor_lookup WHERE dataset_id=?", [int(dataset_id)])
-
-
-def ingest_csv(path: Path, *, replace: bool) -> tuple[int, int]:
-    df = pd.read_csv(path)
+def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> tuple[int, int]:
+    # Be forgiving with uploaded CSVs from different source systems by
+    # autodetecting the separator and cleaning up header artifacts.
+    df = pd.read_csv(path, sep=None, engine="python", encoding="utf-8-sig")
+    df.columns = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() for c in df.columns]
     cols = {_norm_col(c): c for c in df.columns}
 
-    c_year = _pick(cols, "Year")
-    c_id = _pick(cols, "ID", "Code")
-    c_scope = _pick(cols, "Scope")
-    c_l1 = _pick(cols, "Level 1", "Category")
-    c_l2 = _pick(cols, "Level 2", "Subcategory")
-    c_l3 = _pick(cols, "Level 3", "Detail")
-    c_l4 = _pick(cols, "Level 4")
-    c_text = _pick(cols, "Column Text", "Description", "Name", "Activity")
-    c_uom = _pick(cols, "UOM", "Unit", "Units")
-    c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per")
-    c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "kgCO2e per unit", "kgCO2e per gbp")
-    c_method = _pick(cols, "Method")
-    c_valid_from = _pick(cols, "Valid From", "ValidFrom")
-    c_valid_to = _pick(cols, "Valid To", "ValidTo")
+    c_year = _pick(cols, "Year", "year", "reporting year")
+    c_id = _pick(cols, "ID", "Code", "Original ID", "original_id", "original id", "factor id")
+    c_scope = _pick(cols, "Scope", "scope", "emissions scope")
+    c_l1 = _pick(cols, "Level 1", "Category", "level_1", "level 1")
+    c_l2 = _pick(cols, "Level 2", "Subcategory", "level_2", "level 2")
+    c_l3 = _pick(cols, "Level 3", "Detail", "level_3", "level 3")
+    c_l4 = _pick(cols, "Level 4", "level_4", "level 4")
+    c_text = _pick(cols, "Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")
+    c_uom = _pick(cols, "UOM", "Unit", "Units", "uom", "unit of measure")
+    c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")
+    c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")
+    c_method = _pick(cols, "Method", "method", "calculation method")
+    c_valid_from = _pick(cols, "Valid From", "ValidFrom", "valid_from", "valid from")
+    c_valid_to = _pick(cols, "Valid To", "ValidTo", "valid_to", "valid to")
+    c_source = _pick(cols, "Source", "source")
 
     if c_fac is None or c_id is None or c_scope is None:
         raise RuntimeError(f"{path.name}: missing required columns (need Scope, ID, Factor). Found: {list(df.columns)}")
 
-    name, source, analysis_type, year_guess, country = _dataset_meta_from_filename(path)
-    # prefer the first row's year if present
-    year = year_guess
+    # Initialize year from CSV if available, otherwise use None
+    year = None
     if c_year and not df.empty:
         try:
             year = int(df.iloc[0][c_year])
         except Exception:
             pass
 
-    dataset_id = _ensure_dataset(name=name, source=source, analysis_type=analysis_type, country=country, year=int(year or 0))
-    if replace:
-        _delete_dataset_factors(dataset_id)
+    # If dataset_id is provided, use it; otherwise create/find dataset from filename
+    if dataset_id is None:
+        name, source, analysis_type, year_guess, country = _dataset_meta_from_filename(path)
+        # Use year from CSV if available, otherwise use year from filename
+        if year is None:
+            year = year_guess
+
+        dataset_id = _ensure_dataset(name=name, source=source, analysis_type=analysis_type, country=country, year=int(year or 0))
+    else:
+        # When uploading to existing dataset, source comes from CSV or is empty
+        source = None
+    
+    # NOTE:
+    # "replace" intentionally does NOT hard-delete existing factor rows, because
+    # factor_lookup.db_id is referenced by job_scope_rows and spend data rows.
+    # We do an in-place upsert keyed by (dataset_id, year, scope, original_id)
+    # so existing referenced rows keep their db_id.
 
     # build rows
     rows: list[list[Any]] = []
@@ -253,6 +263,15 @@ def ingest_csv(path: Path, *, replace: bool) -> tuple[int, int]:
                 except Exception:
                     valid_to = None
 
+        # Get source from CSV row if available, otherwise use dataset-level source
+        row_source = None
+        if c_source:
+            src_val = r.get(c_source)
+            if src_val is not None and not (isinstance(src_val, float) and pd.isna(src_val)):
+                row_source = str(src_val).strip()
+        if not row_source:
+            row_source = source if source else ""
+
         # Synthesize report_label from level_1, level_2, level_3
         l1 = str(r.get(c_l1)).strip() if c_l1 and r.get(c_l1) is not None else None
         l2 = str(r.get(c_l2)).strip() if c_l2 and r.get(c_l2) is not None else None
@@ -283,7 +302,7 @@ def ingest_csv(path: Path, *, replace: bool) -> tuple[int, int]:
                 (str(uom).strip() if uom is not None else None),
                 ghg_unit,
                 float(factor),
-                source,
+                row_source,
                 "",
                 "",
                 method,
@@ -296,18 +315,209 @@ def ingest_csv(path: Path, *, replace: bool) -> tuple[int, int]:
     if not rows:
         return dataset_id, 0
 
-    insert_sql = """
-        INSERT INTO factor_lookup
-        (dataset_id, file_name, year, original_id, scope,
-         level_1, level_2, level_3, level_4, column_text,
-         uom, ghg_unit, factor, source, region, currency,
-         method, valid_from, valid_to, report_label)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    """
-
     with get_conn() as con:
         for params in rows:
-            con.execute(insert_sql, params)
+            (
+                p_dataset_id,
+                p_file_name,
+                p_year,
+                p_original_id,
+                p_scope,
+                p_level_1,
+                p_level_2,
+                p_level_3,
+                p_level_4,
+                p_column_text,
+                p_uom,
+                p_ghg_unit,
+                p_factor,
+                p_source,
+                p_region,
+                p_currency,
+                p_method,
+                p_valid_from,
+                p_valid_to,
+                p_report_label,
+            ) = params
+
+            if db_backend() == "postgres":
+                existing = con.execute(
+                    """
+                    SELECT db_id
+                    FROM factor_lookup
+                    WHERE dataset_id = %s
+                      AND year = %s
+                      AND scope = %s
+                      AND original_id = %s
+                    ORDER BY db_id
+                    LIMIT 1
+                    """,
+                    [p_dataset_id, p_year, p_scope, p_original_id],
+                ).fetchone()
+                if replace and existing:
+                    con.execute(
+                        """
+                        UPDATE factor_lookup
+                        SET file_name = %s,
+                            level_1 = %s,
+                            level_2 = %s,
+                            level_3 = %s,
+                            level_4 = %s,
+                            column_text = %s,
+                            uom = %s,
+                            ghg_unit = %s,
+                            factor = %s,
+                            source = %s,
+                            region = %s,
+                            currency = %s,
+                            method = %s,
+                            valid_from = %s,
+                            valid_to = %s,
+                            report_label = %s
+                        WHERE db_id = %s
+                        """,
+                        [
+                            p_file_name,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                            int(existing[0]),
+                        ],
+                    )
+                else:
+                    con.execute(
+                        """
+                        INSERT INTO factor_lookup
+                        (dataset_id, file_name, year, original_id, scope,
+                         level_1, level_2, level_3, level_4, column_text,
+                         uom, ghg_unit, factor, source, region, currency,
+                         method, valid_from, valid_to, report_label)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        [
+                            p_dataset_id,
+                            p_file_name,
+                            p_year,
+                            p_original_id,
+                            p_scope,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                        ],
+                    )
+            else:
+                existing = con.execute(
+                    """
+                    SELECT db_id
+                    FROM factor_lookup
+                    WHERE dataset_id = ?
+                      AND year = ?
+                      AND scope = ?
+                      AND original_id = ?
+                    ORDER BY db_id
+                    LIMIT 1
+                    """,
+                    [p_dataset_id, p_year, p_scope, p_original_id],
+                ).fetchone()
+                if replace and existing:
+                    con.execute(
+                        """
+                        UPDATE factor_lookup
+                        SET file_name = ?,
+                            level_1 = ?,
+                            level_2 = ?,
+                            level_3 = ?,
+                            level_4 = ?,
+                            column_text = ?,
+                            uom = ?,
+                            ghg_unit = ?,
+                            factor = ?,
+                            source = ?,
+                            region = ?,
+                            currency = ?,
+                            method = ?,
+                            valid_from = ?,
+                            valid_to = ?,
+                            report_label = ?
+                        WHERE db_id = ?
+                        """,
+                        [
+                            p_file_name,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                            int(existing[0]),
+                        ],
+                    )
+                else:
+                    con.execute(
+                        """
+                        INSERT INTO factor_lookup
+                        (dataset_id, file_name, year, original_id, scope,
+                         level_1, level_2, level_3, level_4, column_text,
+                         uom, ghg_unit, factor, source, region, currency,
+                         method, valid_from, valid_to, report_label)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        [
+                            p_dataset_id,
+                            p_file_name,
+                            p_year,
+                            p_original_id,
+                            p_scope,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                        ],
+                    )
 
     return dataset_id, len(rows)
 
