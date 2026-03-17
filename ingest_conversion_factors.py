@@ -169,6 +169,20 @@ def _ensure_dataset(*, name: str, source: str, analysis_type: str, country: str,
         return int(row2[0])
 
 
+def _get_dataset_year(dataset_id: int) -> int | None:
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT year FROM datasets WHERE dataset_id = %s",
+            [int(dataset_id)],
+        ).fetchone()
+        if not row or row[0] is None:
+            return None
+        try:
+            return int(row[0])
+        except Exception:
+            return None
+
+
 def _read_conversion_factor_csv(path: Path) -> pd.DataFrame:
     """Read uploaded factor CSVs with resilient encoding/delimiter handling."""
     attempts: list[tuple[str, str]] = []
@@ -237,9 +251,11 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
             year = year_guess
 
         dataset_id = _ensure_dataset(name=name, source=source, analysis_type=analysis_type, country=country, year=int(year or 0))
+        target_dataset_year = int(year or 0) if year is not None else None
     else:
         # When uploading to existing dataset, source comes from CSV or is empty
         source = None
+        target_dataset_year = _get_dataset_year(int(dataset_id))
 
     total_rows = int(len(df.index))
     rows: list[list[Any]] = []
@@ -269,6 +285,11 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
                 yr = int(r.get(c_year))
             except Exception:
                 rejection_reasons.append("Invalid year value")
+
+        if target_dataset_year is not None and int(yr) != int(target_dataset_year):
+            rejection_reasons.append(
+                f"Row year {int(yr)} does not match target dataset year {int(target_dataset_year)}"
+            )
 
         if factor is not None and oid is not None and scope is not None:
             dedupe_key = (int(yr), str(scope), str(oid))
