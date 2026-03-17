@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import { apiUrl } from "@/lib/auth-client";
 
 type CustomFieldDefinition = {
   field_id: number;
@@ -66,8 +67,6 @@ export default function CustomFieldsAdmin() {
     options: "",
   });
 
-  const baseUrl = "http://localhost:8000";
-
   useEffect(() => {
     loadFields();
   }, []);
@@ -76,7 +75,7 @@ export default function CustomFieldsAdmin() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/custom-fields/definitions`);
+      const res = await fetch(apiUrl("/custom-fields/definitions"));
       if (!res.ok) throw new Error("Failed to load fields");
       const data = await res.json();
       setFields(data.items || []);
@@ -113,13 +112,13 @@ export default function CustomFieldsAdmin() {
       };
       let res: Response;
       if (editingField) {
-        res = await fetch(`${baseUrl}/custom-fields/definitions/${editingField.field_id}`, {
+        res = await fetch(apiUrl(`/custom-fields/definitions/${editingField.field_id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch(`${baseUrl}/custom-fields/definitions`, {
+        res = await fetch(apiUrl("/custom-fields/definitions"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -139,7 +138,7 @@ export default function CustomFieldsAdmin() {
   async function handleDelete(fieldId: number) {
     if (!confirm("Are you sure you want to delete this field?")) return;
     try {
-      const res = await fetch(`${baseUrl}/custom-fields/definitions/${fieldId}`, {
+      const res = await fetch(apiUrl(`/custom-fields/definitions/${fieldId}`), {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete field");
