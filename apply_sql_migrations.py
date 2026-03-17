@@ -44,6 +44,10 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
     # Use autocommit=False so each migration runs in a transaction.
     with psycopg.connect(url) as conn:
         with conn.cursor() as cur:
+            # Some Supabase/pooler connections do not inherit a default schema.
+            # Force all migration statements to run against public.
+            cur.execute("CREATE SCHEMA IF NOT EXISTS public")
+            cur.execute("SET search_path TO public")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS public.applied_migrations (
