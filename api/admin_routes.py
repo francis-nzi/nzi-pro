@@ -118,6 +118,23 @@ def _ensure_positions_lookup_table(con) -> None:
             )
             """
         )
+        default_positions = [
+            "Chief Commercial Officer",
+            "Chief Executive Officer",
+            "Chief Information Officer",
+            "Customer Relationship Manager",
+        ]
+        for position_name in default_positions:
+            con.execute(
+                """
+                INSERT INTO positions_lookup (name, is_active)
+                SELECT %s, TRUE
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM positions_lookup WHERE lower(name) = lower(%s)
+                )
+                """,
+                [position_name, position_name],
+            )
     except Exception:
         # Keep admin routes resilient during schema transitions.
         pass
@@ -140,6 +157,38 @@ def _ensure_job_types_lookup_table(con) -> None:
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
+        default_job_types = [
+            ("Life Cycle Assessment", "", 0, 0, False, True),
+            ("Net Zero Bronze/Core - CRP Only", "- Carbon Reduction Plan report only", 975, 0, True, True),
+            (
+                "Net Zero Gold",
+                "Includes:\n-  Dedicated Customer Relationship Manager\n- Preparation and submission of carbon data for 1 x Carbon Reduction Report\n- 1 x verified Carbon Reduction Report \n- Report compliant with relevant frameworks, including SECR, NHS Evergreen and PPN006\n- 12 Months carbon accounting software license for 1 Site \n- Quarterly Net Zero updates, advice and support\n- Regulatory and legislative updates\n- Online promotional activities\n- 1 x CPD accredited training place\n- 20% discount on all further training places",
+                2950,
+                0,
+                False,
+                True,
+            ),
+            ("Net Zero Platinum", "", 0, 0, False, True),
+            (
+                "Net Zero Silver/Plus - CRP + software + Qtrly catch up",
+                "Includes:\n- 12 Months Carbon Accounting Software License for 1 Site \n- 4 Hours Net Zero Updates, Advice and Support for the Year\n- Preparation and Submission of Carbon Data for 1 x Carbon Reduction Report\n- 1 x Carbon Reduction Report (SECR, PPN06/21, etc)\n- Regulatory and legislative updates\n- 20% discount on all further training places",
+                1950,
+                0,
+                True,
+                True,
+            ),
+        ]
+        for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active in default_job_types:
+            con.execute(
+                """
+                INSERT INTO job_types (name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active)
+                SELECT %s, %s, %s, %s, %s, %s
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM job_types WHERE lower(name)=lower(%s)
+                )
+                """,
+                [name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, name],
+            )
     except Exception:
         pass
 
@@ -164,6 +213,7 @@ def _ensure_job_statuses_lookup_table(con) -> None:
             ("Awaiting Client Input", 40, True),
             ("Completed", 50, True),
             ("Closed", 60, True),
+            ("Archived", 999, False),
         ]
         for name, sort_order, is_active in default_statuses:
             con.execute(
@@ -197,6 +247,7 @@ def _ensure_vat_rates_lookup_table(con) -> None:
         default_rates = [
             ("20% Standard Rate", 20, True, True),
             ("No VAT", 0, False, True),
+            ("5%", 5, False, True),
         ]
         for name, rate_pct, is_default, is_active in default_rates:
             con.execute(
@@ -273,6 +324,21 @@ def _ensure_payment_terms_lookup_table(con) -> None:
             """,
             ["100% in advance", "100% in advance"],
         )
+        for term_name in [
+            "7 days from invoice date",
+            "14 days from invoice date",
+            "30 days from invoice date",
+        ]:
+            con.execute(
+                """
+                INSERT INTO payment_terms_lookup (name, is_active)
+                SELECT %s, TRUE
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM payment_terms_lookup WHERE lower(name)=lower(%s)
+                )
+                """,
+                [term_name, term_name],
+            )
     except Exception:
         pass
 
@@ -294,6 +360,22 @@ def _ensure_time_subjects_lookup_table(con) -> None:
             con.execute("ALTER TABLE time_subjects ADD COLUMN IF NOT EXISTS budget_hours NUMERIC(10,2) DEFAULT 0")
         except Exception:
             pass
+        default_subjects = [
+            "Client Calls",
+            "Client Data Collection",
+            "Client Reporting",
+        ]
+        for subject_name in default_subjects:
+            con.execute(
+                """
+                INSERT INTO time_subjects (name, is_active, budget_hours)
+                SELECT %s, TRUE, 0
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM time_subjects WHERE lower(name)=lower(%s)
+                )
+                """,
+                [subject_name, subject_name],
+            )
     except Exception:
         pass
 
@@ -320,6 +402,16 @@ def _ensure_portfolios_lookup_table(con) -> None:
             """,
             ["NZI", "NZI"],
         )
+        con.execute(
+            """
+            INSERT INTO portfolios_lookup (name, is_active)
+            SELECT %s, TRUE
+            WHERE NOT EXISTS (
+              SELECT 1 FROM portfolios_lookup WHERE lower(name)=lower(%s)
+            )
+            """,
+            ["NZN", "NZN"],
+        )
     except Exception:
         pass
 
@@ -340,6 +432,63 @@ def _ensure_industries_lookup_table(con) -> None:
             con.execute("ALTER TABLE industries_lookup ALTER COLUMN industry_id ADD GENERATED BY DEFAULT AS IDENTITY")
         except Exception:
             pass
+        default_industries = [
+            "Agriculture",
+            "Architect",
+            "Automotive",
+            "Bid Management",
+            "Business Services",
+            "Charities and Not For Profit",
+            "Chemicals",
+            "Clothing",
+            "Computing",
+            "Construction",
+            "Consultancy",
+            "Digital Services",
+            "Education",
+            "Energy",
+            "Engineering",
+            "Facilities Management",
+            "Finance",
+            "Food & Drink",
+            "Furniture",
+            "Healthcare",
+            "Hospitality and Travel",
+            "Housing",
+            "Insurance",
+            "Local Authority",
+            "Machinery",
+            "Manufacturing",
+            "Marketing",
+            "Media",
+            "Oil & Gas",
+            "Pharmaceuticals",
+            "Printing",
+            "Procurement",
+            "Property Management",
+            "Recruitment",
+            "Recycling",
+            "Renewables",
+            "Retail",
+            "Shipping",
+            "Software",
+            "Sport",
+            "Sustainability",
+            "Technology",
+            "Transport",
+            "Utilities",
+        ]
+        for industry_name in default_industries:
+            con.execute(
+                """
+                INSERT INTO industries_lookup (name, is_active)
+                SELECT %s, TRUE
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM industries_lookup WHERE lower(name)=lower(%s)
+                )
+                """,
+                [industry_name, industry_name],
+            )
     except Exception:
         pass
 
@@ -358,23 +507,27 @@ def _ensure_job_item_categories_lookup_table(con) -> None:
             """
         )
         default_categories = [
-            "Assessment",
-            "Reporting",
-            "Advisory",
-            "Training",
-            "Ongoing",
-            "Other",
+            ("Assessment", 1, False),
+            ("Life Cycle Assessment", 1, True),
+            ("Carbon Reporting Programme", 2, True),
+            ("Reporting", 2, False),
+            ("Advisory", 3, False),
+            ("Consultancy", 3, True),
+            ("Training", 4, True),
+            ("Carbon Report Only", 5, True),
+            ("Ongoing", 5, False),
+            ("Other", 6, False),
         ]
-        for idx, category_name in enumerate(default_categories, start=1):
+        for category_name, sort_order, is_active in default_categories:
             con.execute(
                 """
                 INSERT INTO job_item_categories_lookup (name, is_active, sort_order)
-                SELECT %s, TRUE, %s
+                SELECT %s, %s, %s
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_item_categories_lookup WHERE lower(name) = lower(%s)
                 )
                 """,
-                [category_name, idx, category_name],
+                [category_name, is_active, sort_order, category_name],
             )
     except Exception:
         # Keep admin routes resilient during schema transitions.
@@ -474,11 +627,12 @@ def _ensure_currency_lookup_table(con) -> None:
             """
         )
         default_currencies = [
-            ("GBP", "British Pound Sterling", "£", 1, True, 10),
-            ("EUR", "Euro", "€", 1, False, 20),
-            ("USD", "US Dollar", "$", 1, False, 30),
-            ("AUD", "Australian Dollar", "A$", 1, False, 40),
-            ("CAD", "Canadian Dollar", "C$", 1, False, 50),
+            ("UAE", "UAE Dirham", "AED", 1, False, 0),
+            ("GBP", "British Pound", "£", 1, True, 10),
+            ("EUR", "Euro", "€", 1.18, False, 20),
+            ("USD", "US Dollar", "$", 1.27, False, 30),
+            ("AUD", "Australian Dollar", "A$", 1.92, False, 40),
+            ("CAD", "Canadian Dollar", "C$", 1.71, False, 50),
         ]
         for code, name, symbol, exchange_rate, is_default, sort_order in default_currencies:
             con.execute(
