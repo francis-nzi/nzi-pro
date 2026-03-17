@@ -159,10 +159,23 @@ def _ensure_dataset(*, name: str, source: str, analysis_type: str, country: str,
         return int(row2[0])
 
 
+def _read_conversion_factor_csv(path: Path) -> pd.DataFrame:
+    """Read uploaded factor CSVs with resilient encoding/delimiter handling."""
+    attempts: list[tuple[str, str]] = []
+    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return pd.read_csv(path, sep=None, engine="python", encoding=encoding)
+        except UnicodeDecodeError as e:
+            attempts.append((encoding, str(e)))
+            continue
+    detail = "; ".join(f"{enc}: {msg}" for enc, msg in attempts) if attempts else "unknown decode failure"
+    raise RuntimeError(f"{path.name}: could not decode CSV with supported encodings ({detail})")
+
+
 def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> tuple[int, int]:
     # Be forgiving with uploaded CSVs from different source systems by
     # autodetecting the separator and cleaning up header artifacts.
-    df = pd.read_csv(path, sep=None, engine="python", encoding="utf-8-sig")
+    df = _read_conversion_factor_csv(path)
     df.columns = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() for c in df.columns]
     cols = {_norm_col(c): c for c in df.columns}
 
