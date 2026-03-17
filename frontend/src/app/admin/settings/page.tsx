@@ -89,7 +89,8 @@ export default function SystemSettingsPage() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(String((payload as { detail?: string }).detail || "Profile save failed"));
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Profile save failed");
       }
       setProfile((payload as { profile?: Record<string, string> }).profile || profile);
       setStatus("Company profile saved successfully.");

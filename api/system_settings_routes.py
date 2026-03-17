@@ -161,6 +161,40 @@ def get_nzi_logo():
 
     raise HTTPException(status_code=404, detail="NZI logo not found")
 
+@router.post("/bulk")
+def bulk_update_settings(
+    body: BulkUpdateSettingsRequest,
+    _user: dict = Depends(_current_user),
+):
+    """Bulk upsert of global system settings."""
+    actor = _user.get("email", "unknown")
+    updates = body.settings or {}
+    if not isinstance(updates, dict):
+        raise HTTPException(status_code=400, detail="settings must be an object")
+
+    with get_conn() as con:
+        for key, value in updates.items():
+            setting_key = str(key or "").strip()
+            if not setting_key:
+                continue
+            setting_value = None if value is None else str(value)
+            description = None
+            default_meta = next((item for item in company_profile_metadata() if item["key"] == setting_key), None)
+            if default_meta:
+                description = default_meta.get("description")
+            _upsert_setting(
+                con,
+                key=setting_key,
+                value=setting_value,
+                setting_type="text",
+                description=description,
+                updated_by=actor,
+            )
+        profile = get_company_profile(con)
+
+    return {"ok": True, "profile": profile}
+
+
 @router.post("/{setting_key}")
 def update_setting(
     setting_key: str,
@@ -196,40 +230,6 @@ def update_setting(
             )
         
         return {"ok": True, "message": "Setting updated successfully"}
-
-
-@router.post("/bulk")
-def bulk_update_settings(
-    body: BulkUpdateSettingsRequest,
-    _user: dict = Depends(_current_user),
-):
-    """Bulk upsert of global system settings."""
-    actor = _user.get("email", "unknown")
-    updates = body.settings or {}
-    if not isinstance(updates, dict):
-        raise HTTPException(status_code=400, detail="settings must be an object")
-
-    with get_conn() as con:
-        for key, value in updates.items():
-            setting_key = str(key or "").strip()
-            if not setting_key:
-                continue
-            setting_value = None if value is None else str(value)
-            description = None
-            default_meta = next((item for item in company_profile_metadata() if item["key"] == setting_key), None)
-            if default_meta:
-                description = default_meta.get("description")
-            _upsert_setting(
-                con,
-                key=setting_key,
-                value=setting_value,
-                setting_type="text",
-                description=description,
-                updated_by=actor,
-            )
-        profile = get_company_profile(con)
-
-    return {"ok": True, "profile": profile}
 
 @router.post("/upload/nzi-logo")
 async def upload_nzi_logo(
