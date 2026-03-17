@@ -2623,7 +2623,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         row = con.execute(
             """
             SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status, 
-                   c.website, c.year_end_month, c.company_reg, c.headquarters,
+                   c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
                    c.addr_line1, c.addr_line2, c.addr_city, c.addr_region, 
                    c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
                    c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
