@@ -349,6 +349,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
     ],
+    allow_origin_regex=r"^https:\/\/.*\.onrender\.com$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1969,12 +1970,12 @@ def job_excel_template(
                 selected_site=str(site),
                 include_prev_year=bool(include_prev_year),
             )
-        filename = "-".join(
+        filename = "_".join(
             [
-                _safe_name_part(job_number),
                 _safe_name_part(client_name),
+                _safe_name_part(job_number),
                 _safe_name_part(str(site)),
-                "Data-Upload-Template",
+                "Data_File",
                 _safe_name_part(period_part),
             ]
         ) + ".xlsx"
@@ -2311,13 +2312,13 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                 """
                 INSERT INTO clients (
                     client_name, industry, description_long, website, year_end_month,
-                    company_reg, headquarters, addr_line1, addr_line2, addr_city,
+                    company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
                     crm_owner, currency, status, net_zero_year, benchmark_year,
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
                     target_s3_year, target_s3_pct
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -2327,6 +2328,7 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     body.get("website"),
                     body.get("year_end_month"),
                     body.get("company_reg"),
+                    body.get("sic_code"),
                     body.get("headquarters"),
                     body.get("addr_line1"),
                     body.get("addr_line2"),
@@ -2647,25 +2649,26 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "website": row[5],
         "year_end_month": row[6],
         "company_reg": row[7],
-        "headquarters": row[8],
-        "addr_line1": row[9],
-        "addr_line2": row[10],
-        "addr_city": row[11],
-        "addr_region": row[12],
-        "addr_postcode": row[13],
-        "addr_country": row[14],
-        "logo_url": row[15],
-        "crm_owner": row[16],
-        "net_zero_year": (int(row[17]) if row[17] is not None else None),
-        "interim_year": (int(row[18]) if row[18] is not None else None),
-        "interim_s1_pct": (int(row[19]) if row[19] is not None else None),
-        "interim_s2_pct": (int(row[20]) if row[20] is not None else None),
-        "interim_s3_pct": (int(row[21]) if row[21] is not None else None),
-        "portfolio": row[22],
-        "benchmark_year": (int(row[23]) if row[23] is not None else None),
-        "benchmark_period_start": str(row[24]) if row[24] is not None else None,
-        "benchmark_period_end": str(row[25]) if row[25] is not None else None,
-        "currency": row[26] if row[26] is not None else "GBP",
+        "sic_code": row[8],
+        "headquarters": row[9],
+        "addr_line1": row[10],
+        "addr_line2": row[11],
+        "addr_city": row[12],
+        "addr_region": row[13],
+        "addr_postcode": row[14],
+        "addr_country": row[15],
+        "logo_url": row[16],
+        "crm_owner": row[17],
+        "net_zero_year": (int(row[18]) if row[18] is not None else None),
+        "interim_year": (int(row[19]) if row[19] is not None else None),
+        "interim_s1_pct": (int(row[20]) if row[20] is not None else None),
+        "interim_s2_pct": (int(row[21]) if row[21] is not None else None),
+        "interim_s3_pct": (int(row[22]) if row[22] is not None else None),
+        "portfolio": row[23],
+        "benchmark_year": (int(row[24]) if row[24] is not None else None),
+        "benchmark_period_start": str(row[25]) if row[25] is not None else None,
+        "benchmark_period_end": str(row[26]) if row[26] is not None else None,
+        "currency": row[27] if row[27] is not None else "GBP",
     }
 
 
@@ -2694,6 +2697,7 @@ def update_client(
                 "website": "website",
                 "year_end_month": "year_end_month",
                 "company_reg": "company_reg",
+                "sic_code": "sic_code",
                 "headquarters": "headquarters",
                 "addr_line1": "addr_line1",
                 "addr_line2": "addr_line2",

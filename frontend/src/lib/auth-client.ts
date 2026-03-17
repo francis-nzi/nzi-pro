@@ -21,6 +21,18 @@ function clearCookie(name: string): void {
   document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
+export function apiUrl(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+  if (apiBase && /^https?:\/\//i.test(apiBase)) {
+    return `${apiBase.replace(/\/+$/, "")}${normalized}`;
+  }
+  if (normalized.startsWith("/api/backend/")) {
+    return normalized;
+  }
+  return `/api/backend${normalized}`;
+}
+
 export function getToken(): string | null {
   return cookieValue(TOKEN_COOKIE);
 }

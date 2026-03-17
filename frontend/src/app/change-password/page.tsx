@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
+import { apiUrl, clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function ChangePasswordPage() {
 
     setBusy(true);
     try {
-      const res = await fetch("/api/backend/auth/change-password", {
+      const res = await fetch(apiUrl("/auth/change-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

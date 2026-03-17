@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { clearAuthState, setMustAcceptPortalTerms } from "@/lib/auth-client";
+import { apiUrl, clearAuthState, setMustAcceptPortalTerms } from "@/lib/auth-client";
 
 export default function AcceptTermsPage() {
   const router = useRouter();
@@ -15,7 +15,7 @@ export default function AcceptTermsPage() {
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/backend/auth/accept-portal-terms", {
+      const res = await fetch(apiUrl("/auth/accept-portal-terms"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

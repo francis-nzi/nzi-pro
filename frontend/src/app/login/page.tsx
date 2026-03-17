@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { setAuthState, setMustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
+import { apiUrl, setAuthState, setMustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 import {
   Dialog,
   DialogContent,
@@ -55,7 +55,7 @@ function LoginPageContent() {
     setBusy(true);
 
     try {
-      const res = await fetch("/api/backend/auth/login", {
+      const res = await fetch(apiUrl("/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -113,7 +113,7 @@ function LoginPageContent() {
     setError("");
     setBusy(true);
     try {
-      const res = await fetch("/api/backend/auth/login/mfa/verify", {
+      const res = await fetch(apiUrl("/auth/login/mfa/verify"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,7 +167,7 @@ function LoginPageContent() {
     setForgotTempPassword("");
     setForgotExpiry("");
     try {
-      const res = await fetch("/api/backend/auth/forgot-password", {
+      const res = await fetch(apiUrl("/auth/forgot-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: forgotIdentifier.trim() }),
