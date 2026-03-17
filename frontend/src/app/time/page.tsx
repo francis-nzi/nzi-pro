@@ -150,7 +150,13 @@ function TimePageContent() {
       ]);
 
       if (!timeRes.ok || !jobsRes.ok || !subjectsRes.ok || !teamRes.ok) {
-        throw new Error("Failed to load data");
+        const failures = [
+          !timeRes.ok ? `time logs (${timeRes.status})` : null,
+          !jobsRes.ok ? `jobs (${jobsRes.status})` : null,
+          !subjectsRes.ok ? `time subjects (${subjectsRes.status})` : null,
+          !teamRes.ok ? `team members (${teamRes.status})` : null,
+        ].filter(Boolean);
+        throw new Error(`Failed to load data: ${failures.join(", ")}`);
       }
 
       const timeData = await timeRes.json();
