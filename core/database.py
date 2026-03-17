@@ -62,7 +62,15 @@ class _PgConn:
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        # For autocommit connections, just close the connection
+        # For transactional connections, commit on success and roll back on failure.
+        if not self._autocommit:
+            try:
+                if exc_type is None:
+                    self._conn.commit()
+                else:
+                    self._conn.rollback()
+            except Exception:
+                pass
         try:
             self._conn.close()
         except Exception:
@@ -86,7 +94,7 @@ class _PgConn:
         return _PgResult(cur)
 
 
-def get_conn():
+def get_conn(*, autocommit: bool = True):
     try:
         import psycopg
     except Exception as e:
@@ -98,9 +106,8 @@ def get_conn():
     if not url:
         raise RuntimeError("DATABASE_URL is not set")
     url = _ensure_sslmode(url)
-    # For web apps / poolers, use autocommit to avoid transaction issues.
-    conn = psycopg.connect(url, autocommit=True)
-    return _PgConn(conn, autocommit=True)
+    conn = psycopg.connect(url, autocommit=autocommit)
+    return _PgConn(conn, autocommit=autocommit)
 
 
 def run_ddl():

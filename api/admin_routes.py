@@ -36,6 +36,23 @@ def _ingest_csv_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -
     return ingest_csv(csv_path, replace=replace)
 
 
+def _ingest_csv_report_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -> dict:
+    """Use the richer dataset ingest report when available."""
+    from ingest_conversion_factors import ingest_csv_with_report
+
+    signature = inspect.signature(ingest_csv_with_report)
+    if "dataset_id" in signature.parameters:
+        return ingest_csv_with_report(csv_path, replace=replace, dataset_id=dataset_id)
+    ds_id, factor_count = _ingest_csv_for_dataset(csv_path, replace=replace, dataset_id=dataset_id)
+    return {
+        "dataset_id": ds_id,
+        "accepted_rows": factor_count,
+        "rejected_rows": 0,
+        "rejected_details": [],
+        "deleted_rows": 0,
+    }
+
+
 def _ensure_users_position_column(con) -> None:
     """Ensure users.position exists for consultant position metadata."""
     try:
@@ -1947,16 +1964,24 @@ async def upload_dataset_factors(
             tmp_path = Path(tmp_file.name)
         
         try:
-            # Full-replace behavior for dataset uploads.
-            _ = replace
-            _, factor_count = _ingest_csv_for_dataset(tmp_path, replace=True, dataset_id=dataset_id)
+            report = _ingest_csv_report_for_dataset(tmp_path, replace=True, dataset_id=dataset_id)
             
             return {
                 "ok": True,
                 "dataset_id": dataset_id,
-                "factors_imported": factor_count,
+                "factors_imported": int(report.get("accepted_rows") or 0),
+                "rows_rejected": int(report.get("rejected_rows") or 0),
+                "rejected_details": report.get("rejected_details") or [],
+                "deleted_rows": int(report.get("deleted_rows") or 0),
                 "replaced": True,
-                "message": f"Successfully imported {factor_count} conversion factors"
+                "message": (
+                    f"Successfully imported {int(report.get('accepted_rows') or 0)} conversion factors"
+                    + (
+                        f"; rejected {int(report.get('rejected_rows') or 0)} invalid row(s)"
+                        if int(report.get("rejected_rows") or 0) > 0
+                        else ""
+                    )
+                ),
             }
             
         finally:
@@ -1967,6 +1992,16 @@ async def upload_dataset_factors(
     except HTTPException:
         raise
     except Exception as e:
+        from ingest_conversion_factors import DatasetReplacementBlocked
+
+        if isinstance(e, DatasetReplacementBlocked):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(e),
+                    "dependency_summary": e.dependency_summary,
+                },
+            )
         raise HTTPException(status_code=500, detail=f"Failed to upload factors: {str(e)}")
 
 

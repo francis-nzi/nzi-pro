@@ -47,6 +47,13 @@ type Factor = {
   report_label: string;
 };
 
+type UploadRejectedRow = {
+  row_number: number;
+  original_id?: string | null;
+  scope?: string | null;
+  reason: string;
+};
+
 export default function DatasetsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   
@@ -83,6 +90,7 @@ export default function DatasetsPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadingDatasetId, setUploadingDatasetId] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadRejectedRows, setUploadRejectedRows] = useState<UploadRejectedRow[]>([]);
 
   useEffect(() => {
     loadDatasets();
@@ -149,6 +157,60 @@ export default function DatasetsPage() {
     } catch (e) {
       console.error("Upload error:", e);
       setUploadStatus(`✗ Error: ${(e as Error).message}`);
+      setUploadingDatasetId(null);
+    }
+  }
+
+  async function uploadFactorsWithReport(datasetId: number) {
+    if (!uploadFile) {
+      setUploadStatus("Please select a file");
+      return;
+    }
+
+    setUploadingDatasetId(datasetId);
+    setUploadStatus("Uploading file...");
+    setUploadRejectedRows([]);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", uploadFile);
+
+      const res = await fetch(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const text = await res.text();
+      let payload: any = null;
+      try {
+        payload = JSON.parse(text);
+      } catch {}
+
+      if (!res.ok) {
+        const detail = payload?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.message || payload?.message || text;
+        setUploadStatus(`Upload failed (${res.status}): ${message}`);
+        setUploadingDatasetId(null);
+        return;
+      }
+
+      const imported = Number(payload?.factors_imported || 0);
+      const rejected = Number(payload?.rows_rejected || 0);
+      const deleted = Number(payload?.deleted_rows || 0);
+      setUploadRejectedRows((payload?.rejected_details || []) as UploadRejectedRow[]);
+      setUploadStatus(
+        `Success. Imported ${imported} factors`
+        + (deleted > 0 ? `, removed ${deleted} obsolete rows` : "")
+        + (rejected > 0 ? `, rejected ${rejected} invalid row(s)` : "")
+      );
+      setUploadFile(null);
+      setUploadingDatasetId(null);
+      await loadDatasets();
+    } catch (e) {
+      setUploadStatus(`Error: ${(e as Error).message}`);
       setUploadingDatasetId(null);
     }
   }
@@ -576,12 +638,13 @@ export default function DatasetsPage() {
                       onChange={(e) => {
                         setUploadFile(e.target.files?.[0] || null);
                         setUploadStatus("");
+                        setUploadRejectedRows([]);
                       }}
                       className="flex-1"
                       disabled={uploadingDatasetId === editingDataset.dataset_id}
                     />
                     <Button
-                      onClick={() => uploadFactors(editingDataset.dataset_id)}
+                      onClick={() => uploadFactorsWithReport(editingDataset.dataset_id)}
                       disabled={!uploadFile || uploadingDatasetId === editingDataset.dataset_id}
                     >
                       {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
@@ -591,13 +654,30 @@ export default function DatasetsPage() {
                   {/* Prominent Success/Failure Message */}
                   {uploadStatus && (
                     <div className={`p-3 rounded-md text-sm font-medium ${
-                      uploadStatus.includes("Success") || uploadStatus.includes("✓")
+                      uploadStatus.startsWith("Success")
                         ? "bg-green-100 text-green-800 border border-green-200" 
-                        : uploadStatus.includes("failed") || uploadStatus.includes("Error") || uploadStatus.includes("✗")
+                        : uploadStatus.includes("failed") || uploadStatus.includes("Error")
                         ? "bg-red-100 text-red-800 border border-red-200"
                         : "bg-blue-100 text-blue-800 border border-blue-200"
                     }`}>
                       {uploadStatus}
+                    </div>
+                  )}
+                  {uploadRejectedRows.length > 0 && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="font-medium">Rejected rows</div>
+                      <div className="mt-2 space-y-1">
+                        {uploadRejectedRows.slice(0, 10).map((row) => (
+                          <div key={`${row.row_number}-${row.original_id ?? ""}-${row.scope ?? ""}`}>
+                            Row {row.row_number}
+                            {row.original_id ? `, ID ${row.original_id}` : ""}
+                            {row.scope ? `, ${row.scope}` : ""}: {row.reason}
+                          </div>
+                        ))}
+                        {uploadRejectedRows.length > 10 && (
+                          <div>Showing first 10 of {uploadRejectedRows.length} rejected rows.</div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

@@ -3,10 +3,20 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 from typing import Any
+from dataclasses import dataclass
 
 import pandas as pd
 
 from core.database import db_backend, get_conn
+
+
+@dataclass
+class DatasetReplacementBlocked(Exception):
+    message: str
+    dependency_summary: dict[str, int]
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def _norm_col(c: str) -> str:
@@ -172,7 +182,20 @@ def _read_conversion_factor_csv(path: Path) -> pd.DataFrame:
     raise RuntimeError(f"{path.name}: could not decode CSV with supported encodings ({detail})")
 
 
-def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> tuple[int, int]:
+def _table_exists(con, table_name: str) -> bool:
+    row = con.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = %s
+        LIMIT 1
+        """,
+        [table_name],
+    ).fetchone()
+    return bool(row)
+
+
+def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None) -> dict[str, Any]:
     # Be forgiving with uploaded CSVs from different source systems by
     # autodetecting the separator and cleaning up header artifacts.
     df = _read_conversion_factor_csv(path)
@@ -217,36 +240,57 @@ def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> t
     else:
         # When uploading to existing dataset, source comes from CSV or is empty
         source = None
-    
-    # NOTE:
-    # "replace" intentionally does NOT hard-delete existing factor rows, because
-    # factor_lookup.db_id is referenced by job_scope_rows and spend data rows.
-    # We do an in-place upsert keyed by (dataset_id, year, scope, original_id)
-    # so existing referenced rows keep their db_id.
 
-    # build rows
+    total_rows = int(len(df.index))
     rows: list[list[Any]] = []
+    rejected_rows: list[dict[str, Any]] = []
+    years_seen: set[int] = set()
+    duplicate_keys_seen: set[tuple[int, str, str]] = set()
     for _, r in df.iterrows():
+        row_number = int(getattr(_, "item", lambda: _)()) + 2 if hasattr(_, "item") else int(_) + 2
+        rejection_reasons: list[str] = []
+
         try:
             factor = float(r[c_fac])
         except Exception:
-            continue
+            factor = None
+            rejection_reasons.append("Invalid factor value")
 
         oid = _norm_original_id(r[c_id])
         scope = _norm_scope(r[c_scope])
-        if oid is None or scope is None:
-            continue
+        if oid is None:
+            rejection_reasons.append("Missing original ID")
+        if scope is None:
+            rejection_reasons.append("Missing scope")
 
         yr = int(year or 0)
         if c_year and r.get(c_year) is not None and not (isinstance(r.get(c_year), float) and pd.isna(r.get(c_year))):
             try:
                 yr = int(r.get(c_year))
             except Exception:
-                pass
+                rejection_reasons.append("Invalid year value")
+
+        if factor is not None and oid is not None and scope is not None:
+            dedupe_key = (int(yr), str(scope), str(oid))
+            if dedupe_key in duplicate_keys_seen:
+                rejection_reasons.append("Duplicate year/scope/original_id in upload")
+            duplicate_keys_seen.add(dedupe_key)
+
+        if rejection_reasons:
+            rejected_rows.append(
+                {
+                    "row_number": row_number,
+                    "original_id": oid,
+                    "scope": scope,
+                    "reason": "; ".join(rejection_reasons),
+                }
+            )
+            continue
 
         col_text = _synth_column_text(r, c_text, c_l1, c_l2, c_l3, c_l4)
         uom = r.get(c_uom) if c_uom else None
         ghg_unit = _norm_ghg_unit(r.get(c_ghg) if c_ghg else None)
+        years_seen.add(int(yr))
 
         method = None
         if c_method:
@@ -325,10 +369,91 @@ def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> t
             ]
         )
 
-    if not rows:
-        return dataset_id, 0
+    return {
+        "dataset_id": int(dataset_id),
+        "rows": rows,
+        "total_rows": total_rows,
+        "accepted_rows": len(rows),
+        "rejected_rows": len(rejected_rows),
+        "rejected_details": rejected_rows,
+        "years_seen": sorted(years_seen),
+    }
 
-    with get_conn() as con:
+
+def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[str, int]:
+    if not stale_factor_ids:
+        return {}
+
+    placeholders = ",".join(["%s"] * len(stale_factor_ids))
+    summary: dict[str, int] = {}
+
+    if _table_exists(con, "job_scope_rows"):
+        row = con.execute(
+            f"SELECT COUNT(*) FROM job_scope_rows WHERE factor_db_id IN ({placeholders})",
+            stale_factor_ids,
+        ).fetchone()
+        summary["job_scope_rows"] = int(row[0] or 0)
+
+    if _table_exists(con, "job_spend_entries"):
+        row = con.execute(
+            f"SELECT COUNT(*) FROM job_spend_entries WHERE factor_db_id IN ({placeholders})",
+            stale_factor_ids,
+        ).fetchone()
+        summary["job_spend_entries"] = int(row[0] or 0)
+
+    if _table_exists(con, "lca_inventory_items"):
+        row = con.execute(
+            f"SELECT COUNT(*) FROM lca_inventory_items WHERE mapped_factor_db_id IN ({placeholders})",
+            stale_factor_ids,
+        ).fetchone()
+        summary["lca_inventory_items"] = int(row[0] or 0)
+
+    return {k: v for k, v in summary.items() if v > 0}
+
+
+def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None = None) -> dict[str, Any]:
+    parsed = _parse_conversion_factor_upload(path, dataset_id=dataset_id)
+    rows = parsed["rows"]
+    dataset_id = int(parsed["dataset_id"])
+
+    if not rows:
+        parsed.update({"deleted_rows": 0, "message": "No valid factor rows found in upload"})
+        return parsed
+
+    incoming_keys = {(int(r[2]), str(r[4]), str(r[3])) for r in rows}
+
+    with get_conn(autocommit=False) as con:
+        deleted_rows = 0
+        if replace:
+            existing_rows = con.execute(
+                """
+                SELECT db_id, year, scope, original_id
+                FROM factor_lookup
+                WHERE dataset_id = %s
+                """,
+                [dataset_id],
+            ).fetchall()
+            stale_ids = [
+                int(db_id)
+                for db_id, yr, scope, original_id in existing_rows
+                if (int(yr or 0), str(scope or ""), str(original_id or "")) not in incoming_keys
+            ]
+            if stale_ids:
+                deps = _replacement_dependency_summary(con, stale_ids)
+                if deps:
+                    details = ", ".join(f"{name}={count}" for name, count in sorted(deps.items()))
+                    raise DatasetReplacementBlocked(
+                        "STOP: this upload would remove factor rows that are already referenced by jobs. "
+                        f"Remove those job references or upload a compatible replacement first ({details}).",
+                        deps,
+                    )
+                placeholders = ",".join(["%s"] * len(stale_ids))
+                con.execute(
+                    f"DELETE FROM factor_lookup WHERE db_id IN ({placeholders})",
+                    stale_ids,
+                )
+                deleted_rows = len(stale_ids)
+
         for params in rows:
             (
                 p_dataset_id,
@@ -532,7 +657,18 @@ def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> t
                         ],
                     )
 
-    return dataset_id, len(rows)
+    parsed.update(
+        {
+            "deleted_rows": deleted_rows,
+            "message": f"Imported {len(rows)} factor rows",
+        }
+    )
+    return parsed
+
+
+def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> tuple[int, int]:
+    report = ingest_csv_with_report(path, replace=replace, dataset_id=dataset_id)
+    return int(report["dataset_id"]), int(report["accepted_rows"])
 
 
 def main() -> int:

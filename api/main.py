@@ -68,7 +68,6 @@ from services.dataset_selector import (
 )
 from api.admin_routes import router as admin_router
 from api.job_scope_data_routes import router as job_scope_data_router
-from api.dataset_import_routes import router as dataset_import_router
 from api.custom_factors_routes import router as custom_factors_router
 from api.client_dashboard_routes import router as client_dashboard_router
 from api.client_reporting_routes import router as client_reporting_router
@@ -128,7 +127,6 @@ app.include_router(admin_router)
 app.include_router(job_scope_data_router)
 
 # Include dataset import routes
-app.include_router(dataset_import_router)
 
 # Include custom factors routes
 app.include_router(custom_factors_router)
