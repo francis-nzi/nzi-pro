@@ -1641,16 +1641,19 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             for svc in selected_services:
                 service_key = svc["service_key"]
                 service_name = svc["service_name"]
-                if generation_mode == "market-scan":
-                    generated, scan_diag = _market_scan_companies_house_leads(
-                        regions=regions,
-                        target_industries=target_industries,
-                        limit=leads_per_service,
-                    )
-                    if scan_diag:
-                        diagnostics[service_key] = scan_diag
-                else:
-                    generated, ai_diag = _openai_generate_service_leads(
+                generated, ai_diag = _openai_generate_service_leads(
+                    service_name=service_name,
+                    service_key=service_key,
+                    regions=regions,
+                    revenue_min=revenue_min,
+                    revenue_max=revenue_max,
+                    limit=leads_per_service,
+                    target_industries=target_industries,
+                    target_roles=target_roles,
+                    allow_fallback=allow_fallback,
+                )
+                if not generated:
+                    generated, gemini_diag = _gemini_generate_service_leads(
                         service_name=service_name,
                         service_key=service_key,
                         regions=regions,
@@ -1661,22 +1664,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         target_roles=target_roles,
                         allow_fallback=allow_fallback,
                     )
-                    if not generated:
-                        generated, gemini_diag = _gemini_generate_service_leads(
-                            service_name=service_name,
-                            service_key=service_key,
-                            regions=regions,
-                            revenue_min=revenue_min,
-                            revenue_max=revenue_max,
-                            limit=leads_per_service,
-                            target_industries=target_industries,
-                            target_roles=target_roles,
-                            allow_fallback=allow_fallback,
-                        )
-                        if gemini_diag:
-                            diagnostics[service_key] = gemini_diag
-                    elif ai_diag:
-                        diagnostics[service_key] = ai_diag
+                    if gemini_diag:
+                        diagnostics[service_key] = gemini_diag
+                elif ai_diag:
+                    diagnostics[service_key] = ai_diag
                 if not generated:
                     diagnostics[service_key] = diagnostics.get(service_key) or "No verifiable open-source leads returned for current filters."
                 inserted_for_service = 0
@@ -1776,7 +1767,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             },
             "note": "Leads are AI-generated candidates and should be team-qualified before outreach.",
             "suggestions": [
-                "Add paid data providers (Companies House enrichments, procurement feeds, LinkedIn/Snov/RocketReach) for stronger contact quality.",
+                "Add paid data providers (procurement feeds, LinkedIn/Snov/RocketReach) for stronger contact quality.",
                 "Track conversion rates by service/industry to retrain scoring prompts.",
                 "Use automated compliance-signal scraping for tender portals and supplier questionnaires.",
             ],
