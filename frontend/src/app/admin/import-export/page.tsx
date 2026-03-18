@@ -540,7 +540,113 @@ export default function AdminImportExportPage() {
             {runResult ? (
               <div className="rounded border p-3">
                 <div className="mb-2 text-sm font-medium">Last Run Result</div>
-                <pre className="max-h-96 overflow-auto text-xs">{JSON.stringify(runResult, null, 2)}</pre>
+                <div className="space-y-4 text-sm">
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Mode</div>
+                      <div className="text-xl font-semibold uppercase">{runResult.mode || "-"}</div>
+                    </div>
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Selected Clients</div>
+                      <div className="text-xl font-semibold">{Number(runResult.selected_clients?.length || 0)}</div>
+                    </div>
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Warnings</div>
+                      <div className="text-xl font-semibold">{Number(runResult.stats?.warnings?.length || 0)}</div>
+                    </div>
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Errors</div>
+                      <div className="text-xl font-semibold">{Number(runResult.stats?.errors?.length || 0)}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded border">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted">
+                        <tr>
+                          <th className="p-2 text-left">Entity</th>
+                          <th className="p-2 text-left">Processed</th>
+                          <th className="p-2 text-left">Inserted</th>
+                          <th className="p-2 text-left">Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: "Clients", stats: runResult.stats?.clients },
+                          { label: "Contacts", stats: runResult.stats?.contacts },
+                          { label: "Jobs", stats: runResult.stats?.jobs },
+                        ].map(({ label, stats }) => (
+                          <tr key={label} className="border-t">
+                            <td className="p-2 font-medium">{label}</td>
+                            <td className="p-2">{Number(stats?.processed || 0)}</td>
+                            <td className="p-2">{Number(stats?.inserted || 0)}</td>
+                            <td className="p-2">{Number(stats?.updated || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {Array.isArray(runResult.selected_clients) && runResult.selected_clients.length > 0 ? (
+                    <div>
+                      <div className="mb-2 text-sm font-medium">Selected Clients</div>
+                      <div className="overflow-x-auto rounded border">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted">
+                            <tr>
+                              <th className="p-2 text-left">Client Name</th>
+                              <th className="p-2 text-left">WFM Client ID</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {runResult.selected_clients.slice(0, 25).map((client, idx) => (
+                              <tr key={`${client.wfm_client_id || "client"}-${idx}`} className="border-t">
+                                <td className="p-2">{client.name || "-"}</td>
+                                <td className="p-2 break-all">{client.wfm_client_id || "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {runResult.selected_clients.length > 25 ? (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Showing first 25 of {runResult.selected_clients.length} selected clients.
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {Array.isArray(runResult.stats?.warnings) && runResult.stats.warnings.length > 0 ? (
+                    <div>
+                      <div className="mb-2 text-sm font-medium">Warnings</div>
+                      <div className="max-h-48 overflow-auto rounded border p-2 text-xs text-muted-foreground">
+                        {runResult.stats.warnings.slice(0, 50).map((warning, idx) => (
+                          <div key={`warning-${idx}`} className={idx > 0 ? "mt-1 border-t pt-1" : ""}>
+                            {warning}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {Array.isArray(runResult.stats?.errors) && runResult.stats.errors.length > 0 ? (
+                    <div>
+                      <div className="mb-2 text-sm font-medium text-destructive">Errors</div>
+                      <div className="max-h-48 overflow-auto rounded border border-destructive/30 p-2 text-xs text-destructive">
+                        {runResult.stats.errors.slice(0, 50).map((err, idx) => (
+                          <div key={`error-${idx}`} className={idx > 0 ? "mt-1 border-t border-destructive/20 pt-1" : ""}>
+                            {err}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <details className="rounded border p-2">
+                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Raw JSON</summary>
+                    <pre className="mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(runResult, null, 2)}</pre>
+                  </details>
+                </div>
               </div>
             ) : null}
             {impactPreview ? (
