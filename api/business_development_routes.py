@@ -554,6 +554,44 @@ def _is_unwanted_market_scan_company(item: dict[str, Any]) -> bool:
     return any(marker in text for marker in blocked_markers)
 
 
+def _is_likely_large_enterprise(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            str(item.get("company_name") or ""),
+            str(item.get("industry") or ""),
+            str(item.get("website") or ""),
+        ]
+    ).lower()
+    big_name_markers = [
+        "accenture",
+        "ibm",
+        "tata consultancy",
+        "tcs",
+        "sage",
+        "capgemini",
+        "deloitte",
+        "pwc",
+        "kpmg",
+        "ey",
+        "microsoft",
+        "oracle",
+        "sap",
+        "infosys",
+        "wipro",
+        "cgi",
+    ]
+    enterprise_markers = [
+        "global plc",
+        "international plc",
+        "multinational",
+        "fortune 500",
+        "ftse 100",
+        "ftse100",
+        "listed company",
+    ]
+    return any(marker in text for marker in big_name_markers + enterprise_markers)
+
+
 def _load_never_return_company_keys(con) -> set[str]:
     keys: set[str] = set()
     try:
@@ -724,7 +762,7 @@ def _parse_market_scan_rows(
             continue
         seen.add(key)
         revenue = _safe_float(row.get("revenue_gbp_millions"), 0)
-        if revenue <= 0 or revenue < revenue_min or revenue > revenue_max:
+        if revenue > 0 and (revenue < revenue_min or revenue > revenue_max):
             continue
         candidate = {
             "company_name": company,
@@ -745,6 +783,8 @@ def _parse_market_scan_rows(
         if not _matches_target_industries(candidate, target_industries, include_narrative=False):
             continue
         if _is_consultancy_competitor_candidate(candidate) or _is_unwanted_market_scan_company(candidate):
+            continue
+        if revenue <= 0 and _is_likely_large_enterprise(candidate):
             continue
         website = candidate["website"]
         if not website or not website.lower().startswith(("http://", "https://")):
@@ -839,6 +879,13 @@ def _openai_generate_market_scan_leads(
             if len(collected) >= target_count:
                 break
 
+    collected.sort(
+        key=lambda x: (
+            0 if _safe_float(x.get("revenue_gbp_millions"), 0) > 0 else 1,
+            -_safe_float(x.get("likelihood_score"), 0),
+            str(x.get("company_name") or ""),
+        )
+    )
     if collected:
         return collected[:target_count], None
     return [], "; ".join(errors[:5]) if errors else "OpenAI returned no qualifying market-scan companies."
@@ -933,6 +980,13 @@ def _gemini_generate_market_scan_leads(
             if len(collected) >= target_count:
                 break
 
+    collected.sort(
+        key=lambda x: (
+            0 if _safe_float(x.get("revenue_gbp_millions"), 0) > 0 else 1,
+            -_safe_float(x.get("likelihood_score"), 0),
+            str(x.get("company_name") or ""),
+        )
+    )
     if collected:
         return collected[:target_count], None
     return [], "; ".join(errors[:5]) if errors else "Gemini returned no qualifying market-scan companies."
@@ -1969,8 +2023,9 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             limit=leads_per_service,
                             target_industries=target_industries,
                         )
-                        if gemini_diag:
-                            diagnostics[service_key] = gemini_diag
+                        combined_diags = [d for d in [ai_diag, gemini_diag] if d]
+                        if combined_diags:
+                            diagnostics[service_key] = " | ".join(combined_diags)
                     elif ai_diag:
                         diagnostics[service_key] = ai_diag
                 else:
@@ -1997,8 +2052,9 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             target_roles=target_roles,
                             allow_fallback=allow_fallback,
                         )
-                        if gemini_diag:
-                            diagnostics[service_key] = gemini_diag
+                        combined_diags = [d for d in [ai_diag, gemini_diag] if d]
+                        if combined_diags:
+                            diagnostics[service_key] = " | ".join(combined_diags)
                     elif ai_diag:
                         diagnostics[service_key] = ai_diag
                 if not generated:
