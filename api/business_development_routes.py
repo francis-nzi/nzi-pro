@@ -3393,25 +3393,34 @@ def get_bd_overview(_user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_tables(con)
-            stages_df = con.execute(
-                """
-                SELECT stage_id, stage_key, stage_name, stage_order, probability_pct, is_active
-                FROM bd_funnel_stages
-                WHERE is_active = TRUE
-                ORDER BY stage_order
-                """
-            ).df()
-            agg_df = con.execute(
-                """
-                SELECT stage_id, COUNT(*) AS opportunity_count, COALESCE(SUM(estimated_value), 0) AS pipeline_value
-                FROM bd_opportunities
-                WHERE lower(status) = 'open'
-                GROUP BY stage_id
-                """
-            ).df()
-            lead_row = con.execute(
-                "SELECT COUNT(*) FROM bd_leads WHERE lower(status) IN ('new','qualified','contacted')"
-            ).fetchone()
+            try:
+                stages_df = con.execute(
+                    """
+                    SELECT stage_id, stage_key, stage_name, stage_order, probability_pct, is_active
+                    FROM bd_funnel_stages
+                    WHERE is_active = TRUE
+                    ORDER BY stage_order
+                    """
+                ).df()
+            except Exception:
+                stages_df = None
+            try:
+                agg_df = con.execute(
+                    """
+                    SELECT stage_id, COUNT(*) AS opportunity_count, COALESCE(SUM(estimated_value), 0) AS pipeline_value
+                    FROM bd_opportunities
+                    WHERE lower(coalesce(status, 'open')) = 'open'
+                    GROUP BY stage_id
+                    """
+                ).df()
+            except Exception:
+                agg_df = None
+            try:
+                lead_row = con.execute(
+                    "SELECT COUNT(*) FROM bd_leads WHERE lower(coalesce(status, 'new')) IN ('new','qualified','contacted')"
+                ).fetchone()
+            except Exception:
+                lead_row = None
             total_leads = int(lead_row[0] if lead_row and lead_row[0] is not None else 0)
 
             agg_by_stage: dict[int, dict[str, Any]] = {}
