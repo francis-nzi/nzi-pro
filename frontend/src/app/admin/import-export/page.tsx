@@ -51,6 +51,50 @@ type MappingEdit = {
   notes: string;
 };
 
+const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<string, string[]> } = {
+  job: {
+    ignore: [],
+    report_from: ["Report From", "Reporting Period From"],
+    report_to: ["Report To", "Reporting Period To"],
+    crm_name: ["Report Writer", "Job Manager", "Assigned Consultant"],
+    is_benchmark: ["Is Benchmark?", "Benchmark?", "Benchmark"],
+    is_renewal: ["Is renewal?", "Is Renewal?", "Renewal?"],
+    data_collection_due: ["Data Completion Date", "Data Collection Due Date"],
+    first_draft_due: ["Draft Report Due Date", "First Draft Due Date"],
+    final_report_due: ["Report Due Date", "Final Report Due Date", "Report Completion Date"],
+    scope_1_tco2e: ["Scope 1 (tCO2e)", "Scope 1 Emissions", "Scope 1"],
+    scope_2_tco2e: ["Scope 2 (tCO2e)", "Scope 2 Emissions", "Scope 2"],
+    scope_3_tco2e: ["Scope 3 (tCO2e)", "Scope 3 Emissions", "Scope 3"],
+    total_tco2e: ["Total Emissions (tCO2e)", "Total Emissions"],
+    employees: ["Number of Employees", "Employees"],
+    turnover: ["Turnover", "Annual Turnover"],
+  },
+  client: {
+    ignore: [],
+    turnover: ["Turnover", "Annual Turnover"],
+    industry: ["Industry", "Sector", "Business Sector", "Company Sector"],
+    sic_code: ["Industry Code (SIC)", "Industry Code", "SIC Code", "SIC", "SIC Number"],
+    company_reg: ["Company Number", "Company Registration", "Company Registration Number"],
+    year_end_month: ["Financial Year End", "Year End Date"],
+    benchmark_period_start: ["Benchmark Date From", "Benchmark Period Start"],
+    benchmark_period_end: ["Benchmark Date To", "Benchmark Period End"],
+    currency: ["Currency"],
+    description_long: ["Other Client Data", "Client Notes"],
+  },
+};
+
+function mergeMappingSummary(mapping: WfmMapping | null): { job: Record<string, string[]>; client: Record<string, string[]> } {
+  const merged = {
+    job: { ...DEFAULT_MAPPING_SUMMARY.job },
+    client: { ...DEFAULT_MAPPING_SUMMARY.client },
+  };
+  for (const entity of ["job", "client"] as const) {
+    const incoming = mapping?.mappings?.[entity] || {};
+    for (const [target, sources] of Object.entries(incoming)) merged[entity][target] = Array.isArray(sources) ? sources : [];
+  }
+  return merged;
+}
+
 export default function AdminImportExportPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const [loading, setLoading] = useState(true);
@@ -71,6 +115,7 @@ export default function AdminImportExportPage() {
   const [clientIds, setClientIds] = useState("");
   const [clientNames, setClientNames] = useState("");
   const [jobNumbers, setJobNumbers] = useState("");
+  const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
 
   async function loadCatalog(query?: string) {
     const q = (query ?? catalogQuery).trim();
@@ -427,11 +472,11 @@ export default function AdminImportExportPage() {
           <CardHeader><CardTitle>Field Mapping (WFM to NZI)</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
             {!mapping ? <div className="text-muted-foreground">No mapping metadata loaded.</div> : null}
-            {mapping?.mappings?.job ? (
+            {mergedMappingSummary.job ? (
               <div>
                 <div className="font-medium mb-1">Job mappings</div>
                 <div className="space-y-1">
-                  {Object.entries(mapping.mappings.job).map(([target, sources]) => (
+                  {Object.entries(mergedMappingSummary.job).map(([target, sources]) => (
                     <div key={target} className="rounded border px-2 py-1">
                       <strong>{target}</strong>: {sources.join(" | ")}
                     </div>
@@ -439,11 +484,11 @@ export default function AdminImportExportPage() {
                 </div>
               </div>
             ) : null}
-            {mapping?.mappings?.client ? (
+            {mergedMappingSummary.client ? (
               <div>
                 <div className="font-medium mb-1">Client mappings</div>
                 <div className="space-y-1">
-                  {Object.entries(mapping.mappings.client).map(([target, sources]) => (
+                  {Object.entries(mergedMappingSummary.client).map(([target, sources]) => (
                     <div key={target} className="rounded border px-2 py-1">
                       <strong>{target}</strong>: {sources.join(" | ")}
                     </div>
