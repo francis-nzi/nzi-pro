@@ -132,6 +132,7 @@ export default function DatasetsPage() {
       }
       const json = await res.json();
       setDatasets(json.items || []);
+      setStatus((prev) => (prev.startsWith("Error loading datasets:") ? "" : prev));
     } catch (e) {
       setStatus(`Error loading datasets: ${(e as Error).message}`);
     } finally {
