@@ -23,6 +23,11 @@ from datetime import datetime, timedelta, timezone
 import inspect
 import pandas as pd
 from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
+from services.attribute_override_import import (
+    build_override_template_workbook,
+    commit_override_rows,
+    parse_override_workbook,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -2990,6 +2995,54 @@ def legacy_annual_resolve(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to resolve legacy annual rows: {e}")
+
+
+@router.get("/import-export/attributes/template")
+def download_attribute_override_template(_user: dict = Depends(_current_user)):
+    try:
+        payload = build_override_template_workbook()
+        return StreamingResponse(
+            io.BytesIO(payload),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="attribute_override_template.xlsx"'},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build attribute override template: {e}")
+
+
+@router.post("/import-export/attributes/preview")
+async def preview_attribute_overrides(
+    file: UploadFile = File(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        if not file.filename or not str(file.filename).lower().endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Empty upload")
+        return parse_override_workbook(raw, filename=str(file.filename))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to preview attribute override workbook: {e}")
+
+
+@router.post("/import-export/attributes/commit")
+def commit_attribute_overrides(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        rows = body.get("rows_ready")
+        if not isinstance(rows, list) or not rows:
+            raise HTTPException(status_code=400, detail="rows_ready must be a non-empty list")
+        actor = str(_user.get("email") or _user.get("user_id") or "unknown").strip()
+        return commit_override_rows(rows=rows, actor=actor)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to commit attribute overrides: {e}")
 
 
 @router.get("/import-export/wfm/summary")

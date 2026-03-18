@@ -86,6 +86,47 @@ type ImpactPreview = {
   };
   direct_mappings?: Record<string, { count?: number; samples?: string[] }>;
 };
+type AttributeOverrideChange = {
+  field: string;
+  action?: string;
+  from_value?: string | null;
+  to_value?: string | null;
+};
+type AttributeOverrideRow = {
+  entity: string;
+  row_number: number;
+  match_key?: string;
+  match_value?: string;
+  target_id?: number;
+  matched_label?: string;
+  status?: string;
+  warnings?: string[];
+  changes?: AttributeOverrideChange[];
+  update_fields?: Record<string, string | number | null>;
+};
+type AttributeOverridePreview = {
+  ok?: boolean;
+  filename?: string;
+  summary?: {
+    total_rows?: number;
+    client_rows?: number;
+    job_rows?: number;
+    ready_rows?: number;
+    blocked_rows?: number;
+    skipped_rows?: number;
+  };
+  warnings?: string[];
+  rows_ready?: AttributeOverrideRow[];
+  rows_blocked?: AttributeOverrideRow[];
+  rows_skipped?: AttributeOverrideRow[];
+};
+type AttributeOverrideCommitResult = {
+  ok?: boolean;
+  run_id?: string;
+  applied_rows?: number;
+  applied_changes?: number;
+  applied_by_entity?: { client?: number; job?: number };
+};
 
 const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<string, string[]> } = {
   job: {
@@ -204,12 +245,18 @@ export default function AdminImportExportPage() {
   const [legacyFile, setLegacyFile] = useState<File | null>(null);
   const [legacyPreview, setLegacyPreview] = useState<any>(null);
   const [legacyManualLookup, setLegacyManualLookup] = useState<Record<string, string>>({});
+  const [attributeOverrideFile, setAttributeOverrideFile] = useState<File | null>(null);
+  const [attributeOverridePreview, setAttributeOverridePreview] = useState<AttributeOverridePreview | null>(null);
+  const [attributeOverrideCommitResult, setAttributeOverrideCommitResult] = useState<AttributeOverrideCommitResult | null>(null);
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
   const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
   const selectedClients = runResult?.selected_clients ?? [];
   const runWarnings = runResult?.stats?.warnings ?? [];
   const runErrors = runResult?.stats?.errors ?? [];
+  const attributeReadyRows = attributeOverridePreview?.rows_ready ?? [];
+  const attributeBlockedRows = attributeOverridePreview?.rows_blocked ?? [];
+  const attributeSkippedRows = attributeOverridePreview?.rows_skipped ?? [];
 
   async function loadCatalog(query?: string, fileName?: string) {
     const q = (query ?? catalogQuery).trim();
@@ -691,6 +738,117 @@ export default function AdminImportExportPage() {
     }
   }
 
+  async function downloadAttributeOverrideTemplate() {
+    setBusy(true);
+    setError("");
+    setStatus("Downloading attribute override template...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/attributes/template`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Template download failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "attribute_override_template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus("Attribute override template downloaded.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function previewAttributeOverrides() {
+    if (!attributeOverrideFile) {
+      setError("Please select an attribute override workbook.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Previewing attribute overrides...");
+    setAttributeOverrideCommitResult(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", attributeOverrideFile);
+      const res = await fetch(`${baseUrl}/admin/import-export/attributes/preview`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const text = await res.text().catch(() => "");
+      let json: AttributeOverridePreview | { raw: string } = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) {
+        throw new Error(`Attribute override preview failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      setAttributeOverridePreview(json as AttributeOverridePreview);
+      const summary = (json as AttributeOverridePreview).summary;
+      setStatus(
+        `Attribute preview ready. ${Number(summary?.ready_rows || 0)} ready, ${Number(summary?.blocked_rows || 0)} blocked, ${Number(summary?.skipped_rows || 0)} unchanged.`
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitAttributeOverrides() {
+    if (!attributeReadyRows.length) {
+      setError("No ready override rows to commit.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Applying attribute overrides...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/attributes/commit`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows_ready: attributeReadyRows }),
+      });
+      const text = await res.text().catch(() => "");
+      let json: AttributeOverrideCommitResult | { raw: string } = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) {
+        throw new Error(`Attribute override commit failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      setAttributeOverrideCommitResult(json as AttributeOverrideCommitResult);
+      setStatus(
+        `Applied ${Number((json as AttributeOverrideCommitResult).applied_changes || 0)} field changes across ${Number((json as AttributeOverrideCommitResult).applied_rows || 0)} rows.`
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
@@ -1115,6 +1273,167 @@ export default function AdminImportExportPage() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Bulk Client / Job Attribute Overrides</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Upload an Excel workbook with optional <strong>clients</strong> and/or <strong>jobs</strong> sheets to bulk update
+              existing records. Blank values leave fields unchanged. Use <code>clear_fieldname</code> columns to clear values.
+            </div>
+            <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+              <div className="space-y-2">
+                <Label>Attribute Override Workbook</Label>
+                <Input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => {
+                    setAttributeOverrideFile(e.target.files?.[0] || null);
+                    setAttributeOverridePreview(null);
+                    setAttributeOverrideCommitResult(null);
+                  }}
+                />
+                {attributeOverrideFile ? (
+                  <div className="text-xs text-muted-foreground">Selected: {attributeOverrideFile.name}</div>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" disabled={busy} onClick={() => void downloadAttributeOverrideTemplate()}>
+                  Download Template
+                </Button>
+                <Button variant="outline" disabled={busy || !attributeOverrideFile} onClick={() => void previewAttributeOverrides()}>
+                  Preview Overrides
+                </Button>
+                <Button disabled={busy || !attributeReadyRows.length} onClick={() => void commitAttributeOverrides()}>
+                  Commit Overrides
+                </Button>
+              </div>
+            </div>
+
+            {attributeOverridePreview ? (
+              <div className="rounded border p-3 space-y-4">
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Rows</div>
+                    <div className="text-xl font-semibold">{Number(attributeOverridePreview.summary?.total_rows || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Clients Sheet</div>
+                    <div className="text-xl font-semibold">{Number(attributeOverridePreview.summary?.client_rows || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Jobs Sheet</div>
+                    <div className="text-xl font-semibold">{Number(attributeOverridePreview.summary?.job_rows || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Ready</div>
+                    <div className="text-xl font-semibold">{attributeReadyRows.length}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Blocked / Unchanged</div>
+                    <div className="text-xl font-semibold">{attributeBlockedRows.length + attributeSkippedRows.length}</div>
+                  </div>
+                </div>
+
+                {Array.isArray(attributeOverridePreview.warnings) && attributeOverridePreview.warnings.length > 0 ? (
+                  <div>
+                    <div className="mb-1 text-sm font-medium">Workbook Warnings</div>
+                    <div className="rounded border p-2 text-xs text-muted-foreground">
+                      {attributeOverridePreview.warnings.join(" | ")}
+                    </div>
+                  </div>
+                ) : null}
+
+                {attributeReadyRows.length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Ready Rows</div>
+                    <div className="max-h-72 overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="p-2 text-left">Entity</th>
+                            <th className="p-2 text-left">Row</th>
+                            <th className="p-2 text-left">Matched Record</th>
+                            <th className="p-2 text-left">Changes</th>
+                            <th className="p-2 text-left">Warnings</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {attributeReadyRows.slice(0, 100).map((row, idx) => (
+                            <tr key={`override-ready-${idx}`} className="border-t align-top">
+                              <td className="p-2">{row.entity}</td>
+                              <td className="p-2">{row.row_number}</td>
+                              <td className="p-2">
+                                {row.matched_label || "-"}
+                                <div className="text-[11px] text-muted-foreground">{row.match_key}: {row.match_value || "-"}</div>
+                              </td>
+                              <td className="p-2 whitespace-normal break-words">
+                                {(row.changes || []).map((change) => `${change.field}: ${change.from_value || "-"} -> ${change.to_value || "-"}`).join(" | ") || "-"}
+                              </td>
+                              <td className="p-2 whitespace-normal break-words text-muted-foreground">
+                                {(row.warnings || []).join(" | ") || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {attributeReadyRows.length > 100 ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Showing first 100 of {attributeReadyRows.length} ready rows.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {attributeBlockedRows.length > 0 || attributeSkippedRows.length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Blocked / Unchanged Rows</div>
+                    <div className="max-h-72 overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="p-2 text-left">Status</th>
+                            <th className="p-2 text-left">Entity</th>
+                            <th className="p-2 text-left">Row</th>
+                            <th className="p-2 text-left">Matched Record</th>
+                            <th className="p-2 text-left">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...attributeBlockedRows, ...attributeSkippedRows].slice(0, 100).map((row, idx) => (
+                            <tr key={`override-blocked-${idx}`} className="border-t align-top">
+                              <td className="p-2 uppercase">{row.status || "-"}</td>
+                              <td className="p-2">{row.entity}</td>
+                              <td className="p-2">{row.row_number}</td>
+                              <td className="p-2">{row.matched_label || row.match_value || "-"}</td>
+                              <td className="p-2 whitespace-normal break-words text-muted-foreground">
+                                {(row.warnings || []).join(" | ") || "No effective changes"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {attributeBlockedRows.length + attributeSkippedRows.length > 100 ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Showing first 100 of {attributeBlockedRows.length + attributeSkippedRows.length} blocked or unchanged rows.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {attributeOverrideCommitResult ? (
+              <div className="rounded border bg-muted/20 p-3 text-sm">
+                Applied <strong>{Number(attributeOverrideCommitResult.applied_changes || 0)}</strong> field changes across{" "}
+                <strong>{Number(attributeOverrideCommitResult.applied_rows || 0)}</strong> matched rows
+                {attributeOverrideCommitResult.run_id ? ` (run ${attributeOverrideCommitResult.run_id})` : ""}.
               </div>
             ) : null}
           </CardContent>
