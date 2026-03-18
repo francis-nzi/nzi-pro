@@ -74,6 +74,7 @@ type ImpactItem = {
 };
 type ImpactPreview = {
   ok?: boolean;
+  coverage_note?: string;
   selection?: {
     jobs?: number;
     clients?: number;
@@ -922,6 +923,9 @@ export default function AdminImportExportPage() {
               <div className="rounded border p-3">
                 <div className="mb-2 text-sm font-medium">Mapping Impact Preview</div>
                 <div className="space-y-4 text-sm">
+                  <div className="rounded border bg-muted/20 p-3 text-xs text-muted-foreground">
+                    {impactPreview.coverage_note || "Counts reflect unique selected jobs or clients with a resolved value after importer fallback rules."}
+                  </div>
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="rounded border bg-muted/20 p-3">
                       <div className="text-xs text-muted-foreground">Selected Jobs</div>
@@ -952,7 +956,7 @@ export default function AdminImportExportPage() {
                             <thead className="bg-muted">
                               <tr>
                                 <th className="p-2 text-left">Target</th>
-                                <th className="p-2 text-left">Count</th>
+                                <th className="p-2 text-left">Coverage</th>
                                 <th className="p-2 text-left">Source Fields</th>
                                 <th className="p-2 text-left">Sample Values</th>
                               </tr>

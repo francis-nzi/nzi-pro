@@ -3222,9 +3222,15 @@ def _wfm_raw_dir() -> Path:
     present in the repository artifact yet.
     """
     env_path = str(os.getenv("WFM_RAW_DATA_DIR") or "").strip()
-    candidates: list[Path] = []
     if env_path:
-        candidates.append(Path(env_path))
+        env_dir = Path(env_path)
+        try:
+            env_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return env_dir
+
+    candidates: list[Path] = []
     project_default = Path(__file__).resolve().parents[1] / "wfm_import" / "raw_data"
     candidates.append(project_default)
     candidates.append(Path.cwd() / "wfm_import" / "raw_data")
@@ -3800,119 +3806,347 @@ def map_suggested_wfm_fields(body: dict = Body(...), _user: dict = Depends(_curr
 @router.post("/import-export/wfm/mappings/preview-impact")
 def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        from wfm_import.wfm_import_routine import (
+            WfmImporter,
+            _setup_logger,
+            _clean,
+            _parse_date,
+            _to_bool,
+            _to_float,
+            WFM_CLIENT_FIELD_CANDIDATES,
+            WFM_JOB_FIELD_CANDIDATES,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WFM importer unavailable: {e}")
+
+    try:
         raw_dir = _wfm_raw_dir()
-        jobs_path = raw_dir / "jobs.csv"
-        jvals_path = raw_dir / "job_custom_field_values.csv"
-        cvals_path = raw_dir / "client_custom_field_values.csv"
-        cfields_path = raw_dir / "custom_fields.csv"
-        clients_path = raw_dir / "clients.csv"
-        if not (jobs_path.exists() and jvals_path.exists() and cvals_path.exists() and cfields_path.exists() and clients_path.exists()):
-            raise HTTPException(status_code=404, detail="Required WFM files missing in raw_data")
+        required_files = [
+            "jobs.csv",
+            "job_custom_field_values.csv",
+            "client_custom_field_values.csv",
+            "custom_fields.csv",
+            "clients.csv",
+            "client_addresses.csv",
+            "contacts.csv",
+            "client_contact.csv",
+            "staff.csv",
+        ]
+        missing = [name for name in required_files if not (raw_dir / name).exists()]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"Required WFM files missing in raw_data: {', '.join(missing)}")
 
         job_numbers_raw = body.get("job_numbers") or []
         client_ids_raw = body.get("client_ids") or []
         client_names_raw = body.get("client_names") or []
         if isinstance(job_numbers_raw, str):
-            job_numbers = {x.strip().lower() for x in job_numbers_raw.split(",") if x.strip()}
+            job_numbers = [x.strip() for x in job_numbers_raw.split(",") if x.strip()]
         else:
-            job_numbers = {str(x).strip().lower() for x in job_numbers_raw if str(x).strip()}
+            job_numbers = [str(x).strip() for x in job_numbers_raw if str(x).strip()]
         if isinstance(client_ids_raw, str):
-            client_ids = {x.strip() for x in client_ids_raw.split(",") if x.strip()}
+            client_ids = [x.strip() for x in client_ids_raw.split(",") if x.strip()]
         else:
-            client_ids = {str(x).strip() for x in client_ids_raw if str(x).strip()}
+            client_ids = [str(x).strip() for x in client_ids_raw if str(x).strip()]
         if isinstance(client_names_raw, str):
-            client_names = {x.strip().lower() for x in client_names_raw.split(",") if x.strip()}
+            client_names = [x.strip() for x in client_names_raw.split(",") if x.strip()]
         else:
-            client_names = {str(x).strip().lower() for x in client_names_raw if str(x).strip()}
-
-        def _clean_formula(s: str) -> str:
-            s = str(s or "").strip()
-            if s.startswith('="') and s.endswith('"'):
-                s = s[2:-1].strip()
-            return s
-
-        jobs_df = pd.read_csv(jobs_path, dtype=str, keep_default_na=False, na_filter=False)
-        clients_df = pd.read_csv(clients_path, dtype=str, keep_default_na=False, na_filter=False)
-        jvals_df = pd.read_csv(jvals_path, dtype=str, keep_default_na=False, na_filter=False)
-        cvals_df = pd.read_csv(cvals_path, dtype=str, keep_default_na=False, na_filter=False)
-        cfields_df = pd.read_csv(cfields_path, dtype=str, keep_default_na=False, na_filter=False)
-        for df in [jobs_df, clients_df, jvals_df, cvals_df, cfields_df]:
-            for col in df.columns:
-                df[col] = df[col].map(_clean_formula)
-
-        # Select clients from explicit filters and/or selected jobs.
-        selected_jobs = jobs_df.copy()
-        if job_numbers:
-            selected_jobs = selected_jobs[selected_jobs["Job No"].str.lower().isin(job_numbers)]
-
-        selected_client_ids = set(selected_jobs["Client"].tolist())
-        if client_ids:
-            selected_client_ids |= set(client_ids)
-        if client_names:
-            selected_client_ids |= set(clients_df[clients_df["Name"].str.lower().isin(client_names)]["Id"].tolist())
-
-        if selected_client_ids:
-            selected_jobs = jobs_df[jobs_df["Client"].isin(selected_client_ids)]
-        else:
-            selected_jobs = jobs_df
-
-        selected_job_ids = set(selected_jobs["Id"].tolist())
-        selected_clients = clients_df[clients_df["Id"].isin(set(selected_jobs["Client"].tolist()))]
-        selected_client_ids = set(selected_clients["Id"].tolist())
-
-        field_name_by_id = {str(r.get("Id") or "").strip(): str(r.get("Name") or "").strip() for _, r in cfields_df.iterrows()}
-        jvals_df = jvals_df[jvals_df["Job ID"].isin(selected_job_ids)].copy()
-        cvals_df = cvals_df[cvals_df["Client ID"].isin(selected_client_ids)].copy()
-        jvals_df["field_name"] = jvals_df["Custom Field Id"].map(lambda x: field_name_by_id.get(str(x).strip(), ""))
-        cvals_df["field_name"] = cvals_df["Custom Field Id"].map(lambda x: field_name_by_id.get(str(x).strip(), ""))
+            client_names = [str(x).strip() for x in client_names_raw if str(x).strip()]
 
         with get_conn() as con:
-            overrides = _load_mapping_overrides_from_db(con)
-            defaults = _default_wfm_targets()
+            mapping_overrides = _load_mapping_overrides_from_db(con)
 
-        effective: dict[str, dict[str, list[str]]] = {"job": {}, "client": {}}
-        for ent in ["job", "client"]:
-            d = defaults.get(ent, {})
-            o = overrides.get(ent, {})
-            for target_field, candidates in d.items():
-                seen = []
-                for c in [*(o.get(target_field, [])), *candidates]:
-                    c = str(c).strip()
-                    if c and c.lower() not in {x.lower() for x in seen}:
-                        seen.append(c)
-                effective[ent][target_field] = seen
-            for target_field, candidates in o.items():
-                if target_field not in effective[ent]:
-                    effective[ent][target_field] = [str(c).strip() for c in candidates if str(c).strip()]
+        importer = WfmImporter(
+            dry_run=True,
+            max_clients=None,
+            client_ids=client_ids,
+            client_names=client_names,
+            job_numbers=job_numbers,
+            mapping_overrides=mapping_overrides,
+            logger=_setup_logger(),
+        )
+        importer.load()
+        importer.pick_clients()
 
-        def _impact_for(entity: str, target_field: str, candidates: list[str]):
-            df = jvals_df if entity == "job" else cvals_df
-            if df.empty:
-                return {"count": 0, "samples": [], "source_fields": candidates}
-            cand_set = {c.lower() for c in candidates}
-            match = df[df["field_name"].str.lower().isin(cand_set)]
-            values = [str(x).strip() for x in match["Value"].tolist() if str(x).strip()]
-            sample = list(dict.fromkeys(values))[:5]
-            return {"count": int(len(values)), "samples": sample, "source_fields": candidates}
+        selected_jobs = importer.data["jobs.csv"].copy()
+        selected_clients = importer.data["clients.csv"].copy()
 
-        impacts = {"job": {}, "client": {}}
-        for ent, targets in effective.items():
-            for target_field, candidates in targets.items():
-                impacts[ent][target_field] = _impact_for(ent, target_field, candidates)
+        impacts: dict[str, dict[str, dict[str, list[str] | int]]] = {"job": {}, "client": {}}
+
+        def _pick_with_source(value_map: dict[str, str], candidates: list[str]) -> tuple[str, str]:
+            if not value_map:
+                return "", ""
+            for candidate in candidates:
+                value = _clean(value_map.get(str(candidate or "").strip().lower()))
+                if value:
+                    return value, str(candidate or "").strip()
+            return "", ""
+
+        def _sample_text(value) -> str:
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if value is None:
+                return ""
+            if isinstance(value, float):
+                if pd.isna(value):
+                    return ""
+                if value.is_integer():
+                    return str(int(value))
+                return f"{value:g}"
+            return str(value).strip()
+
+        def _record_impact(entity: str, target_field: str, value, source_label: str) -> None:
+            sample = _sample_text(value)
+            if not sample:
+                return
+            bucket = impacts[entity].setdefault(target_field, {"count": 0, "samples": [], "source_fields": []})
+            bucket["count"] = int(bucket["count"]) + 1
+            if source_label:
+                existing_sources = {str(x).lower() for x in bucket["source_fields"]}
+                if source_label.lower() not in existing_sources:
+                    bucket["source_fields"].append(source_label)
+            if sample not in bucket["samples"] and len(bucket["samples"]) < 5:
+                bucket["samples"].append(sample)
+
+        client_builtin_targets = set(WFM_CLIENT_FIELD_CANDIDATES.keys())
+        job_builtin_targets = set(WFM_JOB_FIELD_CANDIDATES.keys())
+
+        for _, row in selected_clients.iterrows():
+            wfm_client_id = _clean(row.get("Id"))
+            client_custom = importer.client_custom_values.get(wfm_client_id, {})
+
+            company_reg_custom, company_reg_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "company_reg", WFM_CLIENT_FIELD_CANDIDATES["company_reg"]),
+            )
+            company_reg = company_reg_custom or _clean(row.get("Company Number"))
+            if not company_reg_source and company_reg:
+                company_reg_source = "clients.csv::Company Number"
+            _record_impact("client", "company_reg", company_reg, company_reg_source)
+
+            sic_code, sic_code_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "sic_code", WFM_CLIENT_FIELD_CANDIDATES["sic_code"]),
+            )
+            _record_impact("client", "sic_code", sic_code, sic_code_source)
+
+            year_end = _parse_date(row.get("Year End Date"))
+            year_end_month = year_end[5:7] if year_end else ""
+            year_end_source = "clients.csv::Year End Date" if year_end_month else ""
+            custom_year_end_raw, custom_year_end_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "year_end_month", WFM_CLIENT_FIELD_CANDIDATES["year_end_month"]),
+            )
+            custom_year_end = _parse_date(custom_year_end_raw)
+            if custom_year_end:
+                year_end_month = custom_year_end[5:7]
+                year_end_source = custom_year_end_source
+            _record_impact("client", "year_end_month", year_end_month, year_end_source)
+
+            industry, industry_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "industry", WFM_CLIENT_FIELD_CANDIDATES["industry"]),
+            )
+            _record_impact("client", "industry", industry, industry_source)
+
+            benchmark_period_start_raw, benchmark_period_start_source = _pick_with_source(
+                client_custom,
+                importer._candidates(
+                    "client",
+                    "benchmark_period_start",
+                    WFM_CLIENT_FIELD_CANDIDATES["benchmark_period_start"],
+                ),
+            )
+            _record_impact(
+                "client",
+                "benchmark_period_start",
+                _parse_date(benchmark_period_start_raw),
+                benchmark_period_start_source,
+            )
+
+            benchmark_period_end_raw, benchmark_period_end_source = _pick_with_source(
+                client_custom,
+                importer._candidates(
+                    "client",
+                    "benchmark_period_end",
+                    WFM_CLIENT_FIELD_CANDIDATES["benchmark_period_end"],
+                ),
+            )
+            _record_impact(
+                "client",
+                "benchmark_period_end",
+                _parse_date(benchmark_period_end_raw),
+                benchmark_period_end_source,
+            )
+
+            currency, currency_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "currency", WFM_CLIENT_FIELD_CANDIDATES["currency"]),
+            )
+            _record_impact("client", "currency", currency, currency_source)
+
+            description_long, description_long_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "description_long", WFM_CLIENT_FIELD_CANDIDATES["description_long"]),
+            )
+            _record_impact("client", "description_long", description_long, description_long_source)
+
+            client_turnover_raw, client_turnover_source = _pick_with_source(
+                client_custom,
+                importer._candidates("client", "turnover", WFM_CLIENT_FIELD_CANDIDATES["turnover"]),
+            )
+            _record_impact("client", "turnover", _to_float(client_turnover_raw), client_turnover_source)
+
+            for target_field in importer._mapped_custom_targets("client", client_builtin_targets):
+                dynamic_value, dynamic_source = _pick_with_source(
+                    client_custom,
+                    importer._candidates("client", target_field, [target_field]),
+                )
+                _record_impact("client", target_field, dynamic_value, dynamic_source)
+
+        for _, row in selected_jobs.iterrows():
+            wfm_job_id = _clean(row.get("Id"))
+            wfm_client_id = _clean(row.get("Client"))
+            job_custom = importer.job_custom_values.get(wfm_job_id, {})
+            client_custom = importer.client_custom_values.get(wfm_client_id, {})
+
+            start_date = _parse_date(row.get("Start Date (DD/MM/YYYY)"))
+            due_date = _parse_date(row.get("Due Date (DD/MM/YYYY)"))
+
+            report_from_raw, report_from_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "report_from", WFM_JOB_FIELD_CANDIDATES["report_from"]),
+            )
+            report_from = _parse_date(report_from_raw) or start_date
+            if not report_from_source and report_from:
+                report_from_source = "jobs.csv::Start Date (DD/MM/YYYY)"
+            _record_impact("job", "report_from", report_from, report_from_source)
+
+            report_to_raw, report_to_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "report_to", WFM_JOB_FIELD_CANDIDATES["report_to"]),
+            )
+            report_to = _parse_date(report_to_raw) or due_date
+            if not report_to_source and report_to:
+                report_to_source = "jobs.csv::Due Date (DD/MM/YYYY)"
+            _record_impact("job", "report_to", report_to, report_to_source)
+
+            crm_name_raw, crm_name_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "crm_name", WFM_JOB_FIELD_CANDIDATES["crm_name"]),
+            )
+            crm_name = _clean(crm_name_raw) or importer.staff_name_by_id.get(_clean(row.get("Job Manager"))) or ""
+            if not crm_name_source and crm_name:
+                crm_name_source = "jobs.csv::Job Manager (via staff.csv)"
+            _record_impact("job", "crm_name", crm_name, crm_name_source)
+
+            is_benchmark_raw, is_benchmark_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "is_benchmark", WFM_JOB_FIELD_CANDIDATES["is_benchmark"]),
+            )
+            _record_impact("job", "is_benchmark", _to_bool(is_benchmark_raw), is_benchmark_source)
+
+            is_renewal_raw, is_renewal_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "is_renewal", WFM_JOB_FIELD_CANDIDATES["is_renewal"]),
+            )
+            _record_impact("job", "is_renewal", _to_bool(is_renewal_raw), is_renewal_source)
+
+            data_collection_due_raw, data_collection_due_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "data_collection_due", WFM_JOB_FIELD_CANDIDATES["data_collection_due"]),
+            )
+            _record_impact("job", "data_collection_due", _parse_date(data_collection_due_raw), data_collection_due_source)
+
+            first_draft_due_raw, first_draft_due_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "first_draft_due", WFM_JOB_FIELD_CANDIDATES["first_draft_due"]),
+            )
+            _record_impact("job", "first_draft_due", _parse_date(first_draft_due_raw), first_draft_due_source)
+
+            final_report_due_raw, final_report_due_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "final_report_due", WFM_JOB_FIELD_CANDIDATES["final_report_due"]),
+            )
+            _record_impact("job", "final_report_due", _parse_date(final_report_due_raw), final_report_due_source)
+
+            scope_1_raw, scope_1_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "scope_1_tco2e", WFM_JOB_FIELD_CANDIDATES["scope_1_tco2e"]),
+            )
+            _record_impact("job", "scope_1_tco2e", _to_float(scope_1_raw), scope_1_source)
+
+            scope_2_raw, scope_2_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "scope_2_tco2e", WFM_JOB_FIELD_CANDIDATES["scope_2_tco2e"]),
+            )
+            _record_impact("job", "scope_2_tco2e", _to_float(scope_2_raw), scope_2_source)
+
+            scope_3_raw, scope_3_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "scope_3_tco2e", WFM_JOB_FIELD_CANDIDATES["scope_3_tco2e"]),
+            )
+            _record_impact("job", "scope_3_tco2e", _to_float(scope_3_raw), scope_3_source)
+
+            employees_raw, employees_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "employees", WFM_JOB_FIELD_CANDIDATES["employees"]),
+            )
+            _record_impact("job", "employees", _to_float(employees_raw), employees_source)
+
+            turnover_raw, turnover_source = _pick_with_source(
+                job_custom,
+                importer._candidates("job", "turnover", WFM_JOB_FIELD_CANDIDATES["turnover"]),
+            )
+            turnover_value = _to_float(turnover_raw)
+            if turnover_value is None:
+                client_turnover_raw, client_turnover_source = _pick_with_source(
+                    client_custom,
+                    importer._candidates("client", "turnover", WFM_CLIENT_FIELD_CANDIDATES["turnover"]),
+                )
+                turnover_value = _to_float(client_turnover_raw)
+                if turnover_value is not None:
+                    turnover_source = f"client custom::{client_turnover_source}" if client_turnover_source else ""
+            _record_impact("job", "turnover", turnover_value, turnover_source)
+
+            for target_field in importer._mapped_custom_targets("job", job_builtin_targets):
+                dynamic_value, dynamic_source = _pick_with_source(
+                    job_custom,
+                    importer._candidates("job", target_field, [target_field]),
+                )
+                _record_impact("job", target_field, dynamic_value, dynamic_source)
 
         direct = {
             "job.crm_name <- jobs.csv::Job Manager (via staff.csv)": {
-                "count": int(len(selected_jobs[selected_jobs["Job Manager"].astype(str).str.strip() != ""])),
-                "samples": selected_jobs[selected_jobs["Job Manager"].astype(str).str.strip() != ""]["Job No"].head(5).tolist(),
+                "count": int(
+                    len(
+                        selected_jobs[
+                            selected_jobs["Job Manager"].astype(str).str.strip().isin(importer.staff_name_by_id.keys())
+                        ]
+                    )
+                ),
+                "samples": selected_jobs[
+                    selected_jobs["Job Manager"].astype(str).str.strip().isin(importer.staff_name_by_id.keys())
+                ]["Job No"].head(5).tolist(),
             },
-            "jobs.start_date/due_date <- jobs.csv::Start Date / Due Date": {
-                "count": int(len(selected_jobs)),
-                "samples": selected_jobs["Job No"].head(5).tolist(),
+            "job.report_from/report_to <- jobs.csv::Start Date / Due Date": {
+                "count": int(
+                    len(
+                        selected_jobs[
+                            selected_jobs["Start Date (DD/MM/YYYY)"].astype(str).str.strip().ne("")
+                            | selected_jobs["Due Date (DD/MM/YYYY)"].astype(str).str.strip().ne("")
+                        ]
+                    )
+                ),
+                "samples": selected_jobs[
+                    selected_jobs["Start Date (DD/MM/YYYY)"].astype(str).str.strip().ne("")
+                    | selected_jobs["Due Date (DD/MM/YYYY)"].astype(str).str.strip().ne("")
+                ]["Job No"].head(5).tolist(),
             },
         }
 
         return {
             "ok": True,
+            "coverage_note": "Counts reflect unique selected jobs or clients with a resolved value after importer fallback rules.",
             "selection": {
                 "jobs": int(len(selected_jobs)),
                 "clients": int(len(selected_clients)),
