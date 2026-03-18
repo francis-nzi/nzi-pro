@@ -87,8 +87,32 @@ type GeneratedLead = {
   bd_lead_id: number | null;
 };
 
+type MarketCompany = {
+  market_company_id: number;
+  scan_batch_id: number | null;
+  source_provider: string;
+  provider_org_id: string;
+  service_key: string;
+  company_name: string;
+  normalized_company_key: string;
+  website: string;
+  domain: string;
+  industry: string;
+  subindustry: string;
+  country: string;
+  region: string;
+  city: string;
+  revenue_gbp_millions: number;
+  revenue_band_label: string;
+  employee_count: number | null;
+  employee_band_label: string;
+  qualification_status: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type MarketDatabaseResponse = {
-  items: GeneratedLead[];
+  items: MarketCompany[];
   total: number;
   limit: number;
   offset: number;
@@ -237,7 +261,7 @@ export default function BusinessDevelopmentPage() {
     if (marketSearch.trim()) params.set("q", marketSearch.trim());
     if (marketIndustryFilter.trim()) params.set("industry", marketIndustryFilter.trim());
     if (marketStatusFilter.trim()) params.set("status", marketStatusFilter.trim());
-    const res = await fetch(`${baseUrl}/bd/lead-generator/database?${params.toString()}`, { credentials: "include" });
+    const res = await fetch(`${baseUrl}/bd/market-companies?${params.toString()}`, { credentials: "include" });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       throw new Error(`Failed to load market database (${res.status})${t ? `: ${t}` : ""}`);
@@ -1044,31 +1068,37 @@ export default function BusinessDevelopmentPage() {
                 <div className="text-sm text-muted-foreground">No market database records match the current filters.</div>
               ) : (
                 marketDatabase.items.map((item) => (
-                  <div key={`db-${item.generated_lead_id}`} className="rounded-md border p-3">
+                  <div key={`db-${item.market_company_id}`} className="rounded-md border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-medium">{item.company_name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {item.service_name} | {item.industry || "-"} | {item.city ? `${item.city}, ` : ""}{item.country || "-"}
+                          {item.service_key || "market-scan"} | {item.industry || "-"} | {item.city ? `${item.city}, ` : ""}{item.country || "-"}
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Likelihood</div>
-                        <div className="font-semibold">{Number(item.likelihood_score || 0).toFixed(1)}%</div>
+                        <div className="text-xs text-muted-foreground">Revenue band</div>
+                        <div className="font-semibold">{item.revenue_band_label || "-"}</div>
                       </div>
-                    </div>
-                    <div className="mt-2 text-xs">
-                      <span className="font-medium">Contact: </span>
-                      {item.contact_name || "-"} {item.contact_role ? `(${item.contact_role})` : ""} {item.contact_email ? `| ${item.contact_email}` : ""} {item.contact_phone ? `| ${item.contact_phone}` : ""}
                     </div>
                     <div className="text-xs">
                       <span className="font-medium">Revenue: </span>
                       {item.revenue_gbp_millions ? `GBP ${item.revenue_gbp_millions.toFixed(1)}m` : "-"}
                     </div>
                     <div className="text-xs">
+                      <span className="font-medium">Region: </span>
+                      {item.region || item.country || "-"}
+                    </div>
+                    <div className="text-xs">
                       <span className="font-medium">Status: </span>
                       {item.qualification_status}
                     </div>
+                    {item.domain ? (
+                      <div className="text-xs">
+                        <span className="font-medium">Domain: </span>
+                        {item.domain}
+                      </div>
+                    ) : null}
                     <div className="text-xs">
                       <span className="font-medium">Website: </span>
                       {item.website ? (
