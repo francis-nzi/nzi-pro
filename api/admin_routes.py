@@ -3061,6 +3061,100 @@ def wfm_import_summary(_user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load WFM summary: {e}")
 
 
+def _sanitize_wfm_upload_name(name: str) -> str:
+    base = Path(str(name or "").strip()).name
+    if not base:
+        raise HTTPException(status_code=400, detail="Uploaded WFM file is missing a filename")
+    if base.startswith("."):
+        raise HTTPException(status_code=400, detail=f"Unsupported WFM filename: {base}")
+    return base
+
+
+@router.post("/import-export/wfm/source-files")
+async def upload_wfm_source_files(
+    files: list[UploadFile] = File(...),
+    replace_existing: bool = Form(True),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        raw_dir = _wfm_raw_dir()
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        if replace_existing:
+            for existing in raw_dir.glob("*.csv"):
+                try:
+                    existing.unlink()
+                except Exception:
+                    pass
+
+        saved_files: list[str] = []
+        rejected_files: list[str] = []
+
+        for upload in files:
+            original_name = _sanitize_wfm_upload_name(upload.filename or "")
+            lower_name = original_name.lower()
+            payload = await upload.read()
+            if not payload:
+                rejected_files.append(f"{original_name}: empty file")
+                continue
+
+            if lower_name.endswith(".zip"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+                        for member in zf.infolist():
+                            if member.is_dir():
+                                continue
+                            member_name = _sanitize_wfm_upload_name(member.filename)
+                            if not member_name.lower().endswith(".csv"):
+                                continue
+                            target = raw_dir / member_name
+                            target.write_bytes(zf.read(member))
+                            saved_files.append(member_name)
+                except zipfile.BadZipFile:
+                    rejected_files.append(f"{original_name}: invalid zip archive")
+                continue
+
+            if not lower_name.endswith(".csv"):
+                rejected_files.append(f"{original_name}: only .csv or .zip files are supported")
+                continue
+
+            target = raw_dir / original_name
+            target.write_bytes(payload)
+            saved_files.append(original_name)
+
+        if not saved_files:
+            detail = "No WFM source files were saved"
+            if rejected_files:
+                detail = f"{detail}. Rejected: {'; '.join(rejected_files)}"
+            raise HTTPException(status_code=400, detail=detail)
+
+        files_summary: list[dict[str, int | str]] = []
+        total_size = 0
+        for p in sorted(raw_dir.glob("*.csv")):
+            size = int(p.stat().st_size)
+            total_size += size
+            row_count = 0
+            try:
+                row_count = max(sum(1 for _ in p.open("r", encoding="utf-8", errors="ignore")) - 1, 0)
+            except Exception:
+                row_count = 0
+            files_summary.append({"name": p.name, "size_bytes": size, "rows": row_count})
+
+        return {
+            "ok": True,
+            "saved_files": sorted(set(saved_files)),
+            "rejected_files": rejected_files,
+            "file_count": len(files_summary),
+            "total_size_bytes": total_size,
+            "files": files_summary,
+            "folder": str(raw_dir),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload WFM source files: {e}")
+
+
 def _ensure_wfm_mapping_tables(con) -> None:
     con.execute(
         """

@@ -115,6 +115,8 @@ export default function AdminImportExportPage() {
   const [clientIds, setClientIds] = useState("");
   const [clientNames, setClientNames] = useState("");
   const [jobNumbers, setJobNumbers] = useState("");
+  const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
+  const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
 
   async function loadCatalog(query?: string) {
@@ -206,6 +208,48 @@ export default function AdminImportExportPage() {
       }
       setRunResult(json);
       setStatus(mode === "import" ? "Import complete." : "Dry-run complete.");
+      await loadSummary();
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadWfmSourceFiles() {
+    if (!wfmSourceFiles.length) {
+      setError("Choose one or more WFM CSV or ZIP files first.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Uploading WFM source files...");
+    try {
+      const formData = new FormData();
+      formData.append("replace_existing", replaceExistingWfmFiles ? "true" : "false");
+      for (const file of wfmSourceFiles) {
+        formData.append("files", file);
+      }
+      const res = await fetch(`${baseUrl}/admin/import-export/wfm/source-files`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const text = await res.text().catch(() => "");
+      let json: any = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) {
+        throw new Error(`Upload failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      setWfmSourceFiles([]);
+      setStatus(`Uploaded ${Number(json.file_count || 0)} WFM file(s).`);
       await loadSummary();
     } catch (e) {
       setError((e as Error).message);
@@ -409,6 +453,42 @@ export default function AdminImportExportPage() {
                 </div>
               </div>
             ) : null}
+            <div className="rounded border p-4 space-y-3">
+              <div>
+                <div className="text-sm font-medium">Upload WFM Source Files</div>
+                <div className="text-sm text-muted-foreground">
+                  Upload the WorkflowMax CSV files, or a ZIP containing them, into this Render environment for the one-off import.
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="wfm-source-files">CSV or ZIP files</Label>
+                  <Input
+                    id="wfm-source-files"
+                    type="file"
+                    multiple
+                    accept=".csv,.zip"
+                    onChange={(e) => setWfmSourceFiles(Array.from(e.target.files || []))}
+                  />
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={replaceExistingWfmFiles}
+                      onChange={(e) => setReplaceExistingWfmFiles(e.target.checked)}
+                    />
+                    Replace any existing WFM source CSVs in this environment
+                  </label>
+                  {wfmSourceFiles.length ? (
+                    <div className="text-xs text-muted-foreground">
+                      Selected: {wfmSourceFiles.map((file) => file.name).join(", ")}
+                    </div>
+                  ) : null}
+                </div>
+                <Button disabled={busy || !wfmSourceFiles.length} onClick={() => void uploadWfmSourceFiles()}>
+                  Upload WFM Files
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
