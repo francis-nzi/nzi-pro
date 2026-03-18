@@ -50,6 +50,41 @@ type MappingEdit = {
   is_active: boolean;
   notes: string;
 };
+type RunStatsEntity = {
+  processed?: number;
+  inserted?: number;
+  updated?: number;
+};
+type RunResult = {
+  ok?: boolean;
+  mode?: string;
+  selected_clients?: Array<{ wfm_client_id?: string; name?: string }>;
+  stats?: {
+    clients?: RunStatsEntity;
+    contacts?: RunStatsEntity;
+    jobs?: RunStatsEntity;
+    warnings?: string[];
+    errors?: string[];
+  };
+};
+type ImpactItem = {
+  count?: number;
+  samples?: string[];
+  source_fields?: string[];
+};
+type ImpactPreview = {
+  ok?: boolean;
+  selection?: {
+    jobs?: number;
+    clients?: number;
+    job_numbers?: string[];
+  };
+  impacts?: {
+    job?: Record<string, ImpactItem>;
+    client?: Record<string, ImpactItem>;
+  };
+  direct_mappings?: Record<string, { count?: number; samples?: string[] }>;
+};
 
 const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<string, string[]> } = {
   job: {
@@ -83,18 +118,60 @@ const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<s
   },
 };
 
-function impactCount(value: { count?: number } | undefined): number {
+const DEFAULT_TARGET_FIELDS: { job: string[]; client: string[] } = {
+  job: [
+    "ignore",
+    "report_from",
+    "report_to",
+    "crm_name",
+    "is_benchmark",
+    "is_renewal",
+    "data_collection_due",
+    "first_draft_due",
+    "final_report_due",
+    "scope_1_tco2e",
+    "scope_2_tco2e",
+    "scope_3_tco2e",
+    "total_tco2e",
+    "employees",
+    "turnover",
+    "parent-client",
+  ],
+  client: [
+    "ignore",
+    "industry",
+    "sic_code",
+    "company_reg",
+    "year_end_month",
+    "benchmark_period_start",
+    "benchmark_period_end",
+    "currency",
+    "description_long",
+    "turnover",
+  ],
+};
+
+function normalizeEntity(value: string | undefined | null): "job" | "client" {
+  const v = String(value || "").trim().toLowerCase();
+  return v === "client" ? "client" : "job";
+}
+
+function impactCount(value: ImpactItem | undefined): number {
   return Number(value?.count || 0);
 }
 
-function mergeMappingSummary(mapping: WfmMapping | null): { job: Record<string, string[]>; client: Record<string, string[]> } {
+function mergeMappingSummary(
+  mapping: WfmMapping | null
+): { job: Record<string, string[]>; client: Record<string, string[]> } {
   const merged = {
     job: { ...DEFAULT_MAPPING_SUMMARY.job },
     client: { ...DEFAULT_MAPPING_SUMMARY.client },
   };
   for (const entity of ["job", "client"] as const) {
     const incoming = mapping?.mappings?.[entity] || {};
-    for (const [target, sources] of Object.entries(incoming)) merged[entity][target] = Array.isArray(sources) ? sources : [];
+    for (const [target, sources] of Object.entries(incoming)) {
+      merged[entity][target] = Array.isArray(sources) ? sources : [];
+    }
   }
   return merged;
 }
@@ -107,25 +184,39 @@ export default function AdminImportExportPage() {
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<WfmSummary | null>(null);
   const [mapping, setMapping] = useState<WfmMapping | null>(null);
-  const [runResult, setRunResult] = useState<any>(null);
-  const [impactPreview, setImpactPreview] = useState<any>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [impactPreview, setImpactPreview] = useState<ImpactPreview | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogFile, setCatalogFile] = useState("custom_fields.csv");
   const [mapAllMinScore, setMapAllMinScore] = useState("70");
   const [mappingTargets, setMappingTargets] = useState<MappingTargets>({});
   const [mappingEdits, setMappingEdits] = useState<Record<string, MappingEdit>>({});
+  const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
   const [maxClients, setMaxClients] = useState("3");
   const [clientIds, setClientIds] = useState("");
   const [clientNames, setClientNames] = useState("");
   const [jobNumbers, setJobNumbers] = useState("");
+  const [legacyJobId, setLegacyJobId] = useState("");
+  const [legacySiteId, setLegacySiteId] = useState("");
+  const [legacyFile, setLegacyFile] = useState<File | null>(null);
+  const [legacyPreview, setLegacyPreview] = useState<any>(null);
+  const [legacyManualLookup, setLegacyManualLookup] = useState<Record<string, string>>({});
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
   const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
+  const selectedClients = runResult?.selected_clients ?? [];
+  const runWarnings = runResult?.stats?.warnings ?? [];
+  const runErrors = runResult?.stats?.errors ?? [];
 
-  async function loadCatalog(query?: string) {
+  async function loadCatalog(query?: string, fileName?: string) {
     const q = (query ?? catalogQuery).trim();
-    const res = await fetch(`${baseUrl}/admin/import-export/wfm/catalog${q ? `?q=${encodeURIComponent(q)}` : ""}`, {
+    const f = (fileName ?? catalogFile).trim();
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (f) params.set("file_name", f);
+    const res = await fetch(`${baseUrl}/admin/import-export/wfm/catalog${params.toString() ? `?${params.toString()}` : ""}`, {
       credentials: "include",
     });
     if (!res.ok) return;
@@ -135,9 +226,13 @@ export default function AdminImportExportPage() {
     const next: Record<string, MappingEdit> = {};
     for (const item of items) {
       const key = `${item.file_name}::${item.field_name}`;
+      const sourceEntity = normalizeEntity(item.source_entity || item.suggested_entity || "job");
+      const targetEntity = normalizeEntity(
+        item.target_entity || item.suggested_entity || item.source_entity || "job"
+      );
       next[key] = {
-        source_entity: (item.source_entity || item.suggested_entity || "job").toLowerCase(),
-        target_entity: (item.target_entity || item.suggested_entity || item.source_entity || "job").toLowerCase(),
+        source_entity: sourceEntity,
+        target_entity: targetEntity,
         target_field: item.target_field || item.suggested_target || "",
         priority: Number(item.priority || 10),
         is_active: item.is_active !== false,
@@ -332,6 +427,8 @@ export default function AdminImportExportPage() {
       const res = await fetch(`${baseUrl}/admin/import-export/wfm/scan`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_all: false, min_suggest_score: 70 }),
       });
       const text = await res.text().catch(() => "");
       if (!res.ok) throw new Error(`Scan failed (${res.status})${text ? `: ${text}` : ""}`);
@@ -381,6 +478,7 @@ export default function AdminImportExportPage() {
         body: JSON.stringify({
           min_score: Number(mapAllMinScore || 70),
           only_unmapped: true,
+          recommended_only: true,
         }),
       });
       const txt = await res.text().catch(() => "");
@@ -406,20 +504,45 @@ export default function AdminImportExportPage() {
     }), ...patch } }));
   }
 
-  async function saveManualMap(item: CatalogItem) {
+  function openMappingEditor(item: CatalogItem) {
+    const key = `${item.file_name}::${item.field_name}`;
+    const existing = mappingEdits[key];
+    const sourceEntity = normalizeEntity(item.source_entity || item.suggested_entity || existing?.source_entity || "job");
+    const targetEntity = normalizeEntity(
+      existing?.target_entity || item.target_entity || item.suggested_entity || item.source_entity || "job"
+    );
+
+    setMappingEdits((prev) => ({
+      ...prev,
+      [key]: {
+        source_entity: sourceEntity,
+        target_entity: targetEntity,
+        target_field: existing?.target_field || item.target_field || item.suggested_target || "",
+        priority: Number(existing?.priority ?? item.priority ?? 10),
+        // Opening the editor means "make this the active mapping" unless the user unticks it.
+        is_active: true,
+        notes: existing?.notes || item.notes || "",
+      },
+    }));
+    setEditingItem(item);
+  }
+
+  async function saveManualMap(item: CatalogItem): Promise<boolean> {
     const key = `${item.file_name}::${item.field_name}`;
     const edit = mappingEdits[key];
     if (!edit?.source_entity || !edit?.target_entity || !edit?.target_field) {
-      return;
+      return false;
     }
+    const sourceEntity = normalizeEntity(edit.source_entity);
+    const targetEntity = normalizeEntity(edit.target_entity);
     const res = await fetch(`${baseUrl}/admin/import-export/wfm/mappings/upsert`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        source_entity: edit.source_entity,
+        source_entity: sourceEntity,
         source_field: item.field_name,
-        target_entity: edit.target_entity,
+        target_entity: targetEntity,
         target_field: edit.target_field,
         priority: Number(edit.priority || 10),
         is_active: !!edit.is_active,
@@ -428,6 +551,142 @@ export default function AdminImportExportPage() {
     });
     if (res.ok) {
       await loadCatalog();
+      return true;
+    }
+    return false;
+  }
+
+  async function previewLegacyAnnualFile() {
+    if (!legacyFile) {
+      setError("Please select a legacy annual XLSX file.");
+      return;
+    }
+    if (!legacyJobId.trim()) {
+      setError("Please enter Job ID for legacy upload.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Parsing legacy annual file...");
+    setLegacyPreview(null);
+    try {
+      const fd = new FormData();
+      fd.append("job_id", legacyJobId.trim());
+      fd.append("file", legacyFile);
+      const res = await fetch(`${baseUrl}/admin/import-export/legacy/preview`, {
+        method: "POST",
+        credentials: "include",
+        body: fd,
+      });
+      const text = await res.text().catch(() => "");
+      let json: any = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) throw new Error(`Legacy preview failed (${res.status})${text ? `: ${text}` : ""}`);
+      setLegacyPreview(json);
+      setLegacyManualLookup({});
+      setStatus("Legacy preview ready.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitLegacyAnnualFile() {
+    if (!legacyPreview?.rows_ready?.length) {
+      setError("No preview rows to commit.");
+      return;
+    }
+    if (!legacyJobId.trim()) {
+      setError("Please enter Job ID.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setStatus("Committing legacy annual rows...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/legacy/commit`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: Number(legacyJobId),
+          site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
+          rows_ready: legacyPreview.rows_ready,
+        }),
+      });
+      const text = await res.text().catch(() => "");
+      let json: any = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) throw new Error(`Legacy commit failed (${res.status})${text ? `: ${text}` : ""}`);
+      setRunResult(json);
+      setStatus("Legacy annual rows committed.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolveLegacyUnmatched() {
+    if (!legacyPreview) return;
+    setBusy(true);
+    setError("");
+    setStatus("Resolving unmatched legacy rows...");
+    try {
+      const manual_lookup = Object.entries(legacyManualLookup)
+        .filter(([lookup_key, original_id]) => lookup_key && String(original_id || "").trim())
+        .map(([lookup_key, original_id]) => ({ lookup_key, original_id: String(original_id).trim() }));
+
+      const res = await fetch(`${baseUrl}/admin/import-export/legacy/resolve`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rows_ready: legacyPreview.rows_ready || [],
+          rows_unresolved: legacyPreview.rows_unresolved || [],
+          manual_lookup,
+        }),
+      });
+      const text = await res.text().catch(() => "");
+      let json: any = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) throw new Error(`Legacy resolve failed (${res.status})${text ? `: ${text}` : ""}`);
+      setLegacyPreview((prev: any) => ({
+        ...(prev || {}),
+        rows_ready: json.rows_ready || [],
+        rows_unresolved: json.rows_unresolved || [],
+        summary: {
+          ...(prev?.summary || {}),
+          ...(json.summary || {}),
+        },
+      }));
+      setStatus("Unmatched legacy rows resolved.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -518,7 +777,7 @@ export default function AdminImportExportPage() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={busy} onClick={() => void scanFields()}>Scan All WFM Fields</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => void scanFields()}>Scan Recommended WFM Fields</Button>
               <Input
                 value={mapAllMinScore}
                 onChange={(e) => setMapAllMinScore(e.target.value)}
@@ -587,7 +846,7 @@ export default function AdminImportExportPage() {
                     </table>
                   </div>
 
-                  {Array.isArray(runResult.selected_clients) && runResult.selected_clients.length > 0 ? (
+                  {selectedClients.length > 0 ? (
                     <div>
                       <div className="mb-2 text-sm font-medium">Selected Clients</div>
                       <div className="overflow-x-auto rounded border">
@@ -599,7 +858,7 @@ export default function AdminImportExportPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {runResult.selected_clients.slice(0, 25).map((client, idx) => (
+                            {selectedClients.slice(0, 25).map((client, idx) => (
                               <tr key={`${client.wfm_client_id || "client"}-${idx}`} className="border-t">
                                 <td className="p-2">{client.name || "-"}</td>
                                 <td className="p-2 break-all">{client.wfm_client_id || "-"}</td>
@@ -608,37 +867,47 @@ export default function AdminImportExportPage() {
                           </tbody>
                         </table>
                       </div>
-                      {runResult.selected_clients.length > 25 ? (
+                      {selectedClients.length > 25 ? (
                         <div className="mt-1 text-xs text-muted-foreground">
-                          Showing first 25 of {runResult.selected_clients.length} selected clients.
+                          Showing first 25 of {selectedClients.length} selected clients.
                         </div>
                       ) : null}
                     </div>
                   ) : null}
 
-                  {Array.isArray(runResult.stats?.warnings) && runResult.stats.warnings.length > 0 ? (
+                  {runWarnings.length > 0 ? (
                     <div>
                       <div className="mb-2 text-sm font-medium">Warnings</div>
                       <div className="max-h-48 overflow-auto rounded border p-2 text-xs text-muted-foreground">
-                        {runResult.stats.warnings.slice(0, 50).map((warning, idx) => (
+                        {runWarnings.slice(0, 50).map((warning, idx) => (
                           <div key={`warning-${idx}`} className={idx > 0 ? "mt-1 border-t pt-1" : ""}>
                             {warning}
                           </div>
                         ))}
                       </div>
+                      {runWarnings.length > 50 ? (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Showing first 50 of {runWarnings.length} warnings.
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
-                  {Array.isArray(runResult.stats?.errors) && runResult.stats.errors.length > 0 ? (
+                  {runErrors.length > 0 ? (
                     <div>
                       <div className="mb-2 text-sm font-medium text-destructive">Errors</div>
                       <div className="max-h-48 overflow-auto rounded border border-destructive/30 p-2 text-xs text-destructive">
-                        {runResult.stats.errors.slice(0, 50).map((err, idx) => (
+                        {runErrors.slice(0, 50).map((err, idx) => (
                           <div key={`error-${idx}`} className={idx > 0 ? "mt-1 border-t border-destructive/20 pt-1" : ""}>
                             {err}
                           </div>
                         ))}
                       </div>
+                      {runErrors.length > 50 ? (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Showing first 50 of {runErrors.length} errors.
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -665,15 +934,15 @@ export default function AdminImportExportPage() {
                     <div className="rounded border bg-muted/20 p-3">
                       <div className="text-xs text-muted-foreground">Previewed Job Numbers</div>
                       <div className="text-xs">
-                        {(impactPreview.selection?.job_numbers || []).slice(0, 10).join(", ") || "-"}
+                        {(impactPreview.selection?.job_numbers || []).slice(0, 5).join(", ") || "-"}
                       </div>
                     </div>
                   </div>
 
                   {(["job", "client"] as const).map((entity) => {
                     const entries = Object.entries(impactPreview.impacts?.[entity] || {})
-                      .filter(([, value]) => impactCount(value as { count?: number }) > 0)
-                      .sort((a, b) => impactCount(b[1] as { count?: number }) - impactCount(a[1] as { count?: number }));
+                      .filter(([, value]) => impactCount(value) > 0)
+                      .sort((a, b) => impactCount(b[1]) - impactCount(a[1]));
                     if (!entries.length) return null;
                     return (
                       <div key={entity}>
@@ -692,12 +961,12 @@ export default function AdminImportExportPage() {
                               {entries.map(([target, value]) => (
                                 <tr key={`${entity}-${target}`} className="border-t align-top">
                                   <td className="p-2 font-medium">{entity}.{target}</td>
-                                  <td className="p-2">{impactCount(value as { count?: number })}</td>
+                                  <td className="p-2">{impactCount(value)}</td>
                                   <td className="p-2 whitespace-normal break-words">
-                                    {((value as { source_fields?: string[] }).source_fields || []).join(", ") || "-"}
+                                    {(value.source_fields || []).join(", ") || "-"}
                                   </td>
                                   <td className="p-2 whitespace-normal break-words">
-                                    {((value as { samples?: string[] }).samples || []).join(", ") || "-"}
+                                    {(value.samples || []).join(", ") || "-"}
                                   </td>
                                 </tr>
                               ))}
@@ -724,9 +993,9 @@ export default function AdminImportExportPage() {
                             {Object.entries(impactPreview.direct_mappings).map(([label, value]) => (
                               <tr key={label} className="border-t align-top">
                                 <td className="p-2 font-medium">{label}</td>
-                                <td className="p-2">{Number((value as { count?: number })?.count || 0)}</td>
+                                <td className="p-2">{Number(value?.count || 0)}</td>
                                 <td className="p-2 whitespace-normal break-words">
-                                  {(((value as { samples?: string[] })?.samples) || []).join(", ") || "-"}
+                                  {(value?.samples || []).join(", ") || "-"}
                                 </td>
                               </tr>
                             ))}
@@ -747,8 +1016,114 @@ export default function AdminImportExportPage() {
         </Card>
 
         <Card>
+          <CardHeader><CardTitle>Legacy Annual File Upload (Template-Mapped IDs)</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <Label>Job ID *</Label>
+                <Input value={legacyJobId} onChange={(e) => setLegacyJobId(e.target.value)} placeholder="123" />
+              </div>
+              <div>
+                <Label>Site ID (optional)</Label>
+                <Input value={legacySiteId} onChange={(e) => setLegacySiteId(e.target.value)} placeholder="Auto if blank" />
+              </div>
+              <div>
+                <Label>Legacy XLSX File *</Label>
+                <Input type="file" accept=".xlsx" onChange={(e) => setLegacyFile(e.target.files?.[0] || null)} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" disabled={busy || !legacyFile} onClick={() => void previewLegacyAnnualFile()}>
+                Preview Legacy Upload
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy || !legacyPreview?.rows_unresolved?.length}
+                onClick={() => void resolveLegacyUnmatched()}
+              >
+                Resolve Unmatched Rows
+              </Button>
+              <Button
+                disabled={busy || !legacyPreview?.rows_ready?.length}
+                onClick={() => void commitLegacyAnnualFile()}
+              >
+                Commit Legacy Rows
+              </Button>
+            </div>
+            {legacyPreview ? (
+              <div className="rounded border p-3 space-y-2">
+                <div className="text-sm font-medium">Preview Summary</div>
+                <pre className="max-h-64 overflow-auto text-xs">{JSON.stringify(legacyPreview.summary || {}, null, 2)}</pre>
+                {Array.isArray(legacyPreview.warnings) && legacyPreview.warnings.length > 0 ? (
+                  <div>
+                    <div className="text-xs font-medium">Warnings</div>
+                    <ul className="list-disc pl-5 text-xs text-muted-foreground">
+                      {legacyPreview.warnings.map((w: string, i: number) => (
+                        <li key={`${i}-${w}`}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                <div className="text-xs text-muted-foreground">
+                  Ready rows: {Array.isArray(legacyPreview.rows_ready) ? legacyPreview.rows_ready.length : 0}
+                  {" | "}
+                  Unresolved rows: {Array.isArray(legacyPreview.rows_unresolved) ? legacyPreview.rows_unresolved.length : 0}
+                </div>
+                {Array.isArray(legacyPreview.rows_unresolved) && legacyPreview.rows_unresolved.length > 0 ? (
+                  <div className="rounded border p-2">
+                    <div className="mb-2 text-xs font-medium">Unresolved Rows (enter Original ID where available)</div>
+                    <div className="max-h-72 overflow-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted sticky top-0">
+                          <tr>
+                            <th className="p-1 text-left">Section</th>
+                            <th className="p-1 text-left">Activity</th>
+                            <th className="p-1 text-left">Scope</th>
+                            <th className="p-1 text-left">Lookup Key</th>
+                            <th className="p-1 text-left">Original ID</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {legacyPreview.rows_unresolved.slice(0, 200).map((r: any, idx: number) => {
+                            const lk = String(r.lookup_key || "");
+                            const value = legacyManualLookup[lk] ?? "";
+                            return (
+                              <tr key={`${lk}-${idx}`} className="border-t">
+                                <td className="p-1">{r.section || "-"}</td>
+                                <td className="p-1">{r.activity || "-"}</td>
+                                <td className="p-1">{r.scope || "-"}</td>
+                                <td className="p-1 max-w-[320px] truncate" title={lk}>{lk || "-"}</td>
+                                <td className="p-1">
+                                  <Input
+                                    value={value}
+                                    onChange={(e) =>
+                                      setLegacyManualLookup((prev) => ({ ...prev, [lk]: e.target.value }))
+                                    }
+                                    placeholder="e.g. 25_301_3046_9_1"
+                                    className="h-7 text-xs"
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
           <CardHeader><CardTitle>Field Mapping (WFM to NZI)</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm">
+            <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+              This mapping is <strong>global field mapping</strong>, not per-client mapping.
+              Each row maps a <strong>WFM field name</strong> (for example a custom field label) to an NZI target
+              (for example <code>job.report_from</code> or <code>client.turnover</code>).
+            </div>
             {!mapping ? <div className="text-muted-foreground">No mapping metadata loaded.</div> : null}
             {mergedMappingSummary.job ? (
               <div>
@@ -780,12 +1155,36 @@ export default function AdminImportExportPage() {
         <Card>
           <CardHeader><CardTitle>Discovered WFM Fields (All CSVs)</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <select
+                className="h-10 rounded border bg-background px-3 text-sm"
+                value={catalogFile}
+                onChange={(e) => {
+                  setCatalogFile(e.target.value);
+                  void loadCatalog(catalogQuery, e.target.value);
+                }}
+              >
+                <option value="custom_fields.csv">custom_fields.csv (Recommended)</option>
+                <option value="">All files</option>
+                <option value="job_custom_field_values.csv">job_custom_field_values.csv</option>
+                <option value="client_custom_field_values.csv">client_custom_field_values.csv</option>
+                <option value="jobs.csv">jobs.csv</option>
+                <option value="clients.csv">clients.csv</option>
+              </select>
               <Input value={catalogQuery} onChange={(e) => setCatalogQuery(e.target.value)} placeholder="Search fields/files/sample values" />
-              <Button variant="outline" onClick={() => void loadCatalog(catalogQuery)}>Search</Button>
+              <Button variant="outline" onClick={() => void loadCatalog(catalogQuery, catalogFile)}>Search</Button>
             </div>
-            <div className="max-h-[420px] overflow-auto rounded border">
-              <table className="w-full text-xs">
+            <div className="max-h-[420px] overflow-y-auto overflow-x-hidden rounded border">
+              <table className="w-full table-fixed text-xs">
+                <colgroup>
+                  <col className="w-[10%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[28%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[10%]" />
+                </colgroup>
                 <thead className="bg-muted sticky top-0">
                   <tr>
                     <th className="text-left p-2">File</th>
@@ -800,13 +1199,15 @@ export default function AdminImportExportPage() {
                 <tbody>
                   {catalog.map((item, idx) => (
                     <tr key={`${item.file_name}-${item.field_name}-${idx}`} className="border-t">
-                      <td className="p-2">{item.file_name}</td>
-                      <td className="p-2 font-medium">{item.field_name}</td>
-                      <td className="p-2 max-w-[320px] truncate">{item.sample_values || "-"}</td>
+                      <td className="p-2 align-top break-words">{item.file_name}</td>
+                      <td className="p-2 align-top font-medium break-words">{item.field_name}</td>
+                      <td className="p-2 align-top whitespace-normal break-words" title={item.sample_values || ""}>
+                        {item.sample_values || "-"}
+                      </td>
                       <td className="p-2">
                         {item.suggested_entity && item.suggested_target ? `${item.suggested_entity}.${item.suggested_target}` : "-"}
                       </td>
-                      <td className="p-2 text-[11px]">
+                      <td className="p-2 text-[11px] align-top whitespace-normal break-words">
                         {item.suggestion_score != null ? (
                           <div>
                             <div>Score: {Number(item.suggestion_score).toFixed(1)}</div>
@@ -814,8 +1215,12 @@ export default function AdminImportExportPage() {
                           </div>
                         ) : "-"}
                       </td>
-                      <td className="p-2">{item.target_entity && item.target_field ? `${item.target_entity}.${item.target_field}` : "-"}</td>
-                      <td className="p-2">
+                      <td className="p-2 align-top whitespace-normal break-words">
+                        {item.target_entity && item.target_field
+                          ? `${item.target_entity}.${item.target_field}${item.is_active === false ? " (inactive)" : ""}`
+                          : "-"}
+                      </td>
+                      <td className="p-2 align-top">
                         <Button
                           size="sm"
                           variant="outline"
@@ -824,63 +1229,8 @@ export default function AdminImportExportPage() {
                         >
                           Map Suggested
                         </Button>
-                        <div className="mt-2 grid gap-1">
-                          {(() => {
-                            const key = `${item.file_name}::${item.field_name}`;
-                            const edit = mappingEdits[key];
-                            const targetFieldOptions = (mappingTargets.targets?.[(edit?.target_entity || "job") as "job" | "client"] || []);
-                            return (
-                              <>
-                                <select
-                                  className="h-7 rounded border px-1"
-                                  value={edit?.source_entity || "job"}
-                                  onChange={(e) => updateEdit(key, { source_entity: e.target.value })}
-                                >
-                                  <option value="job">job</option>
-                                  <option value="client">client</option>
-                                </select>
-                                <select
-                                  className="h-7 rounded border px-1"
-                                  value={edit?.target_entity || "job"}
-                                  onChange={(e) => updateEdit(key, { target_entity: e.target.value, target_field: "" })}
-                                >
-                                  <option value="job">job</option>
-                                  <option value="client">client</option>
-                                </select>
-                                <select
-                                  className="h-7 rounded border px-1"
-                                  value={edit?.target_field || ""}
-                                  onChange={(e) => updateEdit(key, { target_field: e.target.value })}
-                                >
-                                  <option value="">target field...</option>
-                                  {targetFieldOptions.map((tf) => (
-                                    <option key={tf} value={tf}>{tf}</option>
-                                  ))}
-                                </select>
-                                <input
-                                  className="h-7 rounded border px-1"
-                                  value={String(edit?.priority ?? 10)}
-                                  onChange={(e) => updateEdit(key, { priority: Number(e.target.value || 10) })}
-                                  placeholder="priority"
-                                />
-                                <label className="flex items-center gap-1 text-[11px]">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!edit?.is_active}
-                                    onChange={(e) => updateEdit(key, { is_active: e.target.checked })}
-                                  />
-                                  active
-                                </label>
-                                <input
-                                  className="h-7 rounded border px-1"
-                                  value={edit?.notes || ""}
-                                  onChange={(e) => updateEdit(key, { notes: e.target.value })}
-                                  placeholder="notes"
-                                />
-                                <Button size="sm" onClick={() => void saveManualMap(item)}>Save Map</Button>
-                              </>
-                            );
-                          })()}
+                        <div className="mt-2">
+                          <Button size="sm" onClick={() => openMappingEditor(item)}>Edit Map</Button>
                         </div>
                       </td>
                     </tr>
@@ -895,6 +1245,110 @@ export default function AdminImportExportPage() {
             </div>
           </CardContent>
         </Card>
+
+        {editingItem ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-2xl rounded-lg border bg-background p-4 shadow-xl">
+              {(() => {
+                const key = `${editingItem.file_name}::${editingItem.field_name}`;
+                const edit = mappingEdits[key];
+                const selectedEntity = normalizeEntity(edit?.target_entity || "job");
+                const optionsFromApi = mappingTargets.targets?.[selectedEntity] || [];
+                const optionsFromMapping = Object.keys(mapping?.mappings?.[selectedEntity] || {});
+                const optionsFromDefaults = DEFAULT_TARGET_FIELDS[selectedEntity] || [];
+                const targetFieldOptions = Array.from(
+                  new Set([
+                    ...optionsFromApi,
+                    ...optionsFromMapping,
+                    ...optionsFromDefaults,
+                  ].map((x) => String(x || "").trim()).filter(Boolean))
+                ).sort((a, b) => a.localeCompare(b));
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold">Edit Mapping</div>
+                        <div className="text-xs text-muted-foreground">{editingItem.file_name} :: {editingItem.field_name}</div>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setEditingItem(null)}>Close</Button>
+                    </div>
+
+                    <div className="rounded border bg-muted/30 p-2 text-xs">
+                      <div><strong>Sample:</strong> {editingItem.sample_values || "-"}</div>
+                      <div><strong>Suggested:</strong> {editingItem.suggested_entity && editingItem.suggested_target ? `${editingItem.suggested_entity}.${editingItem.suggested_target}` : "-"}</div>
+                    </div>
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <input
+                        className="h-9 rounded border px-2 bg-muted text-muted-foreground"
+                        value={`source: ${edit?.source_entity || "job"}`}
+                        readOnly
+                        title="Source entity (derived from the WFM file/field)"
+                      />
+                      <select
+                        className="h-9 rounded border px-2"
+                        value={selectedEntity}
+                        onChange={(e) =>
+                          updateEdit(key, {
+                            target_entity: normalizeEntity(e.target.value),
+                            target_field: "",
+                          })
+                        }
+                        title="Target entity"
+                      >
+                        <option value="job">job</option>
+                        <option value="client">client</option>
+                      </select>
+                      <select
+                        className="h-9 rounded border px-2 md:col-span-2"
+                        value={edit?.target_field || ""}
+                        onChange={(e) => updateEdit(key, { target_field: e.target.value })}
+                      >
+                        <option value="">target field...</option>
+                        {targetFieldOptions.map((tf) => (
+                          <option key={tf} value={tf}>{tf}</option>
+                        ))}
+                      </select>
+                      <input
+                        className="h-9 rounded border px-2"
+                        value={String(edit?.priority ?? 10)}
+                        onChange={(e) => updateEdit(key, { priority: Number(e.target.value || 10) })}
+                        placeholder="priority"
+                      />
+                      <input
+                        className="h-9 rounded border px-2"
+                        value={edit?.notes || ""}
+                        onChange={(e) => updateEdit(key, { notes: e.target.value })}
+                        placeholder="notes"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={!!edit?.is_active}
+                        onChange={(e) => updateEdit(key, { is_active: e.target.checked })}
+                      />
+                      Active mapping
+                    </label>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="outline" onClick={() => setEditingItem(null)}>Cancel</Button>
+                      <Button
+                        onClick={async () => {
+                          const ok = await saveManualMap(editingItem);
+                          if (ok) setEditingItem(null);
+                        }}
+                      >
+                        Save Map
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
