@@ -444,19 +444,29 @@ def _normalize_likelihood_score(value: Any) -> float:
     return round(max(0.0, min(100.0, score)), 1)
 
 
-def _matches_target_industries(item: dict[str, Any], target_industries: list[str]) -> bool:
+def _matches_target_industries(
+    item: dict[str, Any],
+    target_industries: list[str],
+    *,
+    include_narrative: bool = False,
+) -> bool:
     targets = [str(x).strip().lower() for x in target_industries if str(x).strip()]
     if not targets:
         return True
-    text = " ".join(
-        [
-            str(item.get("industry") or ""),
-            str(item.get("company_name") or ""),
-            str(item.get("why_good_lead") or ""),
-            str(item.get("trigger_reason") or ""),
-            str(item.get("source_references") or ""),
-        ]
-    ).lower()
+    parts = [
+        str(item.get("industry") or ""),
+        str(item.get("company_name") or ""),
+        str(item.get("website") or ""),
+    ]
+    if include_narrative:
+        parts.extend(
+            [
+                str(item.get("why_good_lead") or ""),
+                str(item.get("trigger_reason") or ""),
+                str(item.get("source_references") or ""),
+            ]
+        )
+    text = " ".join(parts).lower()
     aliases = {
         "construction": ["construction", "contractor", "housebuilding", "civil engineering", "fit-out", "refurbishment", "building"],
         "healthcare": ["healthcare", "health care", "hospital", "care home", "care provider", "medical", "clinical", "nhs", "social care"],
@@ -515,6 +525,33 @@ def _is_consultancy_competitor_candidate(item: dict[str, Any]) -> bool:
     has_consultancy = any(marker in text for marker in consultancy_markers)
     has_climate = any(marker in text for marker in climate_markers)
     return has_consultancy and has_climate
+
+
+def _is_unwanted_market_scan_company(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        [
+            str(item.get("company_name") or ""),
+            str(item.get("industry") or ""),
+            str(item.get("website") or ""),
+            str(item.get("why_good_lead") or ""),
+            str(item.get("trigger_reason") or ""),
+        ]
+    ).lower()
+    blocked_markers = [
+        "consulting",
+        "consultancy",
+        "consultant",
+        "professional services",
+        "advisory",
+        "software",
+        "saas",
+        "systems integrator",
+        "outsourcing",
+        "it services",
+        "technology services",
+        "accounting software",
+    ]
+    return any(marker in text for marker in blocked_markers)
 
 
 def _load_never_return_company_keys(con) -> set[str]:
@@ -624,6 +661,281 @@ def _market_scan_search_terms(target_industries: list[str], regions: list[str]) 
             if region_text:
                 out.append(f"{term} {region_text}")
     return list(dict.fromkeys([x for x in out if x.strip()]))
+
+
+def _market_scan_batch_specs(target_industries: list[str], regions: list[str]) -> list[dict[str, str]]:
+    region_values = [str(r).strip() for r in regions if str(r).strip()] or ["United Kingdom", "Europe"]
+    sector_terms = {
+        "construction": [
+            "regional building contractor",
+            "fit out contractor",
+            "civil engineering contractor",
+            "refurbishment specialist",
+            "mechanical electrical contractor",
+            "housebuilder",
+        ],
+        "healthcare": [
+            "care home operator",
+            "private healthcare provider",
+            "social care provider",
+            "specialist hospital operator",
+            "clinical services provider",
+            "community healthcare provider",
+        ],
+    }
+    diversity_cues = [
+        "Focus on owner-managed and regional firms, not household-name multinationals.",
+        "Prefer companies serving local or regional contracts rather than global enterprise accounts.",
+        "Return different companies from previous batches and avoid famous blue-chip brands.",
+    ]
+    specs: list[dict[str, str]] = []
+    for industry in target_industries or ["Construction", "Healthcare"]:
+        normalized = str(industry).strip().lower()
+        search_terms = sector_terms.get(normalized, [str(industry).strip()])
+        for region in region_values:
+            for idx, term in enumerate(search_terms, start=1):
+                specs.append(
+                    {
+                        "industry": str(industry).strip(),
+                        "region": region,
+                        "segment": term,
+                        "diversity": diversity_cues[(idx - 1) % len(diversity_cues)],
+                    }
+                )
+    return specs
+
+
+def _parse_market_scan_rows(
+    parsed: list[dict[str, Any]],
+    *,
+    target_industries: list[str],
+    revenue_min: float,
+    revenue_max: float,
+    limit: int,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in parsed:
+        company = str(row.get("company_name") or "").strip()
+        if not company:
+            continue
+        key = _normalize_company_key(company)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        revenue = _safe_float(row.get("revenue_gbp_millions"), 0)
+        if revenue <= 0 or revenue < revenue_min or revenue > revenue_max:
+            continue
+        candidate = {
+            "company_name": company,
+            "industry": str(row.get("industry") or "").strip(),
+            "country": str(row.get("country") or "").strip(),
+            "city": str(row.get("city") or "").strip(),
+            "website": str(row.get("website") or "").strip(),
+            "contact_name": "",
+            "contact_role": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "revenue_gbp_millions": round(revenue, 2),
+            "likelihood_score": _normalize_likelihood_score(row.get("likelihood_score")),
+            "why_good_lead": str(row.get("why_good_lead") or "").strip(),
+            "trigger_reason": str(row.get("trigger_reason") or "").strip(),
+            "source_references": str(row.get("source_references") or "").strip(),
+        }
+        if not _matches_target_industries(candidate, target_industries, include_narrative=False):
+            continue
+        if _is_consultancy_competitor_candidate(candidate) or _is_unwanted_market_scan_company(candidate):
+            continue
+        website = candidate["website"]
+        if not website or not website.lower().startswith(("http://", "https://")):
+            candidate["website"] = f"https://www.google.com/search?q={quote_plus(company)}"
+        if not candidate["source_references"]:
+            candidate["source_references"] = candidate["website"]
+        out.append(candidate)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _openai_generate_market_scan_leads(
+    *,
+    regions: list[str],
+    revenue_min: float,
+    revenue_max: float,
+    limit: int,
+    target_industries: list[str],
+) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        from openai import OpenAI
+    except Exception:
+        return [], "OpenAI SDK unavailable."
+
+    api_key = _env_value("OPENAI_API_KEY", "")
+    if not api_key:
+        return [], "OPENAI_API_KEY missing."
+
+    configured_model = _env_value("OPENAI_MODEL", "gpt-4.1")
+    model_candidates = list(dict.fromkeys([m for m in [configured_model, "gpt-4.1-mini", "gpt-4o-mini"] if str(m).strip()]))
+    client = OpenAI(api_key=api_key)
+    batch_specs = _market_scan_batch_specs(target_industries, regions)
+    if not batch_specs:
+        return [], "No market scan batch specs available."
+
+    target_count = max(int(limit), 25)
+    collected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    errors: list[str] = []
+    per_batch = max(6, min(10, target_count))
+
+    for spec in batch_specs:
+        if len(collected) >= target_count:
+            break
+        prompt = (
+            "Return ONLY valid JSON array with up to "
+            f"{per_batch} objects and keys: company_name, industry, country, city, website, revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
+            "Task: identify real mid-market companies from public/open sources only.\n"
+            "Do NOT return contacts in this step. This is a company discovery pass, not a contact-enrichment pass.\n"
+            "Only return companies whose overall company revenue is credibly within the requested revenue band.\n"
+            "Exclude global household-name enterprises, software vendors, consultancies, outsourcers, advisory firms, and direct competitors.\n"
+            f"Target industry: {spec['industry']}\n"
+            f"Target region: {spec['region']}\n"
+            f"Target subsegment: {spec['segment']}\n"
+            f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+            f"{spec['diversity']}\n"
+            "likelihood_score must be 0-100.\n"
+            "source_references must include at least 2 verifiable URLs per company, separated by ' | '.\n"
+            "Reject invented companies and reject companies where revenue fit is unclear."
+        )
+        parsed: list[dict[str, Any]] = []
+        for model in model_candidates:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=2600,
+                )
+                content = (response.choices[0].message.content or "").strip() if response.choices else ""
+                parsed = _parse_json_array(content)
+                if parsed:
+                    break
+                errors.append(f"{model}: non-parseable output")
+            except Exception as e:
+                errors.append(f"{model}: {str(e)}")
+        if not parsed:
+            continue
+        for candidate in _parse_market_scan_rows(
+            parsed,
+            target_industries=target_industries,
+            revenue_min=revenue_min,
+            revenue_max=revenue_max,
+            limit=target_count,
+        ):
+            key = _normalize_company_key(candidate.get("company_name"))
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            collected.append(candidate)
+            if len(collected) >= target_count:
+                break
+
+    if collected:
+        return collected[:target_count], None
+    return [], "; ".join(errors[:5]) if errors else "OpenAI returned no qualifying market-scan companies."
+
+
+def _gemini_generate_market_scan_leads(
+    *,
+    regions: list[str],
+    revenue_min: float,
+    revenue_max: float,
+    limit: int,
+    target_industries: list[str],
+) -> tuple[list[dict[str, Any]], str | None]:
+    api_key = _env_value("GEMINI_API_KEY", "")
+    if not api_key:
+        return [], "GEMINI_API_KEY missing."
+
+    configured_model = _env_value("GEMINI_MODEL", "gemini-2.0-flash")
+    model_candidates = list(
+        dict.fromkeys([m for m in [configured_model, "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"] if str(m).strip()])
+    )
+    batch_specs = _market_scan_batch_specs(target_industries, regions)
+    if not batch_specs:
+        return [], "No market scan batch specs available."
+
+    target_count = max(int(limit), 25)
+    collected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    errors: list[str] = []
+    per_batch = max(6, min(10, target_count))
+
+    for spec in batch_specs:
+        if len(collected) >= target_count:
+            break
+        prompt = (
+            "Return ONLY valid JSON array with up to "
+            f"{per_batch} objects and keys: company_name, industry, country, city, website, revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
+            "Identify real mid-market companies from public/open sources only.\n"
+            "This is the company discovery pass. Do not return contacts in this step.\n"
+            "Exclude global enterprises, consultancies, software vendors, outsourcers, advisory firms, and direct competitors.\n"
+            f"Target industry: {spec['industry']}\n"
+            f"Target region: {spec['region']}\n"
+            f"Target subsegment: {spec['segment']}\n"
+            f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+            f"{spec['diversity']}\n"
+            "source_references must include at least 2 verifiable URLs per company, separated by ' | '."
+        )
+        parsed: list[dict[str, Any]] = []
+        for model in model_candidates:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 3200},
+            }
+            req = Request(
+                url,
+                method="POST",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "NZI-Pro-LeadGen/1.0"},
+            )
+            try:
+                with urlopen(req, timeout=40) as resp:
+                    body = resp.read().decode("utf-8", errors="ignore")
+                data = json.loads(body) if body else {}
+                candidates = data.get("candidates") if isinstance(data, dict) else None
+                text = ""
+                if isinstance(candidates, list) and candidates:
+                    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+                    parts = content.get("parts") if isinstance(content, dict) else None
+                    if isinstance(parts, list):
+                        text = " ".join([str(p.get("text") or "") for p in parts if isinstance(p, dict)]).strip()
+                parsed = _parse_json_array(text)
+                if parsed:
+                    break
+                errors.append(f"{model}: non-parseable output")
+            except Exception as e:
+                errors.append(f"{model}: {str(e)}")
+        if not parsed:
+            continue
+        for candidate in _parse_market_scan_rows(
+            parsed,
+            target_industries=target_industries,
+            revenue_min=revenue_min,
+            revenue_max=revenue_max,
+            limit=target_count,
+        ):
+            key = _normalize_company_key(candidate.get("company_name"))
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            collected.append(candidate)
+            if len(collected) >= target_count:
+                break
+
+    if collected:
+        return collected[:target_count], None
+    return [], "; ".join(errors[:5]) if errors else "Gemini returned no qualifying market-scan companies."
 
 
 def _companies_house_profile(company_number: str, api_key: str) -> dict[str, Any]:
@@ -1641,19 +1953,28 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             for svc in selected_services:
                 service_key = svc["service_key"]
                 service_name = svc["service_name"]
-                generated, ai_diag = _openai_generate_service_leads(
-                    service_name=service_name,
-                    service_key=service_key,
-                    regions=regions,
-                    revenue_min=revenue_min,
-                    revenue_max=revenue_max,
-                    limit=leads_per_service,
-                    target_industries=target_industries,
-                    target_roles=target_roles,
-                    allow_fallback=allow_fallback,
-                )
-                if not generated:
-                    generated, gemini_diag = _gemini_generate_service_leads(
+                if generation_mode == "market-scan":
+                    generated, ai_diag = _openai_generate_market_scan_leads(
+                        regions=regions,
+                        revenue_min=revenue_min,
+                        revenue_max=revenue_max,
+                        limit=leads_per_service,
+                        target_industries=target_industries,
+                    )
+                    if not generated:
+                        generated, gemini_diag = _gemini_generate_market_scan_leads(
+                            regions=regions,
+                            revenue_min=revenue_min,
+                            revenue_max=revenue_max,
+                            limit=leads_per_service,
+                            target_industries=target_industries,
+                        )
+                        if gemini_diag:
+                            diagnostics[service_key] = gemini_diag
+                    elif ai_diag:
+                        diagnostics[service_key] = ai_diag
+                else:
+                    generated, ai_diag = _openai_generate_service_leads(
                         service_name=service_name,
                         service_key=service_key,
                         regions=regions,
@@ -1664,10 +1985,22 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         target_roles=target_roles,
                         allow_fallback=allow_fallback,
                     )
-                    if gemini_diag:
-                        diagnostics[service_key] = gemini_diag
-                elif ai_diag:
-                    diagnostics[service_key] = ai_diag
+                    if not generated:
+                        generated, gemini_diag = _gemini_generate_service_leads(
+                            service_name=service_name,
+                            service_key=service_key,
+                            regions=regions,
+                            revenue_min=revenue_min,
+                            revenue_max=revenue_max,
+                            limit=leads_per_service,
+                            target_industries=target_industries,
+                            target_roles=target_roles,
+                            allow_fallback=allow_fallback,
+                        )
+                        if gemini_diag:
+                            diagnostics[service_key] = gemini_diag
+                    elif ai_diag:
+                        diagnostics[service_key] = ai_diag
                 if not generated:
                     diagnostics[service_key] = diagnostics.get(service_key) or "No verifiable open-source leads returned for current filters."
                 inserted_for_service = 0
