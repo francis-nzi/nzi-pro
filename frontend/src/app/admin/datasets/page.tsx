@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import {
   Select,
   SelectContent,
@@ -56,6 +57,7 @@ type UploadRejectedRow = {
 
 export default function DatasetsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [factors, setFactors] = useState<Factor[]>([]);
@@ -356,7 +358,13 @@ export default function DatasetsPage() {
   }
 
   async function archiveDataset(datasetId: number, datasetName: string) {
-    if (!confirm(`Archive dataset "${datasetName}"? It will be hidden from the main view but can be restored later.`)) {
+    const confirmed = await confirmAction({
+      title: "Archive dataset?",
+      description: `Archive dataset "${datasetName}"? It will be hidden from the main view but can be restored later.`,
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 

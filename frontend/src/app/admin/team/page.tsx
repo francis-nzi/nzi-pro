@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -87,6 +88,7 @@ function prettyDate(value?: string | null): string {
 
 export default function TeamManagementPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
 
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -263,7 +265,13 @@ export default function TeamManagementPage() {
 
   async function setActiveState(emailValue: string, activate: boolean) {
     const actionLabel = activate ? "reactivate" : "deactivate";
-    if (!confirm(`Are you sure you want to ${actionLabel} ${emailValue}?`)) return;
+    const confirmed = await confirmAction({
+      title: `${actionLabel[0].toUpperCase() + actionLabel.slice(1)} user?`,
+      description: `Are you sure you want to ${actionLabel} ${emailValue}?`,
+      confirmLabel: actionLabel[0].toUpperCase() + actionLabel.slice(1),
+      destructive: !activate,
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/admin/users/${encodeURIComponent(emailValue)}`, {
@@ -286,7 +294,12 @@ export default function TeamManagementPage() {
   }
 
   async function resetPassword(emailValue: string) {
-    if (!confirm(`Generate a temporary password for ${emailValue}?`)) return;
+    const confirmed = await confirmAction({
+      title: "Generate temporary password?",
+      description: `Generate a temporary password for ${emailValue}?`,
+      confirmLabel: "Generate",
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/admin/users/${encodeURIComponent(emailValue)}/password/reset`, {
@@ -321,7 +334,12 @@ export default function TeamManagementPage() {
   }
 
   async function reinviteUser(emailValue: string) {
-    if (!confirm(`Re-invite ${emailValue}? This will generate a new temporary password valid for 7 days.`)) return;
+    const confirmed = await confirmAction({
+      title: "Re-invite user?",
+      description: `Re-invite ${emailValue}? This will generate a new temporary password valid for 7 days.`,
+      confirmLabel: "Re-invite",
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/admin/users/${encodeURIComponent(emailValue)}/reinvite`, {

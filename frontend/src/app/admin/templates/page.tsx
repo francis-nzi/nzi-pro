@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import ReportVariablesAdmin from "@/components/ReportVariablesAdmin";
 import MessagingTemplatesAdmin from "@/components/MessagingTemplatesAdmin";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -39,6 +40,7 @@ const TEMPLATE_TYPES = [
 
 export default function TemplatesPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   
   const [activeTab, setActiveTab] = useState(TEMPLATE_TYPES[0].key);
   const [templates, setTemplates] = useState<JobTemplate[]>([]);
@@ -156,7 +158,13 @@ export default function TemplatesPage() {
   }
 
   async function deleteTemplate(id: number) {
-    if (!confirm("Are you sure you want to deactivate this template?")) return;
+    const confirmed = await confirmAction({
+      title: "Deactivate template?",
+      description: "This template will be marked inactive.",
+      confirmLabel: "Deactivate",
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/job-templates/${id}`, {
@@ -178,7 +186,13 @@ export default function TemplatesPage() {
   }
 
   async function archiveTemplate(id: number, templateKey: string) {
-    if (!confirm(`Archive template "${templateKey}"? This will move it to the archive management section.`)) return;
+    const confirmed = await confirmAction({
+      title: "Archive template?",
+      description: `Archive template "${templateKey}"? This will move it to the archive management section.`,
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/job-templates/${id}/archive`, {

@@ -5,6 +5,7 @@ import { MainNav } from "@/components/MainNav";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { ConfirmDialogProvider } from "@/components/ConfirmDialogProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,10 +31,12 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}>
         <ThemeProvider>
-          <AuthBootstrap />
-          <MainNav />
-          <main className="flex-1">{children}</main>
-          <SiteFooter />
+          <ConfirmDialogProvider>
+            <AuthBootstrap />
+            <MainNav />
+            <main className="flex-1">{children}</main>
+            <SiteFooter />
+          </ConfirmDialogProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 type IntensityMetric = {
   label: string;
@@ -41,6 +42,7 @@ const DIVIDER_OPTIONS = [
 ];
 
 export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, currency = "GBP" }: IntensityMetricsProps) {
+  const confirmAction = useConfirmDialog();
   const [metrics, setMetrics] = useState<IntensityMetrics>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -135,7 +137,13 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
   const removeMetric = useCallback(async (key: string) => {
     const label = metrics[key]?.label || key;
-    if (!window.confirm(`Delete "${label}"?`)) {
+    const confirmed = await confirmAction({
+      title: "Delete intensity metric?",
+      description: `Delete "${label}"?`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -143,7 +151,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
     delete newMetrics[key];
     setMetrics(newMetrics);
     await saveMetrics(newMetrics);
-  }, [metrics, saveMetrics]);
+  }, [confirmAction, metrics, saveMetrics]);
 
   const calculateIntensity = useCallback((metricValue: number, divider: number): number => {
     if (metricValue === 0) return 0;

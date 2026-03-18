@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseCandidates(baseUrl?: string): string[] {
   const out: string[] = [];
@@ -76,6 +77,7 @@ export default function JobCustomDataset({
   jobId: number;
   baseUrl: string;
 }) {
+  const confirmAction = useConfirmDialog();
   function errorMessage(err: unknown, fallback: string): string {
     if (err instanceof Error && err.message) return err.message;
     return fallback;
@@ -291,7 +293,13 @@ async function load() {
   }
 
   async function deleteRow(rowId: number) {
-    if (!confirm("Are you sure you want to delete this custom factor row?")) {
+    const confirmed = await confirmAction({
+      title: "Delete custom factor row?",
+      description: "This custom dataset row will be removed from the job.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
     setLoading(true);

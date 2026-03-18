@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 type JobFile = {
   file_id: number;
@@ -38,6 +39,7 @@ type JobFilesProps = {
 };
 
 export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
+  const confirmAction = useConfirmDialog();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [files, setFiles] = useState<JobFile[]>([]);
@@ -138,7 +140,13 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   }
 
   async function handleDelete(fileId: number) {
-    if (!confirm("Are you sure you want to delete this file?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete file?",
+      description: "This file will be removed from the job record.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/files/${fileId}`, {

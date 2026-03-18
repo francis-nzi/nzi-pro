@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -20,6 +21,7 @@ type ArchivedClient = {
 
 export default function ArchivedClientsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   
   const [clients, setClients] = useState<ArchivedClient[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +52,12 @@ export default function ArchivedClientsPage() {
   }
 
   async function reactivateClient(clientId: number, clientName: string) {
-    if (!confirm(`Are you sure you want to reactivate "${clientName}"?`)) return;
+    const confirmed = await confirmAction({
+      title: "Reactivate client?",
+      description: `Reactivate "${clientName}"?`,
+      confirmLabel: "Reactivate",
+    });
+    if (!confirmed) return;
 
     setStatus("Reactivating...");
     try {

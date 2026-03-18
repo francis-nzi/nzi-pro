@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import Link from "next/link";
 import { apiUrl } from "@/lib/auth-client";
 
@@ -49,6 +50,7 @@ const ENTITY_TYPES = [
 ];
 
 export default function CustomFieldsAdmin() {
+  const confirmAction = useConfirmDialog();
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -136,7 +138,13 @@ export default function CustomFieldsAdmin() {
   }
 
   async function handleDelete(fieldId: number) {
-    if (!confirm("Are you sure you want to delete this field?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete custom field?",
+      description: "This field will be removed from active use across the system.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(apiUrl(`/custom-fields/definitions/${fieldId}`), {
         method: "DELETE",

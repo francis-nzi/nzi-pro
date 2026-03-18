@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 type ViewMode = "quotes" | "invoices" | "other-costs" | "profit-loss";
 
@@ -123,6 +124,7 @@ type Props = {
 };
 
 export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode }: Props) {
+  const confirmAction = useConfirmDialog();
   const costTypeOptions = ["Consultant", "Product", "Software", "Sales Commission", "Travel", "Other"];
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
@@ -554,7 +556,13 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
   }
 
   async function removeOtherCost(otherCostId: number) {
-    if (!confirm("Delete this other cost?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete other cost?",
+      description: "This other cost entry will be removed from the job financials.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     setStatus("");
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/other-costs/${otherCostId}`, {

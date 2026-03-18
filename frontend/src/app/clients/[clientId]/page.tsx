@@ -7,6 +7,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import ClientDashboard from "@/components/ClientDashboard";
 import ClientCommunications from "@/components/ClientCommunications";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import ClientReporting from "@/components/ClientReporting";
 import CustomFields from "@/components/CustomFields";
 import MilestoneBadge from "@/components/MilestoneBadge";
@@ -180,6 +181,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
 
 function ClientDetailPageContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   const params = useParams<{ clientId: string }>();
   const searchParams = useSearchParams();
   const clientId = Number(params?.clientId);
@@ -389,7 +391,13 @@ function ClientDetailPageContent() {
   }
 
   async function handleDeleteContact(contactId: number) {
-    if (!confirm("Are you sure you want to delete this contact?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete contact?",
+      description: "This contact will be removed from the client record.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/contacts/${contactId}`, {
         method: "DELETE",
@@ -815,7 +823,13 @@ function ClientDetailPageContent() {
     }
 
     async function removeInvoice(invoiceId: number) {
-      if (!confirm("Delete this invoice?")) return;
+      const confirmed = await confirmAction({
+        title: "Delete invoice?",
+        description: "This invoice will be removed from the client financial records.",
+        confirmLabel: "Delete",
+        destructive: true,
+      });
+      if (!confirmed) return;
       setFinancialStatus("");
       try {
         const res = await fetch(`${baseUrl}/invoices/${invoiceId}`, { method: "DELETE", credentials: "include" });

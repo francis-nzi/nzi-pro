@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Trash2, Edit } from "lucide-react";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl() {
   if (typeof window === "undefined") return "http://localhost:8000";
@@ -70,6 +71,7 @@ interface TimeSubject {
 
 function TimePageContent() {
   const searchParams = useSearchParams();
+  const confirmAction = useConfirmDialog();
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [subjects, setSubjects] = useState<TimeSubject[]>([]);
@@ -251,7 +253,13 @@ function TimePageContent() {
   }
 
   async function handleDelete(timeId: number) {
-    if (!confirm("Are you sure you want to delete this time entry?")) {
+    const confirmed = await confirmAction({
+      title: "Delete time entry?",
+      description: "This time entry will be removed from the log.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 

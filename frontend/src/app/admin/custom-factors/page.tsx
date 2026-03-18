@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseCandidates(): string[] {
   const out: string[] = [];
@@ -115,6 +116,7 @@ function parseYearFactors(input: Record<number, string>): Record<string, number>
 
 export default function CustomFactorsPage() {
   const apiBases = useMemo(() => apiBaseCandidates(), []);
+  const confirmAction = useConfirmDialog();
   const [activeApiBase, setActiveApiBase] = useState<string | null>(null);
 
   const apiFetch = useCallback(
@@ -380,7 +382,13 @@ export default function CustomFactorsPage() {
 
   async function toggleArchive(factor: CustomFactor, archived: boolean) {
     const action = archived ? "archive" : "restore";
-    if (!confirm(`${action[0].toUpperCase() + action.slice(1)} "${factor.report_label || factor.description}"?`)) {
+    const confirmed = await confirmAction({
+      title: `${action[0].toUpperCase() + action.slice(1)} custom factor?`,
+      description: `${action[0].toUpperCase() + action.slice(1)} "${factor.report_label || factor.description}"?`,
+      confirmLabel: action[0].toUpperCase() + action.slice(1),
+      destructive: archived,
+    });
+    if (!confirmed) {
       return;
     }
 

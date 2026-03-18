@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -22,6 +23,7 @@ type ThemeSettings = {
 };
 
 export default function ThemeSettingsPage() {
+  const confirmAction = useConfirmDialog();
   const [settings, setSettings] = useState<ThemeSettings>({});
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
@@ -75,7 +77,13 @@ export default function ThemeSettingsPage() {
   }
 
   async function handleReset() {
-    if (!confirm("Reset all theme settings to defaults?")) {
+    const confirmed = await confirmAction({
+      title: "Reset theme settings?",
+      description: "Reset all theme settings to their default values?",
+      confirmLabel: "Reset",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 

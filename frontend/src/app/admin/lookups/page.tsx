@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -48,6 +49,7 @@ const LOOKUP_TABLES = [
 
 export default function LookupsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   const [activeTab, setActiveTab] = useState(LOOKUP_TABLES[0].key);
   const [items, setItems] = useState<LookupItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -219,7 +221,13 @@ export default function LookupsPage() {
   }
 
   async function archiveItem(tableName: string, itemId: number, itemName: string) {
-    if (!confirm(`Are you sure you want to archive "${itemName}"?`)) return;
+    const confirmed = await confirmAction({
+      title: "Archive lookup item?",
+      description: `Archive "${itemName}"? It will remain in the system but no longer be active.`,
+      confirmLabel: "Archive",
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     setStatus("Archiving...");
     try {
@@ -242,7 +250,12 @@ export default function LookupsPage() {
   }
 
   async function restoreItem(tableName: string, itemId: number, itemName: string) {
-    if (!confirm(`Are you sure you want to restore "${itemName}"?`)) return;
+    const confirmed = await confirmAction({
+      title: "Restore lookup item?",
+      description: `Restore "${itemName}" to the active lookup list?`,
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
 
     setStatus("Restoring...");
     try {

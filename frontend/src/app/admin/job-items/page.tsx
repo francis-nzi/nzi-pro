@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Save, Plus, Trash2, Edit2 } from "lucide-react";
 import Link from "next/link";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl() {
   if (typeof window === "undefined") return "http://localhost:8000";
@@ -81,6 +82,7 @@ const UNITS = [
 ];
 
 export default function JobItemsPage() {
+  const confirmAction = useConfirmDialog();
   const [items, setItems] = useState<JobItem[]>([]);
   const [vatRates, setVatRates] = useState<VatRate[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<string[]>(DEFAULT_CATEGORIES);
@@ -260,7 +262,13 @@ export default function JobItemsPage() {
   }
 
   async function handleDelete(itemId: number) {
-    if (!confirm("Are you sure you want to delete this job item?")) {
+    const confirmed = await confirmAction({
+      title: "Delete job item?",
+      description: "This job item will be removed from the catalogue.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 

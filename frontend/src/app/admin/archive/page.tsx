@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -30,7 +31,8 @@ type ArchivedClient = {
 
 export default function ArchivePage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
-  
+  const confirmAction = useConfirmDialog();
+
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [clients, setClients] = useState<ArchivedClient[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,9 +67,12 @@ export default function ArchivePage() {
   }
 
   async function unarchiveDataset(datasetId: number, datasetName: string) {
-    if (!confirm(`Restore dataset "${datasetName}"? It will be moved back to the active datasets.`)) {
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: "Restore dataset?",
+      description: `Restore dataset "${datasetName}"? It will be moved back to the active datasets.`,
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
 
     setStatus(`Restoring ${datasetName}...`);
     try {
@@ -90,12 +95,14 @@ export default function ArchivePage() {
   }
 
   async function permanentlyDeleteDataset(datasetId: number, datasetName: string) {
-    if (!confirm(`⚠️ PERMANENTLY DELETE dataset "${datasetName}"?\n\nThis action CANNOT be undone. All associated conversion factors will also be deleted.\n\nType "DELETE" to confirm.`)) {
-      return;
-    }
-
-    const confirmation = prompt(`Type "DELETE" to permanently delete "${datasetName}"`);
-    if (confirmation !== "DELETE") {
+    const confirmed = await confirmAction({
+      title: "Permanently delete dataset?",
+      description: `This will permanently delete dataset "${datasetName}" and all associated conversion factors. This action cannot be undone.`,
+      confirmLabel: "Delete permanently",
+      destructive: true,
+      confirmationText: "DELETE",
+    });
+    if (!confirmed) {
       setStatus("Deletion cancelled");
       setTimeout(() => setStatus(""), 2000);
       return;
@@ -120,9 +127,13 @@ export default function ArchivePage() {
   }
 
   async function reactivateClient(clientId: number, clientName: string) {
-    if (!confirm(`Restore client "${clientName}"?`)) {
-      return;
-    }
+    const confirmed = await confirmAction({
+      title: "Restore client?",
+      description: `Restore client "${clientName}"?`,
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+
     setStatus(`Restoring ${clientName}...`);
     try {
       const res = await fetch(`${baseUrl}/admin/archived-clients/${clientId}/reactivate`, {
@@ -141,15 +152,19 @@ export default function ArchivePage() {
   }
 
   async function permanentlyDeleteClient(clientId: number, clientName: string) {
-    if (!confirm(`PERMANENTLY DELETE client "${clientName}"?\n\nThis action cannot be undone.`)) {
-      return;
-    }
-    const confirmation = prompt(`Type "DELETE" to permanently delete "${clientName}"`);
-    if (confirmation !== "DELETE") {
+    const confirmed = await confirmAction({
+      title: "Permanently delete client?",
+      description: `This will permanently delete client "${clientName}". This action cannot be undone.`,
+      confirmLabel: "Delete permanently",
+      destructive: true,
+      confirmationText: "DELETE",
+    });
+    if (!confirmed) {
       setStatus("Deletion cancelled");
       setTimeout(() => setStatus(""), 2000);
       return;
     }
+
     setStatus(`Permanently deleting ${clientName}...`);
     try {
       const res = await fetch(`${baseUrl}/admin/archived-clients/${clientId}`, {
@@ -167,20 +182,19 @@ export default function ArchivePage() {
     }
   }
 
-  // Group by country and year
   const groupedDatasets = useMemo(() => {
     const groups: Record<string, Record<string, Dataset[]>> = {};
-    
-    datasets.forEach(ds => {
+
+    datasets.forEach((ds) => {
       const countryKey = ds.country || "Unknown";
       const yearKey = String(ds.year || "Unknown");
-      
+
       if (!groups[countryKey]) groups[countryKey] = {};
       if (!groups[countryKey][yearKey]) groups[countryKey][yearKey] = [];
-      
+
       groups[countryKey][yearKey].push(ds);
     });
-    
+
     return groups;
   }, [datasets]);
 
@@ -189,13 +203,13 @@ export default function ArchivePage() {
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold" style={{ color: '#F26624' }}>Archive Management</h1>
+            <h1 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Archive Management</h1>
             <p className="text-sm text-muted-foreground">
               Admin-only: Restore or permanently delete archived items
             </p>
           </div>
           <Button variant="secondary" asChild>
-            <Link href="/admin">← Back to Admin</Link>
+            <Link href="/admin">Back to Admin</Link>
           </Button>
         </div>
 
@@ -217,17 +231,17 @@ export default function ArchivePage() {
                 {Object.entries(groupedDatasets).sort(([a], [b]) => a.localeCompare(b)).map(([country, yearGroups]) => (
                   <div key={country} className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <div className="text-sm font-semibold text-primary">📁 {country}</div>
+                      <div className="text-sm font-semibold text-primary">Folder {country}</div>
                       <div className="h-px flex-1 bg-border"></div>
                     </div>
-                    {Object.entries(yearGroups).sort(([a], [b]) => Number(b) - Number(a)).map(([year, datasets]) => (
+                    {Object.entries(yearGroups).sort(([a], [b]) => Number(b) - Number(a)).map(([year, datasetItems]) => (
                       <div key={year} className="ml-4 space-y-2">
                         <div className="flex items-center gap-2">
-                          <div className="text-xs font-medium text-muted-foreground">📅 {year}</div>
+                          <div className="text-xs font-medium text-muted-foreground">Year {year}</div>
                           <div className="h-px flex-1 bg-border/50"></div>
                         </div>
                         <div className="ml-4 space-y-2">
-                          {datasets.map((ds) => (
+                          {datasetItems.map((ds) => (
                             <div
                               key={ds.dataset_id}
                               className="rounded-md border border-destructive/20 bg-destructive/5 p-3"
@@ -242,7 +256,7 @@ export default function ArchivePage() {
                                   </div>
                                   {ds.archived_at && (
                                     <div className="mt-1 text-xs text-muted-foreground">
-                                      Archived: {new Date(ds.archived_at).toLocaleString('en-GB')}
+                                      Archived: {new Date(ds.archived_at).toLocaleString("en-GB")}
                                       {ds.archived_by && ` by ${ds.archived_by}`}
                                     </div>
                                   )}
@@ -324,7 +338,7 @@ export default function ArchivePage() {
         </Card>
 
         <div className="mt-6 rounded-md border border-destructive/50 bg-destructive/10 p-4">
-          <h3 className="font-semibold text-destructive">⚠️ Warning: Admin Only</h3>
+          <h3 className="font-semibold text-destructive">Warning: Admin Only</h3>
           <p className="mt-2 text-sm text-muted-foreground">
             This page is for administrators only. Permanent deletion cannot be undone.
             Only delete items that you are certain will never be needed again.

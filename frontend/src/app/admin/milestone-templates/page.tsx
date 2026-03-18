@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -46,6 +47,7 @@ type MilestoneTemplate = {
 };
 
 export default function MilestoneTemplatesPage() {
+  const confirmAction = useConfirmDialog();
   const [templates, setTemplates] = useState<MilestoneTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -174,7 +176,13 @@ export default function MilestoneTemplatesPage() {
       return;
     }
 
-    if (!confirm(`Delete template "${template.template_name}"?`)) {
+    const confirmed = await confirmAction({
+      title: "Delete milestone template?",
+      description: `Delete template "${template.template_name}"?`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) {
       return;
     }
 

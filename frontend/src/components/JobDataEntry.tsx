@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
@@ -85,6 +86,7 @@ type TemplateFactor = {
 };
 
 export default function JobDataEntry({ jobId }: { jobId: number }) {
+  const confirmAction = useConfirmDialog();
   const baseUrl = apiBaseUrl();
   
   const [scopeTotals, setScopeTotals] = useState<ScopeTotals | null>(null);
@@ -506,7 +508,13 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   }
 
   async function deleteRow(rowId: number) {
-    if (!confirm("Delete this entry?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete emissions entry?",
+      description: "This emissions data entry will be removed from the job.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {

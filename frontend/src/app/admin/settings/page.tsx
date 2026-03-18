@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -26,6 +27,7 @@ type CompanyProfileResponse = {
 
 export default function SystemSettingsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
 
   const [nziLogoFile, setNziLogoFile] = useState<string | null>(null);
   const [logoVersion, setLogoVersion] = useState<number>(Date.now());
@@ -138,7 +140,13 @@ export default function SystemSettingsPage() {
   }
 
   async function handleDeleteLogo() {
-    if (!confirm("Are you sure you want to delete the NZI logo?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete NZI logo?",
+      description: "The current logo file will be removed from system settings.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
 
     setUploading(true);
     setError("");

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,7 @@ function newLine(): InvoiceLine {
 
 export default function InvoiceDetailPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const confirmAction = useConfirmDialog();
   const params = useParams<{ clientId: string; invoiceId: string }>();
   const router = useRouter();
   const clientId = Number(params?.clientId);
@@ -264,7 +266,13 @@ export default function InvoiceDetailPage() {
   }
 
   async function deleteInvoice() {
-    if (!confirm("Delete this invoice?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete invoice?",
+      description: "This invoice will be permanently removed from the client financial records.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     setSaving(true);
     setError("");
     setStatus("");

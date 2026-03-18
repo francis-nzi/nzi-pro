@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 type SpendEntry = {
   entry_id: number;
@@ -62,6 +63,7 @@ type JobSitesResponse = {
 };
 
 export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number; baseUrl: string }) {
+  const confirmAction = useConfirmDialog();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -406,7 +408,13 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   }
 
   async function deleteRow(entryId: number) {
-    if (!window.confirm("Delete this spend row?")) return;
+    const confirmed = await confirmAction({
+      title: "Delete spend row?",
+      description: "This spend row will be removed from the collection.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     setLoading(true);
     setError("");
     setStatus("");
