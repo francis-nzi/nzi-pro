@@ -6,7 +6,7 @@ import math
 import os
 import re
 import base64
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from typing import Any
@@ -37,6 +37,210 @@ def _env_value(key: str, default: str = "") -> str:
         except Exception:
             _DOTENV_CACHE = {}
     return str((_DOTENV_CACHE or {}).get(key) or default).strip()
+
+
+def _apollo_api_key() -> str:
+    return _env_value("APOLLO_API_KEY", "")
+
+
+def _apollo_headers() -> dict[str, str]:
+    api_key = _apollo_api_key()
+    if not api_key:
+        raise RuntimeError("APOLLO_API_KEY is not set")
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
+        "Authorization": f"Bearer {api_key}",
+        "X-Api-Key": api_key,
+        "User-Agent": "NZI-Pro-LeadGen/1.0",
+    }
+
+
+def _apollo_request(
+    method: str,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if query:
+        pairs: list[tuple[str, str]] = []
+        for key, value in query.items():
+            if value is None:
+                continue
+            if isinstance(value, list):
+                for item in value:
+                    if item is None:
+                        continue
+                    pairs.append((str(key), str(item)))
+            else:
+                pairs.append((str(key), str(value)))
+        if pairs:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}{urlencode(pairs, doseq=True)}"
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = Request(url, method=method.upper(), data=body, headers=_apollo_headers())
+    try:
+        with urlopen(req, timeout=40) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+    except HTTPError as e:
+        raw = e.read().decode("utf-8", errors="ignore")
+        detail = raw.strip() or str(e)
+        raise RuntimeError(f"Apollo HTTP Error {e.code}: {detail}") from e
+    except URLError as e:
+        raise RuntimeError(f"Apollo network error: {e.reason}") from e
+    except Exception as e:
+        raise RuntimeError(f"Apollo request failed: {e}") from e
+    try:
+        parsed = json.loads(raw) if raw else {}
+    except Exception:
+        raise RuntimeError("Apollo returned non-JSON response")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _apollo_extract_items(payload: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _apollo_revenue_to_gbp_m(value: Any) -> float:
+    revenue = _safe_float(value, 0)
+    if revenue <= 0:
+        return 0.0
+    if revenue >= 1_000_000:
+        return round(revenue / 1_000_000.0, 1)
+    return round(revenue, 1)
+
+
+def _apollo_company_employee_band(employee_count: Any) -> str:
+    count = _safe_int(employee_count, None)
+    if count is None or count <= 0:
+        return ""
+    if count < 50:
+        return "under-50"
+    if count < 250:
+        return "50-249"
+    if count < 1000:
+        return "250-999"
+    return "1000+"
+
+
+def _apollo_normalize_company(row: dict[str, Any]) -> dict[str, Any]:
+    website = (
+        str(row.get("website_url") or "").strip()
+        or str(row.get("website") or "").strip()
+        or str(row.get("organization_website_url") or "").strip()
+    )
+    domain = (
+        str(row.get("primary_domain") or "").strip()
+        or str(row.get("domain") or "").strip()
+        or _host_from_website(website)
+    )
+    company_name = (
+        str(row.get("name") or "").strip()
+        or str(row.get("organization_name") or "").strip()
+        or str(row.get("account_name") or "").strip()
+    )
+    industry = ""
+    if isinstance(row.get("industry"), str):
+        industry = str(row.get("industry") or "").strip()
+    elif isinstance(row.get("industries"), list):
+        industry = ", ".join([str(x).strip() for x in row.get("industries") or [] if str(x).strip()])
+    employee_count = _safe_int(
+        row.get("estimated_num_employees")
+        or row.get("num_employees")
+        or row.get("employee_count"),
+        None,
+    )
+    revenue_gbp_m = _apollo_revenue_to_gbp_m(
+        row.get("annual_revenue")
+        or row.get("estimated_annual_revenue")
+        or row.get("revenue")
+    )
+    return {
+        "provider_org_id": _safe_str(row.get("id") or row.get("organization_id") or row.get("account_id"), ""),
+        "company_name": company_name,
+        "website": website,
+        "domain": domain,
+        "industry": industry,
+        "subindustry": _safe_str(row.get("subindustry") or row.get("industry_tag"), ""),
+        "country": _safe_str(row.get("country") or row.get("organization_country"), ""),
+        "region": _safe_str(row.get("state") or row.get("region") or row.get("organization_state"), ""),
+        "city": _safe_str(row.get("city") or row.get("locality"), ""),
+        "revenue_gbp_millions": revenue_gbp_m,
+        "revenue_band_label": _revenue_band_label(revenue_gbp_m),
+        "employee_count": employee_count,
+        "employee_band_label": _apollo_company_employee_band(employee_count),
+        "qualification_status": "new",
+        "source_payload_json": json.dumps(row),
+    }
+
+
+def _apollo_normalize_contact(row: dict[str, Any]) -> dict[str, Any]:
+    name = " ".join([str(row.get("first_name") or "").strip(), str(row.get("last_name") or "").strip()]).strip()
+    company = row.get("organization") if isinstance(row.get("organization"), dict) else {}
+    return {
+        "provider_person_id": _safe_str(row.get("id"), ""),
+        "full_name": name or _safe_str(row.get("name"), ""),
+        "job_title": _safe_str(row.get("title"), ""),
+        "seniority": _safe_str(row.get("seniority"), ""),
+        "department": _safe_str(row.get("department"), ""),
+        "email": _safe_str(row.get("email"), ""),
+        "phone": _safe_str(row.get("phone_number") or row.get("sanitized_phone"), ""),
+        "linkedin_url": _safe_str(row.get("linkedin_url"), ""),
+        "company_name": _safe_str(company.get("name") or row.get("organization_name"), ""),
+        "website": _safe_str(company.get("website_url") or row.get("organization_website_url"), ""),
+        "country": _safe_str(company.get("country") or row.get("organization_country"), ""),
+        "city": _safe_str(company.get("city") or row.get("organization_city"), ""),
+        "industry": _safe_str(company.get("industry") or row.get("organization_industry"), ""),
+        "source_payload_json": json.dumps(row),
+    }
+
+
+def _apollo_health() -> dict[str, Any]:
+    payload = _apollo_request("GET", "https://api.apollo.io/api/v1/auth/health")
+    usage: dict[str, Any] | None = None
+    usage_error = ""
+    try:
+        usage = _apollo_request("GET", "https://api.apollo.io/api/v1/usage_stats")
+    except Exception as e:
+        usage_error = str(e)
+    return {
+        "auth": payload,
+        "usage_stats": usage,
+        "usage_error": usage_error or None,
+    }
+
+
+def _apollo_organization_enrich(*, domain: str = "", organization_name: str = "") -> dict[str, Any]:
+    query: dict[str, Any] = {}
+    if str(domain).strip():
+        query["domain"] = str(domain).strip()
+    if str(organization_name).strip():
+        query["organization_name"] = str(organization_name).strip()
+    if not query:
+        raise RuntimeError("domain or organization_name is required")
+    return _apollo_request("GET", "https://api.apollo.io/api/v1/organizations/enrich", query=query)
+
+
+def _apollo_search_organizations(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = _apollo_request("POST", "https://api.apollo.io/api/v1/mixed_companies/search", payload=payload)
+    items = _apollo_extract_items(raw, "organizations", "accounts", "companies")
+    normalized = [_apollo_normalize_company(item) for item in items]
+    normalized = [item for item in normalized if item.get("company_name")]
+    return normalized, raw
+
+
+def _apollo_search_people(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    raw = _apollo_request("POST", "https://api.apollo.io/api/v1/mixed_people/search", payload=payload)
+    items = _apollo_extract_items(raw, "people", "contacts")
+    normalized = [_apollo_normalize_contact(item) for item in items]
+    normalized = [item for item in normalized if item.get("full_name") or item.get("company_name")]
+    return normalized, raw
 
 
 def _actor(user: dict[str, str]) -> str:
@@ -684,8 +888,10 @@ def _upsert_market_company(
     ).fetchone()
     payload = json.dumps(item)
     revenue = _safe_float(item.get("revenue_gbp_millions"), 0)
+    employee_count = _safe_int(item.get("employee_count"), None)
     params = [
         source_provider,
+        str(item.get("provider_org_id") or "").strip() or None,
         scan_batch_id or None,
         service_key or None,
         company_name,
@@ -699,6 +905,8 @@ def _upsert_market_company(
         str(item.get("city") or "").strip() or None,
         revenue if revenue > 0 else None,
         _revenue_band_label(revenue),
+        employee_count,
+        str(item.get("employee_band_label") or "").strip() or None,
         payload,
         str(item.get("qualification_status") or "new").strip() or "new",
     ]
@@ -706,15 +914,15 @@ def _upsert_market_company(
         row = con.execute(
             """
             UPDATE bd_market_companies
-            SET source_provider = ?, scan_batch_id = ?, service_key = ?, company_name = ?, website = ?, domain = ?,
+            SET source_provider = ?, provider_org_id = ?, scan_batch_id = ?, service_key = ?, company_name = ?, website = ?, domain = ?,
                 industry = ?, subindustry = ?, country = ?, region = ?, city = ?, revenue_gbp_millions = ?,
-                revenue_band_label = ?, source_payload_json = ?, qualification_status = ?, updated_at = NOW()
+                revenue_band_label = ?, employee_count = ?, employee_band_label = ?, source_payload_json = ?, qualification_status = ?, updated_at = NOW()
             WHERE market_company_id = ?
             RETURNING market_company_id
             """,
             [
-                params[0], params[1], params[2], params[3], params[5], params[6], params[7], params[8],
-                params[9], params[10], params[11], params[12], params[13], params[14], params[15],
+                params[0], params[1], params[2], params[3], params[4], params[6], params[7], params[8], params[9],
+                params[10], params[11], params[12], params[13], params[14], params[15], params[16], params[17], params[18],
                 int(existing[0]),
             ],
         ).fetchone()
@@ -722,11 +930,11 @@ def _upsert_market_company(
     row = con.execute(
         """
         INSERT INTO bd_market_companies (
-          source_provider, scan_batch_id, service_key, company_name, normalized_company_key, website, domain,
+          source_provider, provider_org_id, scan_batch_id, service_key, company_name, normalized_company_key, website, domain,
           industry, subindustry, country, region, city, revenue_gbp_millions, revenue_band_label,
-          source_payload_json, qualification_status, created_at, updated_at
+          employee_count, employee_band_label, source_payload_json, qualification_status, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         RETURNING market_company_id
         """,
         params,
@@ -2146,6 +2354,126 @@ def update_stage(stage_id: int, body: dict = Body(...), _user: dict = Depends(_c
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update funnel stage: {e}")
+
+
+@router.get("/bd/providers/apollo/health")
+def apollo_provider_health(_user: dict = Depends(_current_user)):
+    try:
+        return {
+            "ok": True,
+            "configured": bool(_apollo_api_key()),
+            "provider": "apollo",
+            "result": _apollo_health(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check Apollo health: {e}")
+
+
+@router.post("/bd/providers/apollo/organization-enrich")
+def apollo_organization_enrich(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    try:
+        domain = str(body.get("domain") or "").strip()
+        organization_name = str(body.get("organization_name") or "").strip()
+        raw = _apollo_organization_enrich(domain=domain, organization_name=organization_name)
+        company = _apollo_normalize_company(raw)
+        return {
+            "ok": True,
+            "provider": "apollo",
+            "item": company,
+            "raw": raw,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enrich organization with Apollo: {e}")
+
+
+@router.post("/bd/providers/apollo/organizations/search")
+def apollo_organization_search(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    try:
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        if not payload:
+            raise HTTPException(status_code=400, detail="payload is required")
+        save_to_market_pool = bool(body.get("save_to_market_pool", False))
+        target_industries = body.get("target_industries")
+        if not isinstance(target_industries, list):
+            target_industries = [x.strip() for x in str(target_industries or "").split(",") if x.strip()]
+        target_roles = body.get("target_roles")
+        if not isinstance(target_roles, list):
+            target_roles = [x.strip() for x in str(target_roles or "").split(",") if x.strip()]
+        regions = body.get("regions")
+        if not isinstance(regions, list):
+            regions = [x.strip() for x in str(regions or "").split(",") if x.strip()]
+        revenue_min = _safe_float(body.get("revenue_min_m_gbp"), 0)
+        revenue_max = _safe_float(body.get("revenue_max_m_gbp"), 0)
+        requested_count = _safe_int(body.get("requested_count"), _safe_int(payload.get("per_page"), 25) or 25) or 25
+        service_key = str(body.get("service_key") or "market-targeting").strip() or "market-targeting"
+        companies, raw = _apollo_search_organizations(payload)
+        saved_count = 0
+        scan_batch_id = 0
+        if save_to_market_pool and companies:
+            with get_conn() as con:
+                _ensure_tables(con)
+                scan_batch_id = _create_scan_batch(
+                    con,
+                    generation_mode="market-scan",
+                    provider="apollo",
+                    regions=regions or [],
+                    target_industries=target_industries or [],
+                    target_roles=target_roles or [],
+                    revenue_min=revenue_min,
+                    revenue_max=revenue_max,
+                    requested_count=requested_count,
+                    created_by=_actor(_user),
+                )
+                for company in companies:
+                    if _upsert_market_company(
+                        con,
+                        scan_batch_id=scan_batch_id,
+                        service_key=service_key,
+                        source_provider="apollo",
+                        item=company,
+                        region_hint=", ".join(regions or []),
+                    ):
+                        saved_count += 1
+                _finalize_scan_batch(
+                    con,
+                    scan_batch_id,
+                    returned_count=saved_count,
+                    diagnostics="Apollo organization search import",
+                    status="completed" if saved_count > 0 else "empty",
+                )
+        return {
+            "ok": True,
+            "provider": "apollo",
+            "scan_batch_id": scan_batch_id or None,
+            "saved_to_market_pool": saved_count,
+            "count": len(companies),
+            "items": companies,
+            "pagination": raw.get("pagination") if isinstance(raw.get("pagination"), dict) else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search Apollo organizations: {e}")
+
+
+@router.post("/bd/providers/apollo/people/search")
+def apollo_people_search(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    try:
+        payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+        if not payload:
+            raise HTTPException(status_code=400, detail="payload is required")
+        people, raw = _apollo_search_people(payload)
+        return {
+            "ok": True,
+            "provider": "apollo",
+            "count": len(people),
+            "items": people,
+            "pagination": raw.get("pagination") if isinstance(raw.get("pagination"), dict) else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search Apollo people: {e}")
 
 
 @router.get("/bd/lead-generator/services")
