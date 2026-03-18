@@ -83,6 +83,10 @@ const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<s
   },
 };
 
+function impactCount(value: { count?: number } | undefined): number {
+  return Number(value?.count || 0);
+}
+
 function mergeMappingSummary(mapping: WfmMapping | null): { job: Record<string, string[]>; client: Record<string, string[]> } {
   const merged = {
     job: { ...DEFAULT_MAPPING_SUMMARY.job },
@@ -542,7 +546,95 @@ export default function AdminImportExportPage() {
             {impactPreview ? (
               <div className="rounded border p-3">
                 <div className="mb-2 text-sm font-medium">Mapping Impact Preview</div>
-                <pre className="max-h-96 overflow-auto text-xs">{JSON.stringify(impactPreview, null, 2)}</pre>
+                <div className="space-y-4 text-sm">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Selected Jobs</div>
+                      <div className="text-xl font-semibold">{Number(impactPreview.selection?.jobs || 0)}</div>
+                    </div>
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Selected Clients</div>
+                      <div className="text-xl font-semibold">{Number(impactPreview.selection?.clients || 0)}</div>
+                    </div>
+                    <div className="rounded border bg-muted/20 p-3">
+                      <div className="text-xs text-muted-foreground">Previewed Job Numbers</div>
+                      <div className="text-xs">
+                        {(impactPreview.selection?.job_numbers || []).slice(0, 10).join(", ") || "-"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(["job", "client"] as const).map((entity) => {
+                    const entries = Object.entries(impactPreview.impacts?.[entity] || {})
+                      .filter(([, value]) => impactCount(value as { count?: number }) > 0)
+                      .sort((a, b) => impactCount(b[1] as { count?: number }) - impactCount(a[1] as { count?: number }));
+                    if (!entries.length) return null;
+                    return (
+                      <div key={entity}>
+                        <div className="mb-2 text-sm font-medium capitalize">{entity} Mapping Hits</div>
+                        <div className="overflow-x-auto rounded border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="p-2 text-left">Target</th>
+                                <th className="p-2 text-left">Count</th>
+                                <th className="p-2 text-left">Source Fields</th>
+                                <th className="p-2 text-left">Sample Values</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {entries.map(([target, value]) => (
+                                <tr key={`${entity}-${target}`} className="border-t align-top">
+                                  <td className="p-2 font-medium">{entity}.{target}</td>
+                                  <td className="p-2">{impactCount(value as { count?: number })}</td>
+                                  <td className="p-2 whitespace-normal break-words">
+                                    {((value as { source_fields?: string[] }).source_fields || []).join(", ") || "-"}
+                                  </td>
+                                  <td className="p-2 whitespace-normal break-words">
+                                    {((value as { samples?: string[] }).samples || []).join(", ") || "-"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {impactPreview.direct_mappings && Object.keys(impactPreview.direct_mappings).length > 0 ? (
+                    <div>
+                      <div className="mb-2 text-sm font-medium">Direct CSV Mappings</div>
+                      <div className="overflow-x-auto rounded border">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted">
+                            <tr>
+                              <th className="p-2 text-left">Mapping</th>
+                              <th className="p-2 text-left">Count</th>
+                              <th className="p-2 text-left">Samples</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(impactPreview.direct_mappings).map(([label, value]) => (
+                              <tr key={label} className="border-t align-top">
+                                <td className="p-2 font-medium">{label}</td>
+                                <td className="p-2">{Number((value as { count?: number })?.count || 0)}</td>
+                                <td className="p-2 whitespace-normal break-words">
+                                  {(((value as { samples?: string[] })?.samples) || []).join(", ") || "-"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <details className="rounded border p-2">
+                    <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Raw JSON</summary>
+                    <pre className="mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(impactPreview, null, 2)}</pre>
+                  </details>
+                </div>
               </div>
             ) : null}
           </CardContent>
