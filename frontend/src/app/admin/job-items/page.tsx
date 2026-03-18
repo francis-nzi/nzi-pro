@@ -315,9 +315,12 @@ export default function JobItemsPage() {
     }
   }
 
-  // Group items by category
   const categoryList = Array.from(
-    new Set(items.map((item) => item.category || "Uncategorized"))
+    new Set(
+      categoryOptions
+        .map((cat) => String(cat || "").trim())
+        .filter(Boolean)
+    )
   ).sort((a, b) => a.localeCompare(b));
 
   const filteredItems = items.filter((item) => {
