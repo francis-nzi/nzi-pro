@@ -383,24 +383,26 @@ def _prepare_updates(
         )
 
     if entity == "client":
-        start_value = update_fields.get("benchmark_period_start")
-        end_value = update_fields.get("benchmark_period_end")
-        start_current = _parse_date(record.get("benchmark_period_start"))
-        end_current = _parse_date(record.get("benchmark_period_end"))
-        start_date = start_value if "benchmark_period_start" in update_fields else start_current
-        end_date = end_value if "benchmark_period_end" in update_fields else end_current
-        if start_date and end_date and str(end_date) < str(start_date):
-            warnings.append("benchmark_period_end cannot be earlier than benchmark_period_start")
+        if "benchmark_period_start" in update_fields or "benchmark_period_end" in update_fields:
+            start_value = update_fields.get("benchmark_period_start")
+            end_value = update_fields.get("benchmark_period_end")
+            start_current = _parse_date(record.get("benchmark_period_start"))
+            end_current = _parse_date(record.get("benchmark_period_end"))
+            start_date = start_value if "benchmark_period_start" in update_fields else start_current
+            end_date = end_value if "benchmark_period_end" in update_fields else end_current
+            if start_date and end_date and str(end_date) < str(start_date):
+                warnings.append("benchmark_period_end cannot be earlier than benchmark_period_start")
 
     if entity == "job":
-        start_value = update_fields.get("reporting_period_start")
-        end_value = update_fields.get("reporting_period_end")
-        start_current = _parse_date(record.get("reporting_period_start"))
-        end_current = _parse_date(record.get("reporting_period_end"))
-        start_date = start_value if "reporting_period_start" in update_fields else start_current
-        end_date = end_value if "reporting_period_end" in update_fields else end_current
-        if start_date and end_date and str(end_date) < str(start_date):
-            warnings.append("reporting_period_end cannot be earlier than reporting_period_start")
+        if "reporting_period_start" in update_fields or "reporting_period_end" in update_fields:
+            start_value = update_fields.get("reporting_period_start")
+            end_value = update_fields.get("reporting_period_end")
+            start_current = _parse_date(record.get("reporting_period_start"))
+            end_current = _parse_date(record.get("reporting_period_end"))
+            start_date = start_value if "reporting_period_start" in update_fields else start_current
+            end_date = end_value if "reporting_period_end" in update_fields else end_current
+            if start_date and end_date and str(end_date) < str(start_date):
+                warnings.append("reporting_period_end cannot be earlier than reporting_period_start")
 
     return update_fields, changes, warnings
 
@@ -618,6 +620,23 @@ def commit_override_rows(rows: list[dict[str, Any]], actor: str = "") -> dict[st
 
 
 def build_override_template_workbook() -> bytes:
+    with get_conn() as con:
+        refs = _build_reference_data(con)
+
+    client_wfm_by_id: dict[int, str] = {}
+    for wfm_id, record in refs["client_by_wfm"].items():
+        try:
+            client_wfm_by_id[int(record["db_id"])] = _clean(wfm_id)
+        except Exception:
+            continue
+
+    job_wfm_by_id: dict[int, str] = {}
+    for wfm_id, record in refs["job_by_wfm"].items():
+        try:
+            job_wfm_by_id[int(record["job_id"])] = _clean(wfm_id)
+        except Exception:
+            continue
+
     wb = Workbook()
     ws = wb.active
     ws.title = "README"
@@ -625,13 +644,27 @@ def build_override_template_workbook() -> bytes:
         ["Bulk Attribute Override Import"],
         [""],
         ["Use optional sheets named 'clients' and/or 'jobs'."],
+        ["The template is prefilled with current records so you can edit against live IDs/names."],
         ["Blank cells mean 'leave unchanged'."],
         ["To clear a field, leave the value blank and set clear_<field> to TRUE."],
         ["Match priority is taken from match_by, or the first populated ID column if match_by is blank."],
         ["Recommended date format: YYYY-MM-DD."],
+        ["Helper columns like job_name are for reference only and are ignored by the importer."],
     ]
     for row in instructions:
         ws.append(row)
+
+    field_ws = wb.create_sheet("field_reference")
+    field_ws.append(["entity", "import_column", "db_column", "type", "clear_column", "notes"])
+    for match_key in CLIENT_MATCH_KEYS:
+        field_ws.append(["client", match_key, "-", "match-key", "-", "Use to identify the client record to update"])
+    for field_name, meta in CLIENT_FIELDS.items():
+        field_ws.append(["client", field_name, meta["column"], meta["type"], f"clear_{field_name}", "Updatable client field"])
+    field_ws.append(["job", "job_name", "-", "helper", "-", "Reference-only job title; ignored by importer"])
+    for match_key in JOB_MATCH_KEYS:
+        field_ws.append(["job", match_key, "-", "match-key", "-", "Use to identify the job record to update"])
+    for field_name, meta in JOB_FIELDS.items():
+        field_ws.append(["job", field_name, meta["column"], meta["type"], f"clear_{field_name}", "Updatable job field"])
 
     client_headers = [
         "match_by",
@@ -643,10 +676,23 @@ def build_override_template_workbook() -> bytes:
     ]
     client_ws = wb.create_sheet("clients")
     client_ws.append(client_headers)
+    for client_id in sorted(refs["clients_by_id"].keys()):
+        record = refs["clients_by_id"][client_id]
+        client_ws.append(
+            [
+                "client_db_id",
+                int(client_id),
+                client_wfm_by_id.get(int(client_id), ""),
+                _clean(record.get("client_name")),
+                *["" for _ in CLIENT_FIELDS.keys()],
+                *["" for _ in CLIENT_FIELDS.keys()],
+            ]
+        )
 
     job_headers = [
         "match_by",
         "job_id",
+        "job_name",
         "wfm_job_id",
         "job_number",
         *JOB_FIELDS.keys(),
@@ -654,6 +700,19 @@ def build_override_template_workbook() -> bytes:
     ]
     job_ws = wb.create_sheet("jobs")
     job_ws.append(job_headers)
+    for job_id in sorted(refs["jobs_by_id"].keys()):
+        record = refs["jobs_by_id"][job_id]
+        job_ws.append(
+            [
+                "job_id",
+                int(job_id),
+                _clean(record.get("title")),
+                job_wfm_by_id.get(int(job_id), ""),
+                _clean(record.get("job_number")),
+                *["" for _ in JOB_FIELDS.keys()],
+                *["" for _ in JOB_FIELDS.keys()],
+            ]
+        )
 
     buf = io.BytesIO()
     wb.save(buf)
