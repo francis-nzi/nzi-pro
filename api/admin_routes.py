@@ -3217,23 +3217,51 @@ def _load_mapping_overrides_from_db(con) -> dict[str, dict[str, list[str]]]:
     return out
 
 
+def _merged_wfm_mapping_summary(con=None) -> dict[str, dict[str, list[str]]]:
+    defaults = _default_wfm_targets()
+    merged: dict[str, dict[str, list[str]]] = {
+        "job": {str(k): list(v or []) for k, v in defaults.get("job", {}).items()},
+        "client": {str(k): list(v or []) for k, v in defaults.get("client", {}).items()},
+    }
+
+    owns_conn = con is None
+    if owns_conn:
+        with get_conn() as local_con:
+            overrides = _load_mapping_overrides_from_db(local_con)
+    else:
+        overrides = _load_mapping_overrides_from_db(con)
+
+    for entity, targets in overrides.items():
+        et = str(entity or "").strip().lower()
+        if et not in {"job", "client"}:
+            continue
+        for target_field, source_fields in (targets or {}).items():
+            tf = str(target_field or "").strip()
+            if not tf:
+                continue
+            cleaned_sources = [str(sf or "").strip() for sf in source_fields or [] if str(sf or "").strip()]
+            merged.setdefault(et, {})[tf] = cleaned_sources
+
+    for entity in ("job", "client"):
+        merged[entity] = dict(sorted(merged.get(entity, {}).items(), key=lambda item: item[0]))
+
+    return merged
+
+
 @router.get("/import-export/wfm/mapping")
 def wfm_mapping_summary(_user: dict = Depends(_current_user)):
     try:
-        from wfm_import.wfm_import_routine import WFM_CLIENT_FIELD_CANDIDATES, WFM_JOB_FIELD_CANDIDATES
-
         raw_dir = _wfm_raw_dir()
         custom_fields_path = raw_dir / "custom_fields.csv"
         jobs_path = raw_dir / "jobs.csv"
         job_custom_values_path = raw_dir / "job_custom_field_values.csv"
+        with get_conn() as con:
+            merged_mappings = _merged_wfm_mapping_summary(con)
         if not custom_fields_path.exists():
             return {
                 "ok": True,
                 "raw_data_available": bool(raw_dir.exists()),
-                "mappings": {
-                    "job": WFM_JOB_FIELD_CANDIDATES,
-                    "client": WFM_CLIENT_FIELD_CANDIDATES,
-                },
+                "mappings": merged_mappings,
                 "source_fields": {
                     "job_custom_field_names": [],
                     "client_custom_field_names": [],
@@ -3278,10 +3306,7 @@ def wfm_mapping_summary(_user: dict = Depends(_current_user)):
         return {
             "ok": True,
             "raw_data_available": bool(raw_dir.exists()),
-            "mappings": {
-                "job": WFM_JOB_FIELD_CANDIDATES,
-                "client": WFM_CLIENT_FIELD_CANDIDATES,
-            },
+            "mappings": merged_mappings,
             "source_fields": {
                 "job_custom_field_names": sorted(set(usage_job)),
                 "client_custom_field_names": sorted(set(usage_client)),
