@@ -4,6 +4,7 @@ Admin API routes for team, lookups, datasets, and system management.
 
 from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from api.auth import _current_user
 from core.database import get_conn
 from core.auth import set_user_password
@@ -2375,7 +2376,12 @@ async def upload_dataset_factors(
             tmp_path = Path(tmp_file.name)
         
         try:
-            report = _ingest_csv_report_for_dataset(tmp_path, replace=True, dataset_id=dataset_id)
+            report = await run_in_threadpool(
+                _ingest_csv_report_for_dataset,
+                tmp_path,
+                replace=True,
+                dataset_id=dataset_id,
+            )
             
             return {
                 "ok": True,
