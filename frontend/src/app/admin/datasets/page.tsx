@@ -17,7 +17,32 @@ import {
 } from "@/components/ui/select";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const envBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
+  if (!envBase) {
+    return "/api/backend";
+  }
+  if (envBase === "/api/backend") {
+    return "/api/backend";
+  }
+  return envBase;
+}
+
+async function fetchWithAuth(input: string, init: RequestInit = {}) {
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+  });
+}
+
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.detail || parsed?.message || fallback;
+  } catch {
+    return text;
+  }
 }
 
 type Dataset = {
@@ -101,11 +126,12 @@ export default function DatasetsPage() {
   async function loadDatasets() {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/admin/datasets`);
-      if (res.ok) {
-        const json = await res.json();
-        setDatasets(json.items || []);
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets`);
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed to load datasets (${res.status})`));
       }
+      const json = await res.json();
+      setDatasets(json.items || []);
     } catch (e) {
       setStatus(`Error loading datasets: ${(e as Error).message}`);
     } finally {
@@ -136,7 +162,7 @@ export default function DatasetsPage() {
         }
       }, 500);
 
-      const res = await fetch(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
         method: "POST",
         body: formData,
       });
@@ -177,7 +203,7 @@ export default function DatasetsPage() {
       const formData = new FormData();
       formData.append("file", uploadFile);
 
-      const res = await fetch(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
         method: "POST",
         body: formData,
       });
@@ -225,7 +251,7 @@ export default function DatasetsPage() {
 
     setStatus("Creating dataset...");
     try {
-      const res = await fetch(`${baseUrl}/admin/datasets`, {
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -241,7 +267,7 @@ export default function DatasetsPage() {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed: ${res.status}`);
+        throw new Error(await readErrorMessage(res, `Failed: ${res.status}`));
       }
 
       const json = await res.json();
@@ -273,12 +299,13 @@ export default function DatasetsPage() {
       if (selectedDataset) params.set("dataset_id", String(selectedDataset));
       params.set("limit", "100");
 
-      const res = await fetch(`${baseUrl}/admin/factors?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        setFactors(json.items || []);
-        setStatus(`Found ${json.count} factors`);
+      const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed to search factors (${res.status})`));
       }
+      const json = await res.json();
+      setFactors(json.items || []);
+      setStatus(`Found ${json.count} factors`);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
     }
@@ -287,9 +314,9 @@ export default function DatasetsPage() {
   async function downloadDataset(datasetId: number, datasetName: string) {
     setStatus(`Downloading ${datasetName}...`);
     try {
-      const res = await fetch(`${baseUrl}/admin/datasets/${datasetId}/export`);
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/export`);
       if (!res.ok) {
-        throw new Error(`Failed to download: ${res.status}`);
+        throw new Error(await readErrorMessage(res, `Failed to download: ${res.status}`));
       }
       
       const blob = await res.blob();
@@ -327,7 +354,7 @@ export default function DatasetsPage() {
     
     setStatus("Updating dataset...");
     try {
-      const res = await fetch(`${baseUrl}/admin/datasets/${editingDataset.dataset_id}`, {
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${editingDataset.dataset_id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -343,7 +370,7 @@ export default function DatasetsPage() {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed: ${res.status}`);
+        throw new Error(await readErrorMessage(res, `Failed: ${res.status}`));
       }
 
       setStatus("Dataset updated successfully!");
@@ -370,14 +397,14 @@ export default function DatasetsPage() {
 
     setStatus(`Archiving ${datasetName}...`);
     try {
-      const res = await fetch(`${baseUrl}/admin/datasets/${datasetId}/archive`, {
+      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/archive`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ archived: true }),
       });
 
       if (!res.ok) {
-        throw new Error(`Failed: ${res.status}`);
+        throw new Error(await readErrorMessage(res, `Failed: ${res.status}`));
       }
 
       setStatus(`${datasetName} archived successfully!`);
