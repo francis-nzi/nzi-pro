@@ -18,6 +18,7 @@ from core.database import db_backend, get_conn
 ID_RE = re.compile(r"^\d+_\d+_\d+_\d+_\d+$")
 SPEND_ID_RE = re.compile(r"^(?:[A-Z0-9]+-)?SPEND-[A-Z0-9.\-]+$", re.IGNORECASE)
 NUMERIC_TEXT_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+IGNORED_LEGACY_SECTIONS = {"company information", "company data"}
 
 
 def _clean(value: Any) -> str:
@@ -48,6 +49,10 @@ def _norm_scope(value: Any) -> str | None:
     if "scope 3" in s or s == "3":
         return "Scope 3"
     return None
+
+
+def _is_ignored_legacy_section(section: Any) -> bool:
+    return _clean(section).lower() in IGNORED_LEGACY_SECTIONS
 
 
 def _is_factor_original_id(value: Any) -> bool:
@@ -363,6 +368,94 @@ def _lookup_key(section: str, activity: str, c2: str, c3: str, c4: str, c5: str,
     )
 
 
+def _lookup_match(
+    lookup: dict[str, str],
+    *,
+    section: str,
+    activity: str,
+    c2: str,
+    c3: str,
+    c4: str,
+    c5: str,
+    c6: str,
+    c7: str,
+    scope_col: int | None,
+) -> dict[str, Any]:
+    base_cols = [_clean(c2), _clean(c3), _clean(c4), _clean(c5), _clean(c6), _clean(c7)]
+    base_key = _lookup_key(section, activity, *base_cols)
+    exact_id = _clean(lookup.get(base_key))
+    if exact_id:
+        return {
+            "lookup_key": base_key,
+            "matched_lookup_key": base_key,
+            "factor_original_id": exact_id,
+            "match_source": "template_lookup",
+            "scope_override": None,
+            "match_note": "",
+            "candidate_original_id": "",
+        }
+
+    scope_idx = int(scope_col) - 3 if scope_col is not None else -1
+    if scope_idx < 0 or scope_idx >= len(base_cols):
+        return {
+            "lookup_key": base_key,
+            "matched_lookup_key": "",
+            "factor_original_id": "",
+            "match_source": "unresolved",
+            "scope_override": None,
+            "match_note": "",
+            "candidate_original_id": "",
+        }
+
+    original_scope_token = _clean(base_cols[scope_idx])
+    candidates: dict[tuple[str, str], dict[str, Any]] = {}
+    for alt_scope_token in ("1", "2", "3", "scope 1", "scope 2", "scope 3"):
+        if _clean(alt_scope_token).lower() == original_scope_token.lower():
+            continue
+        alt_cols = list(base_cols)
+        alt_cols[scope_idx] = alt_scope_token
+        alt_key = _lookup_key(section, activity, *alt_cols)
+        alt_id = _clean(lookup.get(alt_key))
+        alt_scope = _norm_scope(alt_scope_token)
+        if not alt_id or not alt_scope:
+            continue
+        candidates[(alt_id, alt_scope)] = {
+            "lookup_key": base_key,
+            "matched_lookup_key": alt_key,
+            "factor_original_id": alt_id,
+            "match_source": "template_lookup_scope_override",
+            "scope_override": alt_scope,
+            "match_note": f"Template lookup corrected scope from {original_scope_token or 'blank'} to {alt_scope_token}.",
+        }
+
+    if len(candidates) == 1:
+        candidate = next(iter(candidates.values()))
+        if original_scope_token:
+            return {
+                "lookup_key": base_key,
+                "matched_lookup_key": candidate["matched_lookup_key"],
+                "factor_original_id": "",
+                "match_source": "scope_mismatch_candidate",
+                "scope_override": None,
+                "match_note": (
+                    f"Workbook scope {original_scope_token} conflicts with template lookup "
+                    f"{candidate['matched_lookup_key'].split('|')[4] or candidate['scope_override']}."
+                ),
+                "candidate_original_id": candidate["factor_original_id"],
+            }
+        return candidate
+
+    return {
+        "lookup_key": base_key,
+        "matched_lookup_key": "",
+        "factor_original_id": "",
+        "match_source": "unresolved",
+        "scope_override": None,
+        "match_note": "",
+        "candidate_original_id": "",
+    }
+
+
 def _parse_month_header(value: Any) -> date | None:
     if value is None:
         return None
@@ -503,6 +596,9 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
 
     parsed_rows: list[dict[str, Any]] = []
     parse_warnings: list[str] = []
+    ignored_rows = 0
+    scope_override_rows = 0
+    scope_mismatch_rows = 0
 
     for ws in wb.worksheets:
         current_section = ""
@@ -547,11 +643,32 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             if not has_non_zero:
                 continue
 
+            if _is_ignored_legacy_section(current_section):
+                ignored_rows += 1
+                continue
+
             scope = _norm_scope(_row_text(ws, rnum, scope_col) or c4)
-            row_key = _lookup_key(current_section, c1, c2, c3, c4, c5, c6, c7)
-            factor_original_id = c0 if _is_factor_original_id(c0) else lookup.get(row_key, "")
+            lookup_match = _lookup_match(
+                lookup,
+                section=current_section,
+                activity=c1,
+                c2=c2,
+                c3=c3,
+                c4=c4,
+                c5=c5,
+                c6=c6,
+                c7=c7,
+                scope_col=scope_col,
+            )
+            row_key = lookup_match.get("lookup_key") or _lookup_key(current_section, c1, c2, c3, c4, c5, c6, c7)
+            factor_original_id = c0 if _is_factor_original_id(c0) else _clean(lookup_match.get("factor_original_id"))
+            if not _is_factor_original_id(c0) and lookup_match.get("scope_override"):
+                scope = lookup_match.get("scope_override")
+                scope_override_rows += 1
+            if lookup_match.get("match_source") == "scope_mismatch_candidate":
+                scope_mismatch_rows += 1
             storage_original_id = _legacy_storage_original_id(factor_original_id, row_key) if factor_original_id else ""
-            match_source = "id_column" if _is_factor_original_id(c0) else ("template_lookup" if factor_original_id else "unresolved")
+            match_source = "id_column" if _is_factor_original_id(c0) else (lookup_match.get("match_source") or "unresolved")
             line_label = _build_line_label(c1, c2, c3, c4, c5, c6, c7, scope_col=scope_col)
 
             parsed_rows.append(
@@ -561,11 +678,15 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                     "section": current_section,
                     "activity": c1,
                     "scope": scope,
+                    "source_scope": _norm_scope(_row_text(ws, rnum, scope_col) or c4) or "",
                     "original_id": factor_original_id,
                     "factor_original_id": factor_original_id,
                     "storage_original_id": storage_original_id,
                     "match_source": match_source,
                     "lookup_key": row_key,
+                    "matched_lookup_key": _clean(lookup_match.get("matched_lookup_key")),
+                    "candidate_original_id": _clean(lookup_match.get("candidate_original_id")),
+                    "match_note": _clean(lookup_match.get("match_note")),
                     "line_label": line_label,
                     "col_2": c2,
                     "col_3": c3,
@@ -606,7 +727,10 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         scope = row.get("scope")
         oid = _factor_original_id_from_row(row)
         if not scope or not oid:
-            unresolved_rows.append({**row, "reason": "missing scope or unresolved original_id"})
+            reason = "missing scope or unresolved original_id"
+            if row.get("match_source") == "scope_mismatch_candidate":
+                reason = "workbook scope conflicts with template mapping"
+            unresolved_rows.append({**row, "reason": reason})
             continue
 
         month_emissions: dict[int, float] = {}
@@ -768,6 +892,18 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         parse_warnings.append(
             f"{emissions_mode_rows} rows were stored as emissions because their month-level factor context could not be represented as one raw quantity row."
         )
+    if ignored_rows:
+        parse_warnings.append(
+            f"Skipped {ignored_rows} Company Information/Data rows because they are metadata and are not imported as emissions lines."
+        )
+    if scope_override_rows:
+        parse_warnings.append(
+            f"{scope_override_rows} rows were matched by correcting the workbook scope against the template mapping."
+        )
+    if scope_mismatch_rows:
+        parse_warnings.append(
+            f"{scope_mismatch_rows} rows were left unresolved because the workbook scope conflicts with the template mapping."
+        )
 
     parse_warnings.append(
         "Rows with one consistent dataset/factor are committed as raw quantities; mixed-factor rows fall back to monthly tCO2e storage."
@@ -782,6 +918,9 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             "collision_rows": len(collision_rows),
             "quantity_mode_rows": quantity_mode_rows,
             "emissions_mode_rows": emissions_mode_rows,
+            "ignored_rows": ignored_rows,
+            "scope_override_rows": scope_override_rows,
+            "scope_mismatch_rows": scope_mismatch_rows,
             "dataset_years_available": sorted(dataset_by_year.keys()),
         },
         "warnings": parse_warnings,
@@ -1016,6 +1155,8 @@ def resolve_unresolved_rows(
 
     for row in rows_unresolved or []:
         r = dict(row)
+        if _is_ignored_legacy_section(r.get("section")):
+            continue
         oid = _factor_original_id_from_row(r)
         lk = _clean(r.get("lookup_key"))
         if not oid and lk and _clean(manual_lookup.get(lk)):

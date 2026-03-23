@@ -239,6 +239,12 @@ const CLIENT_BACKFILL_OPTIONS = [
   { value: "benchmark_period_end", label: "Benchmark Period End" },
 ] as const;
 
+function formatCount(value: unknown): string {
+  const numeric = typeof value === "number" ? value : Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return numeric.toLocaleString();
+}
+
 const CLIENT_BACKFILL_REQUIRED_FILES: Record<string, string[]> = {
   industry: ["clients.csv", "client_custom_field_values.csv", "custom_fields.csv"],
   crm_owner: ["clients.csv", "staff.csv"],
@@ -327,6 +333,21 @@ export default function AdminImportExportPage() {
   const attributeReadyRows = attributeOverridePreview?.rows_ready ?? [];
   const attributeBlockedRows = attributeOverridePreview?.rows_blocked ?? [];
   const attributeSkippedRows = attributeOverridePreview?.rows_skipped ?? [];
+  const legacySummary = legacyPreview?.summary ?? {};
+  const legacyDatasetYears = Array.isArray(legacySummary?.dataset_years_available)
+    ? legacySummary.dataset_years_available
+    : [];
+  const legacySummaryCards = [
+    { label: "Parsed Rows", value: legacySummary?.parsed_rows },
+    { label: "Ready Rows", value: legacySummary?.resolved_rows },
+    { label: "Unresolved Rows", value: legacySummary?.unresolved_rows },
+    { label: "Ignored Company Rows", value: legacySummary?.ignored_rows },
+    { label: "Raw Quantity Rows", value: legacySummary?.quantity_mode_rows },
+    { label: "Emissions Rows", value: legacySummary?.emissions_mode_rows },
+    { label: "Collisions", value: legacySummary?.collision_rows },
+    { label: "Scope Corrections", value: legacySummary?.scope_override_rows },
+    { label: "Scope Mismatches", value: legacySummary?.scope_mismatch_rows },
+  ];
 
   async function loadCatalog(query?: string, fileName?: string) {
     const q = (query ?? catalogQuery).trim();
@@ -1582,8 +1603,36 @@ export default function AdminImportExportPage() {
             </div>
             {legacyPreview ? (
               <div className="rounded border p-3 space-y-2">
-                <div className="text-sm font-medium">Preview Summary</div>
-                <pre className="max-h-64 overflow-auto text-xs">{JSON.stringify(legacyPreview.summary || {}, null, 2)}</pre>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">Preview Summary</div>
+                    <div className="text-xs text-muted-foreground">
+                      {legacyPreview.job_number ? `Job ${legacyPreview.job_number}` : null}
+                      {legacyPreview.filename ? `${legacyPreview.job_number ? " | " : ""}${legacyPreview.filename}` : null}
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Ready rows: {formatCount(Array.isArray(legacyPreview.rows_ready) ? legacyPreview.rows_ready.length : 0)}
+                    {" | "}
+                    Unresolved rows: {formatCount(Array.isArray(legacyPreview.rows_unresolved) ? legacyPreview.rows_unresolved.length : 0)}
+                  </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  {legacySummaryCards.map((item) => (
+                    <div key={item.label} className="rounded border bg-muted/20 p-3">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</div>
+                      <div className="mt-1 text-lg font-semibold">{formatCount(item.value)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded border bg-muted/20 p-3">
+                  <div className="text-xs font-medium">Dataset Years Available</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {legacyDatasetYears.length > 0
+                      ? legacyDatasetYears.map((year: number) => formatCount(year)).join(", ")
+                      : "No active dataset years were available for this preview."}
+                  </div>
+                </div>
                 {Array.isArray(legacyPreview.warnings) && legacyPreview.warnings.length > 0 ? (
                   <div>
                     <div className="text-xs font-medium">Warnings</div>
@@ -1594,11 +1643,6 @@ export default function AdminImportExportPage() {
                     </ul>
                   </div>
                 ) : null}
-                <div className="text-xs text-muted-foreground">
-                  Ready rows: {Array.isArray(legacyPreview.rows_ready) ? legacyPreview.rows_ready.length : 0}
-                  {" | "}
-                  Unresolved rows: {Array.isArray(legacyPreview.rows_unresolved) ? legacyPreview.rows_unresolved.length : 0}
-                </div>
                 {Array.isArray(legacyPreview.rows_unresolved) && legacyPreview.rows_unresolved.length > 0 ? (
                   <div className="rounded border p-2">
                     <div className="mb-2 text-xs font-medium">Unresolved Rows (enter Original ID where available)</div>
@@ -1609,6 +1653,7 @@ export default function AdminImportExportPage() {
                             <th className="p-1 text-left">Section</th>
                             <th className="p-1 text-left">Activity</th>
                             <th className="p-1 text-left">Scope</th>
+                            <th className="p-1 text-left">Reason</th>
                             <th className="p-1 text-left">Lookup Key</th>
                             <th className="p-1 text-left">Original ID</th>
                           </tr>
@@ -1622,6 +1667,13 @@ export default function AdminImportExportPage() {
                                 <td className="p-1">{r.section || "-"}</td>
                                 <td className="p-1">{r.activity || "-"}</td>
                                 <td className="p-1">{r.scope || "-"}</td>
+                                <td className="p-1 max-w-[260px] align-top text-muted-foreground">
+                                  <div>{r.reason || "-"}</div>
+                                  {r.match_note ? <div className="mt-1 text-[11px]">{r.match_note}</div> : null}
+                                  {r.candidate_original_id ? (
+                                    <div className="mt-1 text-[11px]">Candidate ID: {r.candidate_original_id}</div>
+                                  ) : null}
+                                </td>
                                 <td className="p-1 max-w-[320px] truncate" title={lk}>{lk || "-"}</td>
                                 <td className="p-1">
                                   <Input
