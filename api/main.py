@@ -393,6 +393,30 @@ def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_
     try:
         from datetime import date, timedelta
         from dateutil.relativedelta import relativedelta
+
+        def _next_job_number(con) -> str:
+            rows = con.execute(
+                """
+                SELECT job_number
+                FROM jobs
+                WHERE job_number IS NOT NULL
+                """
+            ).fetchall()
+            max_number = 0
+            for row in rows:
+                job_number_value = str((row[0] if row else "") or "").strip()
+                if not job_number_value or job_number_value.upper() == "PENDING":
+                    continue
+                if not job_number_value.upper().startswith("J"):
+                    continue
+                numeric_part = "".join(ch for ch in job_number_value[1:] if ch.isdigit())
+                if not numeric_part:
+                    continue
+                try:
+                    max_number = max(max_number, int(numeric_part))
+                except Exception:
+                    continue
+            return f"J{max_number + 1:06d}"
         
         client_db_id = body.get("client_db_id")
         job_type_name = body.get("job_type")
@@ -517,7 +541,7 @@ def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_
             ).fetchone()
             
             job_id = int(row[0])
-            job_number = f"J{(job_id + 999):06d}"
+            job_number = _next_job_number(con)
             
             con.execute(
                 "UPDATE jobs SET job_number = ? WHERE job_id = ?",
