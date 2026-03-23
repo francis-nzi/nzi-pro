@@ -579,33 +579,6 @@ def list_jobs(
         except Exception:
             return False
 
-    where_clauses = []
-    params: list[object] = []
-    
-    if query:
-        if db_backend() == "postgres":
-            where_clauses.append(
-                "(j.job_number ILIKE ? OR j.title ILIKE ? OR c.client_name ILIKE ?)"
-            )
-            like = f"%{query}%"
-            params.extend([like, like, like])
-        else:
-            where_clauses.append(
-                "(lower(coalesce(j.job_number,'')) LIKE ? OR lower(coalesce(j.title,'')) LIKE ? OR lower(coalesce(c.client_name,'')) LIKE ?)"
-            )
-            like = f"%{query.lower()}%"
-            params.extend([like, like, like])
-    
-    if crm_filter:
-        if db_backend() == "postgres":
-            where_clauses.append("c.crm_owner ILIKE ?")
-            params.append(f"%{crm_filter}%")
-        else:
-            where_clauses.append("lower(coalesce(c.crm_owner,'')) LIKE ?")
-            params.append(f"%{crm_filter.lower()}%")
-    
-    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
     try:
         with get_conn() as con:
             has_reporting_period_start = _col_exists(con, "jobs", "reporting_period_start")
@@ -613,13 +586,49 @@ def list_jobs(
             has_is_benchmark = _col_exists(con, "jobs", "is_benchmark")
             has_due_date = _col_exists(con, "jobs", "due_date")
             has_client_crm_owner = _col_exists(con, "clients", "crm_owner")
+            has_job_crm_name = _col_exists(con, "jobs", "crm_name")
             has_job_plan = _table_exists(con, "job_plan")
 
             reporting_period_start_expr = "j.reporting_period_start" if has_reporting_period_start else "NULL::date AS reporting_period_start"
             reporting_period_end_expr = "j.reporting_period_end" if has_reporting_period_end else "NULL::date AS reporting_period_end"
             is_benchmark_expr = "j.is_benchmark" if has_is_benchmark else "NULL::boolean AS is_benchmark"
             due_date_expr = "j.due_date" if has_due_date else "NULL::date AS due_date"
-            crm_name_expr = "c.crm_owner AS crm_name" if has_client_crm_owner else "NULL::text AS crm_name"
+            if has_job_crm_name and has_client_crm_owner:
+                crm_name_value_expr = "COALESCE(NULLIF(j.crm_name, ''), NULLIF(c.crm_owner, ''))"
+            elif has_job_crm_name:
+                crm_name_value_expr = "NULLIF(j.crm_name, '')"
+            elif has_client_crm_owner:
+                crm_name_value_expr = "NULLIF(c.crm_owner, '')"
+            else:
+                crm_name_value_expr = "NULL::text"
+            crm_name_expr = f"{crm_name_value_expr} AS crm_name"
+
+            where_clauses = []
+            params: list[object] = []
+
+            if query:
+                if db_backend() == "postgres":
+                    where_clauses.append(
+                        "(j.job_number ILIKE ? OR j.title ILIKE ? OR c.client_name ILIKE ?)"
+                    )
+                    like = f"%{query}%"
+                    params.extend([like, like, like])
+                else:
+                    where_clauses.append(
+                        "(lower(coalesce(j.job_number,'')) LIKE ? OR lower(coalesce(j.title,'')) LIKE ? OR lower(coalesce(c.client_name,'')) LIKE ?)"
+                    )
+                    like = f"%{query.lower()}%"
+                    params.extend([like, like, like])
+
+            if crm_filter:
+                if db_backend() == "postgres":
+                    where_clauses.append(f"{crm_name_value_expr} ILIKE ?")
+                    params.append(f"%{crm_filter}%")
+                else:
+                    where_clauses.append(f"lower(coalesce({crm_name_value_expr},'')) LIKE ?")
+                    params.append(f"%{crm_filter.lower()}%")
+
+            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
             total_row = con.execute(
                 f"""
