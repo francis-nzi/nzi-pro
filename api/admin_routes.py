@@ -4251,8 +4251,17 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         raise HTTPException(status_code=404, detail=f"Required WFM files missing in raw_data: {', '.join(missing)}")
 
     mapping_overrides = _load_mapping_overrides_from_db(con)
+    client_mapping_overrides = mapping_overrides.get("client", {}) if isinstance(mapping_overrides, dict) else {}
+    if not isinstance(client_mapping_overrides, dict):
+        client_mapping_overrides = {}
+    default_industry_candidates = WFM_CLIENT_FIELD_CANDIDATES.get("industry") or [
+        "Industry",
+        "Sector",
+        "Business Sector",
+        "Company Sector",
+    ]
     candidate_fields: list[str] = []
-    for value in [*(mapping_overrides.get("client", {}).get("industry", []) or []), *WFM_CLIENT_FIELD_CANDIDATES["industry"]]:
+    for value in [*(client_mapping_overrides.get("industry", []) or []), *default_industry_candidates]:
         cleaned = _clean(value)
         if cleaned and cleaned.lower() not in {item.lower() for item in candidate_fields}:
             candidate_fields.append(cleaned)
@@ -4422,8 +4431,8 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         if same_industry:
             rows_unchanged.append(
                 {
-                    "nzi_client_id": matched["db_id"],
-                    "client_name": matched["client_name"],
+                    "nzi_client_id": matched.get("db_id"),
+                    "client_name": matched.get("client_name"),
                     "existing_industry": existing_industry,
                     "wfm_industry": wfm_industry,
                     "match_method": match_method,
@@ -4435,8 +4444,8 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         if existing_industry and not overwrite_existing:
             rows_unchanged.append(
                 {
-                    "nzi_client_id": matched["db_id"],
-                    "client_name": matched["client_name"],
+                    "nzi_client_id": matched.get("db_id"),
+                    "client_name": matched.get("client_name"),
                     "existing_industry": existing_industry,
                     "wfm_industry": wfm_industry,
                     "match_method": match_method,
@@ -4447,9 +4456,9 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
 
         rows_ready.append(
             {
-                "nzi_client_id": matched["db_id"],
+                "nzi_client_id": matched.get("db_id"),
                 "wfm_client_id": wfm_client_id,
-                "client_name": matched["client_name"] or client_name,
+                "client_name": matched.get("client_name") or client_name,
                 "existing_industry": existing_industry or None,
                 "wfm_industry": wfm_industry,
                 "match_method": match_method,
@@ -4459,7 +4468,7 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
 
     missing_lookup_industries = sorted(
         {
-            str(row["wfm_industry"]).strip()
+            str(row.get("wfm_industry") or "").strip()
             for row in rows_ready
             if str(row.get("wfm_industry") or "").strip()
             and str(row.get("wfm_industry") or "").strip().lower() not in industry_lookup_names
