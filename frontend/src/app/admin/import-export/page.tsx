@@ -1386,7 +1386,7 @@ export default function AdminImportExportPage() {
                 checked={overwriteClientIndustries}
                 onChange={(e) => setOverwriteClientIndustries(e.target.checked)}
               />
-              Overwrite existing NZI client industries with the WFM value
+              Overwrite existing NZI client field values with the WFM value
             </label>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" disabled={busy || !canRunClientIndustryBackfill} onClick={() => void previewClientIndustryBackfill()}>
@@ -1496,6 +1496,37 @@ export default function AdminImportExportPage() {
                                 {row.client_name || "-"}
                                 <div className="text-[11px] text-muted-foreground">{row.wfm_client_id || "-"}</div>
                               </td>
+                              <td className="p-2">{row.wfm_value || "-"}</td>
+                              <td className="p-2 text-muted-foreground">{row.reason || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                {(clientIndustryBackfillResult.rows_unchanged || []).length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Unchanged</div>
+                    <div className="max-h-72 overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-muted">
+                          <tr>
+                            <th className="p-2 text-left">Client</th>
+                            <th className="p-2 text-left">Current</th>
+                            <th className="p-2 text-left">WFM</th>
+                            <th className="p-2 text-left">Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(clientIndustryBackfillResult.rows_unchanged || []).slice(0, 100).map((row, idx) => (
+                            <tr key={`field-unchanged-${idx}`} className="border-t align-top">
+                              <td className="p-2">
+                                {row.client_name || "-"}
+                                <div className="text-[11px] text-muted-foreground">NZI {row.nzi_client_id || "-"} / WFM {row.wfm_client_id || "-"}</div>
+                              </td>
+                              <td className="p-2">{row.existing_value || "-"}</td>
                               <td className="p-2">{row.wfm_value || "-"}</td>
                               <td className="p-2 text-muted-foreground">{row.reason || "-"}</td>
                             </tr>
