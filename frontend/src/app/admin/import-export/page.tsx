@@ -228,6 +228,12 @@ const DEFAULT_TARGET_FIELDS: { job: string[]; client: string[] } = {
   ],
 };
 
+const REQUIRED_CLIENT_INDUSTRY_WFM_FILES = [
+  "clients.csv",
+  "client_custom_field_values.csv",
+  "custom_fields.csv",
+];
+
 function normalizeEntity(value: string | undefined | null): "job" | "client" {
   const v = String(value || "").trim().toLowerCase();
   return v === "client" ? "client" : "job";
@@ -288,6 +294,15 @@ export default function AdminImportExportPage() {
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
   const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
+  const uploadedWfmFileNames = useMemo(
+    () => new Set((summary?.files || []).map((file) => String(file?.name || "").toLowerCase()).filter(Boolean)),
+    [summary]
+  );
+  const missingClientIndustryFiles = useMemo(
+    () => REQUIRED_CLIENT_INDUSTRY_WFM_FILES.filter((name) => !uploadedWfmFileNames.has(name.toLowerCase())),
+    [uploadedWfmFileNames]
+  );
+  const canRunClientIndustryBackfill = missingClientIndustryFiles.length === 0;
   const selectedClients = runResult?.selected_clients ?? [];
   const runWarnings = runResult?.stats?.warnings ?? [];
   const runErrors = runResult?.stats?.errors ?? [];
@@ -917,6 +932,11 @@ export default function AdminImportExportPage() {
   }
 
   async function previewClientIndustryBackfill() {
+    if (!canRunClientIndustryBackfill) {
+      setError(`Upload the required WFM files first: ${missingClientIndustryFiles.join(", ")}`);
+      setStatus("");
+      return;
+    }
     setBusy(true);
     setError("");
     setStatus("Previewing client industry backfill...");
@@ -949,6 +969,11 @@ export default function AdminImportExportPage() {
   }
 
   async function applyClientIndustryBackfill() {
+    if (!canRunClientIndustryBackfill) {
+      setError(`Upload the required WFM files first: ${missingClientIndustryFiles.join(", ")}`);
+      setStatus("");
+      return;
+    }
     setBusy(true);
     setError("");
     setStatus("Applying client industry backfill...");
@@ -1313,6 +1338,11 @@ export default function AdminImportExportPage() {
               Reads the <strong>Industry</strong> client custom field from the uploaded WFM raw files, matches NZI clients by
               <strong> WFM import map</strong> first and <strong>client name</strong> second, then updates the NZI client industry.
             </div>
+            {!canRunClientIndustryBackfill ? (
+              <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                Upload the required WFM source files first: <strong>{missingClientIndustryFiles.join(", ")}</strong>.
+              </div>
+            ) : null}
             <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input
                 type="checkbox"
@@ -1322,11 +1352,11 @@ export default function AdminImportExportPage() {
               Overwrite existing NZI client industries with the WFM value
             </label>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" disabled={busy} onClick={() => void previewClientIndustryBackfill()}>
+              <Button variant="outline" disabled={busy || !canRunClientIndustryBackfill} onClick={() => void previewClientIndustryBackfill()}>
                 Preview Industry Backfill
               </Button>
               <Button
-                disabled={busy || !clientIndustryBackfillResult?.summary?.ready_updates}
+                disabled={busy || !canRunClientIndustryBackfill || !clientIndustryBackfillResult?.summary?.ready_updates}
                 onClick={() => void applyClientIndustryBackfill()}
               >
                 Apply Industry Backfill
