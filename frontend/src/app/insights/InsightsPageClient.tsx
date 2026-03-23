@@ -18,6 +18,7 @@ import {
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -184,6 +185,17 @@ type ReportViewData = {
   row_count: number;
 };
 
+type SavedReport = {
+  saved_report_id: number;
+  name: string;
+  view: string;
+  year: number | null;
+  industry: string | null;
+  crm_owner: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type ReportDrillState = {
   key: string;
   label: string;
@@ -300,6 +312,8 @@ const EMPTY_REPORT: ReportViewData = {
   row_count: 0,
 };
 
+const EMPTY_SAVED_REPORTS: SavedReport[] = [];
+
 const REPORT_CHART_COLORS = ["#1c5026", "#f26624", "#0f766e", "#2563eb", "#f59e0b", "#7c3aed", "#db2777", "#475569"];
 
 const REPORT_CHART_CONFIG: Record<string, ReportChartConfig> = {
@@ -379,6 +393,24 @@ function formatDate(value: string | null | undefined): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function reportPresetLabel(view: string): string {
+  return REPORT_PRESETS.find((preset) => preset.key === view)?.label ?? view;
+}
+
+function reportFilterSummary(filters: {
+  view: string;
+  year?: number | null;
+  industry?: string | null;
+  crm_owner?: string | null;
+}): string {
+  return [
+    reportPresetLabel(filters.view),
+    filters.year ? `Year ${filters.year}` : "All years",
+    filters.industry || "All industries",
+    filters.crm_owner || "All CRM owners",
+  ].join(" | ");
 }
 
 function formatMetricValue(key: string, value: number): string {
@@ -506,12 +538,57 @@ export default function InsightsPageClient() {
   const [operationsData, setOperationsData] = useState<OperationsOverview>(EMPTY_OPERATIONS);
   const [reportView, setReportView] = useState<string>("client_portfolio");
   const [reportData, setReportData] = useState<ReportViewData>(EMPTY_REPORT);
+  const [savedReports, setSavedReports] = useState<SavedReport[]>(EMPTY_SAVED_REPORTS);
+  const [savedReportsLoading, setSavedReportsLoading] = useState(true);
+  const [savedReportsError, setSavedReportsError] = useState("");
+  const [savedReportName, setSavedReportName] = useState("");
+  const [selectedSavedReportId, setSelectedSavedReportId] = useState<number | null>(null);
+  const [savingReport, setSavingReport] = useState(false);
   const [reportDrill, setReportDrill] = useState<ReportDrillState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
   const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
+
+  const readApiError = useCallback(async (res: Response, fallback: string) => {
+    const text = await res.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text) as { detail?: string };
+      return parsed.detail || fallback;
+    } catch {
+      return text;
+    }
+  }, []);
+
+  const loadSavedReports = useCallback(async (nextSelectedId?: number | null) => {
+    setSavedReportsLoading(true);
+    setSavedReportsError("");
+    try {
+      const res = await fetch(`${baseUrl}/dashboard/saved-reports`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `Saved reports failed (${res.status})`));
+      }
+      const json = (await res.json()) as { reports?: SavedReport[] };
+      const reports = json.reports || [];
+      setSavedReports(reports);
+      setSelectedSavedReportId((current) => {
+        if (nextSelectedId !== undefined) {
+          return reports.some((report) => report.saved_report_id === nextSelectedId) ? nextSelectedId : null;
+        }
+        return current !== null && reports.some((report) => report.saved_report_id === current) ? current : null;
+      });
+    } catch (e) {
+      setSavedReports(EMPTY_SAVED_REPORTS);
+      setSavedReportsError((e as Error).message);
+    } finally {
+      setSavedReportsLoading(false);
+    }
+  }, [baseUrl, readApiError]);
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -601,6 +678,10 @@ export default function InsightsPageClient() {
   }, [loadInsights]);
 
   useEffect(() => {
+    void loadSavedReports();
+  }, [loadSavedReports]);
+
+  useEffect(() => {
     setReportDrill(null);
   }, [reportView, selectedYear, selectedIndustry, selectedCrm]);
 
@@ -639,6 +720,31 @@ export default function InsightsPageClient() {
     () => buildReportTopData(visibleReportRows, reportChartConfig),
     [reportChartConfig, visibleReportRows]
   );
+  const selectedSavedReport = useMemo(
+    () => savedReports.find((report) => report.saved_report_id === selectedSavedReportId) ?? null,
+    [savedReports, selectedSavedReportId]
+  );
+  const matchingSavedReportId = useMemo(
+    () =>
+      savedReports.find(
+        (report) =>
+          report.view === reportView &&
+          (report.year ?? null) === (selectedYear ?? null) &&
+          (report.industry ?? null) === (selectedIndustry ?? null) &&
+          (report.crm_owner ?? null) === (selectedCrm ?? null)
+      )?.saved_report_id ?? null,
+    [reportView, savedReports, selectedCrm, selectedIndustry, selectedYear]
+  );
+  const currentReportSummary = useMemo(
+    () =>
+      reportFilterSummary({
+        view: reportView,
+        year: selectedYear,
+        industry: selectedIndustry,
+        crm_owner: selectedCrm,
+      }),
+    [reportView, selectedCrm, selectedIndustry, selectedYear]
+  );
 
   function toggleReportDrill(key: string, label: string, value: string) {
     setReportDrill((current) => {
@@ -647,6 +753,112 @@ export default function InsightsPageClient() {
       }
       return { key, label, value };
     });
+  }
+
+  function applySavedReport(report: SavedReport) {
+    setSelectedSavedReportId(report.saved_report_id);
+    setSavedReportName(report.name);
+    setReportView(report.view);
+    setSelectedYear(report.year ?? null);
+    setSelectedIndustry(report.industry ?? null);
+    setSelectedCrm(report.crm_owner ?? null);
+  }
+
+  async function saveCurrentReport() {
+    const trimmedName = savedReportName.trim();
+    if (!trimmedName) {
+      setSavedReportsError("Enter a name for this saved report.");
+      return;
+    }
+    setSavingReport(true);
+    setSavedReportsError("");
+    try {
+      const res = await fetch(`${baseUrl}/dashboard/saved-reports`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmedName,
+          view: reportView,
+          year: selectedYear,
+          industry: selectedIndustry,
+          crm_owner: selectedCrm,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `Save report failed (${res.status})`));
+      }
+      const json = (await res.json()) as { report: SavedReport };
+      setSavedReportName(json.report.name);
+      setSelectedSavedReportId(json.report.saved_report_id);
+      await loadSavedReports(json.report.saved_report_id);
+    } catch (e) {
+      setSavedReportsError((e as Error).message);
+    } finally {
+      setSavingReport(false);
+    }
+  }
+
+  async function updateSelectedReport() {
+    if (!selectedSavedReportId) {
+      setSavedReportsError("Select a saved report to update.");
+      return;
+    }
+    const trimmedName = savedReportName.trim() || selectedSavedReport?.name || "";
+    if (!trimmedName) {
+      setSavedReportsError("Enter a name for this saved report.");
+      return;
+    }
+    setSavingReport(true);
+    setSavedReportsError("");
+    try {
+      const res = await fetch(`${baseUrl}/dashboard/saved-reports/${selectedSavedReportId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmedName,
+          view: reportView,
+          year: selectedYear,
+          industry: selectedIndustry,
+          crm_owner: selectedCrm,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `Update report failed (${res.status})`));
+      }
+      const json = (await res.json()) as { report: SavedReport };
+      setSavedReportName(json.report.name);
+      await loadSavedReports(json.report.saved_report_id);
+    } catch (e) {
+      setSavedReportsError((e as Error).message);
+    } finally {
+      setSavingReport(false);
+    }
+  }
+
+  async function deleteSavedReport(savedReport: SavedReport) {
+    if (!window.confirm(`Delete saved report "${savedReport.name}"?`)) return;
+    setSavingReport(true);
+    setSavedReportsError("");
+    try {
+      const res = await fetch(`${baseUrl}/dashboard/saved-reports/${savedReport.saved_report_id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, `Delete report failed (${res.status})`));
+      }
+      if (selectedSavedReportId === savedReport.saved_report_id) {
+        setSelectedSavedReportId(null);
+        setSavedReportName("");
+      }
+      await loadSavedReports(selectedSavedReportId === savedReport.saved_report_id ? null : selectedSavedReportId);
+    } catch (e) {
+      setSavedReportsError((e as Error).message);
+    } finally {
+      setSavingReport(false);
+    }
   }
 
   async function exportReportCsv() {
@@ -1453,7 +1665,110 @@ export default function InsightsPageClient() {
           <TabsContent value="reports" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Saved Views</CardTitle>
+                <CardTitle>Saved Reports</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-[1.4fr_auto_auto] md:items-end">
+                  <div className="space-y-2">
+                    <div className="text-sm text-muted-foreground">Saved report name</div>
+                    <Input
+                      value={savedReportName}
+                      onChange={(event) => setSavedReportName(event.target.value)}
+                      placeholder="e.g. Q2 Quote Pipeline - Chris"
+                    />
+                  </div>
+                  <Button onClick={() => void saveCurrentReport()} disabled={savingReport}>
+                    Save New
+                  </Button>
+                  <Button variant="outline" onClick={() => void updateSelectedReport()} disabled={!selectedSavedReportId || savingReport}>
+                    Update Selected
+                  </Button>
+                </div>
+
+                <div className="rounded border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  <div className="font-medium text-foreground">Current report</div>
+                  <div className="mt-1">{currentReportSummary}</div>
+                  {selectedSavedReport ? (
+                    <div className="mt-2 text-xs">
+                      Selected for update: <span className="font-medium text-foreground">{selectedSavedReport.name}</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {savedReportsError ? <div className="text-sm text-red-600">{savedReportsError}</div> : null}
+
+                {savedReportsLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading saved reports...</div>
+                ) : savedReports.length > 0 ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {savedReports.map((report) => {
+                      const isSelected = selectedSavedReportId === report.saved_report_id;
+                      const isCurrent = matchingSavedReportId === report.saved_report_id;
+                      return (
+                        <div
+                          key={report.saved_report_id}
+                          className={`rounded border p-4 ${isSelected ? "border-[#f26624] bg-orange-50" : ""}`}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-medium">{report.name}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{reportFilterSummary(report)}</div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {isSelected ? (
+                                <span className="rounded-full bg-white px-2 py-1 text-xs font-medium text-[#f26624]">Selected</span>
+                              ) : null}
+                              {isCurrent ? (
+                                <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">Current</span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="mt-3 text-xs text-muted-foreground">
+                            Updated {formatDate(report.updated_at || report.created_at)}
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => applySavedReport(report)}
+                            >
+                              Load
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedSavedReportId(report.saved_report_id);
+                                setSavedReportName(report.name);
+                              }}
+                            >
+                              Select
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => void deleteSavedReport(report)}
+                              disabled={savingReport}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No saved reports yet. Save the current report and filters to reuse them later.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Starter Views</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 {REPORT_PRESETS.map((preset) => (

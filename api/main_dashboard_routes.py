@@ -8,10 +8,29 @@ import io
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
 
 router = APIRouter()
+
+
+SUPPORTED_REPORT_VIEWS = (
+    "client_portfolio",
+    "job_delivery",
+    "invoice_follow_up",
+    "quote_pipeline",
+    "crm_workload",
+    "emissions_portfolio",
+)
+
+
+class SavedInsightsReportPayload(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    view: str = Field(..., min_length=1, max_length=64)
+    year: int | None = None
+    industry: str | None = None
+    crm_owner: str | None = None
 
 
 def _table_exists(con, table_name: str) -> bool:
@@ -139,6 +158,61 @@ def _crm_expression(*, has_job_crm_name: bool, has_client_crm_owner: bool, job_a
     if has_client_crm_owner:
         return f"COALESCE(NULLIF({client_alias}.crm_owner, ''), 'Unassigned')"
     return "'Unassigned'"
+
+
+def _saved_report_user_id(user: dict[str, str]) -> str:
+    return str(user.get("user_id") or user.get("email") or "").strip()
+
+
+def _normalize_saved_report_text(value: str | None) -> str | None:
+    txt = str(value or "").strip()
+    return txt or None
+
+
+def _validate_report_view(view: str) -> str:
+    normalized = str(view or "").strip()
+    if normalized not in SUPPORTED_REPORT_VIEWS:
+        raise HTTPException(status_code=400, detail=f"Unsupported report view: {normalized or '(blank)'}")
+    return normalized
+
+
+def _saved_reports_available(con) -> bool:
+    return _table_exists(con, "saved_insights_reports")
+
+
+def _require_saved_reports_table(con) -> None:
+    if not _saved_reports_available(con):
+        raise HTTPException(
+            status_code=503,
+            detail="Saved report persistence is not available until SQL migrations are applied.",
+        )
+
+
+def _saved_report_name_exists(con, *, user_id: str, name: str, exclude_id: int | None = None) -> bool:
+    sql = """
+        SELECT 1
+        FROM saved_insights_reports
+        WHERE user_id = ? AND lower(name) = lower(?)
+    """
+    params: list[object] = [user_id, name]
+    if exclude_id is not None:
+        sql += " AND saved_report_id <> ?"
+        params.append(int(exclude_id))
+    sql += " LIMIT 1"
+    return bool(con.execute(sql, params).fetchone())
+
+
+def _serialize_saved_report_row(row) -> dict[str, object]:
+    return {
+        "saved_report_id": int(row[0]),
+        "name": row[1],
+        "view": row[2],
+        "year": int(row[3]) if row[3] is not None else None,
+        "industry": row[4],
+        "crm_owner": row[5],
+        "created_at": row[6].isoformat() if hasattr(row[6], "isoformat") else (str(row[6]) if row[6] else None),
+        "updated_at": row[7].isoformat() if hasattr(row[7], "isoformat") else (str(row[7]) if row[7] else None),
+    }
 
 
 @router.get("/dashboard/overview")
@@ -2148,6 +2222,190 @@ def _build_insights_report(
         }
 
     raise HTTPException(status_code=400, detail=f"Unsupported report view: {view}")
+
+
+@router.get("/dashboard/saved-reports")
+def list_dashboard_saved_reports(
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        user_id = _saved_report_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+        with get_conn() as con:
+            if not _saved_reports_available(con):
+                return {"reports": []}
+            rows = con.execute(
+                """
+                SELECT
+                    saved_report_id,
+                    name,
+                    report_view,
+                    report_year,
+                    industry,
+                    crm_owner,
+                    created_at,
+                    updated_at
+                FROM saved_insights_reports
+                WHERE user_id = ?
+                ORDER BY updated_at DESC, saved_report_id DESC
+                """,
+                [user_id],
+            ).fetchall()
+        return {"reports": [_serialize_saved_report_row(row) for row in rows]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load saved reports: {e}")
+
+
+@router.post("/dashboard/saved-reports")
+def create_dashboard_saved_report(
+    payload: SavedInsightsReportPayload,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        user_id = _saved_report_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+        name = _normalize_saved_report_text(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="Saved report name is required")
+        view = _validate_report_view(payload.view)
+        with get_conn() as con:
+            _require_saved_reports_table(con)
+            if _saved_report_name_exists(con, user_id=user_id, name=name):
+                raise HTTPException(status_code=409, detail="A saved report with this name already exists")
+            row = con.execute(
+                """
+                INSERT INTO saved_insights_reports (
+                    user_id,
+                    name,
+                    report_view,
+                    report_year,
+                    industry,
+                    crm_owner
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                RETURNING
+                    saved_report_id,
+                    name,
+                    report_view,
+                    report_year,
+                    industry,
+                    crm_owner,
+                    created_at,
+                    updated_at
+                """,
+                [
+                    user_id,
+                    name,
+                    view,
+                    payload.year,
+                    _normalize_saved_report_text(payload.industry),
+                    _normalize_saved_report_text(payload.crm_owner),
+                ],
+            ).fetchone()
+        return {"report": _serialize_saved_report_row(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save dashboard report: {e}")
+
+
+@router.put("/dashboard/saved-reports/{saved_report_id}")
+def update_dashboard_saved_report(
+    saved_report_id: int,
+    payload: SavedInsightsReportPayload,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        user_id = _saved_report_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+        name = _normalize_saved_report_text(payload.name)
+        if not name:
+            raise HTTPException(status_code=400, detail="Saved report name is required")
+        view = _validate_report_view(payload.view)
+        with get_conn() as con:
+            _require_saved_reports_table(con)
+            existing = con.execute(
+                """
+                SELECT 1
+                FROM saved_insights_reports
+                WHERE saved_report_id = ? AND user_id = ?
+                LIMIT 1
+                """,
+                [int(saved_report_id), user_id],
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Saved report not found")
+            if _saved_report_name_exists(con, user_id=user_id, name=name, exclude_id=int(saved_report_id)):
+                raise HTTPException(status_code=409, detail="A saved report with this name already exists")
+            row = con.execute(
+                """
+                UPDATE saved_insights_reports
+                SET
+                    name = ?,
+                    report_view = ?,
+                    report_year = ?,
+                    industry = ?,
+                    crm_owner = ?,
+                    updated_at = now()
+                WHERE saved_report_id = ? AND user_id = ?
+                RETURNING
+                    saved_report_id,
+                    name,
+                    report_view,
+                    report_year,
+                    industry,
+                    crm_owner,
+                    created_at,
+                    updated_at
+                """,
+                [
+                    name,
+                    view,
+                    payload.year,
+                    _normalize_saved_report_text(payload.industry),
+                    _normalize_saved_report_text(payload.crm_owner),
+                    int(saved_report_id),
+                    user_id,
+                ],
+            ).fetchone()
+        return {"report": _serialize_saved_report_row(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update saved report: {e}")
+
+
+@router.delete("/dashboard/saved-reports/{saved_report_id}")
+def delete_dashboard_saved_report(
+    saved_report_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        user_id = _saved_report_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+        with get_conn() as con:
+            _require_saved_reports_table(con)
+            deleted = con.execute(
+                """
+                DELETE FROM saved_insights_reports
+                WHERE saved_report_id = ? AND user_id = ?
+                RETURNING saved_report_id
+                """,
+                [int(saved_report_id), user_id],
+            ).fetchone()
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Saved report not found")
+        return {"ok": True, "saved_report_id": int(saved_report_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete saved report: {e}")
 
 
 @router.get("/dashboard/report-view")
