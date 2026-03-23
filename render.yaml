@@ -4,7 +4,7 @@ services:
     runtime: python
     rootDir: .
     buildCommand: pip install -r requirements.txt && pip uninstall -y multipart || true && pip install python-multipart==0.0.20
-    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python apply_sql_migrations.py && uvicorn api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
     disk:

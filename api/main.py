@@ -803,6 +803,30 @@ def list_jobs(
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     with get_conn() as con:
+        def _table_exists(table_name: str) -> bool:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = ?
+                LIMIT 1
+                """,
+                [table_name],
+            ).fetchone()
+            return bool(row)
+
+        def _col_exists(table_name: str, col_name: str) -> bool:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
+                LIMIT 1
+                """,
+                [table_name, col_name],
+            ).fetchone()
+            return bool(row)
+
         row = con.execute(
             """
             SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
@@ -812,7 +836,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                    j.crm_name, j.start_date, j.due_date, j.legacy_job_no,
                    j.job_type_id
             FROM jobs j
-            JOIN clients c ON c.db_id = j.client_db_id
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id=?
             """,
             [int(job_id)],
@@ -835,17 +859,42 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                 pass  # Column might not exist yet
 
         # Fetch milestones with completion status
-        milestones = con.execute(
-            """
-            SELECT data_collection_due, first_draft_due, final_report_due,
-                   data_collection_completed_at, data_collection_completed_by,
-                   first_draft_completed_at, first_draft_completed_by,
-                   final_report_completed_at, final_report_completed_by
-            FROM job_plan
-            WHERE job_id=?
-            """,
-            [int(job_id)],
-        ).fetchone()
+        milestones = None
+        if _table_exists("job_plan"):
+            milestone_completion_columns = [
+                "data_collection_completed_at",
+                "data_collection_completed_by",
+                "first_draft_completed_at",
+                "first_draft_completed_by",
+                "final_report_completed_at",
+                "final_report_completed_by",
+            ]
+            has_completion_columns = all(_col_exists("job_plan", col) for col in milestone_completion_columns)
+
+            if has_completion_columns:
+                milestones = con.execute(
+                    """
+                    SELECT data_collection_due, first_draft_due, final_report_due,
+                           data_collection_completed_at, data_collection_completed_by,
+                           first_draft_completed_at, first_draft_completed_by,
+                           final_report_completed_at, final_report_completed_by
+                    FROM job_plan
+                    WHERE job_id=?
+                    """,
+                    [int(job_id)],
+                ).fetchone()
+            else:
+                milestones = con.execute(
+                    """
+                    SELECT data_collection_due, first_draft_due, final_report_due,
+                           NULL AS data_collection_completed_at, NULL AS data_collection_completed_by,
+                           NULL AS first_draft_completed_at, NULL AS first_draft_completed_by,
+                           NULL AS final_report_completed_at, NULL AS final_report_completed_by
+                    FROM job_plan
+                    WHERE job_id=?
+                    """,
+                    [int(job_id)],
+                ).fetchone()
 
     (
         jid,
@@ -914,7 +963,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "status": status,
         "job_template_id": (int(job_template_id) if job_template_id is not None else None),
         "milestone_template_id": (int(milestone_template_id) if milestone_template_id is not None else None),
-        "client_db_id": int(client_db_id),
+        "client_db_id": (int(client_db_id) if client_db_id is not None else None),
         "client_name": client_name,
         "crm_name": crm_name,
         "start_date": (str(start_date) if start_date else None),

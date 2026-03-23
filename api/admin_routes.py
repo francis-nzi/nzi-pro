@@ -3010,6 +3010,23 @@ def download_attribute_override_template(_user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to build attribute override template: {e}")
 
 
+@router.get("/import-export/attributes/guide")
+def download_attribute_override_guide(_user: dict = Depends(_current_user)):
+    try:
+        guide_path = Path(__file__).resolve().parents[1] / "ATTRIBUTE_OVERRIDE_CHEATSHEET.docx"
+        if not guide_path.exists():
+            raise HTTPException(status_code=404, detail="Attribute override guide not found")
+        return StreamingResponse(
+            io.BytesIO(guide_path.read_bytes()),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": 'attachment; filename="ATTRIBUTE_OVERRIDE_CHEATSHEET.docx"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download attribute override guide: {e}")
+
+
 @router.post("/import-export/attributes/preview")
 async def preview_attribute_overrides(
     file: UploadFile = File(...),

@@ -768,6 +768,36 @@ export default function AdminImportExportPage() {
     }
   }
 
+  async function downloadAttributeOverrideGuide() {
+    setBusy(true);
+    setError("");
+    setStatus("Downloading attribute override cheat sheet...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/attributes/guide`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Guide download failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "ATTRIBUTE_OVERRIDE_CHEATSHEET.docx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus("Attribute override cheat sheet downloaded.");
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function previewAttributeOverrides() {
     if (!attributeOverrideFile) {
       setError("Please select an attribute override workbook.");
@@ -1281,9 +1311,51 @@ export default function AdminImportExportPage() {
         <Card>
           <CardHeader><CardTitle>Bulk Client / Job Attribute Overrides</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
-              Upload an Excel workbook with optional <strong>clients</strong> and/or <strong>jobs</strong> sheets to bulk update
-              existing records. Blank values leave fields unchanged. Use <code>clear_fieldname</code> columns to clear values.
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+                Upload an Excel workbook with optional <strong>clients</strong> and/or <strong>jobs</strong> sheets to bulk update
+                existing records. Blank values leave fields unchanged. Use <code>clear_fieldname</code> columns to clear values.
+              </div>
+              <div className="rounded border p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">Help</div>
+                    <div className="text-xs text-muted-foreground">
+                      Quick rules for matching rows, changing values, and clearing fields.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" size="sm" asChild>
+                      <Link href="/support/attribute-overrides">Open Help Page</Link>
+                    </Button>
+                    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void downloadAttributeOverrideGuide()}>
+                      Download Cheat Sheet
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 text-xs text-muted-foreground md:grid-cols-2">
+                  <div className="rounded border bg-muted/20 p-2">
+                    <div className="mb-1 font-medium text-foreground">Matching</div>
+                    <div>Clients: <code>client_db_id</code>, <code>wfm_client_id</code>, or <code>client_name</code>.</div>
+                    <div>Jobs: <code>job_id</code>, <code>wfm_job_id</code>, or <code>job_number</code>.</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-2">
+                    <div className="mb-1 font-medium text-foreground">Value Rules</div>
+                    <div>Value blank + clear blank: leave unchanged.</div>
+                    <div>Value filled + clear blank: set/update.</div>
+                    <div>Value blank + clear <code>TRUE</code>: clear existing value.</div>
+                    <div>Value filled + clear <code>TRUE</code>: blocked.</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-2">
+                    <div className="mb-1 font-medium text-foreground">Accepted Clear Values</div>
+                    <div><code>TRUE</code>, <code>1</code>, <code>yes</code>, <code>y</code>, <code>on</code></div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-2">
+                    <div className="mb-1 font-medium text-foreground">Date Format</div>
+                    <div>Use <code>YYYY-MM-DD</code> where possible for the cleanest import.</div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
               <div className="space-y-2">
@@ -1304,6 +1376,9 @@ export default function AdminImportExportPage() {
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" disabled={busy} onClick={() => void downloadAttributeOverrideTemplate()}>
                   Download Template
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => void downloadAttributeOverrideGuide()}>
+                  Download Guide
                 </Button>
                 <Button variant="outline" disabled={busy || !attributeOverrideFile} onClick={() => void previewAttributeOverrides()}>
                   Preview Overrides
@@ -1560,7 +1635,7 @@ export default function AdminImportExportPage() {
                   ))}
                   {catalog.length === 0 ? (
                     <tr>
-                      <td className="p-3 text-muted-foreground" colSpan={7}>No catalog rows yet. Run "Scan All WFM Fields".</td>
+                      <td className="p-3 text-muted-foreground" colSpan={7}>No catalog rows yet. Run &quot;Scan All WFM Fields&quot;.</td>
                     </tr>
                   ) : null}
                 </tbody>

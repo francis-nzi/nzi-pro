@@ -34,6 +34,7 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   { page: "Admin Milestones", path: "/admin/milestone-templates", purpose: "Configure milestone schedules.", process: ["Define milestone sequence.", "Set offsets/targets.", "Apply to job types."] },
   { page: "Admin Theme", path: "/admin/theme", purpose: "Brand and visual settings.", process: ["Adjust colors/logo.", "Preview changes.", "Save and verify navigation/pages."] },
   { page: "Admin Custom Fields", path: "/admin/custom-fields", purpose: "Define extra fields for entities.", process: ["Add field definition.", "Set type/default behavior.", "Confirm visibility in forms."] },
+  { page: "Attribute Override Cheat Sheet", path: "/support/attribute-overrides", purpose: "Reference guide for bulk client and job attribute override workbooks.", process: ["Download the attribute override template before editing.", "Use value columns to set data and clear_<field> columns only when you intentionally want to remove an existing value.", "Preview the workbook, fix any blocked rows, then commit the ready rows."] },
   { page: "Admin Settings", path: "/admin/settings", purpose: "Global platform settings.", process: ["Adjust system keys/settings.", "Save changes.", "Verify with target feature flow."] },
 ];
 
@@ -83,7 +84,7 @@ export default function SupportPage() {
           <CardHeader>
             <CardTitle>Legal Documents</CardTitle>
             <CardDescription>
-              Access NZI's Standard Terms &amp; Conditions, Portal Terms of Use, Privacy Policy and Cookie Notice.
+              Access NZI&apos;s Standard Terms &amp; Conditions, Portal Terms of Use, Privacy Policy and Cookie Notice.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center justify-between gap-4">
