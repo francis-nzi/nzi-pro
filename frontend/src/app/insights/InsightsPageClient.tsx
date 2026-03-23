@@ -60,6 +60,50 @@ type JobsMilestoneStatus = {
   total: number;
 };
 
+type FinancialOverview = {
+  metrics: {
+    quote_count: number;
+    quote_value_total: number;
+    approved_quote_value: number;
+    invoice_count: number;
+    invoice_total: number;
+    paid_total: number;
+    outstanding_total: number;
+    overdue_invoice_count: number;
+    cash_realisation_pct: number;
+  };
+  quote_status_breakdown: Array<{
+    status: string;
+    count: number;
+    total_value: number;
+  }>;
+  invoice_status_breakdown: Array<{
+    status: string;
+    count: number;
+    total_value: number;
+  }>;
+  monthly_quotes: Array<{
+    month: string;
+    count: number;
+    total_value: number;
+  }>;
+  monthly_invoices: Array<{
+    month: string;
+    count: number;
+    total_value: number;
+    paid_total: number;
+  }>;
+  top_clients_by_invoiced_total: Array<{
+    client_id: number | null;
+    client_name: string;
+    invoice_total: number;
+    paid_total: number;
+    outstanding_total: number;
+  }>;
+  quote_currencies: string[];
+  invoice_currencies: string[];
+};
+
 const ALL_FILTER_VALUE = "__all__";
 
 const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
@@ -70,8 +114,36 @@ const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
   total: 0,
 };
 
+const EMPTY_FINANCIAL: FinancialOverview = {
+  metrics: {
+    quote_count: 0,
+    quote_value_total: 0,
+    approved_quote_value: 0,
+    invoice_count: 0,
+    invoice_total: 0,
+    paid_total: 0,
+    outstanding_total: 0,
+    overdue_invoice_count: 0,
+    cash_realisation_pct: 0,
+  },
+  quote_status_breakdown: [],
+  invoice_status_breakdown: [],
+  monthly_quotes: [],
+  monthly_invoices: [],
+  top_clients_by_invoiced_total: [],
+  quote_currencies: [],
+  invoice_currencies: [],
+};
+
 function formatNumber(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -100,6 +172,7 @@ export default function InsightsPageClient() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
+  const [financialData, setFinancialData] = useState<FinancialOverview>(EMPTY_FINANCIAL);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -115,12 +188,16 @@ export default function InsightsPageClient() {
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
-      const [overviewRes, jobsStatusRes] = await Promise.all([
+      const [overviewRes, jobsStatusRes, financialRes] = await Promise.all([
         fetch(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
         }),
         fetch(`${baseUrl}/dashboard/jobs-by-milestone-status`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
         }),
@@ -142,10 +219,18 @@ export default function InsightsPageClient() {
       } else {
         setJobsStatus(EMPTY_JOBS_STATUS);
       }
+
+      if (financialRes.ok) {
+        const financialJson = (await financialRes.json()) as FinancialOverview;
+        setFinancialData(financialJson);
+      } else {
+        setFinancialData(EMPTY_FINANCIAL);
+      }
     } catch (e) {
       setError((e as Error).message);
       setData(null);
       setJobsStatus(EMPTY_JOBS_STATUS);
+      setFinancialData(EMPTY_FINANCIAL);
     } finally {
       setLoading(false);
     }
@@ -158,6 +243,21 @@ export default function InsightsPageClient() {
   const totalJobs = useMemo(
     () => (data?.job_status_breakdown || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
     [data]
+  );
+  const financialCurrencies = useMemo(
+    () => Array.from(new Set([...(financialData.quote_currencies || []), ...(financialData.invoice_currencies || [])])),
+    [financialData]
+  );
+  const hasMixedFinancialCurrencies = financialCurrencies.length > 1;
+  const quoteMonths = useMemo(() => (financialData.monthly_quotes || []).slice(-8), [financialData]);
+  const invoiceMonths = useMemo(() => (financialData.monthly_invoices || []).slice(-8), [financialData]);
+  const maxQuoteMonthValue = useMemo(
+    () => Math.max(...quoteMonths.map((row) => Number(row.total_value || 0)), 1),
+    [quoteMonths]
+  );
+  const maxInvoiceMonthValue = useMemo(
+    () => Math.max(...invoiceMonths.map((row) => Math.max(Number(row.total_value || 0), Number(row.paid_total || 0))), 1),
+    [invoiceMonths]
   );
 
   if (loading) {
@@ -516,14 +616,214 @@ export default function InsightsPageClient() {
           </TabsContent>
 
           <TabsContent value="financial" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Quote Value</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.quote_value_total)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.quote_count} quotes in view</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Approved Quotes</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.approved_quote_value)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Approved or signed quote value</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Invoiced</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.invoice_total)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.invoice_count} invoices in view</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Paid</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.paid_total)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.cash_realisation_pct.toFixed(1)}% cash realisation</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Outstanding</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.outstanding_total)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.overdue_invoice_count} overdue invoices</div>
+                </CardContent>
+              </Card>
+            </div>
+
             <Card>
               <CardHeader>
-                <CardTitle>Financial Insights Next</CardTitle>
+                <CardTitle>Financial Context</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="rounded border p-4 text-sm text-muted-foreground">Revenue by month, CRM owner, client, and job type.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Quote win rate, invoice ageing, average job value, and renewal revenue.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Drill from portfolio totals down to client, quote, invoice, and job records.</div>
+              <CardContent className="grid gap-4 md:grid-cols-[1.5fr_1fr_1fr]">
+                <div className="rounded border p-4 text-sm text-muted-foreground">
+                  {hasMixedFinancialCurrencies
+                    ? `The current filters include multiple currencies (${financialCurrencies.join(", ")}), so totals are portfolio totals from stored values rather than FX-normalised reporting.`
+                    : `Financial totals are currently shown in ${financialCurrencies[0] || "GBP"} for the selected portfolio filters.`}
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-xs text-muted-foreground">Quote Conversion</div>
+                  <div className="mt-1 text-2xl font-semibold">
+                    {financialData.metrics.quote_value_total > 0
+                      ? `${((financialData.metrics.invoice_total / financialData.metrics.quote_value_total) * 100).toFixed(1)}%`
+                      : "0.0%"}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">Invoiced as a share of quoted value</div>
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-xs text-muted-foreground">Collections Risk</div>
+                  <div className="mt-1 text-2xl font-semibold">{financialData.metrics.overdue_invoice_count}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Invoices overdue and still unpaid</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly Quotes</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {quoteMonths.length > 0 ? (
+                    quoteMonths.map((row) => (
+                      <div key={`quote-month-${row.month}`} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span>{row.month}</span>
+                          <span className="font-medium">
+                            {formatMoney(row.total_value)} · {row.count} quotes
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div
+                            className="h-2 rounded-full bg-[#f26624]"
+                            style={{ width: `${Math.max(8, (Number(row.total_value || 0) / maxQuoteMonthValue) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Quote activity will appear here once quotes are created.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly Invoices</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {invoiceMonths.length > 0 ? (
+                    invoiceMonths.map((row) => (
+                      <div key={`invoice-month-${row.month}`} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span>{row.month}</span>
+                          <span className="font-medium">
+                            {formatMoney(row.total_value)} invoiced · {formatMoney(row.paid_total)} paid
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="h-2 rounded-full bg-muted">
+                            <div
+                              className="h-2 rounded-full bg-[#1c5026]"
+                              style={{ width: `${Math.max(8, (Number(row.total_value || 0) / maxInvoiceMonthValue) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="h-2 rounded-full bg-muted">
+                            <div
+                              className="h-2 rounded-full bg-emerald-500"
+                              style={{ width: `${Math.max(8, (Number(row.paid_total || 0) / maxInvoiceMonthValue) * 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Invoice activity will appear here once invoices are raised.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Quote Status Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(financialData.quote_status_breakdown || []).length > 0 ? (
+                    financialData.quote_status_breakdown.map((row) => (
+                      <div key={`quote-status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span>{row.status || "Unknown"}</span>
+                        <span className="font-medium">
+                          {row.count} · {formatMoney(row.total_value)}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No quote breakdown is available yet.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Status Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(financialData.invoice_status_breakdown || []).length > 0 ? (
+                    financialData.invoice_status_breakdown.map((row) => (
+                      <div key={`invoice-status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span>{row.status || "Unknown"}</span>
+                        <span className="font-medium">
+                          {row.count} · {formatMoney(row.total_value)}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No invoice breakdown is available yet.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Top Clients By Invoiced Value</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(financialData.top_clients_by_invoiced_total || []).length > 0 ? (
+                  financialData.top_clients_by_invoiced_total.map((row) =>
+                    row.client_id ? (
+                      <Link
+                        key={`financial-client-${row.client_id}`}
+                        href={`/clients/${row.client_id}`}
+                        className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.3fr_0.8fr_0.8fr_0.8fr]"
+                      >
+                        <div className="font-medium">{row.client_name || "Unknown client"}</div>
+                        <div className="text-muted-foreground">Invoiced {formatMoney(row.invoice_total)}</div>
+                        <div className="text-muted-foreground">Paid {formatMoney(row.paid_total)}</div>
+                        <div className="text-muted-foreground">Outstanding {formatMoney(row.outstanding_total)}</div>
+                      </Link>
+                    ) : (
+                      <div
+                        key={`financial-client-${row.client_name}`}
+                        className="grid gap-2 rounded border p-3 text-sm md:grid-cols-[1.3fr_0.8fr_0.8fr_0.8fr]"
+                      >
+                        <div className="font-medium">{row.client_name || "Unknown client"}</div>
+                        <div className="text-muted-foreground">Invoiced {formatMoney(row.invoice_total)}</div>
+                        <div className="text-muted-foreground">Paid {formatMoney(row.paid_total)}</div>
+                        <div className="text-muted-foreground">Outstanding {formatMoney(row.outstanding_total)}</div>
+                      </div>
+                    )
+                  )
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Top clients by invoiced value will appear here as finance records are added.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

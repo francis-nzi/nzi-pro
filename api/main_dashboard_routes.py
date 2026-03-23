@@ -44,6 +44,40 @@ def _column_exists(con, table_name: str, column_name: str) -> bool:
             return False
 
 
+def _apply_client_filters(
+    where_parts: list[str],
+    params: list[object],
+    *,
+    client_alias: str,
+    industry: str | None,
+    crm_owner: str | None,
+) -> None:
+    if industry:
+        where_parts.append(f"{client_alias}.industry = ?")
+        params.append(industry)
+    if crm_owner:
+        crm_value = str(crm_owner).strip()
+        if crm_value.lower() == "unassigned":
+            where_parts.append(f"({client_alias}.crm_owner IS NULL OR TRIM({client_alias}.crm_owner) = '')")
+        else:
+            where_parts.append(f"{client_alias}.crm_owner = ?")
+            params.append(crm_value)
+
+
+def _financial_year_filter(
+    where_parts: list[str],
+    params: list[object],
+    *,
+    date_expr: str,
+    job_year_expr: str,
+    year: int | None,
+) -> None:
+    if year is None:
+        return
+    where_parts.append(f"COALESCE({job_year_expr}, EXTRACT(YEAR FROM {date_expr})::INTEGER) = ?")
+    params.append(int(year))
+
+
 @router.get("/dashboard/overview")
 def get_dashboard_overview(
     year: int = Query(None, description="Reporting year to filter emissions (defaults to current year)"),
@@ -574,6 +608,396 @@ def get_dashboard_overview(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard overview: {e}")
+
+
+@router.get("/dashboard/financial-overview")
+def get_dashboard_financial_overview(
+    year: int = Query(None, description="Reporting year filter"),
+    industry: str | None = Query(None, description="Optional industry filter"),
+    crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Portfolio-level quote and invoice intelligence for Insights."""
+    try:
+        with get_conn() as con:
+            if not _table_exists(con, "quotes") or not _table_exists(con, "quote_lines") or not _table_exists(con, "invoices"):
+                return {
+                    "metrics": {
+                        "quote_count": 0,
+                        "quote_value_total": 0.0,
+                        "approved_quote_value": 0.0,
+                        "invoice_count": 0,
+                        "invoice_total": 0.0,
+                        "paid_total": 0.0,
+                        "outstanding_total": 0.0,
+                        "overdue_invoice_count": 0,
+                        "cash_realisation_pct": 0.0,
+                    },
+                    "quote_status_breakdown": [],
+                    "invoice_status_breakdown": [],
+                    "monthly_quotes": [],
+                    "monthly_invoices": [],
+                    "top_clients_by_invoiced_total": [],
+                    "quote_currencies": [],
+                    "invoice_currencies": [],
+                }
+
+            has_quote_job_number = _column_exists(con, "quotes", "job_number") and _column_exists(con, "jobs", "job_number")
+            has_quote_approved_at = _column_exists(con, "quotes", "approved_at")
+            has_quote_currency = _column_exists(con, "quotes", "currency_code")
+            has_quote_line_vat = _column_exists(con, "quote_lines", "vat_rate_pct")
+            has_invoice_job_id = _column_exists(con, "invoices", "job_id")
+            has_invoice_amount_paid = _column_exists(con, "invoices", "amount_paid")
+            has_invoice_currency = _column_exists(con, "invoices", "currency_code")
+
+            quote_where_parts: list[str] = []
+            quote_params: list[object] = []
+            invoice_where_parts: list[str] = []
+            invoice_params: list[object] = []
+
+            _apply_client_filters(
+                quote_where_parts,
+                quote_params,
+                client_alias="c",
+                industry=industry,
+                crm_owner=crm_owner,
+            )
+            _apply_client_filters(
+                invoice_where_parts,
+                invoice_params,
+                client_alias="c",
+                industry=industry,
+                crm_owner=crm_owner,
+            )
+            _financial_year_filter(
+                quote_where_parts,
+                quote_params,
+                date_expr="COALESCE(q.quote_date, q.created_at::date)",
+                job_year_expr=("j.reporting_year" if has_quote_job_number else "NULL"),
+                year=year,
+            )
+            _financial_year_filter(
+                invoice_where_parts,
+                invoice_params,
+                date_expr="COALESCE(i.invoice_date, i.created_at::date)",
+                job_year_expr=(
+                    "COALESCE(j.reporting_year, jq.reporting_year)"
+                    if has_invoice_job_id and has_quote_job_number
+                    else ("j.reporting_year" if has_invoice_job_id else ("jq.reporting_year" if has_quote_job_number else "NULL"))
+                ),
+                year=year,
+            )
+
+            quote_where = f"WHERE {' AND '.join(quote_where_parts)}" if quote_where_parts else ""
+            invoice_where = f"WHERE {' AND '.join(invoice_where_parts)}" if invoice_where_parts else ""
+            quote_job_join = "LEFT JOIN jobs j ON j.job_number = q.job_number" if has_quote_job_number else "LEFT JOIN jobs j ON 1=0"
+            invoice_job_join = "LEFT JOIN jobs j ON j.job_id = i.job_id" if has_invoice_job_id else "LEFT JOIN jobs j ON 1=0"
+            invoice_quote_join = "LEFT JOIN quotes q ON q.quote_id = i.quote_id"
+            invoice_quote_job_join = "LEFT JOIN jobs jq ON jq.job_number = q.job_number" if has_quote_job_number else "LEFT JOIN jobs jq ON 1=0"
+            quote_approved_expr = "q.approved_at" if has_quote_approved_at else "NULL"
+            quote_currency_expr = "COALESCE(q.currency_code, 'GBP')" if has_quote_currency else "'GBP'"
+            invoice_currency_expr = "COALESCE(i.currency_code, 'GBP')" if has_invoice_currency else "'GBP'"
+            quote_vat_expr = "COALESCE(ql.vat_rate_pct, 0)" if has_quote_line_vat else "0"
+            invoice_amount_paid_expr = "COALESCE(i.amount_paid, 0)" if has_invoice_amount_paid else "0"
+
+            quote_cte = f"""
+                WITH quote_totals AS (
+                    SELECT
+                        q.quote_id,
+                        q.client_db_id,
+                        c.client_name,
+                        COALESCE(NULLIF(TRIM(q.status), ''), 'Unknown') AS status,
+                        {quote_approved_expr} AS approved_at,
+                        {quote_currency_expr} AS currency_code,
+                        DATE_TRUNC('month', COALESCE(q.quote_date, q.created_at::date))::date AS month_start,
+                        COALESCE(SUM(
+                            CASE
+                                WHEN LOWER(COALESCE(ql.line_type, 'main')) = 'option' THEN 0
+                                ELSE COALESCE(ql.qty, 0) * COALESCE(ql.unit_price_ex_vat, 0) * (1 + {quote_vat_expr} / 100.0)
+                            END
+                        ), 0) AS total_value
+                    FROM quotes q
+                    LEFT JOIN quote_lines ql ON q.quote_id = ql.quote_id
+                    LEFT JOIN clients c ON c.db_id = q.client_db_id
+                    {quote_job_join}
+                    {quote_where}
+                    GROUP BY 1, 2, 3, 4, 5, 6, 7
+                )
+            """
+
+            invoice_cte = f"""
+                WITH invoice_totals AS (
+                    SELECT
+                        i.invoice_id,
+                        i.client_db_id,
+                        c.client_name,
+                        COALESCE(NULLIF(TRIM(i.status), ''), 'Unknown') AS status,
+                        {invoice_currency_expr} AS currency_code,
+                        DATE_TRUNC('month', COALESCE(i.invoice_date, i.created_at::date))::date AS month_start,
+                        COALESCE(i.total, 0) AS total_value,
+                        {invoice_amount_paid_expr} AS amount_paid,
+                        i.due_date
+                    FROM invoices i
+                    LEFT JOIN clients c ON c.db_id = i.client_db_id
+                    {invoice_job_join}
+                    {invoice_quote_join}
+                    {invoice_quote_job_join}
+                    {invoice_where}
+                )
+            """
+
+            quote_metrics_row = con.execute(
+                f"""
+                {quote_cte}
+                SELECT
+                    COUNT(*) AS quote_count,
+                    COALESCE(SUM(total_value), 0) AS quote_value_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN approved_at IS NOT NULL OR LOWER(status) = 'approved' THEN total_value
+                            ELSE 0
+                        END
+                    ), 0) AS approved_quote_value
+                FROM quote_totals
+                """,
+                quote_params,
+            ).fetchone()
+
+            invoice_metrics_row = con.execute(
+                f"""
+                {invoice_cte}
+                SELECT
+                    COUNT(*) AS invoice_count,
+                    COALESCE(SUM(total_value), 0) AS invoice_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN amount_paid > 0 THEN amount_paid
+                            WHEN LOWER(status) = 'paid' THEN total_value
+                            ELSE 0
+                        END
+                    ), 0) AS paid_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN LOWER(status) IN ('paid', 'void') THEN 0
+                            ELSE GREATEST(total_value - amount_paid, 0)
+                        END
+                    ), 0) AS outstanding_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN LOWER(status) = 'overdue'
+                                 OR (LOWER(status) NOT IN ('paid', 'void')
+                                     AND due_date IS NOT NULL
+                                     AND due_date < CURRENT_DATE
+                                     AND GREATEST(total_value - amount_paid, 0) > 0)
+                            THEN 1
+                            ELSE 0
+                        END
+                    ), 0) AS overdue_invoice_count
+                FROM invoice_totals
+                """,
+                invoice_params,
+            ).fetchone()
+
+            quote_status_df = con.execute(
+                f"""
+                {quote_cte}
+                SELECT status, COUNT(*) AS count, COALESCE(SUM(total_value), 0) AS total_value
+                FROM quote_totals
+                GROUP BY status
+                ORDER BY total_value DESC, count DESC, status
+                """,
+                quote_params,
+            ).df()
+
+            invoice_status_df = con.execute(
+                f"""
+                {invoice_cte}
+                SELECT status, COUNT(*) AS count, COALESCE(SUM(total_value), 0) AS total_value
+                FROM invoice_totals
+                GROUP BY status
+                ORDER BY total_value DESC, count DESC, status
+                """,
+                invoice_params,
+            ).df()
+
+            monthly_quotes_df = con.execute(
+                f"""
+                {quote_cte}
+                SELECT month_start, COUNT(*) AS count, COALESCE(SUM(total_value), 0) AS total_value
+                FROM quote_totals
+                GROUP BY month_start
+                ORDER BY month_start
+                """,
+                quote_params,
+            ).df()
+
+            monthly_invoices_df = con.execute(
+                f"""
+                {invoice_cte}
+                SELECT
+                    month_start,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(total_value), 0) AS total_value,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN amount_paid > 0 THEN amount_paid
+                            WHEN LOWER(status) = 'paid' THEN total_value
+                            ELSE 0
+                        END
+                    ), 0) AS paid_total
+                FROM invoice_totals
+                GROUP BY month_start
+                ORDER BY month_start
+                """,
+                invoice_params,
+            ).df()
+
+            top_clients_df = con.execute(
+                f"""
+                {invoice_cte}
+                SELECT
+                    client_db_id,
+                    COALESCE(client_name, 'Unknown client') AS client_name,
+                    COALESCE(SUM(total_value), 0) AS invoice_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN amount_paid > 0 THEN amount_paid
+                            WHEN LOWER(status) = 'paid' THEN total_value
+                            ELSE 0
+                        END
+                    ), 0) AS paid_total,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN LOWER(status) IN ('paid', 'void') THEN 0
+                            ELSE GREATEST(total_value - amount_paid, 0)
+                        END
+                    ), 0) AS outstanding_total
+                FROM invoice_totals
+                GROUP BY client_db_id, COALESCE(client_name, 'Unknown client')
+                HAVING COALESCE(SUM(total_value), 0) > 0
+                ORDER BY invoice_total DESC, client_name
+                LIMIT 8
+                """,
+                invoice_params,
+            ).df()
+
+            quote_currency_df = con.execute(
+                f"""
+                {quote_cte}
+                SELECT DISTINCT currency_code
+                FROM quote_totals
+                WHERE currency_code IS NOT NULL AND TRIM(currency_code) <> ''
+                ORDER BY currency_code
+                """,
+                quote_params,
+            ).df()
+            invoice_currency_df = con.execute(
+                f"""
+                {invoice_cte}
+                SELECT DISTINCT currency_code
+                FROM invoice_totals
+                WHERE currency_code IS NOT NULL AND TRIM(currency_code) <> ''
+                ORDER BY currency_code
+                """,
+                invoice_params,
+            ).df()
+
+            quote_count = int(quote_metrics_row[0] or 0) if quote_metrics_row else 0
+            quote_value_total = float(quote_metrics_row[1] or 0.0) if quote_metrics_row else 0.0
+            approved_quote_value = float(quote_metrics_row[2] or 0.0) if quote_metrics_row else 0.0
+
+            invoice_count = int(invoice_metrics_row[0] or 0) if invoice_metrics_row else 0
+            invoice_total = float(invoice_metrics_row[1] or 0.0) if invoice_metrics_row else 0.0
+            paid_total = float(invoice_metrics_row[2] or 0.0) if invoice_metrics_row else 0.0
+            outstanding_total = float(invoice_metrics_row[3] or 0.0) if invoice_metrics_row else 0.0
+            overdue_invoice_count = int(invoice_metrics_row[4] or 0) if invoice_metrics_row else 0
+
+            cash_realisation_pct = (paid_total / invoice_total * 100.0) if invoice_total > 0 else 0.0
+
+            def _month_label(value) -> str:
+                if value is None:
+                    return "Unknown"
+                if hasattr(value, "strftime"):
+                    return value.strftime("%b %Y")
+                return str(value)
+
+            quote_status_breakdown = []
+            if quote_status_df is not None and not quote_status_df.empty:
+                for _, row in quote_status_df.iterrows():
+                    quote_status_breakdown.append({
+                        "status": row["status"],
+                        "count": int(row["count"]),
+                        "total_value": round(float(row["total_value"] or 0.0), 2),
+                    })
+
+            invoice_status_breakdown = []
+            if invoice_status_df is not None and not invoice_status_df.empty:
+                for _, row in invoice_status_df.iterrows():
+                    invoice_status_breakdown.append({
+                        "status": row["status"],
+                        "count": int(row["count"]),
+                        "total_value": round(float(row["total_value"] or 0.0), 2),
+                    })
+
+            monthly_quotes = []
+            if monthly_quotes_df is not None and not monthly_quotes_df.empty:
+                for _, row in monthly_quotes_df.iterrows():
+                    monthly_quotes.append({
+                        "month": _month_label(row["month_start"]),
+                        "count": int(row["count"]),
+                        "total_value": round(float(row["total_value"] or 0.0), 2),
+                    })
+
+            monthly_invoices = []
+            if monthly_invoices_df is not None and not monthly_invoices_df.empty:
+                for _, row in monthly_invoices_df.iterrows():
+                    monthly_invoices.append({
+                        "month": _month_label(row["month_start"]),
+                        "count": int(row["count"]),
+                        "total_value": round(float(row["total_value"] or 0.0), 2),
+                        "paid_total": round(float(row["paid_total"] or 0.0), 2),
+                    })
+
+            top_clients_by_invoiced_total = []
+            if top_clients_df is not None and not top_clients_df.empty:
+                for _, row in top_clients_df.iterrows():
+                    top_clients_by_invoiced_total.append({
+                        "client_id": int(row["client_db_id"]) if row["client_db_id"] is not None else None,
+                        "client_name": row["client_name"],
+                        "invoice_total": round(float(row["invoice_total"] or 0.0), 2),
+                        "paid_total": round(float(row["paid_total"] or 0.0), 2),
+                        "outstanding_total": round(float(row["outstanding_total"] or 0.0), 2),
+                    })
+
+            quote_currencies = []
+            if quote_currency_df is not None and not quote_currency_df.empty:
+                quote_currencies = [str(row["currency_code"]) for _, row in quote_currency_df.iterrows() if row["currency_code"]]
+            invoice_currencies = []
+            if invoice_currency_df is not None and not invoice_currency_df.empty:
+                invoice_currencies = [str(row["currency_code"]) for _, row in invoice_currency_df.iterrows() if row["currency_code"]]
+
+            return {
+                "metrics": {
+                    "quote_count": quote_count,
+                    "quote_value_total": round(quote_value_total, 2),
+                    "approved_quote_value": round(approved_quote_value, 2),
+                    "invoice_count": invoice_count,
+                    "invoice_total": round(invoice_total, 2),
+                    "paid_total": round(paid_total, 2),
+                    "outstanding_total": round(outstanding_total, 2),
+                    "overdue_invoice_count": overdue_invoice_count,
+                    "cash_realisation_pct": round(cash_realisation_pct, 1),
+                },
+                "quote_status_breakdown": quote_status_breakdown,
+                "invoice_status_breakdown": invoice_status_breakdown,
+                "monthly_quotes": monthly_quotes,
+                "monthly_invoices": monthly_invoices,
+                "top_clients_by_invoiced_total": top_clients_by_invoiced_total,
+                "quote_currencies": quote_currencies,
+                "invoice_currencies": invoice_currencies,
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard financial overview: {e}")
 
 
 @router.get("/dashboard/jobs-by-milestone-status")
