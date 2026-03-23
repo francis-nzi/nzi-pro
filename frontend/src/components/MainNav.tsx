@@ -69,6 +69,7 @@ export function MainNav() {
 
   const links = [
     { href: "/", label: "Dashboard" },
+    { href: "/insights", label: "Insights" },
     { href: "/clients", label: "Clients" },
     { href: "/jobs", label: "Jobs" },
     { href: "/time", label: "Time" },

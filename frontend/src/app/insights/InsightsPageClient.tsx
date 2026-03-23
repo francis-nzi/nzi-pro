@@ -1,0 +1,560 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import PageHeader from "@/components/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+function apiBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
+}
+
+type DashboardOverview = {
+  selected_year: number;
+  available_years: number[];
+  available_industries: string[];
+  available_crm: string[];
+  year_trend: Array<{ year: number | null; total_emissions: number }>;
+  industry_breakdown: Array<{ industry: string; client_count: number }>;
+  metrics: {
+    total_clients: number;
+    total_emissions: number;
+    active_jobs: number;
+    total_datasets: number;
+    yoy_change: number | null;
+  };
+  job_status_breakdown: Array<{
+    status: string;
+    count: number;
+  }>;
+  top_emitting_clients: Array<{
+    client_name: string;
+    client_id: number;
+    emissions: number;
+  }>;
+  recent_activity: Array<{
+    job_id: number;
+    title: string;
+    reporting_year: number | null;
+    status: string;
+    client_name: string;
+    start_date: string | null;
+    milestone_status?: string | null;
+  }>;
+  jobs_per_crm: Array<{
+    crm_name: string;
+    total_jobs: number;
+    statuses: { [key: string]: number };
+  }>;
+};
+
+type JobsMilestoneStatus = {
+  green: number;
+  amber: number;
+  red: number;
+  no_milestones: number;
+  total: number;
+};
+
+const ALL_FILTER_VALUE = "__all__";
+
+const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
+  green: 0,
+  amber: 0,
+  red: 0,
+  no_milestones: 0,
+  total: 0,
+};
+
+function formatNumber(value: number, digits = 1): string {
+  return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function toneForStatus(status: string): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "completed") return "bg-emerald-100 text-emerald-800";
+  if (normalized === "open") return "bg-blue-100 text-blue-800";
+  if (normalized.includes("await")) return "bg-amber-100 text-amber-800";
+  if (normalized.includes("archive") || normalized.includes("cancel")) return "bg-slate-100 text-slate-700";
+  return "bg-muted text-foreground";
+}
+
+function overviewSubtitle(data: DashboardOverview | null): string {
+  if (!data) return "Portfolio-wide business intelligence for clients, jobs, and delivery performance.";
+  const year = data.selected_year || new Date().getFullYear();
+  return `Portfolio-wide business intelligence for ${year}, with filters for industry and CRM owner.`;
+}
+
+export default function InsightsPageClient() {
+  const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const [data, setData] = useState<DashboardOverview | null>(null);
+  const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
+  const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
+
+  const loadInsights = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear) params.set("year", String(selectedYear));
+      if (selectedIndustry) params.set("industry", selectedIndustry);
+      if (selectedCrm) params.set("crm_owner", selectedCrm);
+
+      const [overviewRes, jobsStatusRes] = await Promise.all([
+        fetch(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${baseUrl}/dashboard/jobs-by-milestone-status`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ]);
+
+      if (!overviewRes.ok) {
+        throw new Error(`Insights overview failed (${overviewRes.status})`);
+      }
+
+      const overviewJson = (await overviewRes.json()) as DashboardOverview;
+      setData(overviewJson);
+      if (!selectedYear && overviewJson.selected_year) {
+        setSelectedYear(Number(overviewJson.selected_year));
+      }
+
+      if (jobsStatusRes.ok) {
+        const jobsStatusJson = (await jobsStatusRes.json()) as JobsMilestoneStatus;
+        setJobsStatus(jobsStatusJson);
+      } else {
+        setJobsStatus(EMPTY_JOBS_STATUS);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+      setData(null);
+      setJobsStatus(EMPTY_JOBS_STATUS);
+    } finally {
+      setLoading(false);
+    }
+  }, [baseUrl, selectedCrm, selectedIndustry, selectedYear]);
+
+  useEffect(() => {
+    void loadInsights();
+  }, [loadInsights]);
+
+  const totalJobs = useMemo(
+    () => (data?.job_status_breakdown || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
+    [data]
+  );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="mx-auto w-full max-w-7xl px-6 py-10 text-sm text-muted-foreground">Loading insights...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-7xl px-6 py-10">
+        <PageHeader
+          title="Insights"
+          subtitle={overviewSubtitle(data)}
+          breadcrumbs={[{ label: "Insights" }]}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => void loadInsights()}>
+                Refresh
+              </Button>
+              <Button variant="secondary" asChild>
+                <Link href="/">Back to Hub</Link>
+              </Button>
+            </>
+          }
+        />
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Filters</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">Reporting Year</div>
+              <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={(value) => setSelectedYear(value === ALL_FILTER_VALUE ? null : Number(value))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
+                  {(data?.available_years || []).map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">Industry</div>
+              <Select value={selectedIndustry ?? ALL_FILTER_VALUE} onValueChange={(value) => setSelectedIndustry(value === ALL_FILTER_VALUE ? null : value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All industries" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All industries</SelectItem>
+                  {(data?.available_industries || []).map((industry) => (
+                    <SelectItem key={industry} value={industry}>
+                      {industry}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm text-muted-foreground">CRM Owner</div>
+              <Select value={selectedCrm ?? ALL_FILTER_VALUE} onValueChange={(value) => setSelectedCrm(value === ALL_FILTER_VALUE ? null : value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All CRM owners" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All CRM owners</SelectItem>
+                  {(data?.available_crm || []).map((crm) => (
+                    <SelectItem key={crm} value={crm}>
+                      {crm}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {error ? (
+          <Card className="mb-6 border-red-200">
+            <CardContent className="pt-6 text-sm text-red-600">{error}</CardContent>
+          </Card>
+        ) : null}
+
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList className="flex h-auto flex-wrap justify-start">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="clients">Clients</TabsTrigger>
+            <TabsTrigger value="jobs">Jobs</TabsTrigger>
+            <TabsTrigger value="financial">Financial</TabsTrigger>
+            <TabsTrigger value="operations">Operations</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Clients</div>
+                  <div className="mt-2 text-3xl font-semibold">{data?.metrics.total_clients ?? 0}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Portfolio in current filter</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-muted-foreground">Emissions</div>
+                    {data?.metrics.yoy_change !== null && data?.metrics.yoy_change !== undefined ? (
+                      <div className={`text-xs font-medium ${Number(data.metrics.yoy_change) > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                        {Number(data.metrics.yoy_change) > 0 ? "+" : ""}
+                        {Number(data.metrics.yoy_change).toFixed(1)}%
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 text-3xl font-semibold">{formatNumber(data?.metrics.total_emissions ?? 0)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">tCO2e in selected year</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Active Jobs</div>
+                  <div className="mt-2 text-3xl font-semibold">{data?.metrics.active_jobs ?? 0}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Live delivery workload</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Total Jobs</div>
+                  <div className="mt-2 text-3xl font-semibold">{totalJobs}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">All statuses in view</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Delivery Risk</div>
+                  <div className="mt-2 text-3xl font-semibold">{jobsStatus.red}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Jobs with overdue milestones</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Emissions Trend</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(data?.year_trend || []).length > 0 ? (
+                    (data?.year_trend || []).map((row) => (
+                      <div key={`trend-${row.year ?? "na"}`} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span>{row.year ?? "Unknown"}</span>
+                          <span className="font-medium">{formatNumber(row.total_emissions)} tCO2e</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div
+                            className="h-2 rounded-full bg-[#1c5026]"
+                            style={{
+                              width: `${Math.max(
+                                8,
+                                ((Number(row.total_emissions || 0) / Math.max(...(data?.year_trend || []).map((item) => Number(item.total_emissions || 0)), 1)) * 100)
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No emissions trend data yet.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Milestone Health</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded border p-4">
+                    <div className="text-xs text-muted-foreground">Healthy</div>
+                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.green}</div>
+                  </div>
+                  <div className="rounded border p-4">
+                    <div className="text-xs text-muted-foreground">Due Soon</div>
+                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.amber}</div>
+                  </div>
+                  <div className="rounded border p-4">
+                    <div className="text-xs text-muted-foreground">Overdue</div>
+                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.red}</div>
+                  </div>
+                  <div className="rounded border p-4">
+                    <div className="text-xs text-muted-foreground">No Milestones</div>
+                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.no_milestones}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="clients" className="space-y-6">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Industry Mix</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(data?.industry_breakdown || []).length > 0 ? (
+                    (data?.industry_breakdown || []).slice(0, 10).map((row) => (
+                      <div key={`industry-${row.industry}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span>{row.industry || "Unspecified"}</span>
+                        <span className="font-medium">{row.client_count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No client industry mix available yet.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Emitting Clients</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(data?.top_emitting_clients || []).length > 0 ? (
+                    (data?.top_emitting_clients || []).map((row) => (
+                      <Link
+                        key={`client-${row.client_id}`}
+                        href={`/clients/${row.client_id}`}
+                        className="flex items-center justify-between rounded border p-3 text-sm transition-colors hover:bg-muted/40"
+                      >
+                        <span>{row.client_name || "Unknown client"}</span>
+                        <span className="font-medium">{formatNumber(row.emissions)} tCO2e</span>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Top client emissions will appear as jobs and scope data build out.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Client Intelligence Themes</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <div className="rounded border p-4">
+                  <div className="text-sm font-medium">Portfolio Mix</div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    Industry concentration, CRM ownership, benchmark coverage, and client growth patterns.
+                  </div>
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-sm font-medium">Retention & Renewals</div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    Upcoming renewals, dormant clients, repeat job patterns, and account risk indicators.
+                  </div>
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-sm font-medium">Client Drilldown</div>
+                  <div className="mt-2 text-sm text-muted-foreground">
+                    From portfolio view to individual client records, reporting history, and emissions performance.
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="jobs" className="space-y-6">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Job Status Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(data?.job_status_breakdown || []).length > 0 ? (
+                    (data?.job_status_breakdown || []).map((row) => (
+                      <div key={`status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span>{row.status || "Unknown"}</span>
+                        <span className="font-medium">{row.count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No job status data available yet.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Jobs By CRM</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(data?.jobs_per_crm || []).length > 0 ? (
+                    (data?.jobs_per_crm || []).map((row) => (
+                      <div key={`crm-${row.crm_name}`} className="rounded border p-3">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">{row.crm_name || "Unassigned"}</span>
+                          <span>{row.total_jobs} jobs</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {Object.entries(row.statuses || {}).map(([status, count]) => (
+                            <span key={`${row.crm_name}-${status}`} className={`rounded-full px-2 py-1 text-xs ${toneForStatus(status)}`}>
+                              {status}: {count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">CRM workload will appear here as jobs are created.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Job Activity</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(data?.recent_activity || []).length > 0 ? (
+                  (data?.recent_activity || []).map((row) => (
+                    <Link
+                      key={`job-${row.job_id}`}
+                      href={`/jobs/${row.job_id}`}
+                      className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.8fr]"
+                    >
+                      <div>
+                        <div className="font-medium">{row.title || `Job ${row.job_id}`}</div>
+                        <div className="text-xs text-muted-foreground">{row.client_name || "Unknown client"}</div>
+                      </div>
+                      <div className="text-muted-foreground">{row.reporting_year || "-"}</div>
+                      <div>
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForStatus(row.status || "")}`}>
+                          {row.status || "Unknown"}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground">{formatDate(row.start_date)}</div>
+                      <div className="text-muted-foreground">{row.milestone_status || "-"}</div>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">Recent job activity will appear here as delivery work expands.</div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="financial" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Financial Insights Next</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <div className="rounded border p-4 text-sm text-muted-foreground">Revenue by month, CRM owner, client, and job type.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Quote win rate, invoice ageing, average job value, and renewal revenue.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Drill from portfolio totals down to client, quote, invoice, and job records.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="operations" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Operations Insights Next</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <div className="rounded border p-4 text-sm text-muted-foreground">Milestone slippage, delivery throughput, and deadline risk by CRM owner and job type.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Time logged versus estimate, utilisation, bottlenecks, and outstanding client inputs.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Operational drilldown from team-wide hotspots to individual jobs and overdue actions.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="reports" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Reports Layer Next</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-3">
+                <div className="rounded border p-4 text-sm text-muted-foreground">Saved views for leadership, CRM owners, delivery, and finance.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Exportable tables for CSV / Excel and scheduled report snapshots.</div>
+                <div className="rounded border p-4 text-sm text-muted-foreground">Reusable breakdown and drill APIs so one engine can drive many report types.</div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
