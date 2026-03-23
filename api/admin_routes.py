@@ -4231,21 +4231,65 @@ def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_cu
         raise HTTPException(status_code=500, detail=f"Failed to preview mapping impact: {e}")
 
 
-def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool) -> dict:
+def _build_wfm_client_field_backfill_preview(con, *, target_field: str, overwrite_existing: bool) -> dict:
     try:
         from wfm_import.wfm_import_routine import (
             _clean,
+            _parse_date,
             WFM_CLIENT_FIELD_CANDIDATES,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"WFM importer unavailable: {e}")
 
+    field_key = str(target_field or "").strip()
+    field_configs: dict[str, dict] = {
+        "industry": {
+            "label": "Industry",
+            "target_column": "industry",
+            "required_files": ["clients.csv", "custom_fields.csv", "client_custom_field_values.csv"],
+            "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("industry")
+            or ["Industry", "Sector", "Business Sector", "Company Sector"],
+            "needs_lookup_values": True,
+        },
+        "crm_owner": {
+            "label": "Client Manager",
+            "target_column": "crm_owner",
+            "required_files": ["clients.csv", "staff.csv"],
+            "default_candidates": ["Client Manager", "Account Manager", "CRM Owner", "Job Manager"],
+            "direct_column": "Client Manager",
+            "uses_staff_lookup": True,
+        },
+        "year_end_month": {
+            "label": "Financial Year End Month",
+            "target_column": "year_end_month",
+            "required_files": ["clients.csv"],
+            "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("year_end_month") or ["Financial Year End", "Year End Date"],
+            "direct_column": "Year End Date",
+            "transform": "month_from_date",
+        },
+        "benchmark_period_start": {
+            "label": "Benchmark Period Start",
+            "target_column": "benchmark_period_start",
+            "required_files": ["clients.csv", "custom_fields.csv", "client_custom_field_values.csv"],
+            "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("benchmark_period_start")
+            or ["Benchmark Date From", "Benchmark Period Start"],
+            "transform": "date",
+        },
+        "benchmark_period_end": {
+            "label": "Benchmark Period End",
+            "target_column": "benchmark_period_end",
+            "required_files": ["clients.csv", "custom_fields.csv", "client_custom_field_values.csv"],
+            "default_candidates": WFM_CLIENT_FIELD_CANDIDATES.get("benchmark_period_end")
+            or ["Benchmark Date To", "Benchmark Period End"],
+            "transform": "date",
+        },
+    }
+    config = field_configs.get(field_key)
+    if not config:
+        raise HTTPException(status_code=400, detail=f"Unsupported client backfill field: {field_key}")
+
     raw_dir = _wfm_raw_dir()
-    required_files = [
-        "clients.csv",
-        "client_custom_field_values.csv",
-        "custom_fields.csv",
-    ]
+    required_files = list(config.get("required_files") or [])
     missing = [name for name in required_files if not (raw_dir / name).exists()]
     if missing:
         raise HTTPException(status_code=404, detail=f"Required WFM files missing in raw_data: {', '.join(missing)}")
@@ -4261,7 +4305,8 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         "Company Sector",
     ]
     candidate_fields: list[str] = []
-    for value in [*(client_mapping_overrides.get("industry", []) or []), *default_industry_candidates]:
+    default_candidates = list(config.get("default_candidates") or default_industry_candidates)
+    for value in [*(client_mapping_overrides.get(field_key, []) or []), *default_candidates]:
         cleaned = _clean(value)
         if cleaned and cleaned.lower() not in {item.lower() for item in candidate_fields}:
             candidate_fields.append(cleaned)
@@ -4274,8 +4319,13 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         return df
 
     clients_df = _read_wfm_csv("clients.csv")
-    custom_fields_df = _read_wfm_csv("custom_fields.csv")
-    client_custom_values_df = _read_wfm_csv("client_custom_field_values.csv")
+    custom_fields_df = _read_wfm_csv("custom_fields.csv") if (raw_dir / "custom_fields.csv").exists() else pd.DataFrame()
+    client_custom_values_df = (
+        _read_wfm_csv("client_custom_field_values.csv")
+        if (raw_dir / "client_custom_field_values.csv").exists()
+        else pd.DataFrame()
+    )
+    staff_df = _read_wfm_csv("staff.csv") if (raw_dir / "staff.csv").exists() else pd.DataFrame()
 
     field_name_by_id: dict[str, str] = {}
     for _, row in custom_fields_df.iterrows():
@@ -4294,6 +4344,14 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         field_name = field_name_by_id.get(field_id, field_id)
         client_custom_values.setdefault(client_id, {})[field_name.lower()] = field_value
 
+    staff_name_by_id: dict[str, str] = {}
+    for _, row in staff_df.iterrows():
+        staff_id = _clean(row.get("Id"))
+        if not staff_id:
+            continue
+        staff_name = " ".join([part for part in [_clean(row.get("First Name")), _clean(row.get("Last Name"))] if part]).strip()
+        staff_name_by_id[staff_id] = staff_name or _clean(row.get("Email")) or staff_id
+
     def _pick_field_value(value_map: dict[str, str], candidates: list[str]) -> str:
         if not value_map:
             return ""
@@ -4303,22 +4361,52 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
                 return value
         return ""
 
+    def _transform_value(raw_value: str) -> str:
+        value = _clean(raw_value)
+        transform = str(config.get("transform") or "").strip().lower()
+        if not value:
+            return ""
+        if config.get("uses_staff_lookup"):
+            return _clean(staff_name_by_id.get(value) or value)
+        if transform == "date":
+            return _clean(_parse_date(value))
+        if transform == "month_from_date":
+            parsed = _clean(_parse_date(value))
+            return parsed[5:7] if len(parsed) >= 7 else ""
+        return value
+
+    client_columns = {
+        str(row[0] or "").strip().lower()
+        for row in con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'clients'
+            """
+        ).fetchall()
+    }
+    target_column = str(config.get("target_column") or field_key).strip()
+    if target_column.lower() not in client_columns:
+        raise HTTPException(status_code=400, detail=f"Client field not available in this environment: {target_column}")
+
     if clients_df is None or clients_df.empty:
         return {
             "ok": True,
+            "target_field": field_key,
+            "target_label": str(config.get("label") or field_key),
             "summary": {
                 "total_wfm_clients": 0,
-                "clients_with_wfm_industry": 0,
+                "clients_with_wfm_value": 0,
                 "matched_by_map": 0,
                 "matched_by_name": 0,
                 "ready_updates": 0,
                 "fill_updates": 0,
                 "replace_updates": 0,
                 "unchanged": 0,
-                "missing_wfm_industry": 0,
+                "missing_wfm_value": 0,
                 "unmatched_clients": 0,
                 "ambiguous_name_matches": 0,
-                "missing_lookup_industries": 0,
+                "missing_lookup_values": 0,
             },
             "rows_ready": [],
             "rows_unmatched": [],
@@ -4335,25 +4423,25 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
     client_map = {str(row[0] or "").strip(): int(row[1]) for row in map_rows if row and row[0] and row[1] is not None}
 
     client_rows = con.execute(
-        """
-        SELECT db_id, client_name, industry
+        f"""
+        SELECT db_id, client_name, {target_column}
         FROM clients
         """
     ).fetchall()
     clients_by_id: dict[int, dict] = {}
     clients_by_name: dict[str, list[dict]] = {}
-    for db_id, client_name, industry in client_rows:
+    for db_id, client_name, existing_value in client_rows:
         item = {
             "db_id": int(db_id),
             "client_name": str(client_name or "").strip(),
-            "industry": str(industry or "").strip(),
+            "existing_value": str(existing_value or "").strip(),
         }
         clients_by_id[item["db_id"]] = item
         name_key = item["client_name"].lower()
         if name_key:
             clients_by_name.setdefault(name_key, []).append(item)
 
-    industry_lookup_names: set[str] = set()
+    lookup_value_names: set[str] = set()
     has_industries_lookup = bool(
         con.execute(
             """
@@ -4364,29 +4452,31 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
             """
         ).fetchone()
     )
-    if has_industries_lookup:
+    if config.get("needs_lookup_values") and has_industries_lookup:
         try:
             lookup_rows = con.execute("SELECT name FROM industries_lookup WHERE name IS NOT NULL").fetchall()
-            industry_lookup_names = {str(row[0] or "").strip().lower() for row in lookup_rows if str(row[0] or "").strip()}
+            lookup_value_names = {str(row[0] or "").strip().lower() for row in lookup_rows if str(row[0] or "").strip()}
         except Exception:
-            industry_lookup_names = set()
+            lookup_value_names = set()
 
     rows_ready: list[dict] = []
     rows_unmatched: list[dict] = []
     rows_unchanged: list[dict] = []
     matched_by_map = 0
     matched_by_name = 0
-    missing_wfm_industry = 0
+    missing_wfm_value = 0
     ambiguous_name_matches = 0
 
     for _, row in clients_df.iterrows():
         wfm_client_id = _clean(row.get("Id"))
         client_name = _clean(row.get("Name"))
         client_custom = client_custom_values.get(wfm_client_id, {})
-        wfm_industry = _clean(_pick_field_value(client_custom, candidate_fields))
+        direct_value = _transform_value(_clean(row.get(str(config.get("direct_column") or ""))))
+        custom_value = _transform_value(_pick_field_value(client_custom, candidate_fields))
+        wfm_value = custom_value or direct_value
 
-        if not wfm_industry:
-            missing_wfm_industry += 1
+        if not wfm_value:
+            missing_wfm_value += 1
             continue
 
         matched = None
@@ -4409,7 +4499,7 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
                     {
                         "wfm_client_id": wfm_client_id,
                         "client_name": client_name,
-                        "wfm_industry": wfm_industry,
+                        "wfm_value": wfm_value,
                         "reason": f"Ambiguous client name match ({len(name_matches)} matches)",
                     }
                 )
@@ -4420,36 +4510,36 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
                 {
                     "wfm_client_id": wfm_client_id,
                     "client_name": client_name,
-                    "wfm_industry": wfm_industry,
+                    "wfm_value": wfm_value,
                     "reason": "No NZI client match found",
                 }
             )
             continue
 
-        existing_industry = str(matched.get("industry") or "").strip()
-        same_industry = existing_industry.lower() == wfm_industry.lower() if existing_industry else False
-        if same_industry:
+        existing_value = str(matched.get("existing_value") or "").strip()
+        same_value = existing_value.lower() == wfm_value.lower() if existing_value else False
+        if same_value:
             rows_unchanged.append(
                 {
                     "nzi_client_id": matched.get("db_id"),
                     "client_name": matched.get("client_name"),
-                    "existing_industry": existing_industry,
-                    "wfm_industry": wfm_industry,
+                    "existing_value": existing_value,
+                    "wfm_value": wfm_value,
                     "match_method": match_method,
-                    "reason": "Already matches WFM industry",
+                    "reason": f"Already matches WFM {config.get('label')}",
                 }
             )
             continue
 
-        if existing_industry and not overwrite_existing:
+        if existing_value and not overwrite_existing:
             rows_unchanged.append(
                 {
                     "nzi_client_id": matched.get("db_id"),
                     "client_name": matched.get("client_name"),
-                    "existing_industry": existing_industry,
-                    "wfm_industry": wfm_industry,
+                    "existing_value": existing_value,
+                    "wfm_value": wfm_value,
                     "match_method": match_method,
-                    "reason": "Existing industry kept",
+                    "reason": "Existing value kept",
                 }
             )
             continue
@@ -4459,55 +4549,64 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
                 "nzi_client_id": matched.get("db_id"),
                 "wfm_client_id": wfm_client_id,
                 "client_name": matched.get("client_name") or client_name,
-                "existing_industry": existing_industry or None,
-                "wfm_industry": wfm_industry,
+                "existing_value": existing_value or None,
+                "wfm_value": wfm_value,
                 "match_method": match_method,
-                "action": "replace" if existing_industry else "fill",
+                "action": "replace" if existing_value else "fill",
             }
         )
 
-    missing_lookup_industries = sorted(
+    missing_lookup_values = sorted(
         {
-            str(row.get("wfm_industry") or "").strip()
+            str(row.get("wfm_value") or "").strip()
             for row in rows_ready
-            if str(row.get("wfm_industry") or "").strip()
-            and str(row.get("wfm_industry") or "").strip().lower() not in industry_lookup_names
+            if str(row.get("wfm_value") or "").strip()
+            and str(row.get("wfm_value") or "").strip().lower() not in lookup_value_names
         }
-    )
+    ) if config.get("needs_lookup_values") else []
 
     return {
         "ok": True,
+        "target_field": field_key,
+        "target_label": str(config.get("label") or field_key),
+        "target_column": target_column,
         "summary": {
             "total_wfm_clients": int(len(clients_df)),
-            "clients_with_wfm_industry": int(len(clients_df) - missing_wfm_industry),
+            "clients_with_wfm_value": int(len(clients_df) - missing_wfm_value),
             "matched_by_map": int(matched_by_map),
             "matched_by_name": int(matched_by_name),
             "ready_updates": int(len(rows_ready)),
             "fill_updates": int(sum(1 for row in rows_ready if row.get("action") == "fill")),
             "replace_updates": int(sum(1 for row in rows_ready if row.get("action") == "replace")),
             "unchanged": int(len(rows_unchanged)),
-            "missing_wfm_industry": int(missing_wfm_industry),
+            "missing_wfm_value": int(missing_wfm_value),
             "unmatched_clients": int(len(rows_unmatched)),
             "ambiguous_name_matches": int(ambiguous_name_matches),
-            "missing_lookup_industries": int(len(missing_lookup_industries)),
+            "missing_lookup_values": int(len(missing_lookup_values)),
         },
         "rows_ready": rows_ready,
         "rows_unmatched": rows_unmatched,
         "rows_unchanged": rows_unchanged,
-        "missing_lookup_industries": missing_lookup_industries,
+        "missing_lookup_values": missing_lookup_values,
         "overwrite_existing": bool(overwrite_existing),
     }
 
 
+@router.post("/import-export/wfm/client-fields/backfill")
 @router.post("/import-export/wfm/client-industries/backfill")
-def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends(_current_user)):
+def backfill_wfm_client_fields(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        target_field = str(body.get("target_field") or "industry").strip()
         preview_only = bool(body.get("preview_only", True))
         overwrite_existing = bool(body.get("overwrite_existing", True))
         actor = str(_user.get("email") or _user.get("user_id") or "unknown").strip()
 
         with get_conn() as con:
-            preview = _build_wfm_client_industry_backfill_preview(con, overwrite_existing=overwrite_existing)
+            preview = _build_wfm_client_field_backfill_preview(
+                con,
+                target_field=target_field,
+                overwrite_existing=overwrite_existing,
+            )
 
             if preview_only:
                 return {
@@ -4521,8 +4620,8 @@ def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends
             applied_updates = 0
             lookup_rows_inserted = 0
 
-            if preview.get("missing_lookup_industries"):
-                for industry_name in preview["missing_lookup_industries"]:
+            if target_field == "industry" and preview.get("missing_lookup_values"):
+                for industry_name in preview["missing_lookup_values"]:
                     try:
                         con.execute(
                             """
@@ -4540,9 +4639,10 @@ def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends
                         pass
 
             for row in rows_ready:
+                target_column = str(preview.get("target_column") or target_field).strip()
                 con.execute(
-                    "UPDATE clients SET industry = %s WHERE db_id = %s",
-                    [row.get("wfm_industry"), int(row["nzi_client_id"])],
+                    f"UPDATE clients SET {target_column} = %s WHERE db_id = %s",
+                    [row.get("wfm_value"), int(row["nzi_client_id"])],
                 )
                 applied_updates += 1
                 try:
@@ -4556,8 +4656,8 @@ def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends
                             "client",
                             row.get("wfm_client_id"),
                             int(row["nzi_client_id"]),
-                            "update_industry",
-                            f"Backfilled client industry to '{row.get('wfm_industry')}' by {actor}",
+                            "update_client_field",
+                            f"Backfilled client field '{target_field}' to '{row.get('wfm_value')}' by {actor}",
                         ],
                     )
                 except Exception:
@@ -4572,7 +4672,7 @@ def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to backfill WFM client industries: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to backfill WFM client field '{target_field}': {e}")
 
 
 @router.get("/import-export/wfm/mapping-targets")

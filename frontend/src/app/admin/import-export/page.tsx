@@ -131,32 +131,35 @@ type ClientIndustryBackfillRow = {
   nzi_client_id?: number;
   wfm_client_id?: string;
   client_name?: string;
-  existing_industry?: string | null;
-  wfm_industry?: string;
+  existing_value?: string | null;
+  wfm_value?: string;
   match_method?: string;
   action?: string;
   reason?: string;
 };
 type ClientIndustryBackfillResult = {
   ok?: boolean;
+  target_field?: string;
+  target_label?: string;
+  target_column?: string;
   preview_only?: boolean;
   overwrite_existing?: boolean;
   applied_updates?: number;
   lookup_rows_inserted?: number;
-  missing_lookup_industries?: string[];
+  missing_lookup_values?: string[];
   summary?: {
     total_wfm_clients?: number;
-    clients_with_wfm_industry?: number;
+    clients_with_wfm_value?: number;
     matched_by_map?: number;
     matched_by_name?: number;
     ready_updates?: number;
     fill_updates?: number;
     replace_updates?: number;
     unchanged?: number;
-    missing_wfm_industry?: number;
+    missing_wfm_value?: number;
     unmatched_clients?: number;
     ambiguous_name_matches?: number;
-    missing_lookup_industries?: number;
+    missing_lookup_values?: number;
   };
   rows_ready?: ClientIndustryBackfillRow[];
   rows_unmatched?: ClientIndustryBackfillRow[];
@@ -228,11 +231,21 @@ const DEFAULT_TARGET_FIELDS: { job: string[]; client: string[] } = {
   ],
 };
 
-const REQUIRED_CLIENT_INDUSTRY_WFM_FILES = [
-  "clients.csv",
-  "client_custom_field_values.csv",
-  "custom_fields.csv",
-];
+const CLIENT_BACKFILL_OPTIONS = [
+  { value: "industry", label: "Industry" },
+  { value: "crm_owner", label: "Client Manager" },
+  { value: "year_end_month", label: "Financial Year End Month" },
+  { value: "benchmark_period_start", label: "Benchmark Period Start" },
+  { value: "benchmark_period_end", label: "Benchmark Period End" },
+] as const;
+
+const CLIENT_BACKFILL_REQUIRED_FILES: Record<string, string[]> = {
+  industry: ["clients.csv", "client_custom_field_values.csv", "custom_fields.csv"],
+  crm_owner: ["clients.csv", "staff.csv"],
+  year_end_month: ["clients.csv"],
+  benchmark_period_start: ["clients.csv", "client_custom_field_values.csv", "custom_fields.csv"],
+  benchmark_period_end: ["clients.csv", "client_custom_field_values.csv", "custom_fields.csv"],
+};
 
 function normalizeEntity(value: string | undefined | null): "job" | "client" {
   const v = String(value || "").trim().toLowerCase();
@@ -289,6 +302,7 @@ export default function AdminImportExportPage() {
   const [attributeOverrideFile, setAttributeOverrideFile] = useState<File | null>(null);
   const [attributeOverridePreview, setAttributeOverridePreview] = useState<AttributeOverridePreview | null>(null);
   const [attributeOverrideCommitResult, setAttributeOverrideCommitResult] = useState<AttributeOverrideCommitResult | null>(null);
+  const [clientBackfillField, setClientBackfillField] = useState<string>("industry");
   const [overwriteClientIndustries, setOverwriteClientIndustries] = useState(true);
   const [clientIndustryBackfillResult, setClientIndustryBackfillResult] = useState<ClientIndustryBackfillResult | null>(null);
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
@@ -299,10 +313,14 @@ export default function AdminImportExportPage() {
     [summary]
   );
   const missingClientIndustryFiles = useMemo(
-    () => REQUIRED_CLIENT_INDUSTRY_WFM_FILES.filter((name) => !uploadedWfmFileNames.has(name.toLowerCase())),
-    [uploadedWfmFileNames]
+    () => (CLIENT_BACKFILL_REQUIRED_FILES[clientBackfillField] || []).filter((name) => !uploadedWfmFileNames.has(name.toLowerCase())),
+    [clientBackfillField, uploadedWfmFileNames]
   );
   const canRunClientIndustryBackfill = missingClientIndustryFiles.length === 0;
+  const selectedClientBackfillLabel = useMemo(
+    () => CLIENT_BACKFILL_OPTIONS.find((option) => option.value === clientBackfillField)?.label || "Client Field",
+    [clientBackfillField]
+  );
   const selectedClients = runResult?.selected_clients ?? [];
   const runWarnings = runResult?.stats?.warnings ?? [];
   const runErrors = runResult?.stats?.errors ?? [];
@@ -939,13 +957,14 @@ export default function AdminImportExportPage() {
     }
     setBusy(true);
     setError("");
-    setStatus("Previewing client industry backfill...");
+    setStatus(`Previewing ${selectedClientBackfillLabel.toLowerCase()} backfill...`);
     try {
-      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-industries/backfill`, {
+      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-fields/backfill`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          target_field: clientBackfillField,
           preview_only: true,
           overwrite_existing: overwriteClientIndustries,
         }),
@@ -953,12 +972,12 @@ export default function AdminImportExportPage() {
       const text = await res.text().catch(() => "");
       const json = text.trim() ? JSON.parse(text) : {};
       if (!res.ok) {
-        throw new Error(`Client industry preview failed (${res.status})${text ? `: ${text}` : ""}`);
+        throw new Error(`${selectedClientBackfillLabel} preview failed (${res.status})${text ? `: ${text}` : ""}`);
       }
       setClientIndustryBackfillResult(json as ClientIndustryBackfillResult);
       const summary = (json as ClientIndustryBackfillResult).summary;
       setStatus(
-        `Client industry preview ready. ${Number(summary?.ready_updates || 0)} updates, ${Number(summary?.unchanged || 0)} unchanged, ${Number(summary?.unmatched_clients || 0)} unmatched.`
+        `${selectedClientBackfillLabel} preview ready. ${Number(summary?.ready_updates || 0)} updates, ${Number(summary?.unchanged || 0)} unchanged, ${Number(summary?.unmatched_clients || 0)} unmatched.`
       );
     } catch (e) {
       setError((e as Error).message);
@@ -976,13 +995,14 @@ export default function AdminImportExportPage() {
     }
     setBusy(true);
     setError("");
-    setStatus("Applying client industry backfill...");
+    setStatus(`Applying ${selectedClientBackfillLabel.toLowerCase()} backfill...`);
     try {
-      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-industries/backfill`, {
+      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-fields/backfill`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          target_field: clientBackfillField,
           preview_only: false,
           overwrite_existing: overwriteClientIndustries,
         }),
@@ -990,10 +1010,10 @@ export default function AdminImportExportPage() {
       const text = await res.text().catch(() => "");
       const json = text.trim() ? JSON.parse(text) : {};
       if (!res.ok) {
-        throw new Error(`Client industry backfill failed (${res.status})${text ? `: ${text}` : ""}`);
+        throw new Error(`${selectedClientBackfillLabel} backfill failed (${res.status})${text ? `: ${text}` : ""}`);
       }
       setClientIndustryBackfillResult(json as ClientIndustryBackfillResult);
-      setStatus(`Applied ${Number((json as ClientIndustryBackfillResult).applied_updates || 0)} client industry updates.`);
+      setStatus(`Applied ${Number((json as ClientIndustryBackfillResult).applied_updates || 0)} ${selectedClientBackfillLabel.toLowerCase()} updates.`);
       await loadSummary();
     } catch (e) {
       setError((e as Error).message);
@@ -1332,12 +1352,29 @@ export default function AdminImportExportPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Backfill Client Industries</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Backfill Client Fields</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
-              Reads the <strong>Industry</strong> client custom field from the uploaded WFM raw files, matches NZI clients by
-              <strong> WFM import map</strong> first and <strong>client name</strong> second, then updates the NZI client industry.
+              Reuses the WFM client backfill flow for supported client fields. It matches NZI clients by
+              <strong> WFM import map</strong> first and <strong>client name</strong> second, then updates the selected NZI client field.
             </div>
+            <label className="block text-sm text-muted-foreground">
+              <div className="mb-1">Client Field</div>
+              <select
+                className="w-full rounded border bg-background px-3 py-2 text-sm text-foreground"
+                value={clientBackfillField}
+                onChange={(e) => {
+                  setClientBackfillField(e.target.value);
+                  setClientIndustryBackfillResult(null);
+                }}
+              >
+                {CLIENT_BACKFILL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             {!canRunClientIndustryBackfill ? (
               <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
                 Upload the required WFM source files first: <strong>{missingClientIndustryFiles.join(", ")}</strong>.
@@ -1353,13 +1390,13 @@ export default function AdminImportExportPage() {
             </label>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" disabled={busy || !canRunClientIndustryBackfill} onClick={() => void previewClientIndustryBackfill()}>
-                Preview Industry Backfill
+                Preview Backfill
               </Button>
               <Button
                 disabled={busy || !canRunClientIndustryBackfill || !clientIndustryBackfillResult?.summary?.ready_updates}
                 onClick={() => void applyClientIndustryBackfill()}
               >
-                Apply Industry Backfill
+                Apply Backfill
               </Button>
             </div>
 
@@ -1371,8 +1408,8 @@ export default function AdminImportExportPage() {
                     <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.total_wfm_clients || 0)}</div>
                   </div>
                   <div className="rounded border bg-muted/20 p-3">
-                    <div className="text-xs text-muted-foreground">With WFM Industry</div>
-                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.clients_with_wfm_industry || 0)}</div>
+                    <div className="text-xs text-muted-foreground">With WFM Value</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.clients_with_wfm_value || 0)}</div>
                   </div>
                   <div className="rounded border bg-muted/20 p-3">
                     <div className="text-xs text-muted-foreground">Ready Updates</div>
@@ -1390,19 +1427,19 @@ export default function AdminImportExportPage() {
 
                 {clientIndustryBackfillResult.preview_only === false ? (
                   <div className="rounded border bg-muted/20 p-3 text-sm">
-                    Applied <strong>{Number(clientIndustryBackfillResult.applied_updates || 0)}</strong> client industry updates
+                    Applied <strong>{Number(clientIndustryBackfillResult.applied_updates || 0)}</strong> {String(clientIndustryBackfillResult.target_label || selectedClientBackfillLabel).toLowerCase()} updates
                     {Number(clientIndustryBackfillResult.lookup_rows_inserted || 0) > 0
-                      ? ` and inserted ${Number(clientIndustryBackfillResult.lookup_rows_inserted || 0)} missing industry lookup rows`
+                      ? ` and inserted ${Number(clientIndustryBackfillResult.lookup_rows_inserted || 0)} missing lookup rows`
                       : ""}
                     .
                   </div>
                 ) : null}
 
-                {clientIndustryBackfillResult.missing_lookup_industries?.length ? (
+                {clientIndustryBackfillResult.missing_lookup_values?.length ? (
                   <div>
-                    <div className="mb-2 text-sm font-medium">Industries Missing From Lookup</div>
+                    <div className="mb-2 text-sm font-medium">Values Missing From Lookup</div>
                     <div className="rounded border p-2 text-xs text-muted-foreground">
-                      {clientIndustryBackfillResult.missing_lookup_industries.join(" | ")}
+                      {clientIndustryBackfillResult.missing_lookup_values.join(" | ")}
                     </div>
                   </div>
                 ) : null}
@@ -1429,8 +1466,8 @@ export default function AdminImportExportPage() {
                                 <div className="text-[11px] text-muted-foreground">NZI {row.nzi_client_id || "-"} / WFM {row.wfm_client_id || "-"}</div>
                               </td>
                               <td className="p-2">{row.match_method || "-"}</td>
-                              <td className="p-2">{row.existing_industry || "-"}</td>
-                              <td className="p-2">{row.wfm_industry || "-"}</td>
+                              <td className="p-2">{row.existing_value || "-"}</td>
+                              <td className="p-2">{row.wfm_value || "-"}</td>
                               <td className="p-2 uppercase">{row.action || "-"}</td>
                             </tr>
                           ))}
@@ -1459,7 +1496,7 @@ export default function AdminImportExportPage() {
                                 {row.client_name || "-"}
                                 <div className="text-[11px] text-muted-foreground">{row.wfm_client_id || "-"}</div>
                               </td>
-                              <td className="p-2">{row.wfm_industry || "-"}</td>
+                              <td className="p-2">{row.wfm_value || "-"}</td>
                               <td className="p-2 text-muted-foreground">{row.reason || "-"}</td>
                             </tr>
                           ))}
