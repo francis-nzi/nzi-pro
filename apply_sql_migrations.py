@@ -31,7 +31,14 @@ def _get_db_url() -> str:
 
 def _migration_files(folder: Path) -> list[Path]:
     files = [p for p in folder.glob("*.sql") if p.is_file()]
-    return sorted(files, key=lambda p: p.name)
+    include_manual = os.getenv("INCLUDE_MANUAL_SQL_MIGRATIONS", "").strip().lower() in {"1", "true", "yes"}
+    selected: list[Path] = []
+    for path in files:
+        prefix = path.name.split("_", 1)[0]
+        if not include_manual and prefix.isdigit() and int(prefix) >= 9000:
+            continue
+        selected.append(path)
+    return sorted(selected, key=lambda p: p.name)
 
 
 def apply_sql_migrations(folder: str = "sql_migrations") -> None:
