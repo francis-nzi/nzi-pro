@@ -802,99 +802,112 @@ def list_jobs(
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
-    with get_conn() as con:
-        def _table_exists(table_name: str) -> bool:
-            row = con.execute(
-                """
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = ?
-                LIMIT 1
-                """,
-                [table_name],
-            ).fetchone()
-            return bool(row)
-
-        def _col_exists(table_name: str, col_name: str) -> bool:
-            row = con.execute(
-                """
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
-                LIMIT 1
-                """,
-                [table_name, col_name],
-            ).fetchone()
-            return bool(row)
-
-        row = con.execute(
-            """
-            SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
-                   j.reporting_period_start, j.reporting_period_end, j.is_benchmark,
-                   j.status, j.job_template_id, j.milestone_template_id,
-                   j.client_db_id, c.client_name,
-                   j.crm_name, j.start_date, j.due_date, j.legacy_job_no,
-                   j.job_type_id
-            FROM jobs j
-            LEFT JOIN clients c ON c.db_id = j.client_db_id
-            WHERE j.job_id=?
-            """,
-            [int(job_id)],
-        ).fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        # Try to get estimated_hours from job_types if the column exists
-        estimated_hours = 0
-        if row[16]:  # job_type_id (17th column, 0-indexed)
-            try:
-                jt_row = con.execute(
-                    "SELECT estimated_hours FROM job_types WHERE job_type_id=?",
-                    [row[16]]
-                ).fetchone()
-                if jt_row and jt_row[0] is not None:
-                    estimated_hours = float(jt_row[0])
-            except Exception:
-                pass  # Column might not exist yet
-
-        # Fetch milestones with completion status
-        milestones = None
-        if _table_exists("job_plan"):
-            milestone_completion_columns = [
-                "data_collection_completed_at",
-                "data_collection_completed_by",
-                "first_draft_completed_at",
-                "first_draft_completed_by",
-                "final_report_completed_at",
-                "final_report_completed_by",
-            ]
-            has_completion_columns = all(_col_exists("job_plan", col) for col in milestone_completion_columns)
-
-            if has_completion_columns:
-                milestones = con.execute(
+    try:
+        with get_conn() as con:
+            def _table_exists(table_name: str) -> bool:
+                row = con.execute(
                     """
-                    SELECT data_collection_due, first_draft_due, final_report_due,
-                           data_collection_completed_at, data_collection_completed_by,
-                           first_draft_completed_at, first_draft_completed_by,
-                           final_report_completed_at, final_report_completed_by
-                    FROM job_plan
-                    WHERE job_id=?
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = ?
+                    LIMIT 1
                     """,
-                    [int(job_id)],
+                    [table_name],
                 ).fetchone()
-            else:
-                milestones = con.execute(
+                return bool(row)
+
+            def _col_exists(table_name: str, col_name: str) -> bool:
+                row = con.execute(
                     """
-                    SELECT data_collection_due, first_draft_due, final_report_due,
-                           NULL AS data_collection_completed_at, NULL AS data_collection_completed_by,
-                           NULL AS first_draft_completed_at, NULL AS first_draft_completed_by,
-                           NULL AS final_report_completed_at, NULL AS final_report_completed_by
-                    FROM job_plan
-                    WHERE job_id=?
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
+                    LIMIT 1
                     """,
-                    [int(job_id)],
+                    [table_name, col_name],
                 ).fetchone()
+                return bool(row)
+
+            reporting_period_start_expr = "j.reporting_period_start" if _col_exists("jobs", "reporting_period_start") else "NULL::date AS reporting_period_start"
+            reporting_period_end_expr = "j.reporting_period_end" if _col_exists("jobs", "reporting_period_end") else "NULL::date AS reporting_period_end"
+            is_benchmark_expr = "j.is_benchmark" if _col_exists("jobs", "is_benchmark") else "NULL::boolean AS is_benchmark"
+            milestone_template_expr = "j.milestone_template_id" if _col_exists("jobs", "milestone_template_id") else "NULL::integer AS milestone_template_id"
+            crm_name_expr = "j.crm_name" if _col_exists("jobs", "crm_name") else "NULL::text AS crm_name"
+            legacy_job_no_expr = "j.legacy_job_no" if _col_exists("jobs", "legacy_job_no") else "NULL::text AS legacy_job_no"
+            job_template_expr = "j.job_template_id" if _col_exists("jobs", "job_template_id") else "NULL::integer AS job_template_id"
+
+            row = con.execute(
+                f"""
+                SELECT j.job_id, j.job_number, j.title, j.reporting_year,
+                       {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
+                       j.status, {job_template_expr}, {milestone_template_expr},
+                       j.client_db_id, c.client_name,
+                       {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
+                       j.job_type_id
+                FROM jobs j
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id=?
+                """,
+                [int(job_id)],
+            ).fetchone()
+        
+            if not row:
+                raise HTTPException(status_code=404, detail="Job not found")
+        
+            # Try to get estimated_hours from job_types if the column exists
+            estimated_hours = 0
+            if row[16] and _col_exists("job_types", "estimated_hours"):  # job_type_id (17th column, 0-indexed)
+                try:
+                    jt_row = con.execute(
+                        "SELECT estimated_hours FROM job_types WHERE job_type_id=?",
+                        [row[16]]
+                    ).fetchone()
+                    if jt_row and jt_row[0] is not None:
+                        estimated_hours = float(jt_row[0])
+                except Exception:
+                    pass  # Column might not exist yet
+
+            # Fetch milestones with completion status
+            milestones = None
+            if _table_exists("job_plan"):
+                milestone_completion_columns = [
+                    "data_collection_completed_at",
+                    "data_collection_completed_by",
+                    "first_draft_completed_at",
+                    "first_draft_completed_by",
+                    "final_report_completed_at",
+                    "final_report_completed_by",
+                ]
+                has_completion_columns = all(_col_exists("job_plan", col) for col in milestone_completion_columns)
+
+                if has_completion_columns:
+                    milestones = con.execute(
+                        """
+                        SELECT data_collection_due, first_draft_due, final_report_due,
+                               data_collection_completed_at, data_collection_completed_by,
+                               first_draft_completed_at, first_draft_completed_by,
+                               final_report_completed_at, final_report_completed_by
+                        FROM job_plan
+                        WHERE job_id=?
+                        """,
+                        [int(job_id)],
+                    ).fetchone()
+                else:
+                    milestones = con.execute(
+                        """
+                        SELECT data_collection_due, first_draft_due, final_report_due,
+                               NULL AS data_collection_completed_at, NULL AS data_collection_completed_by,
+                               NULL AS first_draft_completed_at, NULL AS first_draft_completed_by,
+                               NULL AS final_report_completed_at, NULL AS final_report_completed_by
+                        FROM job_plan
+                        WHERE job_id=?
+                        """,
+                        [int(job_id)],
+                    ).fetchone()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load job detail: {e}")
 
     (
         jid,
