@@ -4231,6 +4231,317 @@ def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_cu
         raise HTTPException(status_code=500, detail=f"Failed to preview mapping impact: {e}")
 
 
+def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool) -> dict:
+    try:
+        from wfm_import.wfm_import_routine import (
+            WfmImporter,
+            _setup_logger,
+            _clean,
+            WFM_CLIENT_FIELD_CANDIDATES,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"WFM importer unavailable: {e}")
+
+    raw_dir = _wfm_raw_dir()
+    required_files = [
+        "clients.csv",
+        "client_custom_field_values.csv",
+        "custom_fields.csv",
+    ]
+    missing = [name for name in required_files if not (raw_dir / name).exists()]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Required WFM files missing in raw_data: {', '.join(missing)}")
+
+    mapping_overrides = _load_mapping_overrides_from_db(con)
+    importer = WfmImporter(
+        dry_run=True,
+        max_clients=None,
+        client_ids=[],
+        client_names=[],
+        job_numbers=[],
+        mapping_overrides=mapping_overrides,
+        logger=_setup_logger(),
+    )
+    importer.load()
+
+    clients_df = importer.data.get("clients.csv")
+    if clients_df is None or clients_df.empty:
+        return {
+            "ok": True,
+            "summary": {
+                "total_wfm_clients": 0,
+                "clients_with_wfm_industry": 0,
+                "matched_by_map": 0,
+                "matched_by_name": 0,
+                "ready_updates": 0,
+                "fill_updates": 0,
+                "replace_updates": 0,
+                "unchanged": 0,
+                "missing_wfm_industry": 0,
+                "unmatched_clients": 0,
+                "ambiguous_name_matches": 0,
+                "missing_lookup_industries": 0,
+            },
+            "rows_ready": [],
+            "rows_unmatched": [],
+            "rows_unchanged": [],
+        }
+
+    map_rows = con.execute(
+        """
+        SELECT wfm_id, nzi_id
+        FROM wfm_import_map
+        WHERE entity_type = 'client'
+        """
+    ).fetchall()
+    client_map = {str(row[0] or "").strip(): int(row[1]) for row in map_rows if row and row[0] and row[1] is not None}
+
+    client_rows = con.execute(
+        """
+        SELECT db_id, client_name, industry
+        FROM clients
+        """
+    ).fetchall()
+    clients_by_id: dict[int, dict] = {}
+    clients_by_name: dict[str, list[dict]] = {}
+    for db_id, client_name, industry in client_rows:
+        item = {
+            "db_id": int(db_id),
+            "client_name": str(client_name or "").strip(),
+            "industry": str(industry or "").strip(),
+        }
+        clients_by_id[item["db_id"]] = item
+        name_key = item["client_name"].lower()
+        if name_key:
+            clients_by_name.setdefault(name_key, []).append(item)
+
+    industry_lookup_names: set[str] = set()
+    has_industries_lookup = bool(
+        con.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'industries_lookup'
+            LIMIT 1
+            """
+        ).fetchone()
+    )
+    if has_industries_lookup:
+        try:
+            lookup_rows = con.execute("SELECT name FROM industries_lookup WHERE name IS NOT NULL").fetchall()
+            industry_lookup_names = {str(row[0] or "").strip().lower() for row in lookup_rows if str(row[0] or "").strip()}
+        except Exception:
+            industry_lookup_names = set()
+
+    rows_ready: list[dict] = []
+    rows_unmatched: list[dict] = []
+    rows_unchanged: list[dict] = []
+    matched_by_map = 0
+    matched_by_name = 0
+    missing_wfm_industry = 0
+    ambiguous_name_matches = 0
+
+    for _, row in clients_df.iterrows():
+        wfm_client_id = _clean(row.get("Id"))
+        client_name = _clean(row.get("Name"))
+        client_custom = importer.client_custom_values.get(wfm_client_id, {})
+        wfm_industry = _clean(
+            importer._pick_field_value(
+                client_custom,
+                importer._candidates("client", "industry", WFM_CLIENT_FIELD_CANDIDATES["industry"]),
+            )
+        )
+
+        if not wfm_industry:
+            missing_wfm_industry += 1
+            continue
+
+        matched = None
+        match_method = ""
+        if wfm_client_id in client_map:
+            matched = clients_by_id.get(client_map[wfm_client_id])
+            if matched:
+                match_method = "wfm_import_map"
+                matched_by_map += 1
+
+        if matched is None and client_name:
+            name_matches = clients_by_name.get(client_name.lower(), [])
+            if len(name_matches) == 1:
+                matched = name_matches[0]
+                match_method = "client_name"
+                matched_by_name += 1
+            elif len(name_matches) > 1:
+                ambiguous_name_matches += 1
+                rows_unmatched.append(
+                    {
+                        "wfm_client_id": wfm_client_id,
+                        "client_name": client_name,
+                        "wfm_industry": wfm_industry,
+                        "reason": f"Ambiguous client name match ({len(name_matches)} matches)",
+                    }
+                )
+                continue
+
+        if matched is None:
+            rows_unmatched.append(
+                {
+                    "wfm_client_id": wfm_client_id,
+                    "client_name": client_name,
+                    "wfm_industry": wfm_industry,
+                    "reason": "No NZI client match found",
+                }
+            )
+            continue
+
+        existing_industry = str(matched.get("industry") or "").strip()
+        same_industry = existing_industry.lower() == wfm_industry.lower() if existing_industry else False
+        if same_industry:
+            rows_unchanged.append(
+                {
+                    "nzi_client_id": matched["db_id"],
+                    "client_name": matched["client_name"],
+                    "existing_industry": existing_industry,
+                    "wfm_industry": wfm_industry,
+                    "match_method": match_method,
+                    "reason": "Already matches WFM industry",
+                }
+            )
+            continue
+
+        if existing_industry and not overwrite_existing:
+            rows_unchanged.append(
+                {
+                    "nzi_client_id": matched["db_id"],
+                    "client_name": matched["client_name"],
+                    "existing_industry": existing_industry,
+                    "wfm_industry": wfm_industry,
+                    "match_method": match_method,
+                    "reason": "Existing industry kept",
+                }
+            )
+            continue
+
+        rows_ready.append(
+            {
+                "nzi_client_id": matched["db_id"],
+                "wfm_client_id": wfm_client_id,
+                "client_name": matched["client_name"] or client_name,
+                "existing_industry": existing_industry or None,
+                "wfm_industry": wfm_industry,
+                "match_method": match_method,
+                "action": "replace" if existing_industry else "fill",
+            }
+        )
+
+    missing_lookup_industries = sorted(
+        {
+            str(row["wfm_industry"]).strip()
+            for row in rows_ready
+            if str(row.get("wfm_industry") or "").strip()
+            and str(row.get("wfm_industry") or "").strip().lower() not in industry_lookup_names
+        }
+    )
+
+    return {
+        "ok": True,
+        "summary": {
+            "total_wfm_clients": int(len(clients_df)),
+            "clients_with_wfm_industry": int(len(clients_df) - missing_wfm_industry),
+            "matched_by_map": int(matched_by_map),
+            "matched_by_name": int(matched_by_name),
+            "ready_updates": int(len(rows_ready)),
+            "fill_updates": int(sum(1 for row in rows_ready if row.get("action") == "fill")),
+            "replace_updates": int(sum(1 for row in rows_ready if row.get("action") == "replace")),
+            "unchanged": int(len(rows_unchanged)),
+            "missing_wfm_industry": int(missing_wfm_industry),
+            "unmatched_clients": int(len(rows_unmatched)),
+            "ambiguous_name_matches": int(ambiguous_name_matches),
+            "missing_lookup_industries": int(len(missing_lookup_industries)),
+        },
+        "rows_ready": rows_ready,
+        "rows_unmatched": rows_unmatched,
+        "rows_unchanged": rows_unchanged,
+        "missing_lookup_industries": missing_lookup_industries,
+        "overwrite_existing": bool(overwrite_existing),
+    }
+
+
+@router.post("/import-export/wfm/client-industries/backfill")
+def backfill_wfm_client_industries(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        preview_only = bool(body.get("preview_only", True))
+        overwrite_existing = bool(body.get("overwrite_existing", True))
+        actor = str(_user.get("email") or _user.get("user_id") or "unknown").strip()
+
+        with get_conn() as con:
+            preview = _build_wfm_client_industry_backfill_preview(con, overwrite_existing=overwrite_existing)
+
+            if preview_only:
+                return {
+                    **preview,
+                    "preview_only": True,
+                    "applied_updates": 0,
+                    "lookup_rows_inserted": 0,
+                }
+
+            rows_ready = preview.get("rows_ready") or []
+            applied_updates = 0
+            lookup_rows_inserted = 0
+
+            if preview.get("missing_lookup_industries"):
+                for industry_name in preview["missing_lookup_industries"]:
+                    try:
+                        con.execute(
+                            """
+                            INSERT INTO industries_lookup (name, is_active)
+                            SELECT %s, TRUE
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM industries_lookup WHERE lower(name) = lower(%s)
+                            )
+                            """,
+                            [industry_name, industry_name],
+                        )
+                        lookup_rows_inserted += 1
+                    except Exception:
+                        # Keep backfill resilient if lookup table or unique rules differ.
+                        pass
+
+            for row in rows_ready:
+                con.execute(
+                    "UPDATE clients SET industry = %s WHERE db_id = %s",
+                    [row.get("wfm_industry"), int(row["nzi_client_id"])],
+                )
+                applied_updates += 1
+                try:
+                    con.execute(
+                        """
+                        INSERT INTO wfm_import_audit (mode, entity_type, wfm_id, nzi_id, action, message)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        [
+                            "import",
+                            "client",
+                            row.get("wfm_client_id"),
+                            int(row["nzi_client_id"]),
+                            "update_industry",
+                            f"Backfilled client industry to '{row.get('wfm_industry')}' by {actor}",
+                        ],
+                    )
+                except Exception:
+                    pass
+
+            return {
+                **preview,
+                "preview_only": False,
+                "applied_updates": int(applied_updates),
+                "lookup_rows_inserted": int(lookup_rows_inserted),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to backfill WFM client industries: {e}")
+
+
 @router.get("/import-export/wfm/mapping-targets")
 def wfm_mapping_targets(_user: dict = Depends(_current_user)):
     try:

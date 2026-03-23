@@ -127,6 +127,41 @@ type AttributeOverrideCommitResult = {
   applied_changes?: number;
   applied_by_entity?: { client?: number; job?: number };
 };
+type ClientIndustryBackfillRow = {
+  nzi_client_id?: number;
+  wfm_client_id?: string;
+  client_name?: string;
+  existing_industry?: string | null;
+  wfm_industry?: string;
+  match_method?: string;
+  action?: string;
+  reason?: string;
+};
+type ClientIndustryBackfillResult = {
+  ok?: boolean;
+  preview_only?: boolean;
+  overwrite_existing?: boolean;
+  applied_updates?: number;
+  lookup_rows_inserted?: number;
+  missing_lookup_industries?: string[];
+  summary?: {
+    total_wfm_clients?: number;
+    clients_with_wfm_industry?: number;
+    matched_by_map?: number;
+    matched_by_name?: number;
+    ready_updates?: number;
+    fill_updates?: number;
+    replace_updates?: number;
+    unchanged?: number;
+    missing_wfm_industry?: number;
+    unmatched_clients?: number;
+    ambiguous_name_matches?: number;
+    missing_lookup_industries?: number;
+  };
+  rows_ready?: ClientIndustryBackfillRow[];
+  rows_unmatched?: ClientIndustryBackfillRow[];
+  rows_unchanged?: ClientIndustryBackfillRow[];
+};
 
 const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<string, string[]> } = {
   job: {
@@ -248,6 +283,8 @@ export default function AdminImportExportPage() {
   const [attributeOverrideFile, setAttributeOverrideFile] = useState<File | null>(null);
   const [attributeOverridePreview, setAttributeOverridePreview] = useState<AttributeOverridePreview | null>(null);
   const [attributeOverrideCommitResult, setAttributeOverrideCommitResult] = useState<AttributeOverrideCommitResult | null>(null);
+  const [overwriteClientIndustries, setOverwriteClientIndustries] = useState(true);
+  const [clientIndustryBackfillResult, setClientIndustryBackfillResult] = useState<ClientIndustryBackfillResult | null>(null);
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
   const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
@@ -879,6 +916,68 @@ export default function AdminImportExportPage() {
     }
   }
 
+  async function previewClientIndustryBackfill() {
+    setBusy(true);
+    setError("");
+    setStatus("Previewing client industry backfill...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-industries/backfill`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preview_only: true,
+          overwrite_existing: overwriteClientIndustries,
+        }),
+      });
+      const text = await res.text().catch(() => "");
+      const json = text.trim() ? JSON.parse(text) : {};
+      if (!res.ok) {
+        throw new Error(`Client industry preview failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      setClientIndustryBackfillResult(json as ClientIndustryBackfillResult);
+      const summary = (json as ClientIndustryBackfillResult).summary;
+      setStatus(
+        `Client industry preview ready. ${Number(summary?.ready_updates || 0)} updates, ${Number(summary?.unchanged || 0)} unchanged, ${Number(summary?.unmatched_clients || 0)} unmatched.`
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyClientIndustryBackfill() {
+    setBusy(true);
+    setError("");
+    setStatus("Applying client industry backfill...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/wfm/client-industries/backfill`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preview_only: false,
+          overwrite_existing: overwriteClientIndustries,
+        }),
+      });
+      const text = await res.text().catch(() => "");
+      const json = text.trim() ? JSON.parse(text) : {};
+      if (!res.ok) {
+        throw new Error(`Client industry backfill failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      setClientIndustryBackfillResult(json as ClientIndustryBackfillResult);
+      setStatus(`Applied ${Number((json as ClientIndustryBackfillResult).applied_updates || 0)} client industry updates.`);
+      await loadSummary();
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
@@ -1202,6 +1301,143 @@ export default function AdminImportExportPage() {
                     <pre className="mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(impactPreview, null, 2)}</pre>
                   </details>
                 </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Backfill Client Industries</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Reads the <strong>Industry</strong> client custom field from the uploaded WFM raw files, matches NZI clients by
+              <strong> WFM import map</strong> first and <strong>client name</strong> second, then updates the NZI client industry.
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={overwriteClientIndustries}
+                onChange={(e) => setOverwriteClientIndustries(e.target.checked)}
+              />
+              Overwrite existing NZI client industries with the WFM value
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" disabled={busy} onClick={() => void previewClientIndustryBackfill()}>
+                Preview Industry Backfill
+              </Button>
+              <Button
+                disabled={busy || !clientIndustryBackfillResult?.summary?.ready_updates}
+                onClick={() => void applyClientIndustryBackfill()}
+              >
+                Apply Industry Backfill
+              </Button>
+            </div>
+
+            {clientIndustryBackfillResult ? (
+              <div className="rounded border p-3 space-y-4">
+                <div className="grid gap-3 md:grid-cols-5">
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">WFM Clients</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.total_wfm_clients || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">With WFM Industry</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.clients_with_wfm_industry || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Ready Updates</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.ready_updates || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Unchanged</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.unchanged || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Unmatched</div>
+                    <div className="text-xl font-semibold">{Number(clientIndustryBackfillResult.summary?.unmatched_clients || 0)}</div>
+                  </div>
+                </div>
+
+                {clientIndustryBackfillResult.preview_only === false ? (
+                  <div className="rounded border bg-muted/20 p-3 text-sm">
+                    Applied <strong>{Number(clientIndustryBackfillResult.applied_updates || 0)}</strong> client industry updates
+                    {Number(clientIndustryBackfillResult.lookup_rows_inserted || 0) > 0
+                      ? ` and inserted ${Number(clientIndustryBackfillResult.lookup_rows_inserted || 0)} missing industry lookup rows`
+                      : ""}
+                    .
+                  </div>
+                ) : null}
+
+                {clientIndustryBackfillResult.missing_lookup_industries?.length ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Industries Missing From Lookup</div>
+                    <div className="rounded border p-2 text-xs text-muted-foreground">
+                      {clientIndustryBackfillResult.missing_lookup_industries.join(" | ")}
+                    </div>
+                  </div>
+                ) : null}
+
+                {(clientIndustryBackfillResult.rows_ready || []).length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Ready Updates</div>
+                    <div className="max-h-72 overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-muted">
+                          <tr>
+                            <th className="p-2 text-left">Client</th>
+                            <th className="p-2 text-left">Match</th>
+                            <th className="p-2 text-left">Current</th>
+                            <th className="p-2 text-left">WFM</th>
+                            <th className="p-2 text-left">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(clientIndustryBackfillResult.rows_ready || []).slice(0, 100).map((row, idx) => (
+                            <tr key={`industry-ready-${idx}`} className="border-t align-top">
+                              <td className="p-2">
+                                {row.client_name || "-"}
+                                <div className="text-[11px] text-muted-foreground">NZI {row.nzi_client_id || "-"} / WFM {row.wfm_client_id || "-"}</div>
+                              </td>
+                              <td className="p-2">{row.match_method || "-"}</td>
+                              <td className="p-2">{row.existing_industry || "-"}</td>
+                              <td className="p-2">{row.wfm_industry || "-"}</td>
+                              <td className="p-2 uppercase">{row.action || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                {(clientIndustryBackfillResult.rows_unmatched || []).length > 0 ? (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Unmatched Clients</div>
+                    <div className="max-h-72 overflow-auto rounded border">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-muted">
+                          <tr>
+                            <th className="p-2 text-left">WFM Client</th>
+                            <th className="p-2 text-left">WFM Industry</th>
+                            <th className="p-2 text-left">Reason</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(clientIndustryBackfillResult.rows_unmatched || []).slice(0, 100).map((row, idx) => (
+                            <tr key={`industry-unmatched-${idx}`} className="border-t align-top">
+                              <td className="p-2">
+                                {row.client_name || "-"}
+                                <div className="text-[11px] text-muted-foreground">{row.wfm_client_id || "-"}</div>
+                              </td>
+                              <td className="p-2">{row.wfm_industry || "-"}</td>
+                              <td className="p-2 text-muted-foreground">{row.reason || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </CardContent>
