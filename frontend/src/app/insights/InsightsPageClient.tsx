@@ -156,6 +156,22 @@ type OperationsOverview = {
   }>;
 };
 
+type ReportColumn = {
+  key: string;
+  label: string;
+};
+
+type ReportRow = Record<string, string | number | boolean | null>;
+
+type ReportViewData = {
+  view: string;
+  title: string;
+  description: string;
+  columns: ReportColumn[];
+  rows: ReportRow[];
+  row_count: number;
+};
+
 const ALL_FILTER_VALUE = "__all__";
 
 const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
@@ -207,6 +223,33 @@ const EMPTY_OPERATIONS: OperationsOverview = {
   jobs_needing_attention: [],
 };
 
+const REPORT_PRESETS = [
+  {
+    key: "client_portfolio",
+    label: "Client Portfolio",
+    description: "Client mix, CRM ownership, and delivery volume.",
+  },
+  {
+    key: "job_delivery",
+    label: "Job Delivery",
+    description: "Milestone health, due dates, and hours vs estimate.",
+  },
+  {
+    key: "invoice_follow_up",
+    label: "Invoice Follow-Up",
+    description: "Cash collection visibility and overdue follow-up.",
+  },
+];
+
+const EMPTY_REPORT: ReportViewData = {
+  view: "client_portfolio",
+  title: "Client Portfolio",
+  description: "",
+  columns: [],
+  rows: [],
+  row_count: 0,
+};
+
 function formatNumber(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
 }
@@ -256,6 +299,8 @@ export default function InsightsPageClient() {
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
   const [financialData, setFinancialData] = useState<FinancialOverview>(EMPTY_FINANCIAL);
   const [operationsData, setOperationsData] = useState<OperationsOverview>(EMPTY_OPERATIONS);
+  const [reportView, setReportView] = useState<string>("client_portfolio");
+  const [reportData, setReportData] = useState<ReportViewData>(EMPTY_REPORT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -271,7 +316,9 @@ export default function InsightsPageClient() {
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
-      const [overviewRes, jobsStatusRes, financialRes, operationsRes] = await Promise.all([
+      params.set("limit", "100");
+
+      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes] = await Promise.all([
         fetch(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
@@ -285,6 +332,10 @@ export default function InsightsPageClient() {
           cache: "no-store",
         }),
         fetch(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
         }),
@@ -320,16 +371,24 @@ export default function InsightsPageClient() {
       } else {
         setOperationsData(EMPTY_OPERATIONS);
       }
+
+      if (reportRes.ok) {
+        const reportJson = (await reportRes.json()) as ReportViewData;
+        setReportData(reportJson);
+      } else {
+        setReportData(EMPTY_REPORT);
+      }
     } catch (e) {
       setError((e as Error).message);
       setData(null);
       setJobsStatus(EMPTY_JOBS_STATUS);
       setFinancialData(EMPTY_FINANCIAL);
       setOperationsData(EMPTY_OPERATIONS);
+      setReportData(EMPTY_REPORT);
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, reportView, selectedCrm, selectedIndustry, selectedYear]);
 
   useEffect(() => {
     void loadInsights();
@@ -354,6 +413,54 @@ export default function InsightsPageClient() {
     () => Math.max(...invoiceMonths.map((row) => Math.max(Number(row.total_value || 0), Number(row.paid_total || 0))), 1),
     [invoiceMonths]
   );
+
+  async function exportReportCsv() {
+    try {
+      const params = new URLSearchParams();
+      params.set("view", reportView);
+      params.set("limit", "500");
+      if (selectedYear) params.set("year", String(selectedYear));
+      if (selectedIndustry) params.set("industry", selectedIndustry);
+      if (selectedCrm) params.set("crm_owner", selectedCrm);
+      const res = await fetch(`${baseUrl}/dashboard/report-export?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Report export failed (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `insights-${reportView}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  function formatReportValue(key: string, value: unknown): string {
+    if (value === null || value === undefined || value === "") return "-";
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey.includes("date")) return formatDate(String(value));
+    if (normalizedKey.includes("pct")) return `${Number(value).toFixed(1)}%`;
+    if (normalizedKey === "total" || normalizedKey.includes("outstanding") || normalizedKey.includes("amount_paid")) {
+      return formatMoney(Number(value));
+    }
+    if (normalizedKey.includes("hours")) return formatNumber(Number(value), 1);
+    if (typeof value === "number") return formatNumber(value, Number.isInteger(value) ? 0 : 1);
+    return String(value);
+  }
+
+  function reportRowHref(row: ReportRow): string | null {
+    if (reportView === "client_portfolio" && row.client_id) return `/clients/${row.client_id}`;
+    if (reportView === "job_delivery" && row.job_id) return `/jobs/${row.job_id}`;
+    if (reportView === "invoice_follow_up" && row.client_id && row.invoice_id) return `/clients/${row.client_id}/invoices/${row.invoice_id}`;
+    return null;
+  }
 
   if (loading) {
     return (
@@ -1104,12 +1211,109 @@ export default function InsightsPageClient() {
           <TabsContent value="reports" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Reports Layer Next</CardTitle>
+                <CardTitle>Saved Views</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="rounded border p-4 text-sm text-muted-foreground">Saved views for leadership, CRM owners, delivery, and finance.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Exportable tables for CSV / Excel and scheduled report snapshots.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Reusable breakdown and drill APIs so one engine can drive many report types.</div>
+                {REPORT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => setReportView(preset.key)}
+                    className={`rounded border p-4 text-left transition-colors ${reportView === preset.key ? "border-[#f26624] bg-orange-50" : "hover:bg-muted/40"}`}
+                  >
+                    <div className="text-sm font-medium">{preset.label}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">{preset.description}</div>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Report Builder</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-[1fr_auto_auto] md:items-end">
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Report View</div>
+                  <Select value={reportView} onValueChange={setReportView}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select report..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REPORT_PRESETS.map((preset) => (
+                        <SelectItem key={preset.key} value={preset.key}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button variant="outline" onClick={() => void loadInsights()}>
+                  Refresh Report
+                </Button>
+                <Button variant="secondary" onClick={() => void exportReportCsv()}>
+                  Export CSV
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{reportData.title || "Report"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+                  <span>{reportData.description || "Reusable filtered report view for export and drilldown."}</span>
+                  <span>{reportData.row_count} rows</span>
+                </div>
+                {reportData.columns.length > 0 ? (
+                  <div className="overflow-x-auto rounded border">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          {reportData.columns.map((column) => (
+                            <th key={column.key} className="px-3 py-2 text-left font-medium">
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.rows.length > 0 ? (
+                          reportData.rows.map((row, index) => {
+                            const href = reportRowHref(row);
+                            return (
+                              <tr key={`report-row-${index}`} className="border-t align-top">
+                                {reportData.columns.map((column) => {
+                                  const value = formatReportValue(column.key, row[column.key]);
+                                  return (
+                                    <td key={`${index}-${column.key}`} className="px-3 py-2 text-muted-foreground">
+                                      {href && column === reportData.columns[0] ? (
+                                        <Link href={href} className="font-medium text-foreground hover:underline">
+                                          {value}
+                                        </Link>
+                                      ) : (
+                                        value
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={reportData.columns.length} className="px-3 py-6 text-center text-muted-foreground">
+                              No rows match the current report filters.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">Report columns will appear here once the report loads.</div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -3,9 +3,11 @@ Main Dashboard API Routes
 Provides overview metrics for the main dashboard
 """
 
+import csv
+import io
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from core.database import get_conn
 from api.auth import _current_user
 
@@ -127,6 +129,16 @@ def _overall_milestone_status(statuses: list[str]) -> str | None:
     if "completed" in statuses:
         return "completed"
     return None
+
+
+def _crm_expression(*, has_job_crm_name: bool, has_client_crm_owner: bool, job_alias: str = "j", client_alias: str = "c") -> str:
+    if has_job_crm_name and has_client_crm_owner:
+        return f"COALESCE(NULLIF({job_alias}.crm_name, ''), NULLIF({client_alias}.crm_owner, ''), 'Unassigned')"
+    if has_job_crm_name:
+        return f"COALESCE(NULLIF({job_alias}.crm_name, ''), 'Unassigned')"
+    if has_client_crm_owner:
+        return f"COALESCE(NULLIF({client_alias}.crm_owner, ''), 'Unassigned')"
+    return "'Unassigned'"
 
 
 @router.get("/dashboard/overview")
@@ -1538,3 +1550,333 @@ def get_dashboard_operations_overview(
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard operations overview: {e}")
+
+
+def _build_insights_report(
+    con,
+    *,
+    view: str,
+    year: int | None,
+    industry: str | None,
+    crm_owner: str | None,
+    limit: int,
+) -> dict:
+    has_job_plan = _table_exists(con, "job_plan")
+    has_time_logs = _table_exists(con, "time_logs")
+    has_job_crm_name = _column_exists(con, "jobs", "crm_name")
+    has_client_crm_owner = _column_exists(con, "clients", "crm_owner")
+    crm_expr = _crm_expression(has_job_crm_name=has_job_crm_name, has_client_crm_owner=has_client_crm_owner)
+
+    if view == "client_portfolio":
+        where_parts: list[str] = []
+        params: list[object] = []
+        _apply_client_filters(
+            where_parts,
+            params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        year_case = "j.reporting_year = ?" if year is not None else "1=1"
+        extra_year_params = [int(year), int(year), int(year)] if year is not None else []
+        rows_df = con.execute(
+            f"""
+            SELECT
+                c.db_id AS client_id,
+                c.client_name,
+                COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
+                COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
+                COUNT(CASE WHEN {year_case} THEN 1 END) AS total_jobs,
+                COUNT(CASE WHEN {year_case} AND COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN 1 END) AS active_jobs,
+                MAX(CASE WHEN {year_case} THEN j.reporting_year END) AS latest_reporting_year
+            FROM clients c
+            LEFT JOIN jobs j ON j.client_db_id = c.db_id
+            {where_sql}
+            GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
+            ORDER BY active_jobs DESC, total_jobs DESC, c.client_name
+            LIMIT ?
+            """,
+            [*params, *extra_year_params, int(limit)],
+        ).df()
+        rows = []
+        if rows_df is not None and not rows_df.empty:
+            for _, row in rows_df.iterrows():
+                rows.append({
+                    "client_id": int(row["client_id"]),
+                    "client_name": row["client_name"],
+                    "industry": row["industry"],
+                    "crm_owner": row["crm_owner"],
+                    "total_jobs": int(row["total_jobs"] or 0),
+                    "active_jobs": int(row["active_jobs"] or 0),
+                    "latest_reporting_year": int(row["latest_reporting_year"]) if row["latest_reporting_year"] is not None else None,
+                })
+        return {
+            "view": view,
+            "title": "Client Portfolio",
+            "description": "Filtered client portfolio with CRM ownership and delivery volume.",
+            "columns": [
+                {"key": "client_name", "label": "Client"},
+                {"key": "industry", "label": "Industry"},
+                {"key": "crm_owner", "label": "CRM Owner"},
+                {"key": "active_jobs", "label": "Active Jobs"},
+                {"key": "total_jobs", "label": "Total Jobs"},
+                {"key": "latest_reporting_year", "label": "Latest Reporting Year"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    if view == "job_delivery":
+        where_parts = []
+        params = []
+        _apply_client_filters(
+            where_parts,
+            params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        if year is not None:
+            where_parts.append("j.reporting_year = ?")
+            params.append(int(year))
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        due_date_expr = "j.due_date" if _column_exists(con, "jobs", "due_date") else "NULL"
+        estimated_hours_expr = "COALESCE(jt.estimated_hours, 0)" if _column_exists(con, "job_types", "estimated_hours") else "0"
+        time_join = """
+            LEFT JOIN (
+                SELECT job_id, COALESCE(SUM(minutes), 0) AS total_minutes
+                FROM time_logs
+                GROUP BY job_id
+            ) tl ON tl.job_id = j.job_id
+        """ if has_time_logs else "LEFT JOIN (SELECT NULL::integer AS job_id, 0::numeric AS total_minutes) tl ON 1=0"
+
+        milestone_due_exprs = {
+            "data_collection_due": "jp.data_collection_due" if has_job_plan and _column_exists(con, "job_plan", "data_collection_due") else "NULL",
+            "data_collection_completed_at": "jp.data_collection_completed_at" if has_job_plan and _column_exists(con, "job_plan", "data_collection_completed_at") else "NULL",
+            "first_draft_due": "jp.first_draft_due" if has_job_plan and _column_exists(con, "job_plan", "first_draft_due") else "NULL",
+            "first_draft_completed_at": "jp.first_draft_completed_at" if has_job_plan and _column_exists(con, "job_plan", "first_draft_completed_at") else "NULL",
+            "final_report_due": "jp.final_report_due" if has_job_plan and _column_exists(con, "job_plan", "final_report_due") else "NULL",
+            "final_report_completed_at": "jp.final_report_completed_at" if has_job_plan and _column_exists(con, "job_plan", "final_report_completed_at") else "NULL",
+        }
+        rows_df = con.execute(
+            f"""
+            SELECT
+                j.job_id,
+                j.job_number,
+                j.title,
+                c.db_id AS client_id,
+                c.client_name,
+                {crm_expr} AS crm_name,
+                COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status,
+                {due_date_expr} AS due_date,
+                {estimated_hours_expr} AS estimated_hours,
+                COALESCE(tl.total_minutes, 0) AS total_minutes,
+                {milestone_due_exprs["data_collection_due"]} AS data_collection_due,
+                {milestone_due_exprs["data_collection_completed_at"]} AS data_collection_completed_at,
+                {milestone_due_exprs["first_draft_due"]} AS first_draft_due,
+                {milestone_due_exprs["first_draft_completed_at"]} AS first_draft_completed_at,
+                {milestone_due_exprs["final_report_due"]} AS final_report_due,
+                {milestone_due_exprs["final_report_completed_at"]} AS final_report_completed_at
+            FROM jobs j
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
+            LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+            {"LEFT JOIN job_plan jp ON jp.job_id = j.job_id" if has_job_plan else ""}
+            {time_join}
+            {where_sql}
+            ORDER BY j.job_id DESC
+            LIMIT ?
+            """,
+            [*params, int(limit)],
+        ).df()
+        rows = []
+        if rows_df is not None and not rows_df.empty:
+            for _, row in rows_df.iterrows():
+                logged_hours = round(float(row["total_minutes"] or 0.0) / 60.0, 2)
+                estimated_hours = round(float(row["estimated_hours"] or 0.0), 2)
+                milestone_statuses = []
+                if row.get("data_collection_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("data_collection_due"), row.get("data_collection_completed_at")))
+                if row.get("first_draft_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("first_draft_due"), row.get("first_draft_completed_at")))
+                if row.get("final_report_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("final_report_due"), row.get("final_report_completed_at")))
+                milestone_status = _overall_milestone_status(milestone_statuses)
+                rows.append({
+                    "job_id": int(row["job_id"]),
+                    "job_number": row["job_number"],
+                    "title": row["title"],
+                    "client_id": int(row["client_id"]) if row["client_id"] is not None else None,
+                    "client_name": row["client_name"],
+                    "crm_name": row["crm_name"],
+                    "status": row["status"],
+                    "milestone_status": milestone_status,
+                    "due_date": row["due_date"].isoformat() if hasattr(row["due_date"], "isoformat") else (str(row["due_date"]) if row["due_date"] else None),
+                    "logged_hours": logged_hours,
+                    "estimated_hours": estimated_hours,
+                    "utilisation_pct": round((logged_hours / estimated_hours) * 100.0, 1) if estimated_hours > 0 else None,
+                })
+        return {
+            "view": view,
+            "title": "Job Delivery",
+            "description": "Live delivery report across jobs, milestone health, and tracked effort.",
+            "columns": [
+                {"key": "job_number", "label": "Job"},
+                {"key": "title", "label": "Title"},
+                {"key": "client_name", "label": "Client"},
+                {"key": "crm_name", "label": "CRM"},
+                {"key": "status", "label": "Status"},
+                {"key": "milestone_status", "label": "Milestone"},
+                {"key": "due_date", "label": "Due Date"},
+                {"key": "logged_hours", "label": "Logged Hours"},
+                {"key": "estimated_hours", "label": "Estimate"},
+                {"key": "utilisation_pct", "label": "Utilisation %"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    if view == "invoice_follow_up":
+        has_invoice_amount_paid = _column_exists(con, "invoices", "amount_paid")
+        amount_paid_expr = "COALESCE(i.amount_paid, 0)" if has_invoice_amount_paid else "0"
+        where_parts = []
+        params = []
+        _apply_client_filters(
+            where_parts,
+            params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        if year is not None:
+            where_parts.append("COALESCE(j.reporting_year, jq.reporting_year, EXTRACT(YEAR FROM COALESCE(i.invoice_date, i.created_at::date))::INTEGER) = ?")
+            params.append(int(year))
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        rows_df = con.execute(
+            f"""
+            SELECT
+                i.invoice_id,
+                i.invoice_number,
+                c.db_id AS client_id,
+                c.client_name,
+                {crm_expr} AS crm_name,
+                COALESCE(NULLIF(TRIM(i.status), ''), 'Unknown') AS status,
+                i.invoice_date,
+                i.due_date,
+                COALESCE(i.total, 0) AS total,
+                {amount_paid_expr} AS amount_paid
+            FROM invoices i
+            LEFT JOIN clients c ON c.db_id = i.client_db_id
+            LEFT JOIN jobs j ON j.job_id = i.job_id
+            LEFT JOIN quotes q ON q.quote_id = i.quote_id
+            LEFT JOIN jobs jq ON jq.job_number = q.job_number
+            {where_sql}
+            ORDER BY COALESCE(i.due_date, i.invoice_date, i.created_at::date) ASC NULLS LAST, i.invoice_id DESC
+            LIMIT ?
+            """,
+            [*params, int(limit)],
+        ).df()
+        rows = []
+        if rows_df is not None and not rows_df.empty:
+            for _, row in rows_df.iterrows():
+                total = round(float(row["total"] or 0.0), 2)
+                amount_paid = round(float(row["amount_paid"] or 0.0), 2)
+                rows.append({
+                    "invoice_id": int(row["invoice_id"]),
+                    "invoice_number": row["invoice_number"],
+                    "client_id": int(row["client_id"]) if row["client_id"] is not None else None,
+                    "client_name": row["client_name"],
+                    "crm_name": row["crm_name"],
+                    "status": row["status"],
+                    "invoice_date": row["invoice_date"].isoformat() if hasattr(row["invoice_date"], "isoformat") else (str(row["invoice_date"]) if row["invoice_date"] else None),
+                    "due_date": row["due_date"].isoformat() if hasattr(row["due_date"], "isoformat") else (str(row["due_date"]) if row["due_date"] else None),
+                    "total": total,
+                    "amount_paid": amount_paid,
+                    "outstanding": round(max(0.0, total - amount_paid), 2),
+                })
+        return {
+            "view": view,
+            "title": "Invoice Follow-Up",
+            "description": "Collections-focused invoice report for follow-up and cash visibility.",
+            "columns": [
+                {"key": "invoice_number", "label": "Invoice"},
+                {"key": "client_name", "label": "Client"},
+                {"key": "crm_name", "label": "CRM"},
+                {"key": "status", "label": "Status"},
+                {"key": "invoice_date", "label": "Invoice Date"},
+                {"key": "due_date", "label": "Due Date"},
+                {"key": "total", "label": "Total"},
+                {"key": "amount_paid", "label": "Paid"},
+                {"key": "outstanding", "label": "Outstanding"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    raise HTTPException(status_code=400, detail=f"Unsupported report view: {view}")
+
+
+@router.get("/dashboard/report-view")
+def get_dashboard_report_view(
+    view: str = Query(..., description="Report view key"),
+    year: int | None = Query(None, description="Optional reporting year filter"),
+    industry: str | None = Query(None, description="Optional industry filter"),
+    crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum rows to return"),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            return _build_insights_report(
+                con,
+                view=view,
+                year=year,
+                industry=industry,
+                crm_owner=crm_owner,
+                limit=limit,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard report view: {e}")
+
+
+@router.get("/dashboard/report-export")
+def export_dashboard_report(
+    view: str = Query(..., description="Report view key"),
+    year: int | None = Query(None, description="Optional reporting year filter"),
+    industry: str | None = Query(None, description="Optional industry filter"),
+    crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    limit: int = Query(500, ge=1, le=2000, description="Maximum rows to export"),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            report = _build_insights_report(
+                con,
+                view=view,
+                year=year,
+                industry=industry,
+                crm_owner=crm_owner,
+                limit=limit,
+            )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        columns = report.get("columns") or []
+        rows = report.get("rows") or []
+        writer.writerow([str(col.get("label") or col.get("key") or "") for col in columns])
+        for row in rows:
+            writer.writerow([row.get(str(col.get("key") or ""), "") for col in columns])
+
+        safe_view = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in str(view or "report")).strip("-") or "report"
+        filename = f"insights-{safe_view}.csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export dashboard report: {e}")
