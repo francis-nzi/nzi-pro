@@ -371,6 +371,10 @@ type ReportMetadataField = {
   aliases?: string[];
 };
 
+const AUTO_REPORT_METADATA_FIELDS = new Set([
+  "datasets_names",
+]);
+
 type TeamMember = {
   user_id: string;
   full_name: string;
@@ -457,25 +461,25 @@ const JOB_SETUP_METADATA_FALLBACK_FIELDS: ReportMetadataField[] = [
     key: "emissions_reduction_targets_commentary",
     label: "Emissions Reduction Targets Commentary",
     field_type: "textarea",
-    section: "Narrative",
+    section: "Global Report Narrative",
   },
   {
     key: "data_confidence_commentary",
     label: "Data Confidence Commentary",
     field_type: "textarea",
-    section: "Narrative",
+    section: "Global Report Narrative",
   },
   {
     key: "methodologies_used",
     label: "Methodologies Used",
     field_type: "textarea",
-    section: "Narrative",
+    section: "Global Report Narrative",
   },
   {
     key: "datasets_names",
     label: "Datasets Names",
     field_type: "textarea",
-    section: "Narrative",
+    section: "Global Report Narrative",
   },
   {
     key: "energy_consumption_uk_kwh",
@@ -828,6 +832,7 @@ export default function JobDetailPage() {
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
     const inputId = `${idPrefix}-${field.key}`;
     const value = reportMetadataValues[field.key] ?? "";
+    const isAutoField = AUTO_REPORT_METADATA_FIELDS.has(field.key);
     const onTextChange = (nextValue: string) => {
       setReportMetadataValues((prev) => ({ ...prev, [field.key]: nextValue }));
     };
@@ -897,7 +902,8 @@ export default function JobDetailPage() {
           id={inputId}
           value={value}
           rows={3}
-          className="resize-y"
+          className={`resize-y ${isAutoField ? "bg-muted" : ""}`}
+          readOnly={isAutoField}
           onChange={(e) => onTextChange(e.target.value)}
         />
       );
@@ -947,6 +953,8 @@ export default function JobDetailPage() {
         id={inputId}
         type="text"
         value={value}
+        readOnly={isAutoField}
+        className={isAutoField ? "bg-muted" : undefined}
         onChange={(e) => onTextChange(e.target.value)}
       />
     );
@@ -2137,6 +2145,11 @@ export default function JobDetailPage() {
                   <CardTitle>Job Report Variables</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    These fields are <strong>global report metadata</strong> used by the report templates for methodology,
+                    data quality, targets, and other one-to-one placeholders. Template-specific section commentary lives in
+                    <strong> Report - Variables</strong>.
+                  </div>
                   {reportMetadataFieldsForSetup.length === 0 ? (
                     <div className="text-sm text-muted-foreground">
                       No report metadata variables available for this job.
@@ -2151,8 +2164,20 @@ export default function JobDetailPage() {
                               key={field.key}
                               className={field.field_type === "textarea" ? "space-y-2 md:col-span-2" : "space-y-2"}
                             >
-                              <Label htmlFor={`setup-report-meta-${field.key}`}>{field.label}</Label>
+                              <Label htmlFor={`setup-report-meta-${field.key}`} className="flex items-center gap-2">
+                                {field.label}
+                                {AUTO_REPORT_METADATA_FIELDS.has(field.key) ? (
+                                  <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                                    Auto-generated
+                                  </span>
+                                ) : null}
+                              </Label>
                               {renderReportMetadataInput(field, "setup-report-meta")}
+                              {field.key === "datasets_names" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Derived automatically from the job&apos;s active datasets and reporting period.
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>

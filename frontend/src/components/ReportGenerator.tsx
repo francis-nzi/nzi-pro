@@ -20,6 +20,10 @@ const SYNCED_METADATA_FIELDS = [
   "vehicles_leased",
 ];
 
+const AUTO_METADATA_FIELDS = [
+  "datasets_names",
+];
+
 // Template-specific metadata visibility overrides to avoid showing fields
 // that are not rendered by a given report template.
 const TEMPLATE_METADATA_KEY_OVERRIDES: Record<string, string[]> = {
@@ -950,33 +954,38 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     return SYNCED_METADATA_FIELDS.includes(key);
   };
 
+  const isAutoMetadataField = (key: string): boolean => {
+    return AUTO_METADATA_FIELDS.includes(key);
+  };
+
   const renderMetadataInput = (field: ReportMetadataField) => {
     const value = metadataValues[field.key] || "";
     const synced = isSyncedField(field.key);
+    const autoField = isAutoMetadataField(field.key);
     
     const commonProps = {
       id: `meta-${field.key}`,
       value,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
         handleMetadataChange(field.key, e.target.value, field.field_type),
-      disabled: synced, // Make synced fields read-only
+      disabled: synced || autoField,
     };
 
     switch (field.field_type) {
       case "textarea":
-        return <Textarea {...commonProps} rows={3} className={`resize-y ${synced ? "bg-muted/50" : ""}`} />;
+        return <Textarea {...commonProps} rows={3} className={`resize-y ${synced || autoField ? "bg-muted/50" : ""}`} />;
       case "date":
-        return <Input {...commonProps} type="date" className={synced ? "bg-muted/50" : ""} />;
+        return <Input {...commonProps} type="date" className={synced || autoField ? "bg-muted/50" : ""} />;
       case "number":
-        return <Input {...commonProps} type="number" className={synced ? "bg-muted/50" : ""} />;
+        return <Input {...commonProps} type="number" className={synced || autoField ? "bg-muted/50" : ""} />;
       case "boolean":
         return (
           <Select
             value={value}
             onValueChange={(v) => handleMetadataChange(field.key, v, field.field_type)}
-            disabled={synced}
+            disabled={synced || autoField}
           >
-            <SelectTrigger className={synced ? "bg-muted/50" : ""}>
+            <SelectTrigger className={synced || autoField ? "bg-muted/50" : ""}>
               <SelectValue placeholder="Select..." />
             </SelectTrigger>
             <SelectContent>
@@ -986,7 +995,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
           </Select>
         );
       default:
-        return <Input {...commonProps} type="text" className={synced ? "bg-muted/50" : ""} />;
+        return <Input {...commonProps} type="text" className={synced || autoField ? "bg-muted/50" : ""} />;
     }
   };
 
@@ -1269,6 +1278,10 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+              Metadata is global report content and placeholder mapping. Template-specific section narrative belongs in
+              the <strong>Content</strong> tab.
+            </div>
             {metadataStatus && (
               <div className="rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-800">
                 {metadataStatus}
@@ -1281,6 +1294,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                 <div className="grid gap-4">
                   {sectionFields.map((field) => {
                     const isSynced = isSyncedField(field.key);
+                    const isAutoField = isAutoMetadataField(field.key);
                     return (
                       <div key={field.key} className="space-y-2">
                         <Label htmlFor={`meta-${field.key}`} className="flex items-center gap-2">
@@ -1291,8 +1305,19 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                               From Job Setup
                             </span>
                           )}
+                          {isAutoField && (
+                            <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                              <Link2 className="h-3 w-3" />
+                              Auto-generated
+                            </span>
+                          )}
                         </Label>
                         {renderMetadataInput(field)}
+                        {field.key === "datasets_names" && (
+                          <div className="text-xs text-muted-foreground">
+                            Derived automatically from the job&apos;s active datasets and reporting period.
+                          </div>
+                        )}
                         {field.aliases && field.aliases.length > 0 && (
                           <div className="text-xs text-muted-foreground">
                             Aliases: {field.aliases.join(", ")}

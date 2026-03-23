@@ -962,8 +962,9 @@
             <p>{{ executive_summary_tv }}</p>
             {% endif %}
 
-            {% if tv.get('commitment_commentary') %}
-            <p>{{ tv.get('commitment_commentary') }}</p>
+            {% set commitment_commentary_text = tv.get('commitment_commentary') or report_metadata.get('commitment_commentary') %}
+            {% if commitment_commentary_text %}
+            <p>{{ commitment_commentary_text }}</p>
             {% endif %}
 
             <h3>Reduction Targets</h3>
@@ -1420,7 +1421,7 @@
             <h2>6. Emissions by Activity</h2>
 
             {% set tv = template_variables if template_variables is defined and template_variables else {} %}
-            {% set activity_narrative_intro = tv.get('activity_narrative_intro') %}
+            {% set activity_narrative_intro = tv.get('activity_narrative_intro') or report_metadata.get('activity_commentary') %}
             {% set energy_commentary = tv.get('activity_energy_commentary') %}
             {% set business_travel_commentary = tv.get('activity_business_travel_commentary') %}
             {% set employee_commuting_commentary = tv.get('activity_employee_commuting_commentary') %}
@@ -1482,6 +1483,25 @@
                     <img src="data:image/png;base64,{{ assets.activity_bar }}" alt="Activity Bar Chart" class="report-chart-bar">
                 </div>
             </div>
+            {% endif %}
+
+            {% if energy_commentary or business_travel_commentary or employee_commuting_commentary or pgs_commentary or other_commentary %}
+            <h3>Activity Commentary</h3>
+            {% if energy_commentary %}
+            <div class="info-box"><strong>Energy:</strong> {{ energy_commentary }}</div>
+            {% endif %}
+            {% if business_travel_commentary %}
+            <div class="info-box"><strong>Business Travel:</strong> {{ business_travel_commentary }}</div>
+            {% endif %}
+            {% if employee_commuting_commentary %}
+            <div class="info-box"><strong>Employee Commuting:</strong> {{ employee_commuting_commentary }}</div>
+            {% endif %}
+            {% if pgs_commentary %}
+            <div class="info-box"><strong>Purchased Goods &amp; Services:</strong> {{ pgs_commentary }}</div>
+            {% endif %}
+            {% if other_commentary %}
+            <div class="info-box"><strong>Other:</strong> {{ other_commentary }}</div>
+            {% endif %}
             {% endif %}
 
             {% if site_breakdowns and site_breakdowns.show_site_tables %}
@@ -1669,6 +1689,11 @@
                 <p>No intensity metrics data available for this reporting period. Intensity metrics can be added through the job configuration.</p>
             </div>
             {% endif %}
+            {% if report_metadata.get('intensity_commentary') %}
+            <div class="info-box">
+                <strong>Intensity Commentary:</strong> {{ report_metadata.get('intensity_commentary') }}
+            </div>
+            {% endif %}
 
             <div class="page-break"></div>
 
@@ -1728,6 +1753,11 @@
                 <strong>Note:</strong> Scope 3 emissions represent the largest category for most organisations. 
                 Reduction in Scope 3 requires engagement with suppliers, customers, and supply chain partners.
             </div>
+            {% if report_metadata.get('emissions_reduction_targets_commentary') %}
+            <div class="info-box">
+                <strong>Targets Commentary:</strong> {{ report_metadata.get('emissions_reduction_targets_commentary') }}
+            </div>
+            {% endif %}
 
             {% if assets.get('reduction_pathway_interim') %}
             <h3 style="text-align: left; margin-top: 20px;">Pathway to Interim Target</h3>
@@ -1915,6 +1945,16 @@
                 <li><strong>Scope 2:</strong> Indirect emissions from purchased electricity, steam, heating & cooling</li>
                 <li><strong>Scope 3:</strong> All other indirect emissions in the value chain</li>
             </ul>
+            {% if report_metadata.get('methodologies_used') %}
+            <div class="info-box">
+                <strong>Methodologies Used:</strong> {{ report_metadata.get('methodologies_used') }}
+            </div>
+            {% endif %}
+            {% if report_metadata.get('datasets_names') %}
+            <div class="info-box">
+                <strong>Datasets Used:</strong> {{ report_metadata.get('datasets_names') }}
+            </div>
+            {% endif %}
 
             <div class="page-break"></div>
 
@@ -1970,6 +2010,11 @@
                 <strong>Data Improvement Actions:</strong> Continuous improvement of data quality is an ongoing process. 
                 We are working with suppliers to improve Scope 3 data accuracy.
             </div>
+            {% if report_metadata.get('data_confidence_commentary') %}
+            <div class="info-box">
+                <strong>Data Confidence Commentary:</strong> {{ report_metadata.get('data_confidence_commentary') }}
+            </div>
+            {% endif %}
 
             <div class="page-break"></div>
 
