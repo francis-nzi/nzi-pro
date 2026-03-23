@@ -161,6 +161,170 @@ def _build_staged_metadata(
     }
 
 
+def _single_numeric(values: list[Any]) -> float | None:
+    uniq: list[float] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        num = float(value)
+        key = f"{num:.12g}"
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(num)
+    if len(uniq) == 1:
+        return float(uniq[0])
+    return None
+
+
+def _single_text(values: list[Any]) -> str | None:
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = _clean(value)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(text)
+    if len(uniq) == 1:
+        return uniq[0]
+    return None
+
+
+def _single_int(values: list[Any]) -> int | None:
+    uniq: list[int] = []
+    seen: set[int] = set()
+    for value in values:
+        if value is None:
+            continue
+        num = int(value)
+        if num in seen:
+            continue
+        seen.add(num)
+        uniq.append(num)
+    if len(uniq) == 1:
+        return int(uniq[0])
+    return None
+
+
+def _quantity_storage_plan(
+    *,
+    month_quantities: dict[int, float],
+    month_emissions: dict[int, float],
+    month_datasets: dict[int, int],
+    month_factor_db_ids: dict[int, int | None],
+    month_factor_values: dict[int, float | None],
+    month_uoms: dict[int, str | None],
+    month_ghg_units: dict[int, str | None],
+    factor_rec_primary: FactorRec | None,
+    primary_dataset: int | None,
+) -> dict[str, Any]:
+    dataset_id = _single_int(list(month_datasets.values()))
+    factor_db_id = _single_int([v for v in month_factor_db_ids.values() if v is not None])
+    factor_value = _single_numeric([v for v in month_factor_values.values() if v is not None])
+    uom = _single_text([v for v in month_uoms.values() if v is not None]) or (factor_rec_primary.uom if factor_rec_primary else None)
+    ghg_unit = _single_text([v for v in month_ghg_units.values() if v is not None]) or (factor_rec_primary.ghg_unit if factor_rec_primary else None)
+
+    raw_supported = (
+        bool(month_quantities)
+        and dataset_id is not None
+        and factor_value is not None
+        and bool(uom)
+        and bool(ghg_unit)
+        and len({int(v) for v in month_datasets.values()}) == 1
+        and len({f"{float(v):.12g}" for v in month_factor_values.values() if v is not None}) == 1
+        and len({_clean(v).lower() for v in month_uoms.values() if _clean(v)}) <= 1
+        and len({_clean(v).lower() for v in month_ghg_units.values() if _clean(v)}) <= 1
+    )
+
+    if raw_supported:
+        return {
+            "value_mode": "quantity",
+            "storage_reason": "single_dataset_factor",
+            "dataset_id": dataset_id,
+            "factor_db_id": factor_db_id if factor_db_id is not None else (factor_rec_primary.db_id if factor_rec_primary else None),
+            "uom": uom,
+            "ghg_unit": ghg_unit,
+            "factor": float(factor_value),
+            "qty": float(sum(month_quantities.values())),
+            "calc_tco2e": float(sum(month_emissions.values())),
+            "monthly_values": {i: float(month_quantities.get(i, 0.0)) for i in range(1, 13)},
+        }
+
+    reason = "multi_dataset_or_factor"
+    if len({int(v) for v in month_datasets.values()}) <= 1 and len({f'{float(v):.12g}' for v in month_factor_values.values() if v is not None}) <= 1:
+        reason = "unsupported_raw_metadata"
+    return {
+        "value_mode": "emissions",
+        "storage_reason": reason,
+        "dataset_id": primary_dataset,
+        "factor_db_id": (factor_rec_primary.db_id if factor_rec_primary else None),
+        "uom": "tCO2e",
+        "ghg_unit": "tCO2e",
+        "factor": 1.0,
+        "qty": float(sum(month_emissions.values())),
+        "calc_tco2e": float(sum(month_emissions.values())),
+        "monthly_values": {i: float(month_emissions.get(i, 0.0)) for i in range(1, 13)},
+    }
+
+
+def _convert_entry_to_emissions(entry: dict[str, Any], reason: str) -> None:
+    factor = float(entry.get("factor") or 0.0)
+    ghg_unit = entry.get("ghg_unit")
+    monthly_values = entry.get("monthly_values") or {}
+    converted = {i: _to_tco2e(float(monthly_values.get(i, 0.0) or 0.0), factor, ghg_unit) for i in range(1, 13)}
+    total = float(sum(converted.values()))
+    entry["value_mode"] = "emissions"
+    entry["storage_reason"] = reason
+    entry["uom"] = "tCO2e"
+    entry["ghg_unit"] = "tCO2e"
+    entry["factor"] = 1.0
+    entry["qty"] = total
+    entry["calc_tco2e"] = total
+    entry["monthly_values"] = converted
+
+
+def _same_quantity_storage(entry: dict[str, Any], plan: dict[str, Any]) -> bool:
+    if _clean(entry.get("value_mode")).lower() != "quantity" or _clean(plan.get("value_mode")).lower() != "quantity":
+        return False
+    same_dataset = _single_int([entry.get("dataset_id"), plan.get("dataset_id")]) is not None
+    same_factor_db = _single_int([entry.get("factor_db_id"), plan.get("factor_db_id")]) is not None or (
+        entry.get("factor_db_id") is None and plan.get("factor_db_id") is None
+    )
+    same_factor = _single_numeric([entry.get("factor"), plan.get("factor")]) is not None
+    same_uom = _single_text([entry.get("uom"), plan.get("uom")]) is not None
+    same_ghg_unit = _single_text([entry.get("ghg_unit"), plan.get("ghg_unit")]) is not None
+    return bool(same_dataset and same_factor_db and same_factor and same_uom and same_ghg_unit)
+
+
+def _coerce_row_payload_to_emissions(row: dict[str, Any], reason: str) -> dict[str, Any]:
+    out = dict(row)
+    if _clean(out.get("value_mode")).lower() == "emissions":
+        out["storage_reason"] = _clean(out.get("storage_reason")) or reason
+        return out
+    factor = float(out.get("factor") or 0.0)
+    ghg_unit = out.get("ghg_unit")
+    converted = {
+        i: _to_tco2e(float(out.get(f"month_{i}") or 0.0), factor, ghg_unit)
+        for i in range(1, 13)
+    }
+    total = float(sum(converted.values()))
+    for i in range(1, 13):
+        out[f"month_{i}"] = float(converted[i])
+    out["qty"] = total
+    out["calc_tco2e"] = total
+    out["uom"] = "tCO2e"
+    out["ghg_unit"] = "tCO2e"
+    out["factor"] = 1.0
+    out["value_mode"] = "emissions"
+    out["storage_reason"] = reason
+    return out
+
+
 def _template_lookup_path() -> Path:
     return Path(__file__).resolve().parents[1] / "wfm_import" / "analysis" / "wfm_template_id_lookup.json"
 
@@ -435,6 +599,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     unresolved_rows: list[dict[str, Any]] = []
     collision_tracker: Counter[tuple[str, str]] = Counter()
     aggregate: dict[tuple[str, str], dict[str, Any]] = {}
+    quantity_mode_rows = 0
+    emissions_mode_rows = 0
 
     for row in parsed_rows:
         scope = row.get("scope")
@@ -444,7 +610,12 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             continue
 
         month_emissions: dict[int, float] = {}
+        month_quantities: dict[int, float] = {}
         month_datasets: dict[int, int] = {}
+        month_factor_db_ids: dict[int, int | None] = {}
+        month_factor_values: dict[int, float | None] = {}
+        month_uoms: dict[int, str | None] = {}
+        month_ghg_units: dict[int, str | None] = {}
         month_missing: list[dict[str, Any]] = []
         factor_rec_primary: FactorRec | None = None
 
@@ -464,7 +635,12 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 continue
             if factor_rec_primary is None:
                 factor_rec_primary = rec
+            month_quantities[pos] = float(qty)
             month_datasets[pos] = int(dsid)
+            month_factor_db_ids[pos] = rec.db_id
+            month_factor_values[pos] = float(rec.factor) if rec.factor is not None else None
+            month_uoms[pos] = rec.uom
+            month_ghg_units[pos] = rec.ghg_unit
             month_emissions[pos] = _to_tco2e(float(qty), float(rec.factor), rec.ghg_unit)
 
         if not month_emissions:
@@ -477,6 +653,17 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         storage_original_id = _storage_original_id_from_row(row)
         key = (str(scope), storage_original_id)
         collision_tracker[key] += 1
+        storage_plan = _quantity_storage_plan(
+            month_quantities=month_quantities,
+            month_emissions=month_emissions,
+            month_datasets=month_datasets,
+            month_factor_db_ids=month_factor_db_ids,
+            month_factor_values=month_factor_values,
+            month_uoms=month_uoms,
+            month_ghg_units=month_ghg_units,
+            factor_rec_primary=factor_rec_primary,
+            primary_dataset=primary_dataset,
+        )
 
         entry = aggregate.get(key)
         if entry is None:
@@ -484,27 +671,54 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 **_build_staged_metadata(
                     row,
                     factor_rec_primary,
-                    primary_dataset,
+                    storage_plan["dataset_id"],
                     factor_original_id=oid,
                     storage_original_id=storage_original_id,
                 ),
+                "value_mode": storage_plan["value_mode"],
+                "storage_reason": storage_plan["storage_reason"],
+                "uom": storage_plan["uom"],
+                "ghg_unit": storage_plan["ghg_unit"],
+                "factor": storage_plan["factor"],
                 "monthly_emissions": {i: 0.0 for i in range(1, 13)},
+                "monthly_values": {i: 0.0 for i in range(1, 13)},
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
+                "calc_tco2e": 0.0,
                 "source_rows": [],
                 "month_errors": [],
             }
             aggregate[key] = entry
+        elif entry.get("value_mode") == "quantity" and (
+            storage_plan["value_mode"] != "quantity" or not _same_quantity_storage(entry, storage_plan)
+        ):
+            _convert_entry_to_emissions(entry, "duplicate_rows_with_mixed_factor_context")
 
+        if entry.get("value_mode") == "emissions":
+            values_to_add = {i: float(month_emissions.get(i, 0.0)) for i in range(1, 13)}
+            qty_to_add = total_emissions
+            calc_to_add = total_emissions
+        else:
+            values_to_add = storage_plan["monthly_values"]
+            qty_to_add = float(storage_plan["qty"])
+            calc_to_add = float(storage_plan["calc_tco2e"])
+
+        for pos, val in values_to_add.items():
+            entry["monthly_values"][int(pos)] = float(entry["monthly_values"][int(pos)]) + float(val)
         for pos, val in month_emissions.items():
             entry["monthly_emissions"][int(pos)] = float(entry["monthly_emissions"][int(pos)]) + float(val)
             if pos in month_datasets:
                 entry["monthly_dataset_ids"][int(pos)] = int(month_datasets[pos])
-        entry["qty"] = float(entry["qty"]) + total_emissions
+        entry["qty"] = float(entry["qty"]) + float(qty_to_add)
+        entry["calc_tco2e"] = float(entry["calc_tco2e"]) + float(calc_to_add)
         entry["source_rows"].append({"sheet": row.get("sheet_name"), "row": row.get("row_number"), "activity": row.get("activity")})
         entry["month_errors"].extend(month_missing)
 
     for (_scope, _oid), entry in aggregate.items():
+        if _clean(entry.get("value_mode")).lower() == "quantity":
+            quantity_mode_rows += 1
+        else:
+            emissions_mode_rows += 1
         staged_rows.append(
             {
                 **_build_staged_metadata(
@@ -519,23 +733,25 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 "level_2": entry["level_2"],
                 "level_3": entry["level_3"],
                 "level_4": entry["level_4"],
+                "value_mode": entry["value_mode"],
+                "storage_reason": entry["storage_reason"],
                 "qty": float(entry["qty"]),
-                "uom": "tCO2e",
-                "ghg_unit": "tCO2e",
-                "factor": 1.0,
-                "calc_tco2e": float(entry["qty"]),
-                "month_1": float(entry["monthly_emissions"].get(1, 0.0)),
-                "month_2": float(entry["monthly_emissions"].get(2, 0.0)),
-                "month_3": float(entry["monthly_emissions"].get(3, 0.0)),
-                "month_4": float(entry["monthly_emissions"].get(4, 0.0)),
-                "month_5": float(entry["monthly_emissions"].get(5, 0.0)),
-                "month_6": float(entry["monthly_emissions"].get(6, 0.0)),
-                "month_7": float(entry["monthly_emissions"].get(7, 0.0)),
-                "month_8": float(entry["monthly_emissions"].get(8, 0.0)),
-                "month_9": float(entry["monthly_emissions"].get(9, 0.0)),
-                "month_10": float(entry["monthly_emissions"].get(10, 0.0)),
-                "month_11": float(entry["monthly_emissions"].get(11, 0.0)),
-                "month_12": float(entry["monthly_emissions"].get(12, 0.0)),
+                "uom": entry["uom"],
+                "ghg_unit": entry["ghg_unit"],
+                "factor": float(entry["factor"] or 0.0),
+                "calc_tco2e": float(entry["calc_tco2e"]),
+                "month_1": float(entry["monthly_values"].get(1, 0.0)),
+                "month_2": float(entry["monthly_values"].get(2, 0.0)),
+                "month_3": float(entry["monthly_values"].get(3, 0.0)),
+                "month_4": float(entry["monthly_values"].get(4, 0.0)),
+                "month_5": float(entry["monthly_values"].get(5, 0.0)),
+                "month_6": float(entry["monthly_values"].get(6, 0.0)),
+                "month_7": float(entry["monthly_values"].get(7, 0.0)),
+                "month_8": float(entry["monthly_values"].get(8, 0.0)),
+                "month_9": float(entry["monthly_values"].get(9, 0.0)),
+                "month_10": float(entry["monthly_values"].get(10, 0.0)),
+                "month_11": float(entry["monthly_values"].get(11, 0.0)),
+                "month_12": float(entry["monthly_values"].get(12, 0.0)),
                 "monthly_dataset_ids": entry["monthly_dataset_ids"],
                 "month_errors": entry["month_errors"],
                 "source_rows": entry["source_rows"],
@@ -548,9 +764,13 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         parse_warnings.append(
             f"{len(collision_rows)} template lines were aggregated from duplicate source rows with the same scope and mapping key."
         )
+    if emissions_mode_rows:
+        parse_warnings.append(
+            f"{emissions_mode_rows} rows were stored as emissions because their month-level factor context could not be represented as one raw quantity row."
+        )
 
     parse_warnings.append(
-        "Monthly values are committed as tCO2e emissions using year-specific factors (factor=1, ghg_unit=tCO2e)."
+        "Rows with one consistent dataset/factor are committed as raw quantities; mixed-factor rows fall back to monthly tCO2e storage."
     )
 
     return {
@@ -560,6 +780,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             "resolved_rows": len(staged_rows),
             "unresolved_rows": len(unresolved_rows),
             "collision_rows": len(collision_rows),
+            "quantity_mode_rows": quantity_mode_rows,
+            "emissions_mode_rows": emissions_mode_rows,
             "dataset_years_available": sorted(dataset_by_year.keys()),
         },
         "warnings": parse_warnings,
@@ -624,10 +846,14 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
             scope = _clean(r.get("scope"))
             original_id = _storage_original_id_from_row(r)
             factor_original_id = _factor_original_id_from_row(r)
+            value_mode = _clean(r.get("value_mode")) or "emissions"
             if not scope or not original_id:
                 continue
 
-            notes = "Legacy annual import; monthly values stored as tCO2e using year-specific datasets"
+            if value_mode == "quantity":
+                notes = "Legacy annual import; monthly values stored as raw quantities with factor metadata"
+            else:
+                notes = "Legacy annual import; monthly values stored as tCO2e emissions fallback"
             note_parts: list[str] = []
             if factor_original_id:
                 note_parts.append(f"factor_original_id={factor_original_id}")
@@ -635,6 +861,8 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                 note_parts.append(f"section={_clean(r.get('section'))}")
             if _clean(r.get("activity")):
                 note_parts.append(f"activity={_clean(r.get('activity'))}")
+            if _clean(r.get("storage_reason")):
+                note_parts.append(f"storage_reason={_clean(r.get('storage_reason'))}")
             if note_parts:
                 notes = f"{notes} ({'; '.join(note_parts)})"
 
@@ -821,7 +1049,12 @@ def resolve_unresolved_rows(
         scope = _clean(row.get("scope"))
         oid = _factor_original_id_from_row(row)
         month_emissions: dict[int, float] = {}
+        month_quantities: dict[int, float] = {}
         month_datasets: dict[int, int] = {}
+        month_factor_db_ids: dict[int, int | None] = {}
+        month_factor_values: dict[int, float | None] = {}
+        month_uoms: dict[int, str | None] = {}
+        month_ghg_units: dict[int, str | None] = {}
         month_errors: list[dict[str, Any]] = []
         factor_primary: FactorRec | None = None
 
@@ -841,7 +1074,12 @@ def resolve_unresolved_rows(
                 continue
             if factor_primary is None:
                 factor_primary = rec
+            month_quantities[pos] = float(qty)
             month_datasets[pos] = int(dsid)
+            month_factor_db_ids[pos] = rec.db_id
+            month_factor_values[pos] = float(rec.factor) if rec.factor is not None else None
+            month_uoms[pos] = rec.uom
+            month_ghg_units[pos] = rec.ghg_unit
             month_emissions[pos] = _to_tco2e(float(qty), float(rec.factor), rec.ghg_unit)
 
         if not month_emissions:
@@ -855,27 +1093,62 @@ def resolve_unresolved_rows(
         ds_counter = Counter(month_datasets.values())
         primary_dataset = int(ds_counter.most_common(1)[0][0]) if ds_counter else None
         total = float(sum(month_emissions.values()))
+        storage_plan = _quantity_storage_plan(
+            month_quantities=month_quantities,
+            month_emissions=month_emissions,
+            month_datasets=month_datasets,
+            month_factor_db_ids=month_factor_db_ids,
+            month_factor_values=month_factor_values,
+            month_uoms=month_uoms,
+            month_ghg_units=month_ghg_units,
+            factor_rec_primary=factor_primary,
+            primary_dataset=primary_dataset,
+        )
         if key not in aggregate:
             aggregate[key] = {
                 **_build_staged_metadata(
                     row,
                     factor_primary,
-                    primary_dataset,
+                    storage_plan["dataset_id"],
                     factor_original_id=oid,
                     storage_original_id=storage_original_id,
                 ),
+                "value_mode": storage_plan["value_mode"],
+                "storage_reason": storage_plan["storage_reason"],
+                "uom": storage_plan["uom"],
+                "ghg_unit": storage_plan["ghg_unit"],
+                "factor": storage_plan["factor"],
                 "monthly_emissions": {i: 0.0 for i in range(1, 13)},
+                "monthly_values": {i: 0.0 for i in range(1, 13)},
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
+                "calc_tco2e": 0.0,
                 "source_rows": [],
                 "month_errors": [],
             }
         entry = aggregate[key]
+        if entry.get("value_mode") == "quantity" and (
+            storage_plan["value_mode"] != "quantity" or not _same_quantity_storage(entry, storage_plan)
+        ):
+            _convert_entry_to_emissions(entry, "duplicate_rows_with_mixed_factor_context")
+
+        if entry.get("value_mode") == "emissions":
+            values_to_add = {i: float(month_emissions.get(i, 0.0)) for i in range(1, 13)}
+            qty_to_add = total
+            calc_to_add = total
+        else:
+            values_to_add = storage_plan["monthly_values"]
+            qty_to_add = float(storage_plan["qty"])
+            calc_to_add = float(storage_plan["calc_tco2e"])
+
+        for pos, val in values_to_add.items():
+            entry["monthly_values"][int(pos)] = float(entry["monthly_values"][int(pos)]) + float(val)
         for pos, val in month_emissions.items():
             entry["monthly_emissions"][int(pos)] = float(entry["monthly_emissions"][int(pos)]) + float(val)
             if pos in month_datasets:
                 entry["monthly_dataset_ids"][int(pos)] = int(month_datasets[pos])
-        entry["qty"] = float(entry["qty"]) + total
+        entry["qty"] = float(entry["qty"]) + float(qty_to_add)
+        entry["calc_tco2e"] = float(entry["calc_tco2e"]) + float(calc_to_add)
         entry["source_rows"].append({"sheet": row.get("sheet_name"), "row": row.get("row_number"), "activity": row.get("activity")})
         entry["month_errors"].extend(month_errors)
 
@@ -894,23 +1167,25 @@ def resolve_unresolved_rows(
                 "level_2": entry["level_2"],
                 "level_3": entry["level_3"],
                 "level_4": entry["level_4"],
+                "value_mode": entry["value_mode"],
+                "storage_reason": entry["storage_reason"],
                 "qty": float(entry["qty"]),
-                "uom": "tCO2e",
-                "ghg_unit": "tCO2e",
-                "factor": 1.0,
-                "calc_tco2e": float(entry["qty"]),
-                "month_1": float(entry["monthly_emissions"].get(1, 0.0)),
-                "month_2": float(entry["monthly_emissions"].get(2, 0.0)),
-                "month_3": float(entry["monthly_emissions"].get(3, 0.0)),
-                "month_4": float(entry["monthly_emissions"].get(4, 0.0)),
-                "month_5": float(entry["monthly_emissions"].get(5, 0.0)),
-                "month_6": float(entry["monthly_emissions"].get(6, 0.0)),
-                "month_7": float(entry["monthly_emissions"].get(7, 0.0)),
-                "month_8": float(entry["monthly_emissions"].get(8, 0.0)),
-                "month_9": float(entry["monthly_emissions"].get(9, 0.0)),
-                "month_10": float(entry["monthly_emissions"].get(10, 0.0)),
-                "month_11": float(entry["monthly_emissions"].get(11, 0.0)),
-                "month_12": float(entry["monthly_emissions"].get(12, 0.0)),
+                "uom": entry["uom"],
+                "ghg_unit": entry["ghg_unit"],
+                "factor": float(entry["factor"] or 0.0),
+                "calc_tco2e": float(entry["calc_tco2e"]),
+                "month_1": float(entry["monthly_values"].get(1, 0.0)),
+                "month_2": float(entry["monthly_values"].get(2, 0.0)),
+                "month_3": float(entry["monthly_values"].get(3, 0.0)),
+                "month_4": float(entry["monthly_values"].get(4, 0.0)),
+                "month_5": float(entry["monthly_values"].get(5, 0.0)),
+                "month_6": float(entry["monthly_values"].get(6, 0.0)),
+                "month_7": float(entry["monthly_values"].get(7, 0.0)),
+                "month_8": float(entry["monthly_values"].get(8, 0.0)),
+                "month_9": float(entry["monthly_values"].get(9, 0.0)),
+                "month_10": float(entry["monthly_values"].get(10, 0.0)),
+                "month_11": float(entry["monthly_values"].get(11, 0.0)),
+                "month_12": float(entry["monthly_values"].get(12, 0.0)),
                 "monthly_dataset_ids": entry["monthly_dataset_ids"],
                 "month_errors": entry["month_errors"],
                 "source_rows": entry["source_rows"],
@@ -931,10 +1206,17 @@ def resolve_unresolved_rows(
             merged[key] = dict(row)
             continue
         cur = merged[key]
+        row_to_merge = dict(row)
+        if _clean(cur.get("value_mode")).lower() != _clean(row_to_merge.get("value_mode")).lower() or (
+            _clean(cur.get("value_mode")).lower() == "quantity" and not _same_quantity_storage(cur, row_to_merge)
+        ):
+            cur = _coerce_row_payload_to_emissions(cur, "resolved_rows_with_mixed_factor_context")
+            row_to_merge = _coerce_row_payload_to_emissions(row_to_merge, "resolved_rows_with_mixed_factor_context")
+            merged[key] = cur
         for i in range(1, 13):
-            cur[f"month_{i}"] = float(cur.get(f"month_{i}") or 0) + float(row.get(f"month_{i}") or 0)
-        cur["qty"] = float(cur.get("qty") or 0) + float(row.get("qty") or 0)
-        cur["calc_tco2e"] = float(cur.get("calc_tco2e") or 0) + float(row.get("calc_tco2e") or 0)
+            cur[f"month_{i}"] = float(cur.get(f"month_{i}") or 0) + float(row_to_merge.get(f"month_{i}") or 0)
+        cur["qty"] = float(cur.get("qty") or 0) + float(row_to_merge.get("qty") or 0)
+        cur["calc_tco2e"] = float(cur.get("calc_tco2e") or 0) + float(row_to_merge.get("calc_tco2e") or 0)
         cur["collision_count"] = int(cur.get("collision_count") or 1) + 1
 
     merged_rows = list(merged.values())
