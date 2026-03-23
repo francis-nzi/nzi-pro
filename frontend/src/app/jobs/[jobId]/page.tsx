@@ -35,6 +35,11 @@ import JobCommunications from "@/components/JobCommunications";
 import ClientTimeline from "@/components/ClientTimeline";
 import CustomFields from "@/components/CustomFields";
 import { milestoneDotClass } from "@/lib/status-utils";
+import {
+  AUTO_REPORT_METADATA_KEYS,
+  calculateDerivedEnergyEmissionFields,
+  type EnergyEmissionFactorDetails,
+} from "@/lib/report-metadata";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -371,9 +376,7 @@ type ReportMetadataField = {
   aliases?: string[];
 };
 
-const AUTO_REPORT_METADATA_FIELDS = new Set([
-  "datasets_names",
-]);
+const AUTO_REPORT_METADATA_FIELDS = new Set<string>(AUTO_REPORT_METADATA_KEYS);
 
 type TeamMember = {
   user_id: string;
@@ -661,6 +664,8 @@ export default function JobDetailPage() {
   const [savingReportMetadata, setSavingReportMetadata] = useState<boolean>(false);
   const [reportMetadataStatus, setReportMetadataStatus] = useState<string>("");
   const [reportMetadataApiUnavailable, setReportMetadataApiUnavailable] = useState<boolean>(false);
+  const [reportMetadataEnergyFactors, setReportMetadataEnergyFactors] =
+    useState<EnergyEmissionFactorDetails | null>(null);
 
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
   const ownerLabel = (crmName || job?.crm_name || "Unassigned").trim() || "Unassigned";
@@ -829,6 +834,35 @@ export default function JobDetailPage() {
     });
   }, [matchedConsultant]);
 
+  const derivedEnergyMetadataValues = useMemo(
+    () =>
+      calculateDerivedEnergyEmissionFields(reportMetadataValues, reportMetadataEnergyFactors),
+    [
+      reportMetadataValues["energy_consumption_uk_kwh"],
+      reportMetadataValues["energy_consumption_non_uk_kwh"],
+      reportMetadataValues["renewable_energy_kwh"],
+      reportMetadataEnergyFactors,
+    ]
+  );
+
+  useEffect(() => {
+    setReportMetadataValues((prev) => {
+      const nextLocation = derivedEnergyMetadataValues["energy_emissions_tco2e"] ?? "0";
+      const nextMarket = derivedEnergyMetadataValues["energy_emissions_market_tco2e"] ?? "0";
+      if (
+        (prev["energy_emissions_tco2e"] ?? "") === nextLocation &&
+        (prev["energy_emissions_market_tco2e"] ?? "") === nextMarket
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        energy_emissions_tco2e: nextLocation,
+        energy_emissions_market_tco2e: nextMarket,
+      };
+    });
+  }, [derivedEnergyMetadataValues]);
+
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
     const inputId = `${idPrefix}-${field.key}`;
     const value = reportMetadataValues[field.key] ?? "";
@@ -943,6 +977,8 @@ export default function JobDetailPage() {
           id={inputId}
           type="number"
           value={value}
+          readOnly={isAutoField}
+          className={isAutoField ? "bg-muted" : undefined}
           onChange={(e) => onTextChange(e.target.value)}
         />
       );
@@ -1191,9 +1227,13 @@ export default function JobDetailPage() {
           filteredFields.length > 0 ? filteredFields : JOB_SETUP_METADATA_FALLBACK_FIELDS;
 
         const metadata = (payload?.metadata || {}) as Record<string, unknown>;
+        const energyFactors = (payload?.energy_emissions_factors || null) as
+          | EnergyEmissionFactorDetails
+          | null;
         setReportMetadataApiUnavailable(false);
         setReportMetadataFields(effectiveFields);
         setReportMetadataValues(buildMetadataFieldValues(effectiveFields, metadata));
+        setReportMetadataEnergyFactors(energyFactors);
       } catch (e) {
         const fallbackMetadata = await loadFallbackMetadataValuesFromReportData();
         if (cancelled) return;
@@ -1203,6 +1243,7 @@ export default function JobDetailPage() {
         setReportMetadataValues(
           buildMetadataFieldValues(JOB_SETUP_METADATA_FALLBACK_FIELDS, fallbackMetadata)
         );
+        setReportMetadataEnergyFactors(null);
         setReportMetadataStatus(
           `Unable to load report metadata endpoint (${(e as Error).message}). Showing fallback fields only.`
         );
@@ -1232,6 +1273,7 @@ export default function JobDetailPage() {
     try {
       const metadataPayload: Record<string, string> = {};
       reportMetadataFieldsForSetup.forEach((field) => {
+        if (AUTO_REPORT_METADATA_FIELDS.has(field.key)) return;
         metadataPayload[field.key] = reportMetadataValues[field.key] ?? "";
       });
 
@@ -1258,9 +1300,13 @@ export default function JobDetailPage() {
 
       const payload = await res.json();
       const updatedMetadata = (payload?.metadata || {}) as Record<string, unknown>;
+      const energyFactors = (payload?.energy_emissions_factors || null) as
+        | EnergyEmissionFactorDetails
+        | null;
       setReportMetadataValues(
         buildMetadataFieldValues(reportMetadataFieldsForSetup, updatedMetadata)
       );
+      setReportMetadataEnergyFactors(energyFactors);
 
       setReportMetadataStatus("Job setup report variables saved successfully.");
       setTimeout(() => setReportMetadataStatus(""), 3000);
@@ -2176,6 +2222,26 @@ export default function JobDetailPage() {
                               {field.key === "datasets_names" ? (
                                 <div className="text-xs text-muted-foreground">
                                   Derived automatically from the job&apos;s active datasets and reporting period.
+                                </div>
+                              ) : field.key === "energy_consumption_uk_kwh" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Derived automatically from Scope 2 UK electricity rows in Data Entry and uploads.
+                                </div>
+                              ) : field.key === "energy_consumption_non_uk_kwh" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Derived automatically from Scope 2 non-UK electricity rows in Data Entry and uploads.
+                                </div>
+                              ) : field.key === "renewable_energy_kwh" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Derived automatically from renewable or green electricity rows in the job&apos;s data inputs.
+                                </div>
+                              ) : field.key === "energy_emissions_tco2e" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Auto-calculated from the data-derived kWh using the active electricity and T&amp;D factors.
+                                </div>
+                              ) : field.key === "energy_emissions_market_tco2e" ? (
+                                <div className="text-xs text-muted-foreground">
+                                  Auto-calculated from the data-derived kWh. Renewable kWh suppresses the location factor, while T&amp;D still applies to total grid electricity.
                                 </div>
                               ) : null}
                             </div>

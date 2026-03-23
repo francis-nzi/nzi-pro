@@ -3,9 +3,12 @@ API endpoints for report template management, versioning, job assignment,
 and report variable handling.
 """
 
+import csv
 from datetime import date, datetime
 from decimal import Decimal
+from functools import lru_cache
 import math
+from pathlib import Path
 import re
 from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
@@ -13,7 +16,11 @@ from typing import Optional, List, Any
 
 from core.database import get_conn
 from api.auth import _current_user
-from services.dataset_selector import get_datasets_names_for_report
+from services.dataset_selector import (
+    get_datasets_names_for_report,
+    get_scope_primary_datasets,
+    resolve_dataset_resolution,
+)
 
 router = APIRouter()
 
@@ -112,8 +119,19 @@ REPORT_METADATA_DEFAULTS: dict[str, Any] = {
     "energy_reporting_basis": "Location-based",
     "renewable_energy_kwh": 0.0,
     "renewable_energy_pct": 0.0,
+    "energy_emissions_tco2e": 0.0,
     "energy_emissions_market_tco2e": 0.0,
     "carbon_offsets_tco2e": 0.0,
+}
+
+REPORT_METADATA_AUTO_SYNC_FIELDS = {
+    "datasets_names",
+    "energy_consumption_uk_kwh",
+    "energy_consumption_non_uk_kwh",
+    "renewable_energy_kwh",
+    "renewable_energy_pct",
+    "energy_emissions_tco2e",
+    "energy_emissions_market_tco2e",
 }
 
 REPORT_METADATA_LABELS: dict[str, str] = {
@@ -500,6 +518,740 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH = 0.177
+DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH = 0.01853
+UK_COUNTRY_TOKENS = {
+    "uk",
+    "united kingdom",
+    "great britain",
+    "gb",
+    "england",
+    "scotland",
+    "wales",
+    "northern ireland",
+}
+GLOBAL_COUNTRY_TOKENS = {
+    "",
+    "global",
+    "international",
+    "all",
+    "all countries",
+    "multi-country",
+    "n/a",
+    "na",
+}
+ENERGY_ROW_EXCLUSION_MARKERS = (
+    "for ev",
+    "evs",
+    "battery electric vehicle",
+    "plug-in hybrid",
+    "managed assets",
+    "district heat",
+    "steam",
+    "wfh",
+    "homeworking",
+)
+ENERGY_INPUT_TD_MARKERS = (
+    "transmission and distribution",
+    "t&d",
+    "td-",
+)
+RENEWABLE_ELECTRICITY_INPUT_MARKERS = (
+    "green electricity",
+    "renewable electricity",
+    "renewable tariff",
+    "renewable power",
+    "renewable energy",
+)
+
+
+def _normalize_energy_factor_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_country_token(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        df = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = %s
+            """,
+            [str(table_name)],
+        ).df()
+        if df is None or df.empty:
+            return set()
+        return {str(v).strip().lower() for v in df["column_name"].tolist()}
+    except Exception:
+        return set()
+
+
+def _is_uk_country(country_norm: str) -> bool:
+    return country_norm in UK_COUNTRY_TOKENS
+
+
+def _is_global_country(country_norm: str) -> bool:
+    return country_norm in GLOBAL_COUNTRY_TOKENS
+
+
+def _build_factor_text_blob(*parts: Any) -> str:
+    return " | ".join(_normalize_energy_factor_text(part) for part in parts if part is not None)
+
+
+def _is_kwh_factor_row(uom: str, level_4: str, text_blob: str) -> bool:
+    return uom == "kwh" or level_4 == "kwh" or " kwh" in text_blob or text_blob.endswith("kwh")
+
+
+def _job_scope_rows_select_parts(con) -> dict[str, str]:
+    cols = _table_columns(con, "job_scope_rows")
+    has = lambda c: c in cols
+    parts: dict[str, str] = {
+        "enabled_predicate": "COALESCE(jsr.enabled, TRUE) = TRUE" if has("enabled") else "TRUE",
+        "level_4_expr": "jsr.level_4" if has("level_4") else "NULL::text AS level_4",
+        "report_label_expr": "jsr.report_label" if has("report_label") else "NULL::text AS report_label",
+        "apply_pct_expr": "jsr.apply_pct" if has("apply_pct") else "100::numeric AS apply_pct",
+    }
+    for month_idx in range(1, 13):
+        col = f"month_{month_idx}"
+        parts[f"{col}_expr"] = f"jsr.{col}" if has(col) else f"NULL::numeric AS {col}"
+    return parts
+
+
+def _is_scope_2_electricity_input_row(
+    *,
+    scope: str,
+    uom: str,
+    level_1: str,
+    level_2: str,
+    level_3: str,
+    level_4: str,
+    column_text: str,
+    report_label: str,
+) -> bool:
+    text_blob = _build_factor_text_blob(level_1, level_2, level_3, level_4, column_text, report_label)
+    if scope != "scope 2" or not _is_kwh_factor_row(uom, level_4, text_blob):
+        return False
+    if "electricity" not in text_blob:
+        return False
+    if any(marker in text_blob for marker in ENERGY_ROW_EXCLUSION_MARKERS):
+        return False
+    if any(marker in text_blob for marker in ENERGY_INPUT_TD_MARKERS):
+        return False
+    return True
+
+
+def _is_renewable_electricity_input_row(
+    *,
+    scope: str,
+    uom: str,
+    level_1: str,
+    level_2: str,
+    level_3: str,
+    level_4: str,
+    column_text: str,
+    report_label: str,
+) -> bool:
+    if not _is_scope_2_electricity_input_row(
+        scope=scope,
+        uom=uom,
+        level_1=level_1,
+        level_2=level_2,
+        level_3=level_3,
+        level_4=level_4,
+        column_text=column_text,
+        report_label=report_label,
+    ):
+        return False
+    text_blob = _build_factor_text_blob(level_1, level_2, level_3, level_4, column_text, report_label)
+    return any(marker in text_blob for marker in RENEWABLE_ELECTRICITY_INPUT_MARKERS)
+
+
+def _get_job_primary_scope_country(con, job_id: int, scope_name: str) -> str:
+    try:
+        scope_map = get_scope_primary_datasets(int(job_id))
+        raw_dataset_id = scope_map.get(str(scope_name))
+        dataset_id = int(raw_dataset_id) if raw_dataset_id is not None else None
+        if dataset_id is None:
+            return ""
+        row = con.execute(
+            "SELECT country FROM datasets WHERE dataset_id = %s",
+            [int(dataset_id)],
+        ).fetchone()
+        if not row:
+            return ""
+        return _normalize_country_token(row[0])
+    except Exception:
+        return ""
+
+
+def _job_scope_row_effective_quantity(row: dict[str, Any]) -> float:
+    monthly_total = 0.0
+    for month_idx in range(1, 13):
+        monthly_total += _safe_float(row.get(f"month_{month_idx}")) or 0.0
+
+    qty = _safe_float(row.get("qty"))
+    base_qty = qty if qty is not None and qty > 0 else monthly_total
+    apply_pct = max(0.0, _safe_float(row.get("apply_pct")) or 100.0)
+    return max(0.0, base_qty * (apply_pct / 100.0))
+
+
+def _score_location_based_electricity_row(
+    *,
+    scope: str,
+    uom: str,
+    level_1: str,
+    level_2: str,
+    level_3: str,
+    level_4: str,
+    column_text: str,
+    report_label: str,
+    dataset_country: str,
+) -> int | None:
+    text_blob = _build_factor_text_blob(level_1, level_2, level_3, level_4, column_text, report_label)
+    if scope != "scope 2" or not _is_kwh_factor_row(uom, level_4, text_blob):
+        return None
+    if "electricity" not in text_blob:
+        return None
+    if any(marker in text_blob for marker in ENERGY_ROW_EXCLUSION_MARKERS):
+        return None
+
+    score = 10
+    if "electricity generated" in text_blob:
+        score += 120
+    if "purchased electricity" in text_blob:
+        score += 90
+    if "uk electricity" in text_blob:
+        score += 40
+    if dataset_country and not _is_global_country(dataset_country) and dataset_country in text_blob:
+        score += 35
+    if "electricity:" in text_blob:
+        score += 15
+    if level_1 == "uk electricity" and level_2 == "electricity generated":
+        score += 25
+    return score
+
+
+def _score_td_electricity_row(
+    *,
+    scope: str,
+    uom: str,
+    level_1: str,
+    level_2: str,
+    level_3: str,
+    level_4: str,
+    column_text: str,
+    report_label: str,
+    dataset_country: str,
+) -> int | None:
+    text_blob = _build_factor_text_blob(level_1, level_2, level_3, level_4, column_text, report_label)
+    if scope != "scope 3" or not _is_kwh_factor_row(uom, level_4, text_blob):
+        return None
+    if "electricity" not in text_blob:
+        return None
+    if "transmission and distribution" not in text_blob and "t&d" not in text_blob:
+        return None
+    if "district heat" in text_blob or "steam" in text_blob:
+        return None
+
+    score = 10
+    if "transmission and distribution" in text_blob:
+        score += 100
+    if "t&d" in text_blob:
+        score += 60
+    if "uk electricity" in text_blob:
+        score += 40
+    if dataset_country and not _is_global_country(dataset_country) and dataset_country in text_blob:
+        score += 35
+    return score
+
+
+def _format_factor_asset_path(year: int) -> Path:
+    return Path(__file__).resolve().parent.parent / "assets" / "conversion_factors" / f"{int(year)}-DESNZ-Conversion-Factors-Activity.csv"
+
+
+@lru_cache(maxsize=8)
+def _load_energy_factors_from_asset(year: int) -> tuple[float | None, float | None]:
+    candidate_years: list[int] = []
+    try:
+        candidate_years.append(int(year))
+    except Exception:
+        pass
+    if 2025 not in candidate_years:
+        candidate_years.append(2025)
+
+    for candidate_year in candidate_years:
+        csv_path = _format_factor_asset_path(candidate_year)
+        if not csv_path.exists():
+            continue
+
+        factor_column = f"GHG Conversion Factor {candidate_year}"
+        try:
+            with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                location_factor: float | None = None
+                td_factor: float | None = None
+                for row in reader:
+                    scope = _normalize_energy_factor_text(row.get("Scope"))
+                    uom = _normalize_energy_factor_text(row.get("UOM"))
+                    level_1 = _normalize_energy_factor_text(row.get("Category "))
+                    level_2 = _normalize_energy_factor_text(row.get("Level 2"))
+                    level_3 = _normalize_energy_factor_text(row.get("Level 3"))
+                    factor = _safe_float(row.get(factor_column))
+                    if factor is None:
+                        continue
+
+                    if (
+                        location_factor is None
+                        and scope == "scope 2"
+                        and uom == "kwh"
+                        and level_1 == "uk electricity"
+                        and level_2 == "electricity generated"
+                        and level_3 == "electricity: uk"
+                    ):
+                        location_factor = factor
+                        continue
+
+                    if (
+                        td_factor is None
+                        and scope == "scope 3"
+                        and uom == "kwh"
+                        and level_1 == "transmission and distribution"
+                        and level_2 == "t&d- uk electricity"
+                        and level_3 == "electricity: uk"
+                    ):
+                        td_factor = factor
+
+                if location_factor is not None or td_factor is not None:
+                    return (location_factor, td_factor)
+        except Exception:
+            continue
+
+    return (None, None)
+
+
+def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | None, float | None]:
+    dataset_country = ""
+    try:
+        dataset_row = con.execute(
+            "SELECT country FROM datasets WHERE dataset_id = %s",
+            [int(dataset_id)],
+        ).fetchone()
+        dataset_country = _normalize_country_token(dataset_row[0] if dataset_row else "")
+    except Exception:
+        dataset_country = ""
+
+    try:
+        rows = con.execute(
+            """
+            SELECT scope,
+                   level_1,
+                   level_2,
+                   level_3,
+                   level_4,
+                   column_text,
+                   report_label,
+                   uom,
+                   factor
+            FROM factor_lookup
+            WHERE dataset_id = %s
+              AND scope IN ('Scope 2', 'Scope 3')
+            """,
+            [int(dataset_id)],
+        ).fetchall()
+    except Exception:
+        try:
+            # Backward compatibility for older factor_lookup schemas without level_4/report_label.
+            rows = con.execute(
+                """
+                SELECT scope,
+                       level_1,
+                       level_2,
+                       level_3,
+                       NULL AS level_4,
+                       column_text,
+                       NULL AS report_label,
+                       uom,
+                       factor
+                FROM factor_lookup
+                WHERE dataset_id = %s
+                  AND scope IN ('Scope 2', 'Scope 3')
+                """,
+                [int(dataset_id)],
+            ).fetchall()
+        except Exception:
+            rows = []
+
+    best_location_factor: tuple[int, float] | None = None
+    best_td_factor: tuple[int, float] | None = None
+
+    for row in rows:
+        scope = _normalize_energy_factor_text(row[0])
+        level_1 = _normalize_energy_factor_text(row[1])
+        level_2 = _normalize_energy_factor_text(row[2])
+        level_3 = _normalize_energy_factor_text(row[3])
+        level_4 = _normalize_energy_factor_text(row[4])
+        column_text = _normalize_energy_factor_text(row[5])
+        report_label = _normalize_energy_factor_text(row[6])
+        uom = _normalize_energy_factor_text(row[7])
+        factor = _safe_float(row[8])
+        if factor is None:
+            continue
+
+        location_score = _score_location_based_electricity_row(
+            scope=scope,
+            uom=uom,
+            level_1=level_1,
+            level_2=level_2,
+            level_3=level_3,
+            level_4=level_4,
+            column_text=column_text,
+            report_label=report_label,
+            dataset_country=dataset_country,
+        )
+        if location_score is not None and (
+            best_location_factor is None or location_score > best_location_factor[0]
+        ):
+            best_location_factor = (location_score, factor)
+
+        td_score = _score_td_electricity_row(
+            scope=scope,
+            uom=uom,
+            level_1=level_1,
+            level_2=level_2,
+            level_3=level_3,
+            level_4=level_4,
+            column_text=column_text,
+            report_label=report_label,
+            dataset_country=dataset_country,
+        )
+        if td_score is not None and (
+            best_td_factor is None or td_score > best_td_factor[0]
+        ):
+            best_td_factor = (td_score, factor)
+
+    return (
+        best_location_factor[1] if best_location_factor else None,
+        best_td_factor[1] if best_td_factor else None,
+    )
+
+
+def _get_job_energy_factor_year(con, job_id: int, dataset_id: int | None) -> int:
+    if dataset_id is not None:
+        try:
+            row = con.execute(
+                "SELECT year FROM datasets WHERE dataset_id = %s",
+                [int(dataset_id)],
+            ).fetchone()
+            if row and row[0] is not None:
+                return int(row[0])
+        except Exception:
+            pass
+
+    try:
+        row = con.execute(
+            """
+            SELECT reporting_period_end,
+                   reporting_period_start,
+                   reporting_year
+            FROM jobs
+            WHERE job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+        if row:
+            for value in (row[0], row[1]):
+                if isinstance(value, datetime):
+                    return value.year
+                if isinstance(value, date):
+                    return value.year
+                text = str(value or "").strip()
+                if len(text) >= 4 and text[:4].isdigit():
+                    return int(text[:4])
+            if row[2] is not None:
+                return int(row[2])
+    except Exception:
+        pass
+
+    return datetime.now().year
+
+
+def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
+    dataset_id: int | None = None
+    try:
+        scope_map = get_scope_primary_datasets(int(job_id))
+        raw_scope_dataset = scope_map.get("Scope 2")
+        dataset_id = int(raw_scope_dataset) if raw_scope_dataset is not None else None
+    except Exception:
+        dataset_id = None
+
+    factor_year = _get_job_energy_factor_year(con, int(job_id), dataset_id)
+    asset_location_factor, asset_td_factor = _load_energy_factors_from_asset(int(factor_year))
+
+    location_samples: list[float] = []
+    td_samples: list[float] = []
+
+    try:
+        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
+    except Exception:
+        resolution = {}
+
+    dataset_catalog = {
+        int(ds.get("dataset_id")): ds
+        for ds in (resolution.get("dataset_catalog") or [])
+        if ds.get("dataset_id") is not None
+    }
+    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+
+    for month_record in resolution.get("months") or []:
+        scope_month_map = month_record.get("scope_datasets") or {}
+
+        raw_scope_2_dataset = scope_month_map.get("Scope 2")
+        scope_2_dataset = int(raw_scope_2_dataset) if raw_scope_2_dataset is not None else None
+        if scope_2_dataset is not None:
+            ds_meta = dataset_catalog.get(scope_2_dataset) or {}
+            ds_country = _normalize_country_token(ds_meta.get("country"))
+            if _is_uk_country(ds_country) or _is_global_country(ds_country):
+                factor_cache.setdefault(
+                    scope_2_dataset,
+                    _lookup_energy_factors_from_dataset(con, scope_2_dataset),
+                )
+                loc_factor, _ = factor_cache[scope_2_dataset]
+                if loc_factor is not None:
+                    location_samples.append(float(loc_factor))
+
+        raw_scope_3_dataset = scope_month_map.get("Scope 3")
+        scope_3_dataset = int(raw_scope_3_dataset) if raw_scope_3_dataset is not None else None
+        if scope_3_dataset is not None:
+            ds_meta = dataset_catalog.get(scope_3_dataset) or {}
+            ds_country = _normalize_country_token(ds_meta.get("country"))
+            if _is_uk_country(ds_country) or _is_global_country(ds_country):
+                factor_cache.setdefault(
+                    scope_3_dataset,
+                    _lookup_energy_factors_from_dataset(con, scope_3_dataset),
+                )
+                _, td_factor = factor_cache[scope_3_dataset]
+                if td_factor is not None:
+                    td_samples.append(float(td_factor))
+
+    location_factor = (
+        (sum(location_samples) / len(location_samples))
+        if location_samples
+        else asset_location_factor
+    )
+    td_factor = (
+        (sum(td_samples) / len(td_samples))
+        if td_samples
+        else asset_td_factor
+    )
+
+    return (
+        float(location_factor if location_factor is not None else DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH),
+        float(td_factor if td_factor is not None else DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH),
+    )
+
+
+def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
+    uk_location_factor, uk_td_factor = _get_energy_emissions_factor_pair(con, int(job_id))
+    non_uk_location_factor = uk_location_factor
+    non_uk_td_factor = uk_td_factor
+    non_uk_factor_found = False
+
+    try:
+        resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
+    except Exception:
+        resolution = {}
+
+    dataset_catalog = {
+        int(ds.get("dataset_id")): ds
+        for ds in (resolution.get("dataset_catalog") or [])
+        if ds.get("dataset_id") is not None
+    }
+    factor_cache: dict[int, tuple[float | None, float | None]] = {}
+    non_uk_location_samples: list[float] = []
+    non_uk_td_samples: list[float] = []
+
+    for month_record in resolution.get("months") or []:
+        scope_map = month_record.get("scope_datasets") or {}
+
+        raw_scope_2_dataset = scope_map.get("Scope 2")
+        scope_2_dataset = int(raw_scope_2_dataset) if raw_scope_2_dataset is not None else None
+        if scope_2_dataset is not None:
+            ds_meta = dataset_catalog.get(scope_2_dataset) or {}
+            ds_country = _normalize_country_token(ds_meta.get("country"))
+            if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
+                factor_cache.setdefault(
+                    scope_2_dataset,
+                    _lookup_energy_factors_from_dataset(con, scope_2_dataset),
+                )
+                loc_factor, _ = factor_cache[scope_2_dataset]
+                if loc_factor is not None:
+                    non_uk_location_samples.append(float(loc_factor))
+                    non_uk_factor_found = True
+
+        raw_scope_3_dataset = scope_map.get("Scope 3")
+        scope_3_dataset = int(raw_scope_3_dataset) if raw_scope_3_dataset is not None else None
+        if scope_3_dataset is not None:
+            ds_meta = dataset_catalog.get(scope_3_dataset) or {}
+            ds_country = _normalize_country_token(ds_meta.get("country"))
+            if ds_country and not _is_uk_country(ds_country) and not _is_global_country(ds_country):
+                factor_cache.setdefault(
+                    scope_3_dataset,
+                    _lookup_energy_factors_from_dataset(con, scope_3_dataset),
+                )
+                _, td_factor = factor_cache[scope_3_dataset]
+                if td_factor is not None:
+                    non_uk_td_samples.append(float(td_factor))
+                    non_uk_factor_found = True
+
+    if non_uk_location_samples:
+        non_uk_location_factor = sum(non_uk_location_samples) / len(non_uk_location_samples)
+    if non_uk_td_samples:
+        non_uk_td_factor = sum(non_uk_td_samples) / len(non_uk_td_samples)
+
+    return {
+        "uk_location_based_kg_per_kwh": round(float(uk_location_factor), 8),
+        "uk_transmission_distribution_kg_per_kwh": round(float(uk_td_factor), 8),
+        "uk_combined_kg_per_kwh": round(float(uk_location_factor) + float(uk_td_factor), 8),
+        "non_uk_location_based_kg_per_kwh": round(float(non_uk_location_factor), 8),
+        "non_uk_transmission_distribution_kg_per_kwh": round(float(non_uk_td_factor), 8),
+        "non_uk_combined_kg_per_kwh": round(
+            float(non_uk_location_factor) + float(non_uk_td_factor),
+            8,
+        ),
+        "renewable_allocation_method": "proportional",
+        "non_uk_factor_derived_from_active_dataset": bool(non_uk_factor_found),
+    }
+
+
+def _derive_energy_kwh_from_scope_rows(con, job_id: int) -> dict[str, float]:
+    parts = _job_scope_rows_select_parts(con)
+    default_scope_2_country = _get_job_primary_scope_country(con, int(job_id), "Scope 2")
+    rows = con.execute(
+        f"""
+        SELECT
+            jsr.scope,
+            jsr.dataset_id,
+            d.country AS dataset_country,
+            jsr.level_1,
+            jsr.level_2,
+            jsr.level_3,
+            {parts['level_4_expr']},
+            jsr.column_text,
+            {parts['report_label_expr']},
+            jsr.qty,
+            jsr.uom,
+            {parts['apply_pct_expr']},
+            {parts['month_1_expr']},
+            {parts['month_2_expr']},
+            {parts['month_3_expr']},
+            {parts['month_4_expr']},
+            {parts['month_5_expr']},
+            {parts['month_6_expr']},
+            {parts['month_7_expr']},
+            {parts['month_8_expr']},
+            {parts['month_9_expr']},
+            {parts['month_10_expr']},
+            {parts['month_11_expr']},
+            {parts['month_12_expr']}
+        FROM job_scope_rows jsr
+        LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
+        WHERE jsr.job_id = %s
+          AND {parts['enabled_predicate']}
+        """,
+        [int(job_id)],
+    ).df()
+
+    if rows is None or rows.empty:
+        return {
+            "uk_kwh": 0.0,
+            "non_uk_kwh": 0.0,
+            "renewable_kwh": 0.0,
+            "total_kwh": 0.0,
+            "grid_kwh": 0.0,
+        }
+
+    uk_kwh = 0.0
+    non_uk_kwh = 0.0
+    renewable_kwh = 0.0
+
+    rows = rows.where(rows.notna(), None)
+    for _, source_row in rows.iterrows():
+        row = source_row.to_dict()
+        scope = _normalize_energy_factor_text(row.get("scope"))
+        uom = _normalize_energy_factor_text(row.get("uom"))
+        level_1 = _normalize_energy_factor_text(row.get("level_1"))
+        level_2 = _normalize_energy_factor_text(row.get("level_2"))
+        level_3 = _normalize_energy_factor_text(row.get("level_3"))
+        level_4 = _normalize_energy_factor_text(row.get("level_4"))
+        column_text = _normalize_energy_factor_text(row.get("column_text"))
+        report_label = _normalize_energy_factor_text(row.get("report_label"))
+
+        if not _is_scope_2_electricity_input_row(
+            scope=scope,
+            uom=uom,
+            level_1=level_1,
+            level_2=level_2,
+            level_3=level_3,
+            level_4=level_4,
+            column_text=column_text,
+            report_label=report_label,
+        ):
+            continue
+
+        effective_qty = _job_scope_row_effective_quantity(row)
+        if effective_qty <= 0:
+            continue
+
+        dataset_country = _normalize_country_token(row.get("dataset_country") or default_scope_2_country)
+        if dataset_country and not _is_uk_country(dataset_country) and not _is_global_country(dataset_country):
+            non_uk_kwh += effective_qty
+        else:
+            uk_kwh += effective_qty
+
+        if _is_renewable_electricity_input_row(
+            scope=scope,
+            uom=uom,
+            level_1=level_1,
+            level_2=level_2,
+            level_3=level_3,
+            level_4=level_4,
+            column_text=column_text,
+            report_label=report_label,
+        ):
+            renewable_kwh += effective_qty
+
+    total_kwh = uk_kwh + non_uk_kwh
+    renewable_kwh = min(renewable_kwh, total_kwh)
+
+    return {
+        "uk_kwh": round(uk_kwh, 4),
+        "non_uk_kwh": round(non_uk_kwh, 4),
+        "renewable_kwh": round(renewable_kwh, 4),
+        "total_kwh": round(total_kwh, 4),
+        "grid_kwh": round(max(0.0, total_kwh - renewable_kwh), 4),
+    }
+
+
+def _sync_energy_inputs_from_scope_rows(con, job_id: int, meta: dict[str, Any]) -> bool:
+    derived = _derive_energy_kwh_from_scope_rows(con, int(job_id))
+    changed = False
+    for meta_key, derived_key in (
+        ("energy_consumption_uk_kwh", "uk_kwh"),
+        ("energy_consumption_non_uk_kwh", "non_uk_kwh"),
+        ("renewable_energy_kwh", "renewable_kwh"),
+    ):
+        next_value = round(float(derived.get(derived_key) or 0.0), 4)
+        current_value = _safe_float(meta.get(meta_key))
+        if current_value is None or round(float(current_value), 4) != next_value:
+            meta[meta_key] = next_value
+            changed = True
+    return changed
+
+
 def _sync_renewables_pct_from_kwh(meta: dict[str, Any]) -> bool:
     """
     Keep legacy renewables % in sync from renewable kWh so legacy templates
@@ -522,6 +1274,82 @@ def _sync_renewables_pct_from_kwh(meta: dict[str, Any]) -> bool:
         return True
 
     return False
+
+
+def _sync_energy_emissions_from_kwh(con, job_id: int, meta: dict[str, Any]) -> bool:
+    """
+    Keep report metadata energy emissions aligned with the derived kWh inputs.
+
+    Assumption:
+    - UK and Non-UK energy can use different electricity factors.
+    - Renewable kWh is allocated proportionally across UK and Non-UK energy when
+      deriving the market-based location-based portion because the input is stored
+      as a single total.
+    - Transmission and distribution applies across all purchased grid electricity.
+    """
+    uk_kwh = max(0.0, _safe_float(meta.get("energy_consumption_uk_kwh")) or 0.0)
+    non_uk_kwh = max(0.0, _safe_float(meta.get("energy_consumption_non_uk_kwh")) or 0.0)
+    renewable_kwh = max(0.0, _safe_float(meta.get("renewable_energy_kwh")) or 0.0)
+    total_kwh = uk_kwh + non_uk_kwh
+    renewable_kwh = min(renewable_kwh, total_kwh)
+
+    factor_details = _get_energy_emissions_factor_details(con, int(job_id))
+    uk_location_factor = max(
+        0.0,
+        _safe_float(factor_details.get("uk_location_based_kg_per_kwh"))
+        or DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH,
+    )
+    uk_td_factor = max(
+        0.0,
+        _safe_float(factor_details.get("uk_transmission_distribution_kg_per_kwh"))
+        or DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH,
+    )
+    non_uk_location_factor = max(
+        0.0,
+        _safe_float(factor_details.get("non_uk_location_based_kg_per_kwh")) or uk_location_factor,
+    )
+    non_uk_td_factor = max(
+        0.0,
+        _safe_float(factor_details.get("non_uk_transmission_distribution_kg_per_kwh")) or uk_td_factor,
+    )
+
+    renewable_ratio = 0.0 if total_kwh <= 0 else renewable_kwh / total_kwh
+    uk_market_location_kwh = uk_kwh * (1.0 - renewable_ratio)
+    non_uk_market_location_kwh = non_uk_kwh * (1.0 - renewable_ratio)
+
+    next_location_tco2e = round(
+        (
+            (uk_kwh * uk_location_factor)
+            + (uk_kwh * uk_td_factor)
+            + (non_uk_kwh * non_uk_location_factor)
+            + (non_uk_kwh * non_uk_td_factor)
+        )
+        / 1000.0,
+        4,
+    )
+    next_market_tco2e = round(
+        (
+            (uk_market_location_kwh * uk_location_factor)
+            + (uk_kwh * uk_td_factor)
+            + (non_uk_market_location_kwh * non_uk_location_factor)
+            + (non_uk_kwh * non_uk_td_factor)
+        )
+        / 1000.0,
+        4,
+    )
+
+    current_location_tco2e = _safe_float(meta.get("energy_emissions_tco2e"))
+    current_market_tco2e = _safe_float(meta.get("energy_emissions_market_tco2e"))
+
+    changed = False
+    if current_location_tco2e is None or round(current_location_tco2e, 4) != next_location_tco2e:
+        meta["energy_emissions_tco2e"] = next_location_tco2e
+        changed = True
+    if current_market_tco2e is None or round(current_market_tco2e, 4) != next_market_tco2e:
+        meta["energy_emissions_market_tco2e"] = next_market_tco2e
+        changed = True
+
+    return changed
 
 
 def _sync_datasets_names_from_resolver(job_id: int, meta: dict[str, Any]) -> bool:
@@ -966,7 +1794,13 @@ def _ensure_job_report_meta(con, job_id: int, updated_by: str = "system") -> dic
     if _sync_consultant_metadata_with_team_role(con, merged, actor_email=updated_by):
         changed = True
 
+    if _sync_energy_inputs_from_scope_rows(con, int(job_id), merged):
+        changed = True
+
     if _sync_renewables_pct_from_kwh(merged):
+        changed = True
+
+    if _sync_energy_emissions_from_kwh(con, int(job_id), merged):
         changed = True
 
     if _sync_datasets_names_from_resolver(int(job_id), merged):
@@ -1045,15 +1879,21 @@ def _get_job_report_metadata(job_id: int, updated_by: str = "system") -> dict[st
 @router.get("/jobs/{job_id}/report-metadata")
 def get_job_report_metadata(job_id: int, _user: dict = Depends(_current_user)):
     actor_identifier = _current_actor_identifier(_user)
-    metadata = _get_job_report_metadata(
-        int(job_id),
-        updated_by=actor_identifier,
-    )
+    with get_conn() as con:
+        _get_job_client_id(con, int(job_id))
+        meta = _ensure_job_report_meta(
+            con,
+            int(job_id),
+            updated_by=actor_identifier,
+        )
+        metadata = _serialize_report_meta(meta)
+        factor_details = _get_energy_emissions_factor_details(con, int(job_id))
     return {
         "job_id": int(job_id),
         "metadata": metadata,
         "fields": _get_report_metadata_fields(),
         "placeholder_key_map": dict(REPORT_METADATA_LABELS),
+        "energy_emissions_factors": factor_details,
     }
 
 
@@ -1072,6 +1912,8 @@ def save_job_report_metadata(
         resolved_key = _resolve_report_meta_key(str(raw_key))
         if not resolved_key:
             unknown_keys.append(str(raw_key))
+            continue
+        if resolved_key in REPORT_METADATA_AUTO_SYNC_FIELDS:
             continue
         resolved_updates[resolved_key] = _coerce_report_meta_value(resolved_key, value)
 
@@ -1098,7 +1940,9 @@ def save_job_report_metadata(
             merged,
             actor_email=actor_identifier,
         )
+        _sync_energy_inputs_from_scope_rows(con, int(job_id), merged)
         _sync_renewables_pct_from_kwh(merged)
+        _sync_energy_emissions_from_kwh(con, int(job_id), merged)
         _sync_datasets_names_from_resolver(int(job_id), merged)
         _upsert_report_meta(
             con,
@@ -1108,11 +1952,13 @@ def save_job_report_metadata(
         )
 
         refreshed = _fetch_report_meta_row(con, int(job_id)) or merged
+        factor_details = _get_energy_emissions_factor_details(con, int(job_id))
 
     return {
         "job_id": int(job_id),
         "metadata": _serialize_report_meta(refreshed),
         "updated_keys": sorted(list(resolved_updates.keys())),
+        "energy_emissions_factors": factor_details,
     }
 
 

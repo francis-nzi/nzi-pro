@@ -9,6 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, Save, AlertCircle, Link2 } from "lucide-react";
+import {
+  AUTO_REPORT_METADATA_KEYS,
+  calculateDerivedEnergyEmissionFields,
+  type EnergyEmissionFactorDetails,
+} from "@/lib/report-metadata";
 
 // Fields that are synced from Job Setup -> Intensity Metrics
 // These should be read-only in the Reporting UI with a visual indicator
@@ -20,9 +25,7 @@ const SYNCED_METADATA_FIELDS = [
   "vehicles_leased",
 ];
 
-const AUTO_METADATA_FIELDS = [
-  "datasets_names",
-];
+const AUTO_METADATA_FIELDS: string[] = [...AUTO_REPORT_METADATA_KEYS];
 
 // Template-specific metadata visibility overrides to avoid showing fields
 // that are not rendered by a given report template.
@@ -122,6 +125,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [metadataFields, setMetadataFields] = useState<ReportMetadataField[]>([]);
   const [metadataValues, setMetadataValues] = useState<Record<string, string>>({});
+  const [energyEmissionFactors, setEnergyEmissionFactors] =
+    useState<EnergyEmissionFactorDetails | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -255,6 +260,9 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
         const data = await res.json();
         const fields: ReportMetadataField[] = data?.fields || [];
         const metadata = (data?.metadata || {}) as Record<string, unknown>;
+        const factorDetails = (data?.energy_emissions_factors || null) as
+          | EnergyEmissionFactorDetails
+          | null;
 
         const values: Record<string, string> = {};
         fields.forEach((field) => {
@@ -263,6 +271,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
         setMetadataFields(fields);
         setMetadataValues(values);
+        setEnergyEmissionFactors(factorDetails);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -469,6 +478,35 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     return metadataFields.filter((field) => allowed.has(field.key));
   }, [metadataFields, selectedTemplate?.template_key]);
 
+  const derivedEnergyMetadataValues = useMemo(
+    () =>
+      calculateDerivedEnergyEmissionFields(metadataValues, energyEmissionFactors),
+    [
+      metadataValues["energy_consumption_uk_kwh"],
+      metadataValues["energy_consumption_non_uk_kwh"],
+      metadataValues["renewable_energy_kwh"],
+      energyEmissionFactors,
+    ]
+  );
+
+  useEffect(() => {
+    setMetadataValues((prev) => {
+      const nextLocation = derivedEnergyMetadataValues["energy_emissions_tco2e"] ?? "0";
+      const nextMarket = derivedEnergyMetadataValues["energy_emissions_market_tco2e"] ?? "0";
+      if (
+        (prev["energy_emissions_tco2e"] ?? "") === nextLocation &&
+        (prev["energy_emissions_market_tco2e"] ?? "") === nextMarket
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        energy_emissions_tco2e: nextLocation,
+        energy_emissions_market_tco2e: nextMarket,
+      };
+    });
+  }, [derivedEnergyMetadataValues]);
+
   const saveMetadata = async (): Promise<void> => {
     if (visibleMetadataFields.length === 0) {
       return;
@@ -481,6 +519,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     try {
       const payload: Record<string, string> = {};
       visibleMetadataFields.forEach((field) => {
+        if (AUTO_METADATA_FIELDS.includes(field.key)) return;
         payload[field.key] = metadataValues[field.key] ?? "";
       });
 
@@ -497,11 +536,15 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
       const data = await res.json();
       const updated = (data?.metadata || {}) as Record<string, unknown>;
+      const factorDetails = (data?.energy_emissions_factors || null) as
+        | EnergyEmissionFactorDetails
+        | null;
       const nextValues: Record<string, string> = { ...metadataValues };
       visibleMetadataFields.forEach((field) => {
         nextValues[field.key] = normalizeMetadataValue(field.field_type, updated[field.key]);
       });
       setMetadataValues(nextValues);
+      setEnergyEmissionFactors(factorDetails);
 
       setMetadataStatus("Report metadata saved successfully!");
       setTimeout(() => setMetadataStatus(""), 3000);
@@ -1316,6 +1359,31 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                         {field.key === "datasets_names" && (
                           <div className="text-xs text-muted-foreground">
                             Derived automatically from the job&apos;s active datasets and reporting period.
+                          </div>
+                        )}
+                        {field.key === "energy_consumption_uk_kwh" && (
+                          <div className="text-xs text-muted-foreground">
+                            Derived automatically from Scope 2 UK electricity rows in Data Entry and uploads.
+                          </div>
+                        )}
+                        {field.key === "energy_consumption_non_uk_kwh" && (
+                          <div className="text-xs text-muted-foreground">
+                            Derived automatically from Scope 2 non-UK electricity rows in Data Entry and uploads.
+                          </div>
+                        )}
+                        {field.key === "renewable_energy_kwh" && (
+                          <div className="text-xs text-muted-foreground">
+                            Derived automatically from renewable or green electricity rows in the job&apos;s data inputs.
+                          </div>
+                        )}
+                        {field.key === "energy_emissions_tco2e" && (
+                          <div className="text-xs text-muted-foreground">
+                            Auto-calculated from the data-derived kWh using the active electricity and T&amp;D factors.
+                          </div>
+                        )}
+                        {field.key === "energy_emissions_market_tco2e" && (
+                          <div className="text-xs text-muted-foreground">
+                            Auto-calculated from the data-derived kWh. Renewable kWh suppresses the location factor, while T&amp;D still applies to total grid electricity.
                           </div>
                         )}
                         {field.aliases && field.aliases.length > 0 && (

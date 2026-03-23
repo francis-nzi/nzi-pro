@@ -982,7 +982,9 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
           className="w-full max-w-md"
           disabled={factorsLoading}
         >
-          {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide" : "Add Data from Template"} {templateFactors.length > 0 && `(${templateFactors.length} factors available)`}
+          {factorsLoading ? "Loading factors..." : showFactorBrowser ? "Hide" : "Add Data from Template"}{" "}
+          {((factorsTotal || templateFactors.length) > 0) &&
+            `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
         </Button>
       </div>
 
