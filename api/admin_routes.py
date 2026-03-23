@@ -4234,8 +4234,6 @@ def preview_wfm_mapping_impact(body: dict = Body(...), _user: dict = Depends(_cu
 def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool) -> dict:
     try:
         from wfm_import.wfm_import_routine import (
-            WfmImporter,
-            _setup_logger,
             _clean,
             WFM_CLIENT_FIELD_CANDIDATES,
         )
@@ -4253,18 +4251,49 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
         raise HTTPException(status_code=404, detail=f"Required WFM files missing in raw_data: {', '.join(missing)}")
 
     mapping_overrides = _load_mapping_overrides_from_db(con)
-    importer = WfmImporter(
-        dry_run=True,
-        max_clients=None,
-        client_ids=[],
-        client_names=[],
-        job_numbers=[],
-        mapping_overrides=mapping_overrides,
-        logger=_setup_logger(),
-    )
-    importer.load()
+    candidate_fields: list[str] = []
+    for value in [*(mapping_overrides.get("client", {}).get("industry", []) or []), *WFM_CLIENT_FIELD_CANDIDATES["industry"]]:
+        cleaned = _clean(value)
+        if cleaned and cleaned.lower() not in {item.lower() for item in candidate_fields}:
+            candidate_fields.append(cleaned)
 
-    clients_df = importer.data.get("clients.csv")
+    def _read_wfm_csv(name: str) -> pd.DataFrame:
+        path = raw_dir / name
+        df = pd.read_csv(path, dtype=str, keep_default_na=False, na_filter=False)
+        for col in df.columns:
+            df[col] = df[col].map(_clean)
+        return df
+
+    clients_df = _read_wfm_csv("clients.csv")
+    custom_fields_df = _read_wfm_csv("custom_fields.csv")
+    client_custom_values_df = _read_wfm_csv("client_custom_field_values.csv")
+
+    field_name_by_id: dict[str, str] = {}
+    for _, row in custom_fields_df.iterrows():
+        field_id = _clean(row.get("Id"))
+        field_name = _clean(row.get("Name"))
+        if field_id and field_name:
+            field_name_by_id[field_id] = field_name
+
+    client_custom_values: dict[str, dict[str, str]] = {}
+    for _, row in client_custom_values_df.iterrows():
+        client_id = _clean(row.get("Client ID"))
+        field_id = _clean(row.get("Custom Field Id"))
+        field_value = _clean(row.get("Value"))
+        if not client_id or not field_id:
+            continue
+        field_name = field_name_by_id.get(field_id, field_id)
+        client_custom_values.setdefault(client_id, {})[field_name.lower()] = field_value
+
+    def _pick_field_value(value_map: dict[str, str], candidates: list[str]) -> str:
+        if not value_map:
+            return ""
+        for name in candidates:
+            value = _clean(value_map.get(str(name or "").strip().lower()))
+            if value:
+                return value
+        return ""
+
     if clients_df is None or clients_df.empty:
         return {
             "ok": True,
@@ -4344,13 +4373,8 @@ def _build_wfm_client_industry_backfill_preview(con, *, overwrite_existing: bool
     for _, row in clients_df.iterrows():
         wfm_client_id = _clean(row.get("Id"))
         client_name = _clean(row.get("Name"))
-        client_custom = importer.client_custom_values.get(wfm_client_id, {})
-        wfm_industry = _clean(
-            importer._pick_field_value(
-                client_custom,
-                importer._candidates("client", "industry", WFM_CLIENT_FIELD_CANDIDATES["industry"]),
-            )
-        )
+        client_custom = client_custom_values.get(wfm_client_id, {})
+        wfm_industry = _clean(_pick_field_value(client_custom, candidate_fields))
 
         if not wfm_industry:
             missing_wfm_industry += 1
