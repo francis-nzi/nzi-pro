@@ -2,6 +2,18 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -172,6 +184,29 @@ type ReportViewData = {
   row_count: number;
 };
 
+type ReportDrillState = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+type ReportChartDatum = {
+  label: string;
+  value: number;
+  drillValue: string;
+};
+
+type ReportChartConfig = {
+  breakdownKey: string;
+  breakdownLabel: string;
+  breakdownValueKey?: string;
+  breakdownMetricLabel: string;
+  topKey: string;
+  topLabel: string;
+  topValueKey: string;
+  topMetricLabel: string;
+};
+
 const ALL_FILTER_VALUE = "__all__";
 
 const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
@@ -265,6 +300,69 @@ const EMPTY_REPORT: ReportViewData = {
   row_count: 0,
 };
 
+const REPORT_CHART_COLORS = ["#1c5026", "#f26624", "#0f766e", "#2563eb", "#f59e0b", "#7c3aed", "#db2777", "#475569"];
+
+const REPORT_CHART_CONFIG: Record<string, ReportChartConfig> = {
+  client_portfolio: {
+    breakdownKey: "industry",
+    breakdownLabel: "Industry",
+    breakdownMetricLabel: "Clients",
+    topKey: "client_name",
+    topLabel: "Client",
+    topValueKey: "active_jobs",
+    topMetricLabel: "Active Jobs",
+  },
+  job_delivery: {
+    breakdownKey: "milestone_status",
+    breakdownLabel: "Milestone",
+    breakdownMetricLabel: "Jobs",
+    topKey: "job_number",
+    topLabel: "Job",
+    topValueKey: "logged_hours",
+    topMetricLabel: "Logged Hours",
+  },
+  invoice_follow_up: {
+    breakdownKey: "status",
+    breakdownLabel: "Invoice Status",
+    breakdownValueKey: "outstanding",
+    breakdownMetricLabel: "Outstanding",
+    topKey: "invoice_number",
+    topLabel: "Invoice",
+    topValueKey: "outstanding",
+    topMetricLabel: "Outstanding",
+  },
+  quote_pipeline: {
+    breakdownKey: "status",
+    breakdownLabel: "Quote Status",
+    breakdownValueKey: "quote_value",
+    breakdownMetricLabel: "Quoted Value",
+    topKey: "quote_number",
+    topLabel: "Quote",
+    topValueKey: "quote_value",
+    topMetricLabel: "Quote Value",
+  },
+  crm_workload: {
+    breakdownKey: "crm_name",
+    breakdownLabel: "CRM",
+    breakdownValueKey: "active_jobs",
+    breakdownMetricLabel: "Active Jobs",
+    topKey: "crm_name",
+    topLabel: "CRM",
+    topValueKey: "overdue_jobs",
+    topMetricLabel: "Overdue Jobs",
+  },
+  emissions_portfolio: {
+    breakdownKey: "industry",
+    breakdownLabel: "Industry",
+    breakdownValueKey: "total_emissions",
+    breakdownMetricLabel: "tCO2e",
+    topKey: "client_name",
+    topLabel: "Client",
+    topValueKey: "total_emissions",
+    topMetricLabel: "tCO2e",
+  },
+};
+
 function formatNumber(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
 }
@@ -281,6 +379,98 @@ function formatDate(value: string | null | undefined): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatMetricValue(key: string, value: number): string {
+  const normalizedKey = key.toLowerCase();
+  if (normalizedKey === "__count") return formatNumber(value, 0);
+  if (normalizedKey.includes("pct")) return `${Number(value).toFixed(1)}%`;
+  if (
+    normalizedKey === "total" ||
+    normalizedKey.includes("outstanding") ||
+    normalizedKey.includes("amount_paid") ||
+    normalizedKey.includes("quote_value")
+  ) {
+    return formatMoney(Number(value));
+  }
+  if (normalizedKey.includes("hours")) return formatNumber(Number(value), 1);
+  return formatNumber(Number(value), Number.isInteger(value) ? 0 : 1);
+}
+
+function normalizeDimensionValue(value: unknown, fallback: string): string {
+  const text = value === null || value === undefined ? "" : String(value).trim();
+  return text || fallback;
+}
+
+function reportDimensionValue(row: ReportRow, key: string): string {
+  switch (key) {
+    case "industry":
+      return normalizeDimensionValue(row[key], "Unspecified");
+    case "crm_owner":
+    case "crm_name":
+      return normalizeDimensionValue(row[key], "Unassigned");
+    case "status":
+      return normalizeDimensionValue(row[key], "Unknown");
+    case "milestone_status":
+      return normalizeDimensionValue(row[key], "No milestones");
+    case "client_name":
+      return normalizeDimensionValue(row[key], "Unknown client");
+    case "job_number":
+      return normalizeDimensionValue(row[key] ?? (row["job_id"] ? `Job ${row["job_id"]}` : null), "Unknown job");
+    case "invoice_number":
+      return normalizeDimensionValue(row[key] ?? (row["invoice_id"] ? `Invoice ${row["invoice_id"]}` : null), "Unknown invoice");
+    case "quote_number":
+      return normalizeDimensionValue(row[key] ?? (row["quote_id"] ? `Quote ${row["quote_id"]}` : null), "Unknown quote");
+    default:
+      return normalizeDimensionValue(row[key], "Unspecified");
+  }
+}
+
+function reportNumericValue(row: ReportRow, key: string): number {
+  const numericValue = Number(row[key] ?? 0);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function buildReportBreakdownData(rows: ReportRow[], config: ReportChartConfig): ReportChartDatum[] {
+  const bucket = new Map<string, number>();
+  for (const row of rows) {
+    const label = reportDimensionValue(row, config.breakdownKey);
+    const nextValue = config.breakdownValueKey ? reportNumericValue(row, config.breakdownValueKey) : 1;
+    bucket.set(label, (bucket.get(label) ?? 0) + nextValue);
+  }
+  return Array.from(bucket.entries())
+    .map(([label, value]) => ({
+      label,
+      value,
+      drillValue: label,
+    }))
+    .filter((item) => item.value > 0)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 6);
+}
+
+function buildReportTopData(rows: ReportRow[], config: ReportChartConfig): ReportChartDatum[] {
+  const bucket = new Map<string, number>();
+  for (const row of rows) {
+    const label = reportDimensionValue(row, config.topKey);
+    bucket.set(label, (bucket.get(label) ?? 0) + reportNumericValue(row, config.topValueKey));
+  }
+  return Array.from(bucket.entries())
+    .map(([label, value]) => ({
+      label,
+      value,
+      drillValue: label,
+    }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 8);
+}
+
+function extractChartDrillValue(entry: { drillValue?: unknown; payload?: { drillValue?: unknown } } | null | undefined): string | null {
+  const drillValue = entry?.payload?.drillValue ?? entry?.drillValue;
+  if (drillValue === null || drillValue === undefined || String(drillValue).trim() === "") {
+    return null;
+  }
+  return String(drillValue);
 }
 
 function toneForStatus(status: string): string {
@@ -316,6 +506,7 @@ export default function InsightsPageClient() {
   const [operationsData, setOperationsData] = useState<OperationsOverview>(EMPTY_OPERATIONS);
   const [reportView, setReportView] = useState<string>("client_portfolio");
   const [reportData, setReportData] = useState<ReportViewData>(EMPTY_REPORT);
+  const [reportDrill, setReportDrill] = useState<ReportDrillState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -409,6 +600,10 @@ export default function InsightsPageClient() {
     void loadInsights();
   }, [loadInsights]);
 
+  useEffect(() => {
+    setReportDrill(null);
+  }, [reportView, selectedYear, selectedIndustry, selectedCrm]);
+
   const totalJobs = useMemo(
     () => (data?.job_status_breakdown || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
     [data]
@@ -428,6 +623,31 @@ export default function InsightsPageClient() {
     () => Math.max(...invoiceMonths.map((row) => Math.max(Number(row.total_value || 0), Number(row.paid_total || 0))), 1),
     [invoiceMonths]
   );
+  const reportChartConfig = useMemo(
+    () => REPORT_CHART_CONFIG[reportView] ?? REPORT_CHART_CONFIG.client_portfolio,
+    [reportView]
+  );
+  const visibleReportRows = useMemo(() => {
+    if (!reportDrill) return reportData.rows;
+    return reportData.rows.filter((row) => reportDimensionValue(row, reportDrill.key) === reportDrill.value);
+  }, [reportData.rows, reportDrill]);
+  const reportBreakdownData = useMemo(
+    () => buildReportBreakdownData(visibleReportRows, reportChartConfig),
+    [reportChartConfig, visibleReportRows]
+  );
+  const reportTopData = useMemo(
+    () => buildReportTopData(visibleReportRows, reportChartConfig),
+    [reportChartConfig, visibleReportRows]
+  );
+
+  function toggleReportDrill(key: string, label: string, value: string) {
+    setReportDrill((current) => {
+      if (current?.key === key && current.value === value) {
+        return null;
+      }
+      return { key, label, value };
+    });
+  }
 
   async function exportReportCsv() {
     try {
@@ -1286,8 +1506,169 @@ export default function InsightsPageClient() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
                   <span>{reportData.description || "Reusable filtered report view for export and drilldown."}</span>
-                  <span>{reportData.row_count} rows</span>
+                  <span>
+                    Showing {visibleReportRows.length} of {reportData.row_count} rows
+                  </span>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>Click a slice or bar to drill the table below.</span>
+                  {reportDrill ? (
+                    <>
+                      <span className="rounded-full bg-orange-50 px-3 py-1 font-medium text-[#f26624]">
+                        Drill: {reportDrill.label} = {reportDrill.value}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReportDrill(null)}
+                        className="rounded border px-3 py-1 font-medium text-foreground transition-colors hover:bg-muted/40"
+                      >
+                        Clear drill
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                {reportData.rows.length > 0 ? (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Card className="border-dashed">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Breakdown by {reportChartConfig.breakdownLabel}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {reportBreakdownData.length > 0 ? (
+                          <>
+                            <div className="h-[260px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={reportBreakdownData}
+                                    dataKey="value"
+                                    nameKey="label"
+                                    innerRadius={56}
+                                    outerRadius={92}
+                                    paddingAngle={2}
+                                    onClick={(entry) => {
+                                      const drillValue = extractChartDrillValue(entry);
+                                      if (drillValue) {
+                                        toggleReportDrill(reportChartConfig.breakdownKey, reportChartConfig.breakdownLabel, drillValue);
+                                      }
+                                    }}
+                                  >
+                                    {reportBreakdownData.map((entry, index) => {
+                                      const isActive =
+                                        !reportDrill ||
+                                        reportDrill.key !== reportChartConfig.breakdownKey ||
+                                        reportDrill.value === entry.drillValue;
+                                      return (
+                                        <Cell
+                                          key={`report-breakdown-${entry.label}`}
+                                          fill={REPORT_CHART_COLORS[index % REPORT_CHART_COLORS.length]}
+                                          opacity={isActive ? 1 : 0.45}
+                                          className="cursor-pointer"
+                                        />
+                                      );
+                                    })}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(value) =>
+                                      formatMetricValue(reportChartConfig.breakdownValueKey ?? "__count", Number(value || 0))
+                                    }
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <div className="space-y-2">
+                              {reportBreakdownData.map((entry, index) => (
+                                <button
+                                  key={`report-breakdown-row-${entry.label}`}
+                                  type="button"
+                                  onClick={() =>
+                                    toggleReportDrill(reportChartConfig.breakdownKey, reportChartConfig.breakdownLabel, entry.drillValue)
+                                  }
+                                  className="flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm transition-colors hover:bg-muted/40"
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <span
+                                      className="inline-block h-2.5 w-2.5 rounded-full"
+                                      style={{ backgroundColor: REPORT_CHART_COLORS[index % REPORT_CHART_COLORS.length] }}
+                                    />
+                                    {entry.label}
+                                  </span>
+                                  <span className="font-medium">
+                                    {formatMetricValue(reportChartConfig.breakdownValueKey ?? "__count", entry.value)}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">No breakdown data is available for the current report selection.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-dashed">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Top {reportChartConfig.topMetricLabel}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {reportTopData.length > 0 ? (
+                          <>
+                            <div className="h-[260px]">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={reportTopData} margin={{ top: 8, right: 12, bottom: 28, left: 12 }}>
+                                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                                  <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
+                                  <YAxis tickLine={false} axisLine={false} width={72} />
+                                  <Tooltip formatter={(value) => formatMetricValue(reportChartConfig.topValueKey, Number(value || 0))} />
+                                  <Bar
+                                    dataKey="value"
+                                    radius={[6, 6, 0, 0]}
+                                    onClick={(entry) => {
+                                      const drillValue = extractChartDrillValue(entry);
+                                      if (drillValue) {
+                                        toggleReportDrill(reportChartConfig.topKey, reportChartConfig.topLabel, drillValue);
+                                      }
+                                    }}
+                                  >
+                                    {reportTopData.map((entry, index) => {
+                                      const isActive =
+                                        !reportDrill ||
+                                        reportDrill.key !== reportChartConfig.topKey ||
+                                        reportDrill.value === entry.drillValue;
+                                      return (
+                                        <Cell
+                                          key={`report-top-${entry.label}`}
+                                          fill={REPORT_CHART_COLORS[index % REPORT_CHART_COLORS.length]}
+                                          opacity={isActive ? 0.95 : 0.45}
+                                          className="cursor-pointer"
+                                        />
+                                      );
+                                    })}
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <div className="space-y-2">
+                              {reportTopData.map((entry) => (
+                                <button
+                                  key={`report-top-row-${entry.label}`}
+                                  type="button"
+                                  onClick={() => toggleReportDrill(reportChartConfig.topKey, reportChartConfig.topLabel, entry.drillValue)}
+                                  className="flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm transition-colors hover:bg-muted/40"
+                                >
+                                  <span>{entry.label}</span>
+                                  <span className="font-medium">{formatMetricValue(reportChartConfig.topValueKey, entry.value)}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">No ranking data is available for the current report selection.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : null}
                 {reportData.columns.length > 0 ? (
                   <div className="overflow-x-auto rounded border">
                     <table className="min-w-full text-sm">
@@ -1301,8 +1682,8 @@ export default function InsightsPageClient() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportData.rows.length > 0 ? (
-                          reportData.rows.map((row, index) => {
+                        {visibleReportRows.length > 0 ? (
+                          visibleReportRows.map((row, index) => {
                             const href = reportRowHref(row);
                             return (
                               <tr key={`report-row-${index}`} className="border-t align-top">
