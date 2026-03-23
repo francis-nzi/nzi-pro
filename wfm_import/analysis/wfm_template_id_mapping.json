@@ -1,14 +1,14 @@
 {
-  "generated_at_utc": "2026-03-12T20:21:42.659343+00:00",
+  "generated_at_utc": "2026-03-23T17:27:46.379805+00:00",
   "source_workbook": "C:\\Users\\franc\\Net Zero International\\NZI Company Documents - Documents\\Operations\\Technical Systems\\Carbon Reporting Python\\nzi_pro_v7-POSTGRES\\wfm_import\\Sample Data Sheet With IDs for Mapping.xlsx",
   "source_sheet": "Master datasheet",
-  "row_count": 104,
+  "row_count": 123,
   "by_section": {
     "Employee Commuting": 30,
     "Business Travel": 55,
     "Energy": 8,
     "Fuels": 1,
-    "Detailed Carbon": 10
+    "Detailed Carbon": 29
   },
   "records": [
     {
@@ -2191,6 +2191,405 @@
         "col_3": "wfh - electricity",
         "col_4": "hours",
         "col_5": "0.3337812045667021",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-14",
+      "section": "Detailed Carbon",
+      "activity": "Uniforms",
+      "col_2": "3",
+      "col_3": "Uniforms",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "uniforms",
+        "col_2": "3",
+        "col_3": "uniforms",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-26",
+      "section": "Detailed Carbon",
+      "activity": "Computer Equipment",
+      "col_2": "3",
+      "col_3": "Computer Equipment",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "computer equipment",
+        "col_2": "3",
+        "col_3": "computer equipment",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-33OTHER",
+      "section": "Detailed Carbon",
+      "activity": "General Maintenance",
+      "col_2": "3",
+      "col_3": "General Maintenance",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "general maintenance",
+        "col_2": "3",
+        "col_3": "general maintenance",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-45",
+      "section": "Detailed Carbon",
+      "activity": "Vehicle Maintenance",
+      "col_2": "3",
+      "col_3": "Vehicle Maintenance",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "vehicle maintenance",
+        "col_2": "3",
+        "col_3": "vehicle maintenance",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-49.3-5",
+      "section": "Detailed Carbon",
+      "activity": "Land Transport",
+      "col_2": "3",
+      "col_3": "Land Transport",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "land transport",
+        "col_2": "3",
+        "col_3": "land transport",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-52",
+      "section": "Detailed Carbon",
+      "activity": "Warehousing",
+      "col_2": "3",
+      "col_3": "Warehousing",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "warehousing",
+        "col_2": "3",
+        "col_3": "warehousing",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-53",
+      "section": "Detailed Carbon",
+      "activity": "Postal and courier",
+      "col_2": "3",
+      "col_3": "Postal and courier",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "postal and courier",
+        "col_2": "3",
+        "col_3": "postal and courier",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-55",
+      "section": "Detailed Carbon",
+      "activity": "Accommodation",
+      "col_2": "3",
+      "col_3": "Accommodation",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "accommodation",
+        "col_2": "3",
+        "col_3": "accommodation",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-61",
+      "section": "Detailed Carbon",
+      "activity": "Telecommunications",
+      "col_2": "3",
+      "col_3": "Telecommunications",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "telecommunications",
+        "col_2": "3",
+        "col_3": "telecommunications",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-62",
+      "section": "Detailed Carbon",
+      "activity": "Computers services",
+      "col_2": "3",
+      "col_3": "Computers services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "computers services",
+        "col_2": "3",
+        "col_3": "computers services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-64",
+      "section": "Detailed Carbon",
+      "activity": "Financial Services",
+      "col_2": "3",
+      "col_3": "Financial Services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "financial services",
+        "col_2": "3",
+        "col_3": "financial services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-65.3",
+      "section": "Detailed Carbon",
+      "activity": "Insurance",
+      "col_2": "3",
+      "col_3": "Insurance",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "insurance",
+        "col_2": "3",
+        "col_3": "insurance",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-68.1-2",
+      "section": "Detailed Carbon",
+      "activity": "Rent",
+      "col_2": "3",
+      "col_3": "Rent",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "rent",
+        "col_2": "3",
+        "col_3": "rent",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-69.2",
+      "section": "Detailed Carbon",
+      "activity": "Accounting Services",
+      "col_2": "3",
+      "col_3": "Accounting Services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "accounting services",
+        "col_2": "3",
+        "col_3": "accounting services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-70",
+      "section": "Detailed Carbon",
+      "activity": "Consultancy Services",
+      "col_2": "3",
+      "col_3": "Consultancy Services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "consultancy services",
+        "col_2": "3",
+        "col_3": "consultancy services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-73",
+      "section": "Detailed Carbon",
+      "activity": "Advertising and Marketing",
+      "col_2": "3",
+      "col_3": "Advertising and Marketing",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "advertising and marketing",
+        "col_2": "3",
+        "col_3": "advertising and marketing",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-77",
+      "section": "Detailed Carbon",
+      "activity": "Rental and leasing services",
+      "col_2": "3",
+      "col_3": "Rental and leasing services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "rental and leasing services",
+        "col_2": "3",
+        "col_3": "rental and leasing services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-81",
+      "section": "Detailed Carbon",
+      "activity": "Real Estate Services",
+      "col_2": "3",
+      "col_3": "Real Estate Services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "real estate services",
+        "col_2": "3",
+        "col_3": "real estate services",
+        "col_4": "tonnes",
+        "col_5": "1000",
+        "col_6": "0",
+        "col_7": ""
+      }
+    },
+    {
+      "factor_original_id": "SWC-SPEND-82",
+      "section": "Detailed Carbon",
+      "activity": "Business Support Services",
+      "col_2": "3",
+      "col_3": "Business Support Services",
+      "col_4": "tonnes",
+      "col_5": "1000",
+      "col_6": "0",
+      "col_7": "",
+      "key": {
+        "section": "detailed carbon",
+        "activity": "business support services",
+        "col_2": "3",
+        "col_3": "business support services",
+        "col_4": "tonnes",
+        "col_5": "1000",
         "col_6": "0",
         "col_7": ""
       }

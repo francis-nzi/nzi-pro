@@ -16,6 +16,7 @@ OUT_JSON_DEFAULT = OUT_DIR_DEFAULT / "wfm_template_id_mapping.json"
 OUT_LOOKUP_DEFAULT = OUT_DIR_DEFAULT / "wfm_template_id_lookup.json"
 
 ID_PATTERN = re.compile(r"^\d+_\d+_\d+_\d+_\d+$")
+SPEND_PATTERN = re.compile(r"^(?:[A-Z0-9]+-)?SPEND-[A-Z0-9.\-]+$", re.IGNORECASE)
 
 
 def _clean(v: Any) -> str:
@@ -25,6 +26,11 @@ def _clean(v: Any) -> str:
     if s.lower() == "nan":
         return ""
     return s
+
+
+def _is_factor_original_id(value: Any) -> bool:
+    s = _clean(value)
+    return bool(ID_PATTERN.match(s) or SPEND_PATTERN.match(s))
 
 
 def build_mapping(workbook: Path, sheet_name: str) -> dict[str, Any]:
@@ -49,7 +55,7 @@ def build_mapping(workbook: Path, sheet_name: str) -> dict[str, Any]:
             section = c1 or c0
             continue
 
-        if not ID_PATTERN.match(c0):
+        if not _is_factor_original_id(c0):
             continue
 
         records.append(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
+import hashlib
 import io
 from pathlib import Path
 import json
@@ -15,6 +16,8 @@ from openpyxl import load_workbook
 from core.database import db_backend, get_conn
 
 ID_RE = re.compile(r"^\d+_\d+_\d+_\d+_\d+$")
+SPEND_ID_RE = re.compile(r"^(?:[A-Z0-9]+-)?SPEND-[A-Z0-9.\-]+$", re.IGNORECASE)
+NUMERIC_TEXT_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 
 
 def _clean(value: Any) -> str:
@@ -45,6 +48,117 @@ def _norm_scope(value: Any) -> str | None:
     if "scope 3" in s or s == "3":
         return "Scope 3"
     return None
+
+
+def _is_factor_original_id(value: Any) -> bool:
+    s = _clean(value)
+    return bool(ID_RE.match(s) or SPEND_ID_RE.match(s))
+
+
+def _legacy_storage_original_id(factor_original_id: str, lookup_key: str) -> str:
+    oid = _clean(factor_original_id)
+    lk = _clean(lookup_key).lower()
+    if not oid:
+        return ""
+    digest = hashlib.sha1(f"{oid}|{lk}".encode("utf-8")).hexdigest()[:12]
+    return f"LEGACY-{oid}-{digest}"
+
+
+def _build_line_label(activity: Any, c2: Any, c3: Any, c4: Any, c5: Any, c6: Any, c7: Any, *, scope_col: int | None) -> str:
+    activity_text = _clean(activity) or "Unspecified"
+    values = [c2, c3, c4, c5, c6, c7]
+    parts: list[str] = []
+    seen: set[str] = {activity_text.lower()}
+    for idx, raw in enumerate(values, start=3):
+        if scope_col is not None and idx == scope_col:
+            continue
+        text = _clean(raw)
+        normalized = text.lower()
+        if not text or normalized in seen or NUMERIC_TEXT_RE.match(text):
+            continue
+        seen.add(normalized)
+        parts.append(text)
+    return activity_text if not parts else f"{activity_text} | {' | '.join(parts)}"
+
+
+def _find_header_col(header_values: dict[int, str], candidates: set[str]) -> int | None:
+    for col, value in header_values.items():
+        if _clean(value).lower() in candidates:
+            return int(col)
+    return None
+
+
+def _section_layout(ws, header_row: int, max_col: int) -> dict[str, Any]:
+    header_values = {col: _clean(ws.cell(header_row, col).value) for col in range(1, max_col + 1)}
+    month_cols: list[tuple[int, date, str]] = []
+    for col, raw in header_values.items():
+        md = _parse_month_header(raw)
+        if md is not None:
+            month_cols.append((int(col), md, _clean(raw)))
+    return {
+        "scope_col": _find_header_col(header_values, {"scope", "emissions scope", "ghg scope"}),
+        "reporting_col": _find_header_col(header_values, {"is reporting"}),
+        "month_cols": month_cols,
+    }
+
+
+def _row_text(ws, row_num: int, col_num: int | None) -> str:
+    if col_num is None or int(col_num) < 1:
+        return ""
+    return _clean(ws.cell(int(row_num), int(col_num)).value)
+
+
+def _factor_original_id_from_row(row: dict[str, Any]) -> str:
+    return _clean(row.get("factor_original_id") or row.get("original_id"))
+
+
+def _storage_original_id_from_row(row: dict[str, Any]) -> str:
+    storage_original_id = _clean(row.get("storage_original_id"))
+    if storage_original_id:
+        return storage_original_id
+    factor_original_id = _factor_original_id_from_row(row)
+    lookup_key = _clean(row.get("lookup_key"))
+    if factor_original_id and lookup_key:
+        return _legacy_storage_original_id(factor_original_id, lookup_key)
+    return _clean(row.get("original_id"))
+
+
+def _build_staged_metadata(
+    row: dict[str, Any],
+    factor_rec: FactorRec | None,
+    primary_dataset: int | None,
+    *,
+    factor_original_id: str,
+    storage_original_id: str,
+) -> dict[str, Any]:
+    section = _clean(row.get("section")) or None
+    activity = _clean(row.get("activity")) or None
+    line_label = (
+        _clean(row.get("line_label"))
+        or activity
+        or (factor_rec.report_label if factor_rec and factor_rec.report_label else None)
+        or "Unspecified"
+    )
+    return {
+        "scope": _clean(row.get("scope")),
+        "original_id": storage_original_id,
+        "storage_original_id": storage_original_id,
+        "factor_original_id": factor_original_id,
+        "lookup_key": _clean(row.get("lookup_key")) or None,
+        "dataset_id": primary_dataset,
+        "factor_db_id": (factor_rec.db_id if factor_rec else None),
+        "level_1": (factor_rec.level_1 if factor_rec else None),
+        "level_2": (factor_rec.level_2 if factor_rec else None),
+        "level_3": (factor_rec.level_3 if factor_rec else None),
+        "level_4": (factor_rec.level_4 if factor_rec else None),
+        "column_text": line_label,
+        "report_label": line_label,
+        "category": section or activity or (factor_rec.level_2 if factor_rec else None),
+        "section": section,
+        "activity": activity,
+        "match_source": _clean(row.get("match_source")) or None,
+        "line_label": line_label,
+    }
 
 
 def _template_lookup_path() -> Path:
@@ -229,7 +343,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     for ws in wb.worksheets:
         current_section = ""
         month_cols: list[tuple[int, date, str]] = []
-        section_has_reporting_col = False
+        scope_col: int | None = None
+        reporting_col: int | None = None
         max_col = ws.max_column or 0
         for rnum in range(1, (ws.max_row or 0) + 1):
             c0 = _clean(ws.cell(rnum, 1).value)
@@ -240,22 +355,18 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             c5 = _clean(ws.cell(rnum, 6).value)
             c6 = _clean(ws.cell(rnum, 7).value)
             c7 = _clean(ws.cell(rnum, 8).value)
-            is_reporting = ws.cell(rnum, 10).value
 
             if c0.lower().startswith("section"):
                 current_section = c1 or c0
-                month_cols = []
-                section_has_reporting_col = _clean(ws.cell(rnum, 10).value).lower() == "is reporting"
-                for col in range(9, max_col + 1):
-                    mv = ws.cell(rnum, col).value
-                    md = _parse_month_header(mv)
-                    if md is not None:
-                        month_cols.append((col, md, _clean(mv)))
+                layout = _section_layout(ws, rnum, max_col)
+                month_cols = layout["month_cols"]
+                scope_col = layout["scope_col"]
+                reporting_col = layout["reporting_col"]
                 continue
 
             if not current_section or not c1:
                 continue
-            if section_has_reporting_col and not _is_reporting_yes(is_reporting):
+            if reporting_col is not None and not _is_reporting_yes(_row_text(ws, rnum, reporting_col)):
                 continue
             if not month_cols:
                 continue
@@ -272,10 +383,12 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             if not has_non_zero:
                 continue
 
-            scope = _norm_scope(c4)
+            scope = _norm_scope(_row_text(ws, rnum, scope_col) or c4)
             row_key = _lookup_key(current_section, c1, c2, c3, c4, c5, c6, c7)
-            original_id = c0 if ID_RE.match(c0) else lookup.get(row_key, "")
-            match_source = "id_column" if ID_RE.match(c0) else ("template_lookup" if original_id else "unresolved")
+            factor_original_id = c0 if _is_factor_original_id(c0) else lookup.get(row_key, "")
+            storage_original_id = _legacy_storage_original_id(factor_original_id, row_key) if factor_original_id else ""
+            match_source = "id_column" if _is_factor_original_id(c0) else ("template_lookup" if factor_original_id else "unresolved")
+            line_label = _build_line_label(c1, c2, c3, c4, c5, c6, c7, scope_col=scope_col)
 
             parsed_rows.append(
                 {
@@ -284,9 +397,12 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                     "section": current_section,
                     "activity": c1,
                     "scope": scope,
-                    "original_id": original_id,
+                    "original_id": factor_original_id,
+                    "factor_original_id": factor_original_id,
+                    "storage_original_id": storage_original_id,
                     "match_source": match_source,
                     "lookup_key": row_key,
+                    "line_label": line_label,
                     "col_2": c2,
                     "col_3": c3,
                     "col_4": c4,
@@ -304,7 +420,7 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     factor_req: dict[tuple[int, str], set[str]] = defaultdict(set)
     for row in parsed_rows:
         scope = row.get("scope")
-        oid = _clean(row.get("original_id"))
+        oid = _factor_original_id_from_row(row)
         if not scope or not oid:
             continue
         for m in row.get("month_headers") or []:
@@ -322,7 +438,7 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
 
     for row in parsed_rows:
         scope = row.get("scope")
-        oid = _clean(row.get("original_id"))
+        oid = _factor_original_id_from_row(row)
         if not scope or not oid:
             unresolved_rows.append({**row, "reason": "missing scope or unresolved original_id"})
             continue
@@ -358,23 +474,20 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         dataset_counter = Counter(month_datasets.values())
         primary_dataset = int(dataset_counter.most_common(1)[0][0]) if dataset_counter else None
         total_emissions = float(sum(month_emissions.values()))
-        key = (str(scope), oid)
+        storage_original_id = _storage_original_id_from_row(row)
+        key = (str(scope), storage_original_id)
         collision_tracker[key] += 1
 
         entry = aggregate.get(key)
         if entry is None:
             entry = {
-                "scope": str(scope),
-                "original_id": oid,
-                "dataset_id": primary_dataset,
-                "factor_db_id": (factor_rec_primary.db_id if factor_rec_primary else None),
-                "level_1": (factor_rec_primary.level_1 if factor_rec_primary else None),
-                "level_2": (factor_rec_primary.level_2 if factor_rec_primary else None),
-                "level_3": (factor_rec_primary.level_3 if factor_rec_primary else None),
-                "level_4": (factor_rec_primary.level_4 if factor_rec_primary else None),
-                "column_text": (factor_rec_primary.column_text if factor_rec_primary else None),
-                "report_label": (factor_rec_primary.report_label if factor_rec_primary else row.get("activity")),
-                "category": (factor_rec_primary.level_2 if factor_rec_primary else row.get("activity")),
+                **_build_staged_metadata(
+                    row,
+                    factor_rec_primary,
+                    primary_dataset,
+                    factor_original_id=oid,
+                    storage_original_id=storage_original_id,
+                ),
                 "monthly_emissions": {i: 0.0 for i in range(1, 13)},
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
@@ -394,17 +507,18 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     for (_scope, _oid), entry in aggregate.items():
         staged_rows.append(
             {
-                "scope": entry["scope"],
-                "original_id": entry["original_id"],
-                "dataset_id": entry["dataset_id"],
+                **_build_staged_metadata(
+                    entry,
+                    None,
+                    entry["dataset_id"],
+                    factor_original_id=_clean(entry.get("factor_original_id")),
+                    storage_original_id=_clean(entry.get("original_id")),
+                ),
                 "factor_db_id": entry["factor_db_id"],
                 "level_1": entry["level_1"],
                 "level_2": entry["level_2"],
                 "level_3": entry["level_3"],
                 "level_4": entry["level_4"],
-                "column_text": entry["column_text"],
-                "report_label": entry["report_label"],
-                "category": entry["category"],
                 "qty": float(entry["qty"]),
                 "uom": "tCO2e",
                 "ghg_unit": "tCO2e",
@@ -431,7 +545,9 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
 
     collision_rows = [x for x in staged_rows if int(x.get("collision_count") or 1) > 1]
     if collision_rows:
-        parse_warnings.append(f"{len(collision_rows)} mapped IDs were aggregated from multiple source rows (schema unique key).")
+        parse_warnings.append(
+            f"{len(collision_rows)} template lines were aggregated from duplicate source rows with the same scope and mapping key."
+        )
 
     parse_warnings.append(
         "Monthly values are committed as tCO2e emissions using year-specific factors (factor=1, ghg_unit=tCO2e)."
@@ -485,12 +601,42 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
     effective_site_id = _resolve_site_id(int(job_id), int(site_id) if site_id is not None else None)
     inserted = 0
     updated = 0
+    disabled_existing = 0
     with get_conn() as con:
+        disabled_row = con.execute(
+            """
+            SELECT COUNT(*)
+            FROM job_scope_rows
+            WHERE job_id=%s AND site_id=%s AND data_source='Legacy Annual Upload' AND enabled=TRUE
+            """,
+            [int(job_id), int(effective_site_id)],
+        ).fetchone()
+        disabled_existing = int(disabled_row[0] or 0) if disabled_row else 0
+        con.execute(
+            """
+            UPDATE job_scope_rows
+            SET enabled=FALSE, updated_at=NOW()
+            WHERE job_id=%s AND site_id=%s AND data_source='Legacy Annual Upload'
+            """,
+            [int(job_id), int(effective_site_id)],
+        )
         for r in rows:
             scope = _clean(r.get("scope"))
-            original_id = _clean(r.get("original_id"))
+            original_id = _storage_original_id_from_row(r)
+            factor_original_id = _factor_original_id_from_row(r)
             if not scope or not original_id:
                 continue
+
+            notes = "Legacy annual import; monthly values stored as tCO2e using year-specific datasets"
+            note_parts: list[str] = []
+            if factor_original_id:
+                note_parts.append(f"factor_original_id={factor_original_id}")
+            if _clean(r.get("section")):
+                note_parts.append(f"section={_clean(r.get('section'))}")
+            if _clean(r.get("activity")):
+                note_parts.append(f"activity={_clean(r.get('activity'))}")
+            if note_parts:
+                notes = f"{notes} ({'; '.join(note_parts)})"
 
             existing = con.execute(
                 """
@@ -555,11 +701,11 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                         apply_pct=100,
                         data_source='Legacy Annual Upload',
                         data_confidence='M',
-                        notes='Legacy annual import; monthly values stored as tCO2e using year-specific datasets',
+                        notes=%s,
                         updated_at=NOW()
                     WHERE row_id=%s
                     """,
-                    [*params_common, int(existing[0])],
+                    [*params_common, notes, int(existing[0])],
                 )
                 updated += 1
             else:
@@ -575,7 +721,7 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                     )
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, 'Legacy annual import; monthly values stored as tCO2e using year-specific datasets', TRUE,
+                        %s, %s, %s, %s, %s, %s, %s, TRUE,
                         %s, %s, %s, %s, %s, NULL, NULL,
                         %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s,
@@ -596,6 +742,7 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                         r.get("level_4"),
                         r.get("column_text"),
                         r.get("report_label"),
+                        notes,
                         float(r.get("qty") or 0),
                         r.get("uom") or "tCO2e",
                         float(r.get("factor") or 1.0),
@@ -617,7 +764,14 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                 )
                 inserted += 1
 
-    return {"ok": True, "job_id": int(job_id), "site_id": int(effective_site_id), "inserted": inserted, "updated": updated}
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "site_id": int(effective_site_id),
+        "inserted": inserted,
+        "updated": updated,
+        "disabled_existing_legacy_rows": disabled_existing,
+    }
 
 
 def resolve_unresolved_rows(
@@ -634,11 +788,12 @@ def resolve_unresolved_rows(
 
     for row in rows_unresolved or []:
         r = dict(row)
-        oid = _clean(r.get("original_id"))
+        oid = _factor_original_id_from_row(r)
         lk = _clean(r.get("lookup_key"))
         if not oid and lk and _clean(manual_lookup.get(lk)):
             oid = _clean(manual_lookup.get(lk))
             r["original_id"] = oid
+            r["factor_original_id"] = oid
             r["match_source"] = "manual_override"
         if not oid:
             r["reason"] = "missing original_id after manual override"
@@ -653,7 +808,7 @@ def resolve_unresolved_rows(
     factor_req: dict[tuple[int, str], set[str]] = defaultdict(set)
     for row in to_process:
         scope = _clean(row.get("scope"))
-        oid = _clean(row.get("original_id"))
+        oid = _factor_original_id_from_row(row)
         for m in row.get("month_headers") or []:
             year = int(m.get("year"))
             dsid = dataset_by_year.get(year)
@@ -664,7 +819,7 @@ def resolve_unresolved_rows(
     aggregate: dict[tuple[str, str], dict[str, Any]] = {}
     for row in to_process:
         scope = _clean(row.get("scope"))
-        oid = _clean(row.get("original_id"))
+        oid = _factor_original_id_from_row(row)
         month_emissions: dict[int, float] = {}
         month_datasets: dict[int, int] = {}
         month_errors: list[dict[str, Any]] = []
@@ -695,23 +850,20 @@ def resolve_unresolved_rows(
             unresolved_rows.append(row)
             continue
 
-        key = (scope, oid)
+        storage_original_id = _storage_original_id_from_row(row)
+        key = (scope, storage_original_id)
         ds_counter = Counter(month_datasets.values())
         primary_dataset = int(ds_counter.most_common(1)[0][0]) if ds_counter else None
         total = float(sum(month_emissions.values()))
         if key not in aggregate:
             aggregate[key] = {
-                "scope": scope,
-                "original_id": oid,
-                "dataset_id": primary_dataset,
-                "factor_db_id": (factor_primary.db_id if factor_primary else None),
-                "level_1": (factor_primary.level_1 if factor_primary else None),
-                "level_2": (factor_primary.level_2 if factor_primary else None),
-                "level_3": (factor_primary.level_3 if factor_primary else None),
-                "level_4": (factor_primary.level_4 if factor_primary else None),
-                "column_text": (factor_primary.column_text if factor_primary else None),
-                "report_label": (factor_primary.report_label if factor_primary else row.get("activity")),
-                "category": (factor_primary.level_2 if factor_primary else row.get("activity")),
+                **_build_staged_metadata(
+                    row,
+                    factor_primary,
+                    primary_dataset,
+                    factor_original_id=oid,
+                    storage_original_id=storage_original_id,
+                ),
                 "monthly_emissions": {i: 0.0 for i in range(1, 13)},
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
@@ -730,17 +882,18 @@ def resolve_unresolved_rows(
     for _key, entry in aggregate.items():
         seed_rows.append(
             {
-                "scope": entry["scope"],
-                "original_id": entry["original_id"],
-                "dataset_id": entry["dataset_id"],
+                **_build_staged_metadata(
+                    entry,
+                    None,
+                    entry["dataset_id"],
+                    factor_original_id=_clean(entry.get("factor_original_id")),
+                    storage_original_id=_clean(entry.get("original_id")),
+                ),
                 "factor_db_id": entry["factor_db_id"],
                 "level_1": entry["level_1"],
                 "level_2": entry["level_2"],
                 "level_3": entry["level_3"],
                 "level_4": entry["level_4"],
-                "column_text": entry["column_text"],
-                "report_label": entry["report_label"],
-                "category": entry["category"],
                 "qty": float(entry["qty"]),
                 "uom": "tCO2e",
                 "ghg_unit": "tCO2e",
@@ -769,9 +922,10 @@ def resolve_unresolved_rows(
     merged: dict[tuple[str, str], dict[str, Any]] = {}
     for row in seed_rows:
         scope = _clean(row.get("scope"))
-        oid = _clean(row.get("original_id"))
+        oid = _storage_original_id_from_row(row)
         if not scope or not oid:
             continue
+        row = {**row, "original_id": oid, "storage_original_id": oid}
         key = (scope, oid)
         if key not in merged:
             merged[key] = dict(row)

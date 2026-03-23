@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2026-03-12T20:21:42.659343+00:00",
+  "generated_at_utc": "2026-03-23T17:27:46.379805+00:00",
   "source_workbook": "C:\\Users\\franc\\Net Zero International\\NZI Company Documents - Documents\\Operations\\Technical Systems\\Carbon Reporting Python\\nzi_pro_v7-POSTGRES\\wfm_import\\Sample Data Sheet With IDs for Mapping.xlsx",
   "source_sheet": "Master datasheet",
-  "row_count": 104,
-  "unique_key_count": 100,
+  "row_count": 123,
+  "unique_key_count": 119,
   "lookup_key_format": "section|activity|col_2|col_3|col_4|col_5|col_6|col_7",
   "preferred_selection_rule": "last factor_original_id encountered in workbook order",
   "preferred_items": {
@@ -106,7 +106,26 @@
     "detailed carbon|waste disposal|3|scrap metal|tonnes|0|0|": "20_504_5366_15_1",
     "detailed carbon|waste disposal|3|average plastics|tonnes|0|0|": "20_505_5380_15_1",
     "detailed carbon|waste disposal|3|paper & board mixed|tonnes|0|0|": "20_506_5450_15_1",
-    "detailed carbon|wfh - electricity|3|wfh - electricity|hours|0.3337812045667021|0|": "32_603_9999_12_1"
+    "detailed carbon|wfh - electricity|3|wfh - electricity|hours|0.3337812045667021|0|": "32_603_9999_12_1",
+    "detailed carbon|uniforms|3|uniforms|tonnes|1000|0|": "SWC-SPEND-14",
+    "detailed carbon|computer equipment|3|computer equipment|tonnes|1000|0|": "SWC-SPEND-26",
+    "detailed carbon|general maintenance|3|general maintenance|tonnes|1000|0|": "SWC-SPEND-33OTHER",
+    "detailed carbon|vehicle maintenance|3|vehicle maintenance|tonnes|1000|0|": "SWC-SPEND-45",
+    "detailed carbon|land transport|3|land transport|tonnes|1000|0|": "SWC-SPEND-49.3-5",
+    "detailed carbon|warehousing|3|warehousing|tonnes|1000|0|": "SWC-SPEND-52",
+    "detailed carbon|postal and courier|3|postal and courier|tonnes|1000|0|": "SWC-SPEND-53",
+    "detailed carbon|accommodation|3|accommodation|tonnes|1000|0|": "SWC-SPEND-55",
+    "detailed carbon|telecommunications|3|telecommunications|tonnes|1000|0|": "SWC-SPEND-61",
+    "detailed carbon|computers services|3|computers services|tonnes|1000|0|": "SWC-SPEND-62",
+    "detailed carbon|financial services|3|financial services|tonnes|1000|0|": "SWC-SPEND-64",
+    "detailed carbon|insurance|3|insurance|tonnes|1000|0|": "SWC-SPEND-65.3",
+    "detailed carbon|rent|3|rent|tonnes|1000|0|": "SWC-SPEND-68.1-2",
+    "detailed carbon|accounting services|3|accounting services|tonnes|1000|0|": "SWC-SPEND-69.2",
+    "detailed carbon|consultancy services|3|consultancy services|tonnes|1000|0|": "SWC-SPEND-70",
+    "detailed carbon|advertising and marketing|3|advertising and marketing|tonnes|1000|0|": "SWC-SPEND-73",
+    "detailed carbon|rental and leasing services|3|rental and leasing services|tonnes|1000|0|": "SWC-SPEND-77",
+    "detailed carbon|real estate services|3|real estate services|tonnes|1000|0|": "SWC-SPEND-81",
+    "detailed carbon|business support services|3|business support services|tonnes|1000|0|": "SWC-SPEND-82"
   },
   "items": {
     "employee commuting|car - petrol|||3||small|miles": [
@@ -412,6 +431,63 @@
     ],
     "detailed carbon|wfh - electricity|3|wfh - electricity|hours|0.3337812045667021|0|": [
       "32_603_9999_12_1"
+    ],
+    "detailed carbon|uniforms|3|uniforms|tonnes|1000|0|": [
+      "SWC-SPEND-14"
+    ],
+    "detailed carbon|computer equipment|3|computer equipment|tonnes|1000|0|": [
+      "SWC-SPEND-26"
+    ],
+    "detailed carbon|general maintenance|3|general maintenance|tonnes|1000|0|": [
+      "SWC-SPEND-33OTHER"
+    ],
+    "detailed carbon|vehicle maintenance|3|vehicle maintenance|tonnes|1000|0|": [
+      "SWC-SPEND-45"
+    ],
+    "detailed carbon|land transport|3|land transport|tonnes|1000|0|": [
+      "SWC-SPEND-49.3-5"
+    ],
+    "detailed carbon|warehousing|3|warehousing|tonnes|1000|0|": [
+      "SWC-SPEND-52"
+    ],
+    "detailed carbon|postal and courier|3|postal and courier|tonnes|1000|0|": [
+      "SWC-SPEND-53"
+    ],
+    "detailed carbon|accommodation|3|accommodation|tonnes|1000|0|": [
+      "SWC-SPEND-55"
+    ],
+    "detailed carbon|telecommunications|3|telecommunications|tonnes|1000|0|": [
+      "SWC-SPEND-61"
+    ],
+    "detailed carbon|computers services|3|computers services|tonnes|1000|0|": [
+      "SWC-SPEND-62"
+    ],
+    "detailed carbon|financial services|3|financial services|tonnes|1000|0|": [
+      "SWC-SPEND-64"
+    ],
+    "detailed carbon|insurance|3|insurance|tonnes|1000|0|": [
+      "SWC-SPEND-65.3"
+    ],
+    "detailed carbon|rent|3|rent|tonnes|1000|0|": [
+      "SWC-SPEND-68.1-2"
+    ],
+    "detailed carbon|accounting services|3|accounting services|tonnes|1000|0|": [
+      "SWC-SPEND-69.2"
+    ],
+    "detailed carbon|consultancy services|3|consultancy services|tonnes|1000|0|": [
+      "SWC-SPEND-70"
+    ],
+    "detailed carbon|advertising and marketing|3|advertising and marketing|tonnes|1000|0|": [
+      "SWC-SPEND-73"
+    ],
+    "detailed carbon|rental and leasing services|3|rental and leasing services|tonnes|1000|0|": [
+      "SWC-SPEND-77"
+    ],
+    "detailed carbon|real estate services|3|real estate services|tonnes|1000|0|": [
+      "SWC-SPEND-81"
+    ],
+    "detailed carbon|business support services|3|business support services|tonnes|1000|0|": [
+      "SWC-SPEND-82"
     ]
   }
 }
