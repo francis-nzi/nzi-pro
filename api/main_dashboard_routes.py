@@ -3,6 +3,8 @@ Main Dashboard API Routes
 Provides overview metrics for the main dashboard
 """
 
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from core.database import get_conn
 from api.auth import _current_user
@@ -76,6 +78,55 @@ def _financial_year_filter(
         return
     where_parts.append(f"COALESCE({job_year_expr}, EXTRACT(YEAR FROM {date_expr})::INTEGER) = ?")
     params.append(int(year))
+
+
+def _normalize_to_date(value):
+    if value is None:
+        return None
+    if hasattr(value, "date"):
+        try:
+            return value.date()
+        except Exception:
+            pass
+    if isinstance(value, str):
+        txt = value.strip()
+        if not txt:
+            return None
+        try:
+            return date.fromisoformat(txt[:10])
+        except Exception:
+            return None
+    if isinstance(value, date):
+        return value
+    return None
+
+
+def _milestone_status(due_date, completed_at) -> str:
+    if completed_at:
+        return "completed"
+    due = _normalize_to_date(due_date)
+    if not due:
+        return "green"
+    days_until_due = (due - date.today()).days
+    if days_until_due < -1:
+        return "red"
+    if days_until_due <= 7:
+        return "amber"
+    return "green"
+
+
+def _overall_milestone_status(statuses: list[str]) -> str | None:
+    if not statuses:
+        return None
+    if "red" in statuses:
+        return "red"
+    if "amber" in statuses:
+        return "amber"
+    if "green" in statuses:
+        return "green"
+    if "completed" in statuses:
+        return "completed"
+    return None
 
 
 @router.get("/dashboard/overview")
@@ -1117,3 +1168,373 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch jobs by milestone status: {e}")
+
+
+@router.get("/dashboard/operations-overview")
+def get_dashboard_operations_overview(
+    year: int = Query(None, description="Reporting year filter"),
+    industry: str | None = Query(None, description="Optional industry filter"),
+    crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    _user: dict[str, str] = Depends(_current_user)
+):
+    """Portfolio-level delivery and workload intelligence for Insights."""
+    try:
+        with get_conn() as con:
+            if not _table_exists(con, "jobs"):
+                return {
+                    "metrics": {
+                        "active_jobs": 0,
+                        "healthy_jobs": 0,
+                        "due_soon_jobs": 0,
+                        "overdue_jobs": 0,
+                        "no_milestone_jobs": 0,
+                        "jobs_over_estimate": 0,
+                        "time_logged_hours": 0.0,
+                        "estimated_hours_total": 0.0,
+                        "utilisation_pct": 0.0,
+                        "completed_milestones": 0,
+                        "upcoming_milestones_30d": 0,
+                    },
+                    "milestone_breakdown": [],
+                    "time_by_subject": [],
+                    "crm_workload": [],
+                    "jobs_needing_attention": [],
+                }
+
+            has_job_plan = _table_exists(con, "job_plan")
+            has_time_logs = _table_exists(con, "time_logs")
+            has_job_type_id = _column_exists(con, "jobs", "job_type_id")
+            has_job_type_estimated = _column_exists(con, "job_types", "estimated_hours")
+            has_job_due_date = _column_exists(con, "jobs", "due_date")
+            has_job_crm_name = _column_exists(con, "jobs", "crm_name")
+            has_client_crm_owner = _column_exists(con, "clients", "crm_owner")
+            has_time_subject = has_time_logs and _column_exists(con, "time_logs", "subject")
+
+            job_where_parts: list[str] = []
+            job_params: list[object] = []
+            _apply_client_filters(
+                job_where_parts,
+                job_params,
+                client_alias="c",
+                industry=industry,
+                crm_owner=crm_owner,
+            )
+            if year is not None:
+                job_where_parts.append("j.reporting_year = ?")
+                job_params.append(int(year))
+
+            job_where = f"WHERE {' AND '.join(job_where_parts)}" if job_where_parts else ""
+            job_plan_join = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id" if has_job_plan else ""
+            job_type_join = "LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id" if has_job_type_id else "LEFT JOIN job_types jt ON 1=0"
+            estimated_hours_expr = "COALESCE(jt.estimated_hours, 0)" if has_job_type_estimated else "0"
+            due_date_expr = "j.due_date" if has_job_due_date else "NULL"
+            if has_job_crm_name and has_client_crm_owner:
+                crm_expr = "COALESCE(NULLIF(j.crm_name, ''), NULLIF(c.crm_owner, ''), 'Unassigned')"
+            elif has_job_crm_name:
+                crm_expr = "COALESCE(NULLIF(j.crm_name, ''), 'Unassigned')"
+            elif has_client_crm_owner:
+                crm_expr = "COALESCE(NULLIF(c.crm_owner, ''), 'Unassigned')"
+            else:
+                crm_expr = "'Unassigned'"
+
+            milestone_select = """
+                jp.data_collection_due,
+                jp.data_collection_completed_at,
+                jp.first_draft_due,
+                jp.first_draft_completed_at,
+                jp.final_report_due,
+                jp.final_report_completed_at,
+            """ if has_job_plan else """
+                NULL AS data_collection_due,
+                NULL AS data_collection_completed_at,
+                NULL AS first_draft_due,
+                NULL AS first_draft_completed_at,
+                NULL AS final_report_due,
+                NULL AS final_report_completed_at,
+            """
+
+            jobs_df = con.execute(
+                f"""
+                SELECT
+                    j.job_id,
+                    j.job_number,
+                    j.title,
+                    COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status,
+                    c.client_name,
+                    {crm_expr} AS crm_name,
+                    {estimated_hours_expr} AS estimated_hours,
+                    j.start_date,
+                    {due_date_expr} AS due_date,
+                    {milestone_select}
+                    j.created_at
+                FROM jobs j
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                {job_type_join}
+                {job_plan_join}
+                {job_where}
+                ORDER BY j.job_id DESC
+                """,
+                job_params,
+            ).df()
+
+            time_by_job: dict[int, dict[str, object]] = {}
+            time_by_subject: list[dict[str, object]] = []
+            if has_time_logs:
+                time_where_parts: list[str] = []
+                time_params: list[object] = []
+                _apply_client_filters(
+                    time_where_parts,
+                    time_params,
+                    client_alias="c",
+                    industry=industry,
+                    crm_owner=crm_owner,
+                )
+                if year is not None:
+                    time_where_parts.append("COALESCE(j.reporting_year, EXTRACT(YEAR FROM tl.work_date)::INTEGER) = ?")
+                    time_params.append(int(year))
+                time_where = f"WHERE {' AND '.join(time_where_parts)}" if time_where_parts else ""
+
+                time_jobs_df = con.execute(
+                    f"""
+                    SELECT
+                        tl.job_id,
+                        COALESCE(SUM(tl.minutes), 0) AS total_minutes,
+                        MAX(tl.work_date) AS last_work_date
+                    FROM time_logs tl
+                    LEFT JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    {time_where}
+                    GROUP BY tl.job_id
+                    """,
+                    time_params,
+                ).df()
+                if time_jobs_df is not None and not time_jobs_df.empty:
+                    for _, row in time_jobs_df.iterrows():
+                        job_id = int(row["job_id"]) if row["job_id"] is not None else None
+                        if job_id is None:
+                            continue
+                        time_by_job[job_id] = {
+                            "hours": round(float(row["total_minutes"] or 0.0) / 60.0, 2),
+                            "last_work_date": row["last_work_date"],
+                        }
+
+                subject_expr = "COALESCE(NULLIF(TRIM(tl.subject), ''), 'Unspecified')" if has_time_subject else "'Unspecified'"
+                subject_df = con.execute(
+                    f"""
+                    SELECT
+                        {subject_expr} AS subject,
+                        COALESCE(SUM(tl.minutes), 0) AS total_minutes
+                    FROM time_logs tl
+                    LEFT JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    {time_where}
+                    GROUP BY {subject_expr}
+                    ORDER BY total_minutes DESC, subject
+                    LIMIT 8
+                    """,
+                    time_params,
+                ).df()
+                if subject_df is not None and not subject_df.empty:
+                    for _, row in subject_df.iterrows():
+                        time_by_subject.append({
+                            "subject": row["subject"],
+                            "hours": round(float(row["total_minutes"] or 0.0) / 60.0, 2),
+                        })
+
+            metrics = {
+                "active_jobs": 0,
+                "healthy_jobs": 0,
+                "due_soon_jobs": 0,
+                "overdue_jobs": 0,
+                "no_milestone_jobs": 0,
+                "jobs_over_estimate": 0,
+                "time_logged_hours": 0.0,
+                "estimated_hours_total": 0.0,
+                "utilisation_pct": 0.0,
+                "completed_milestones": 0,
+                "upcoming_milestones_30d": 0,
+            }
+            milestone_counts = {
+                "green": 0,
+                "amber": 0,
+                "red": 0,
+                "completed": 0,
+                "no_milestones": 0,
+            }
+            crm_workload_map: dict[str, dict[str, object]] = {}
+            attention_rows: list[dict[str, object]] = []
+
+            if jobs_df is not None and not jobs_df.empty:
+                for _, row in jobs_df.iterrows():
+                    job_id = int(row["job_id"])
+                    job_status = str(row["status"] or "Unknown")
+                    normalized_job_status = job_status.strip().lower()
+                    is_active = normalized_job_status not in ("completed", "archived", "cancelled")
+                    crm_name = str(row["crm_name"] or "Unassigned")
+                    estimated_hours = float(row["estimated_hours"] or 0.0)
+                    logged_hours = float((time_by_job.get(job_id) or {}).get("hours") or 0.0)
+
+                    milestone_rows = [
+                        ("Data Collection", row.get("data_collection_due"), row.get("data_collection_completed_at")),
+                        ("First Draft", row.get("first_draft_due"), row.get("first_draft_completed_at")),
+                        ("Final Report", row.get("final_report_due"), row.get("final_report_completed_at")),
+                    ]
+                    available_milestones = [item for item in milestone_rows if item[1] is not None]
+                    milestone_statuses = [_milestone_status(due_date, completed_at) for _, due_date, completed_at in available_milestones]
+                    overall_status = _overall_milestone_status(milestone_statuses)
+
+                    next_due_date = None
+                    next_due_name = None
+                    next_due_days = None
+                    completed_count = 0
+                    upcoming_count = 0
+                    for milestone_name, due_date, completed_at in available_milestones:
+                        due_obj = _normalize_to_date(due_date)
+                        completed_obj = _normalize_to_date(completed_at) if completed_at is not None else completed_at
+                        if completed_at:
+                            completed_count += 1
+                        if due_obj and not completed_at:
+                            days_until_due = (due_obj - date.today()).days
+                            if days_until_due <= 30:
+                                upcoming_count += 1
+                            if next_due_date is None or due_obj < next_due_date:
+                                next_due_date = due_obj
+                                next_due_name = milestone_name
+                                next_due_days = days_until_due
+
+                    metrics["time_logged_hours"] += logged_hours
+                    metrics["estimated_hours_total"] += estimated_hours
+                    metrics["completed_milestones"] += completed_count
+                    metrics["upcoming_milestones_30d"] += upcoming_count
+                    if estimated_hours > 0 and logged_hours > estimated_hours:
+                        metrics["jobs_over_estimate"] += 1
+
+                    if overall_status is None:
+                        milestone_counts["no_milestones"] += 1
+                    else:
+                        milestone_counts[str(overall_status)] += 1
+
+                    if is_active:
+                        metrics["active_jobs"] += 1
+                        if overall_status == "red":
+                            metrics["overdue_jobs"] += 1
+                        elif overall_status == "amber":
+                            metrics["due_soon_jobs"] += 1
+                        elif overall_status == "green":
+                            metrics["healthy_jobs"] += 1
+                        elif overall_status is None:
+                            metrics["no_milestone_jobs"] += 1
+
+                        crm_bucket = crm_workload_map.setdefault(
+                            crm_name,
+                            {
+                                "crm_name": crm_name,
+                                "total_jobs": 0,
+                                "red_jobs": 0,
+                                "amber_jobs": 0,
+                                "green_jobs": 0,
+                                "no_milestone_jobs": 0,
+                                "logged_hours": 0.0,
+                                "estimated_hours": 0.0,
+                            },
+                        )
+                        crm_bucket["total_jobs"] = int(crm_bucket["total_jobs"]) + 1
+                        crm_bucket["logged_hours"] = float(crm_bucket["logged_hours"]) + logged_hours
+                        crm_bucket["estimated_hours"] = float(crm_bucket["estimated_hours"]) + estimated_hours
+                        if overall_status == "red":
+                            crm_bucket["red_jobs"] = int(crm_bucket["red_jobs"]) + 1
+                        elif overall_status == "amber":
+                            crm_bucket["amber_jobs"] = int(crm_bucket["amber_jobs"]) + 1
+                        elif overall_status == "green":
+                            crm_bucket["green_jobs"] = int(crm_bucket["green_jobs"]) + 1
+                        else:
+                            crm_bucket["no_milestone_jobs"] = int(crm_bucket["no_milestone_jobs"]) + 1
+
+                    utilisation_pct = (logged_hours / estimated_hours * 100.0) if estimated_hours > 0 else None
+                    reason_parts: list[str] = []
+                    if overall_status == "red":
+                        reason_parts.append("Overdue milestone")
+                    elif overall_status == "amber":
+                        reason_parts.append("Milestone due soon")
+                    if estimated_hours > 0 and logged_hours > estimated_hours:
+                        reason_parts.append("Over estimate")
+                    if not available_milestones and is_active:
+                        reason_parts.append("No milestone dates")
+
+                    if reason_parts:
+                        attention_rows.append({
+                            "job_id": job_id,
+                            "job_number": row["job_number"],
+                            "title": row["title"],
+                            "client_name": row["client_name"],
+                            "crm_name": crm_name,
+                            "status": job_status,
+                            "milestone_status": overall_status,
+                            "next_due_date": next_due_date.isoformat() if next_due_date else None,
+                            "next_due_name": next_due_name,
+                            "days_to_next_due": next_due_days,
+                            "logged_hours": round(logged_hours, 2),
+                            "estimated_hours": round(estimated_hours, 2),
+                            "utilisation_pct": round(utilisation_pct, 1) if utilisation_pct is not None else None,
+                            "reason": ", ".join(reason_parts),
+                        })
+
+            if metrics["estimated_hours_total"] > 0:
+                metrics["utilisation_pct"] = round(
+                    (metrics["time_logged_hours"] / metrics["estimated_hours_total"]) * 100.0,
+                    1,
+                )
+            metrics["time_logged_hours"] = round(metrics["time_logged_hours"], 2)
+            metrics["estimated_hours_total"] = round(metrics["estimated_hours_total"], 2)
+
+            milestone_breakdown = [
+                {"status": "Healthy", "key": "green", "count": int(milestone_counts["green"])},
+                {"status": "Due Soon", "key": "amber", "count": int(milestone_counts["amber"])},
+                {"status": "Overdue", "key": "red", "count": int(milestone_counts["red"])},
+                {"status": "Completed", "key": "completed", "count": int(milestone_counts["completed"])},
+                {"status": "No Milestones", "key": "no_milestones", "count": int(milestone_counts["no_milestones"])},
+            ]
+
+            crm_workload = []
+            for bucket in crm_workload_map.values():
+                est = float(bucket["estimated_hours"] or 0.0)
+                logged = float(bucket["logged_hours"] or 0.0)
+                crm_workload.append({
+                    "crm_name": bucket["crm_name"],
+                    "total_jobs": int(bucket["total_jobs"]),
+                    "red_jobs": int(bucket["red_jobs"]),
+                    "amber_jobs": int(bucket["amber_jobs"]),
+                    "green_jobs": int(bucket["green_jobs"]),
+                    "no_milestone_jobs": int(bucket["no_milestone_jobs"]),
+                    "logged_hours": round(logged, 2),
+                    "estimated_hours": round(est, 2),
+                    "utilisation_pct": round((logged / est) * 100.0, 1) if est > 0 else None,
+                })
+            crm_workload.sort(
+                key=lambda item: (
+                    -int(item["red_jobs"]),
+                    -int(item["amber_jobs"]),
+                    -(float(item["logged_hours"]) if item["logged_hours"] is not None else 0.0),
+                    str(item["crm_name"]),
+                )
+            )
+
+            status_priority = {"red": 0, "amber": 1, "green": 2, None: 3}
+            attention_rows.sort(
+                key=lambda item: (
+                    status_priority.get(item.get("milestone_status"), 4),
+                    item.get("days_to_next_due") if item.get("days_to_next_due") is not None else 99999,
+                    -(float(item.get("utilisation_pct") or 0.0)),
+                    str(item.get("job_number") or ""),
+                )
+            )
+
+            return {
+                "metrics": metrics,
+                "milestone_breakdown": milestone_breakdown,
+                "time_by_subject": time_by_subject,
+                "crm_workload": crm_workload[:8],
+                "jobs_needing_attention": attention_rows[:8],
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard operations overview: {e}")

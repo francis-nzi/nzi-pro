@@ -104,6 +104,58 @@ type FinancialOverview = {
   invoice_currencies: string[];
 };
 
+type OperationsOverview = {
+  metrics: {
+    active_jobs: number;
+    healthy_jobs: number;
+    due_soon_jobs: number;
+    overdue_jobs: number;
+    no_milestone_jobs: number;
+    jobs_over_estimate: number;
+    time_logged_hours: number;
+    estimated_hours_total: number;
+    utilisation_pct: number;
+    completed_milestones: number;
+    upcoming_milestones_30d: number;
+  };
+  milestone_breakdown: Array<{
+    status: string;
+    key: string;
+    count: number;
+  }>;
+  time_by_subject: Array<{
+    subject: string;
+    hours: number;
+  }>;
+  crm_workload: Array<{
+    crm_name: string;
+    total_jobs: number;
+    red_jobs: number;
+    amber_jobs: number;
+    green_jobs: number;
+    no_milestone_jobs: number;
+    logged_hours: number;
+    estimated_hours: number;
+    utilisation_pct: number | null;
+  }>;
+  jobs_needing_attention: Array<{
+    job_id: number;
+    job_number: string | null;
+    title: string | null;
+    client_name: string | null;
+    crm_name: string | null;
+    status: string | null;
+    milestone_status: string | null;
+    next_due_date: string | null;
+    next_due_name: string | null;
+    days_to_next_due: number | null;
+    logged_hours: number;
+    estimated_hours: number;
+    utilisation_pct: number | null;
+    reason: string | null;
+  }>;
+};
+
 const ALL_FILTER_VALUE = "__all__";
 
 const EMPTY_JOBS_STATUS: JobsMilestoneStatus = {
@@ -135,6 +187,26 @@ const EMPTY_FINANCIAL: FinancialOverview = {
   invoice_currencies: [],
 };
 
+const EMPTY_OPERATIONS: OperationsOverview = {
+  metrics: {
+    active_jobs: 0,
+    healthy_jobs: 0,
+    due_soon_jobs: 0,
+    overdue_jobs: 0,
+    no_milestone_jobs: 0,
+    jobs_over_estimate: 0,
+    time_logged_hours: 0,
+    estimated_hours_total: 0,
+    utilisation_pct: 0,
+    completed_milestones: 0,
+    upcoming_milestones_30d: 0,
+  },
+  milestone_breakdown: [],
+  time_by_subject: [],
+  crm_workload: [],
+  jobs_needing_attention: [],
+};
+
 function formatNumber(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
 }
@@ -162,6 +234,16 @@ function toneForStatus(status: string): string {
   return "bg-muted text-foreground";
 }
 
+function toneForMilestoneStatus(status: string | null | undefined): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "red" || normalized === "overdue") return "bg-red-100 text-red-700";
+  if (normalized === "amber" || normalized === "due soon") return "bg-amber-100 text-amber-800";
+  if (normalized === "green" || normalized === "healthy") return "bg-emerald-100 text-emerald-800";
+  if (normalized === "completed") return "bg-blue-100 text-blue-800";
+  if (normalized.includes("no")) return "bg-slate-100 text-slate-700";
+  return "bg-muted text-foreground";
+}
+
 function overviewSubtitle(data: DashboardOverview | null): string {
   if (!data) return "Portfolio-wide business intelligence for clients, jobs, and delivery performance.";
   const year = data.selected_year || new Date().getFullYear();
@@ -173,6 +255,7 @@ export default function InsightsPageClient() {
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
   const [financialData, setFinancialData] = useState<FinancialOverview>(EMPTY_FINANCIAL);
+  const [operationsData, setOperationsData] = useState<OperationsOverview>(EMPTY_OPERATIONS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
@@ -188,7 +271,7 @@ export default function InsightsPageClient() {
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
-      const [overviewRes, jobsStatusRes, financialRes] = await Promise.all([
+      const [overviewRes, jobsStatusRes, financialRes, operationsRes] = await Promise.all([
         fetch(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
@@ -198,6 +281,10 @@ export default function InsightsPageClient() {
           cache: "no-store",
         }),
         fetch(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, {
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, {
           credentials: "include",
           cache: "no-store",
         }),
@@ -226,11 +313,19 @@ export default function InsightsPageClient() {
       } else {
         setFinancialData(EMPTY_FINANCIAL);
       }
+
+      if (operationsRes.ok) {
+        const operationsJson = (await operationsRes.json()) as OperationsOverview;
+        setOperationsData(operationsJson);
+      } else {
+        setOperationsData(EMPTY_OPERATIONS);
+      }
     } catch (e) {
       setError((e as Error).message);
       setData(null);
       setJobsStatus(EMPTY_JOBS_STATUS);
       setFinancialData(EMPTY_FINANCIAL);
+      setOperationsData(EMPTY_OPERATIONS);
     } finally {
       setLoading(false);
     }
@@ -829,14 +924,179 @@ export default function InsightsPageClient() {
           </TabsContent>
 
           <TabsContent value="operations" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Active Jobs</div>
+                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.active_jobs}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Delivery workload in scope</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Overdue Jobs</div>
+                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.overdue_jobs}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Jobs with overdue milestones</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Due Soon</div>
+                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.due_soon_jobs}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Jobs at amber milestone risk</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Hours Logged</div>
+                  <div className="mt-2 text-3xl font-semibold">{formatNumber(operationsData.metrics.time_logged_hours, 1)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Tracked delivery effort</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-muted-foreground">Utilisation</div>
+                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.utilisation_pct.toFixed(1)}%</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Logged hours vs estimate</div>
+                </CardContent>
+              </Card>
+            </div>
+
             <Card>
               <CardHeader>
-                <CardTitle>Operations Insights Next</CardTitle>
+                <CardTitle>Delivery Context</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="rounded border p-4 text-sm text-muted-foreground">Milestone slippage, delivery throughput, and deadline risk by CRM owner and job type.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Time logged versus estimate, utilisation, bottlenecks, and outstanding client inputs.</div>
-                <div className="rounded border p-4 text-sm text-muted-foreground">Operational drilldown from team-wide hotspots to individual jobs and overdue actions.</div>
+              <CardContent className="grid gap-4 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
+                <div className="rounded border p-4 text-sm text-muted-foreground">
+                  This slice combines milestone plans and tracked time so we can see deadline pressure, effort burn, and where delivery management attention is needed most.
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-xs text-muted-foreground">Healthy Jobs</div>
+                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.healthy_jobs}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Jobs currently on track</div>
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-xs text-muted-foreground">Upcoming Milestones</div>
+                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.upcoming_milestones_30d}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Incomplete due within 30 days</div>
+                </div>
+                <div className="rounded border p-4">
+                  <div className="text-xs text-muted-foreground">Over Estimate</div>
+                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.jobs_over_estimate}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">Jobs above estimated hours</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Milestone Health</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(operationsData.milestone_breakdown || []).length > 0 ? (
+                    operationsData.milestone_breakdown.map((row) => (
+                      <div key={`ops-milestone-${row.key}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus(row.key)}`}>{row.status}</span>
+                        <span className="font-medium">{row.count}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Milestone health will appear here as delivery plans are assigned.</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Time By Subject</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(operationsData.time_by_subject || []).length > 0 ? (
+                    operationsData.time_by_subject.map((row) => (
+                      <div key={`ops-subject-${row.subject}`} className="flex items-center justify-between rounded border p-3 text-sm">
+                        <span>{row.subject || "Unspecified"}</span>
+                        <span className="font-medium">{formatNumber(row.hours, 1)} hrs</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground">Tracked effort themes will appear here once time logs are added.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>CRM Workload</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(operationsData.crm_workload || []).length > 0 ? (
+                  operationsData.crm_workload.map((row) => (
+                    <div key={`ops-crm-${row.crm_name}`} className="rounded border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <span className="font-medium">{row.crm_name || "Unassigned"}</span>
+                        <span>{row.total_jobs} active jobs</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("red")}`}>Overdue: {row.red_jobs}</span>
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("amber")}`}>Due Soon: {row.amber_jobs}</span>
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("green")}`}>Healthy: {row.green_jobs}</span>
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("no_milestones")}`}>No Milestones: {row.no_milestone_jobs}</span>
+                      </div>
+                      <div className="mt-3 grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
+                        <div>Logged: {formatNumber(row.logged_hours, 1)} hrs</div>
+                        <div>Estimate: {formatNumber(row.estimated_hours, 1)} hrs</div>
+                        <div>Utilisation: {row.utilisation_pct !== null ? `${row.utilisation_pct.toFixed(1)}%` : "-"}</div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">CRM workload will appear here as jobs, milestones, and time logs build out.</div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Jobs Needing Attention</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(operationsData.jobs_needing_attention || []).length > 0 ? (
+                  operationsData.jobs_needing_attention.map((row) => (
+                    <Link
+                      key={`ops-job-${row.job_id}`}
+                      href={`/jobs/${row.job_id}`}
+                      className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.9fr]"
+                    >
+                      <div>
+                        <div className="font-medium">
+                          {[row.job_number, row.title].filter(Boolean).join(" · ") || `Job ${row.job_id}`}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{row.client_name || "Unknown client"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{row.reason || "Attention required"}</div>
+                      </div>
+                      <div>
+                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus(row.milestone_status)}`}>
+                          {row.milestone_status || "No milestones"}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground">
+                        {row.next_due_name ? `${row.next_due_name}: ${formatDate(row.next_due_date)}` : "No next due date"}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {row.utilisation_pct !== null ? `${row.utilisation_pct.toFixed(1)}% of estimate` : `${formatNumber(row.logged_hours, 1)} hrs logged`}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {row.days_to_next_due !== null && row.days_to_next_due !== undefined
+                          ? `${row.days_to_next_due} days`
+                          : row.crm_name || "-"}
+                      </div>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">Priority jobs will appear here when risk or effort signals emerge.</div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
