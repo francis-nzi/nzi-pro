@@ -239,6 +239,21 @@ const REPORT_PRESETS = [
     label: "Invoice Follow-Up",
     description: "Cash collection visibility and overdue follow-up.",
   },
+  {
+    key: "quote_pipeline",
+    label: "Quote Pipeline",
+    description: "Quoted value by client, status, and approval stage.",
+  },
+  {
+    key: "crm_workload",
+    label: "CRM Workload",
+    description: "Delivery pressure, workload, and hours by CRM owner.",
+  },
+  {
+    key: "emissions_portfolio",
+    label: "Emissions Portfolio",
+    description: "Client-level emissions ranking for the current filters.",
+  },
 ];
 
 const EMPTY_REPORT: ReportViewData = {
@@ -447,7 +462,12 @@ export default function InsightsPageClient() {
     const normalizedKey = key.toLowerCase();
     if (normalizedKey.includes("date")) return formatDate(String(value));
     if (normalizedKey.includes("pct")) return `${Number(value).toFixed(1)}%`;
-    if (normalizedKey === "total" || normalizedKey.includes("outstanding") || normalizedKey.includes("amount_paid")) {
+    if (
+      normalizedKey === "total" ||
+      normalizedKey.includes("outstanding") ||
+      normalizedKey.includes("amount_paid") ||
+      normalizedKey.includes("quote_value")
+    ) {
       return formatMoney(Number(value));
     }
     if (normalizedKey.includes("hours")) return formatNumber(Number(value), 1);
@@ -459,6 +479,8 @@ export default function InsightsPageClient() {
     if (reportView === "client_portfolio" && row.client_id) return `/clients/${row.client_id}`;
     if (reportView === "job_delivery" && row.job_id) return `/jobs/${row.job_id}`;
     if (reportView === "invoice_follow_up" && row.client_id && row.invoice_id) return `/clients/${row.client_id}/invoices/${row.invoice_id}`;
+    if (reportView === "quote_pipeline" && row.client_id) return `/clients/${row.client_id}/quotes`;
+    if (reportView === "emissions_portfolio" && row.client_id) return `/clients/${row.client_id}`;
     return null;
   }
 

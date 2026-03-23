@@ -1813,6 +1813,340 @@ def _build_insights_report(
             "row_count": len(rows),
         }
 
+    if view == "quote_pipeline":
+        has_quote_job_number = _column_exists(con, "quotes", "job_number") and _column_exists(con, "jobs", "job_number")
+        has_quote_approved_at = _column_exists(con, "quotes", "approved_at")
+        has_quote_line_vat = _column_exists(con, "quote_lines", "vat_rate_pct")
+        quote_where_parts = []
+        quote_params = []
+        _apply_client_filters(
+            quote_where_parts,
+            quote_params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        _financial_year_filter(
+            quote_where_parts,
+            quote_params,
+            date_expr="COALESCE(q.quote_date, q.created_at::date)",
+            job_year_expr=("j.reporting_year" if has_quote_job_number else "NULL"),
+            year=year,
+        )
+        quote_where = f"WHERE {' AND '.join(quote_where_parts)}" if quote_where_parts else ""
+        quote_job_join = "LEFT JOIN jobs j ON j.job_number = q.job_number" if has_quote_job_number else "LEFT JOIN jobs j ON 1=0"
+        quote_approved_expr = "q.approved_at" if has_quote_approved_at else "NULL"
+        quote_vat_expr = "COALESCE(ql.vat_rate_pct, 0)" if has_quote_line_vat else "0"
+        rows_df = con.execute(
+            f"""
+            WITH quote_totals AS (
+                SELECT
+                    q.quote_id,
+                    q.client_db_id,
+                    c.client_name,
+                    {crm_expr} AS crm_name,
+                    q.quote_number,
+                    q.quote_date,
+                    q.valid_to,
+                    COALESCE(NULLIF(TRIM(q.status), ''), 'Unknown') AS status,
+                    {quote_approved_expr} AS approved_at,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN LOWER(COALESCE(ql.line_type, 'main')) = 'option' THEN 0
+                            ELSE COALESCE(ql.qty, 0) * COALESCE(ql.unit_price_ex_vat, 0) * (1 + {quote_vat_expr} / 100.0)
+                        END
+                    ), 0) AS quote_value
+                FROM quotes q
+                LEFT JOIN quote_lines ql ON q.quote_id = ql.quote_id
+                LEFT JOIN clients c ON c.db_id = q.client_db_id
+                {quote_job_join}
+                {quote_where}
+                GROUP BY q.quote_id, q.client_db_id, c.client_name, {crm_expr}, q.quote_number, q.quote_date, q.valid_to, q.status, {quote_approved_expr}
+            )
+            SELECT *
+            FROM quote_totals
+            ORDER BY quote_value DESC, quote_date DESC NULLS LAST, quote_id DESC
+            LIMIT ?
+            """,
+            [*quote_params, int(limit)],
+        ).df()
+        rows = []
+        if rows_df is not None and not rows_df.empty:
+            for _, row in rows_df.iterrows():
+                rows.append({
+                    "quote_id": int(row["quote_id"]),
+                    "client_id": int(row["client_db_id"]) if row["client_db_id"] is not None else None,
+                    "quote_number": row["quote_number"],
+                    "client_name": row["client_name"],
+                    "crm_name": row["crm_name"],
+                    "status": row["status"],
+                    "quote_date": row["quote_date"].isoformat() if hasattr(row["quote_date"], "isoformat") else (str(row["quote_date"]) if row["quote_date"] else None),
+                    "valid_to": row["valid_to"].isoformat() if hasattr(row["valid_to"], "isoformat") else (str(row["valid_to"]) if row["valid_to"] else None),
+                    "quote_value": round(float(row["quote_value"] or 0.0), 2),
+                    "approved_at": row["approved_at"].isoformat() if hasattr(row["approved_at"], "isoformat") else (str(row["approved_at"]) if row["approved_at"] else None),
+                })
+        return {
+            "view": view,
+            "title": "Quote Pipeline",
+            "description": "Open and approved quote pipeline with client ownership and total quoted value.",
+            "columns": [
+                {"key": "quote_number", "label": "Quote"},
+                {"key": "client_name", "label": "Client"},
+                {"key": "crm_name", "label": "CRM"},
+                {"key": "status", "label": "Status"},
+                {"key": "quote_date", "label": "Quote Date"},
+                {"key": "valid_to", "label": "Valid To"},
+                {"key": "quote_value", "label": "Quote Value"},
+                {"key": "approved_at", "label": "Approved At"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    if view == "crm_workload":
+        has_job_plan = _table_exists(con, "job_plan")
+        has_time_logs = _table_exists(con, "time_logs")
+        has_job_type_estimated = _column_exists(con, "job_types", "estimated_hours")
+        where_parts = []
+        params = []
+        _apply_client_filters(
+            where_parts,
+            params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        if year is not None:
+            where_parts.append("j.reporting_year = ?")
+            params.append(int(year))
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        estimated_expr = "COALESCE(jt.estimated_hours, 0)" if has_job_type_estimated else "0"
+        time_join = """
+            LEFT JOIN (
+                SELECT job_id, COALESCE(SUM(minutes), 0) AS total_minutes
+                FROM time_logs
+                GROUP BY job_id
+            ) tl ON tl.job_id = j.job_id
+        """ if has_time_logs else "LEFT JOIN (SELECT NULL::integer AS job_id, 0::numeric AS total_minutes) tl ON 1=0"
+        milestone_due_exprs = {
+            "data_collection_due": "jp.data_collection_due" if has_job_plan and _column_exists(con, "job_plan", "data_collection_due") else "NULL",
+            "data_collection_completed_at": "jp.data_collection_completed_at" if has_job_plan and _column_exists(con, "job_plan", "data_collection_completed_at") else "NULL",
+            "first_draft_due": "jp.first_draft_due" if has_job_plan and _column_exists(con, "job_plan", "first_draft_due") else "NULL",
+            "first_draft_completed_at": "jp.first_draft_completed_at" if has_job_plan and _column_exists(con, "job_plan", "first_draft_completed_at") else "NULL",
+            "final_report_due": "jp.final_report_due" if has_job_plan and _column_exists(con, "job_plan", "final_report_due") else "NULL",
+            "final_report_completed_at": "jp.final_report_completed_at" if has_job_plan and _column_exists(con, "job_plan", "final_report_completed_at") else "NULL",
+        }
+        jobs_df = con.execute(
+            f"""
+            SELECT
+                j.job_id,
+                {crm_expr} AS crm_name,
+                COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status,
+                {estimated_expr} AS estimated_hours,
+                COALESCE(tl.total_minutes, 0) AS total_minutes,
+                {milestone_due_exprs["data_collection_due"]} AS data_collection_due,
+                {milestone_due_exprs["data_collection_completed_at"]} AS data_collection_completed_at,
+                {milestone_due_exprs["first_draft_due"]} AS first_draft_due,
+                {milestone_due_exprs["first_draft_completed_at"]} AS first_draft_completed_at,
+                {milestone_due_exprs["final_report_due"]} AS final_report_due,
+                {milestone_due_exprs["final_report_completed_at"]} AS final_report_completed_at
+            FROM jobs j
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
+            LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+            {"LEFT JOIN job_plan jp ON jp.job_id = j.job_id" if has_job_plan else ""}
+            {time_join}
+            {where_sql}
+            ORDER BY j.job_id DESC
+            LIMIT ?
+            """,
+            [*params, int(max(limit * 5, limit))],
+        ).df()
+        crm_map: dict[str, dict[str, object]] = {}
+        if jobs_df is not None and not jobs_df.empty:
+            for _, row in jobs_df.iterrows():
+                crm_name = str(row["crm_name"] or "Unassigned")
+                status = str(row["status"] or "Unknown").strip().lower()
+                if status in ("completed", "archived", "cancelled"):
+                    continue
+                bucket = crm_map.setdefault(
+                    crm_name,
+                    {
+                        "crm_name": crm_name,
+                        "active_jobs": 0,
+                        "overdue_jobs": 0,
+                        "due_soon_jobs": 0,
+                        "healthy_jobs": 0,
+                        "no_milestone_jobs": 0,
+                        "logged_hours": 0.0,
+                        "estimated_hours": 0.0,
+                    },
+                )
+                bucket["active_jobs"] = int(bucket["active_jobs"]) + 1
+                logged_hours = float(row["total_minutes"] or 0.0) / 60.0
+                estimated_hours = float(row["estimated_hours"] or 0.0)
+                bucket["logged_hours"] = float(bucket["logged_hours"]) + logged_hours
+                bucket["estimated_hours"] = float(bucket["estimated_hours"]) + estimated_hours
+                milestone_statuses = []
+                if row.get("data_collection_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("data_collection_due"), row.get("data_collection_completed_at")))
+                if row.get("first_draft_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("first_draft_due"), row.get("first_draft_completed_at")))
+                if row.get("final_report_due") is not None:
+                    milestone_statuses.append(_milestone_status(row.get("final_report_due"), row.get("final_report_completed_at")))
+                overall_status = _overall_milestone_status(milestone_statuses)
+                if overall_status == "red":
+                    bucket["overdue_jobs"] = int(bucket["overdue_jobs"]) + 1
+                elif overall_status == "amber":
+                    bucket["due_soon_jobs"] = int(bucket["due_soon_jobs"]) + 1
+                elif overall_status == "green":
+                    bucket["healthy_jobs"] = int(bucket["healthy_jobs"]) + 1
+                else:
+                    bucket["no_milestone_jobs"] = int(bucket["no_milestone_jobs"]) + 1
+        rows = []
+        for bucket in crm_map.values():
+            logged = round(float(bucket["logged_hours"] or 0.0), 2)
+            estimated = round(float(bucket["estimated_hours"] or 0.0), 2)
+            rows.append({
+                "crm_name": bucket["crm_name"],
+                "active_jobs": int(bucket["active_jobs"]),
+                "overdue_jobs": int(bucket["overdue_jobs"]),
+                "due_soon_jobs": int(bucket["due_soon_jobs"]),
+                "healthy_jobs": int(bucket["healthy_jobs"]),
+                "no_milestone_jobs": int(bucket["no_milestone_jobs"]),
+                "logged_hours": logged,
+                "estimated_hours": estimated,
+                "utilisation_pct": round((logged / estimated) * 100.0, 1) if estimated > 0 else None,
+            })
+        rows.sort(key=lambda item: (-int(item["overdue_jobs"]), -int(item["due_soon_jobs"]), -int(item["active_jobs"]), str(item["crm_name"])))
+        rows = rows[:limit]
+        return {
+            "view": view,
+            "title": "CRM Workload",
+            "description": "Delivery workload and effort pressure summarised by CRM owner.",
+            "columns": [
+                {"key": "crm_name", "label": "CRM"},
+                {"key": "active_jobs", "label": "Active Jobs"},
+                {"key": "overdue_jobs", "label": "Overdue"},
+                {"key": "due_soon_jobs", "label": "Due Soon"},
+                {"key": "healthy_jobs", "label": "Healthy"},
+                {"key": "no_milestone_jobs", "label": "No Milestones"},
+                {"key": "logged_hours", "label": "Logged Hours"},
+                {"key": "estimated_hours", "label": "Estimated Hours"},
+                {"key": "utilisation_pct", "label": "Utilisation %"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
+    if view == "emissions_portfolio":
+        has_scope_rows = _table_exists(con, "job_scope_rows")
+        has_jobs_is_crp = _column_exists(con, "jobs", "is_crp")
+        has_jsr_enabled = has_scope_rows and _column_exists(con, "job_scope_rows", "enabled")
+        where_parts = []
+        params = []
+        _apply_client_filters(
+            where_parts,
+            params,
+            client_alias="c",
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        if year is not None:
+            where_parts.append("j.reporting_year = ?")
+            params.append(int(year))
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        if has_scope_rows:
+            enabled_guard = "AND COALESCE(jsr.enabled, FALSE) = TRUE" if has_jsr_enabled else ""
+            crp_guard = "AND COALESCE(j.is_crp, FALSE) = TRUE" if has_jobs_is_crp else ""
+            rows_df = con.execute(
+                f"""
+                SELECT
+                    c.db_id AS client_id,
+                    c.client_name,
+                    COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
+                    COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
+                    COUNT(DISTINCT j.job_id) AS total_jobs,
+                    COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN j.job_id END) AS active_jobs,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
+                            THEN (COALESCE(jsr.qty,
+                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
+                            ELSE (COALESCE(jsr.qty,
+                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
+                        END
+                    ), 0) AS total_emissions
+                FROM clients c
+                LEFT JOIN jobs j ON j.client_db_id = c.db_id
+                LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id {enabled_guard}
+                {where_sql}
+                {"AND 1=1 " + crp_guard if where_sql else ("WHERE 1=1 " + crp_guard if crp_guard else "")}
+                GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
+                ORDER BY total_emissions DESC, active_jobs DESC, c.client_name
+                LIMIT ?
+                """,
+                [*params, int(limit)],
+            ).df()
+        else:
+            rows_df = con.execute(
+                f"""
+                SELECT
+                    c.db_id AS client_id,
+                    c.client_name,
+                    COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
+                    COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
+                    COUNT(DISTINCT j.job_id) AS total_jobs,
+                    COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN j.job_id END) AS active_jobs,
+                    0::double precision AS total_emissions
+                FROM clients c
+                LEFT JOIN jobs j ON j.client_db_id = c.db_id
+                {where_sql}
+                GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
+                ORDER BY active_jobs DESC, total_jobs DESC, c.client_name
+                LIMIT ?
+                """,
+                [*params, int(limit)],
+            ).df()
+        rows = []
+        if rows_df is not None and not rows_df.empty:
+            for _, row in rows_df.iterrows():
+                rows.append({
+                    "client_id": int(row["client_id"]),
+                    "client_name": row["client_name"],
+                    "industry": row["industry"],
+                    "crm_owner": row["crm_owner"],
+                    "active_jobs": int(row["active_jobs"] or 0),
+                    "total_jobs": int(row["total_jobs"] or 0),
+                    "total_emissions": round(float(row["total_emissions"] or 0.0), 1),
+                })
+        return {
+            "view": view,
+            "title": "Emissions Portfolio",
+            "description": "Client-level emissions ranking for the selected portfolio filters.",
+            "columns": [
+                {"key": "client_name", "label": "Client"},
+                {"key": "industry", "label": "Industry"},
+                {"key": "crm_owner", "label": "CRM Owner"},
+                {"key": "active_jobs", "label": "Active Jobs"},
+                {"key": "total_jobs", "label": "Total Jobs"},
+                {"key": "total_emissions", "label": "tCO2e"},
+            ],
+            "rows": rows,
+            "row_count": len(rows),
+        }
+
     raise HTTPException(status_code=400, detail=f"Unsupported report view: {view}")
 
 
