@@ -680,7 +680,7 @@ export default function AdminImportExportPage() {
       return;
     }
     if (!legacyJobId.trim()) {
-      setError("Please enter Job ID for legacy upload.");
+      setError("Please enter Job ID or Job Number for legacy upload.");
       return;
     }
     setBusy(true);
@@ -723,7 +723,7 @@ export default function AdminImportExportPage() {
       return;
     }
     if (!legacyJobId.trim()) {
-      setError("Please enter Job ID.");
+      setError("Please enter Job ID or Job Number.");
       return;
     }
     setBusy(true);
@@ -735,7 +735,7 @@ export default function AdminImportExportPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: Number(legacyJobId),
+          job_id: legacyJobId.trim(),
           site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
           rows_ready: legacyPreview.rows_ready,
         }),
@@ -1546,8 +1546,12 @@ export default function AdminImportExportPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
               <div>
-                <Label>Job ID *</Label>
-                <Input value={legacyJobId} onChange={(e) => setLegacyJobId(e.target.value)} placeholder="123" />
+                <Label>Job ID / Number *</Label>
+                <Input
+                  value={legacyJobId}
+                  onChange={(e) => setLegacyJobId(e.target.value)}
+                  placeholder="e.g. 267 or J000267"
+                />
               </div>
               <div>
                 <Label>Site ID (optional)</Label>

@@ -641,6 +641,7 @@ export default function JobDetailPage() {
   const [scopeConfigMode, setScopeConfigMode] = useState<string>("legacy");
   const [scopeConfigWarnings, setScopeConfigWarnings] = useState<string[]>([]);
   const [scopeAutoResolution, setScopeAutoResolution] = useState<JobScopeAutoResolution | null>(null);
+  const [showAdvancedDatasetConfig, setShowAdvancedDatasetConfig] = useState<boolean>(false);
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string>("");
@@ -862,6 +863,34 @@ export default function JobDetailPage() {
       };
     });
   }, [derivedEnergyMetadataValues]);
+
+  const unresolvedScopeCount = scopeAutoResolution?.unresolved_scopes?.length ?? 0;
+  const selectedFallbackDatasetCount = useMemo(
+    () => SCOPE_KEYS.filter((scope) => {
+      const fallback = scopeDatasetIds[scope];
+      return Boolean(fallback && fallback !== "__none__");
+    }).length,
+    [scopeDatasetIds]
+  );
+  const datasetOverridesNeedAttention =
+    scopeConfigMode !== "automatic" ||
+    unresolvedScopeCount > 0 ||
+    Boolean(scopeAutoResolution?.uses_legacy_fallback) ||
+    scopeConfigWarnings.length > 0 ||
+    additionalDatasetIds.length > 0 ||
+    selectedFallbackDatasetCount > 0;
+  const datasetOverrideSummary = datasetOverridesNeedAttention
+    ? [
+        unresolvedScopeCount > 0 ? `${unresolvedScopeCount} unresolved scope${unresolvedScopeCount === 1 ? "" : "s"}` : null,
+        scopeAutoResolution?.uses_legacy_fallback ? "legacy fallback in use" : null,
+        additionalDatasetIds.length > 0 ? `${additionalDatasetIds.length} additional dataset${additionalDatasetIds.length === 1 ? "" : "s"}` : null,
+        selectedFallbackDatasetCount > 0 ? `${selectedFallbackDatasetCount} fallback dataset${selectedFallbackDatasetCount === 1 ? "" : "s"} selected` : null,
+        scopeConfigWarnings.length > 0 ? `${scopeConfigWarnings.length} warning${scopeConfigWarnings.length === 1 ? "" : "s"}` : null,
+        scopeConfigMode !== "automatic" ? "manual mapping mode" : null,
+      ]
+        .filter(Boolean)
+        .join(" • ")
+    : "Automatic dataset resolution is active. Advanced overrides are hidden unless needed.";
 
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
     const inputId = `${idPrefix}-${field.key}`;
@@ -2277,9 +2306,30 @@ export default function JobDetailPage() {
               {/* Scope Dataset Configuration */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Scope Dataset Configuration</CardTitle>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <CardTitle>Advanced Dataset Overrides</CardTitle>
+                      <div className="text-sm text-muted-foreground">
+                        {datasetOverrideSummary}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowAdvancedDatasetConfig((prev) => !prev)}
+                    >
+                      {showAdvancedDatasetConfig ? "Hide Advanced Overrides" : "Show Advanced Overrides"}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {!showAdvancedDatasetConfig ? (
+                    <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                      The job will use automatically resolved datasets by default. Open this section only if you need to review unresolved scopes, add extra datasets, or set manual fallback mappings.
+                    </div>
+                  ) : null}
+
+                  {showAdvancedDatasetConfig ? (
+                    <>
                   <div className="rounded-md border bg-muted/30 p-3 space-y-2">
                     <div className="text-sm font-medium">
                       Mode: {scopeConfigMode === "automatic" ? "Automatic resolution" : "Manual mapping"}
@@ -2435,6 +2485,8 @@ export default function JobDetailPage() {
                         : "Save Scope Datasets"}
                     </Button>
                   </div>
+                    </>
+                  ) : null}
                 </CardContent>
               </Card>
 

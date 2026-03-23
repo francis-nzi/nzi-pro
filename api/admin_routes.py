@@ -32,6 +32,51 @@ from services.attribute_override_import import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def _resolve_job_reference(con, raw_value: object) -> tuple[int, str | None]:
+    token = str(raw_value or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    try:
+        row = con.execute(
+            "SELECT job_id, job_number FROM jobs WHERE job_id = %s LIMIT 1",
+            [int(token)],
+        ).fetchone()
+        if row:
+            return int(row[0]), str(row[1] or "").strip() or None
+    except Exception:
+        pass
+
+    row = con.execute(
+        """
+        SELECT job_id, job_number
+        FROM jobs
+        WHERE LOWER(COALESCE(job_number, '')) = LOWER(%s)
+        LIMIT 1
+        """,
+        [token],
+    ).fetchone()
+    if row:
+        return int(row[0]), str(row[1] or "").strip() or None
+
+    digits_only = "".join(ch for ch in token if ch.isdigit())
+    if digits_only:
+        normalized_job_number = f"J{digits_only.zfill(6)}"
+        row = con.execute(
+            """
+            SELECT job_id, job_number
+            FROM jobs
+            WHERE LOWER(COALESCE(job_number, '')) = LOWER(%s)
+            LIMIT 1
+            """,
+            [normalized_job_number],
+        ).fetchone()
+        if row:
+            return int(row[0]), str(row[1] or "").strip() or normalized_job_number
+
+    raise HTTPException(status_code=404, detail=f"Job not found for reference '{token}'")
+
+
 def _ingest_csv_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -> tuple[int, int]:
     """Call ingest_csv in a way that works with both older and newer signatures."""
     from ingest_conversion_factors import ingest_csv
@@ -2908,7 +2953,7 @@ def remove_job_type_item(
 
 @router.post("/import-export/legacy/preview")
 async def legacy_annual_preview(
-    job_id: int = Form(...),
+    job_id: str = Form(...),
     file: UploadFile = File(...),
     _user: dict = Depends(_current_user),
 ):
@@ -2918,10 +2963,13 @@ async def legacy_annual_preview(
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Empty upload")
+        with get_conn() as con:
+            resolved_job_id, resolved_job_number = _resolve_job_reference(con, job_id)
         parsed = parse_legacy_annual_workbook(raw)
         return {
             "ok": True,
-            "job_id": int(job_id),
+            "job_id": int(resolved_job_id),
+            "job_number": resolved_job_number,
             "filename": str(file.filename),
             "summary": parsed.get("summary") or {},
             "warnings": parsed.get("warnings") or [],
@@ -2945,10 +2993,8 @@ def legacy_annual_commit(
         rows = body.get("rows_ready")
         if job_id_raw is None:
             raise HTTPException(status_code=400, detail="job_id is required")
-        try:
-            job_id = int(job_id_raw)
-        except Exception:
-            raise HTTPException(status_code=400, detail="job_id must be an integer")
+        with get_conn() as con:
+            job_id, _job_number = _resolve_job_reference(con, job_id_raw)
         site_id = None
         if site_id_raw is not None and str(site_id_raw).strip() != "":
             try:
