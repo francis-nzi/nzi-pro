@@ -788,7 +788,7 @@ export default function AdminImportExportPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: legacyPreview?.job_id ?? legacyJobId.trim(),
+          job_id: legacyPreview?.job_number || legacyJobId.trim(),
           site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
           rows_ready: legacyPreview.rows_ready,
         }),
@@ -821,7 +821,7 @@ export default function AdminImportExportPage() {
 
   async function clearLegacyAnnualRows() {
     const targetRef = legacyPreview?.job_number || legacyJobId.trim();
-    const targetJobId = legacyPreview?.job_id ?? legacyJobId.trim();
+    const targetJobId = legacyPreview?.job_number || legacyJobId.trim();
     if (!targetJobId) {
       setError("Please enter Job ID or Job Number first.");
       return;
