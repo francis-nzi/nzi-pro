@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import lru_cache
 import hashlib
 import io
 from pathlib import Path
@@ -581,6 +582,96 @@ def _factor_lookup_batch(req: dict[tuple[int, str], set[str]]) -> dict[tuple[int
     return out
 
 
+def _factor_rec_from_mapping(mapping: dict[str, Any]) -> FactorRec:
+    return FactorRec(
+        db_id=int(mapping.get("db_id")) if mapping.get("db_id") is not None and str(mapping.get("db_id")) != "nan" else None,
+        level_1=_clean(mapping.get("level_1")) or None,
+        level_2=_clean(mapping.get("level_2")) or None,
+        level_3=_clean(mapping.get("level_3")) or None,
+        level_4=_clean(mapping.get("level_4")) or None,
+        column_text=_clean(mapping.get("column_text")) or None,
+        report_label=_clean(mapping.get("report_label")) or None,
+        uom=_clean(mapping.get("uom")) or None,
+        ghg_unit=_clean(mapping.get("ghg_unit")) or None,
+        factor=float(mapping.get("factor")) if mapping.get("factor") is not None and str(mapping.get("factor")) != "nan" else None,
+    )
+
+
+@lru_cache(maxsize=4096)
+def _equivalent_factor_for_scope(dataset_id: int, desired_scope: str, source_original_id: str) -> tuple[str, FactorRec] | None:
+    dataset_id = int(dataset_id)
+    scope = _clean(desired_scope)
+    original_id = _clean(source_original_id)
+    if not scope or not original_id:
+        return None
+
+    with get_conn() as con:
+        source = con.execute(
+            """
+            SELECT
+                COALESCE(level_2, '') AS level_2,
+                COALESCE(level_3, '') AS level_3,
+                COALESCE(level_4, '') AS level_4,
+                COALESCE(uom, '') AS uom,
+                COALESCE(ghg_unit, '') AS ghg_unit
+            FROM factor_lookup
+            WHERE dataset_id=%s AND original_id=%s
+            ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
+            LIMIT 1
+            """,
+            [dataset_id, original_id, scope],
+        ).fetchone()
+        if not source:
+            return None
+
+        level_2, level_3, level_4, uom, ghg_unit = [_clean(v) for v in source]
+        df = con.execute(
+            """
+            SELECT original_id, db_id, level_1, level_2, level_3, level_4,
+                   column_text, report_label, uom, ghg_unit, factor
+            FROM factor_lookup
+            WHERE dataset_id=%s
+              AND scope=%s
+              AND COALESCE(level_2, '')=%s
+              AND COALESCE(level_3, '')=%s
+              AND COALESCE(level_4, '')=%s
+              AND COALESCE(uom, '')=%s
+              AND COALESCE(ghg_unit, '')=%s
+            ORDER BY db_id ASC
+            """,
+            [dataset_id, scope, level_2, level_3, level_4, uom, ghg_unit],
+        ).df()
+
+    if df is None or df.empty or len(df.index) != 1:
+        return None
+
+    record = df.iloc[0].to_dict()
+    resolved_original_id = _clean(record.get("original_id"))
+    if not resolved_original_id:
+        return None
+    return resolved_original_id, _factor_rec_from_mapping(record)
+
+
+def _resolve_factor_for_scope(
+    factors: dict[tuple[int, str, str], FactorRec],
+    dataset_id: int,
+    scope: str,
+    original_id: str,
+) -> tuple[str, FactorRec | None]:
+    cleaned_scope = _clean(scope)
+    cleaned_original_id = _clean(original_id)
+    rec = factors.get((int(dataset_id), cleaned_scope, cleaned_original_id))
+    if rec is not None and rec.factor is not None:
+        return cleaned_original_id, rec
+    equivalent = _equivalent_factor_for_scope(int(dataset_id), cleaned_scope, cleaned_original_id)
+    if equivalent is None:
+        return cleaned_original_id, None
+    resolved_original_id, resolved_rec = equivalent
+    if resolved_rec.factor is None:
+        return cleaned_original_id, None
+    return resolved_original_id, resolved_rec
+
+
 def _to_tco2e(qty: float, factor: float, ghg_unit: str | None) -> float:
     emissions = float(qty) * float(factor)
     ghg = _clean(ghg_unit).replace(" ", "").lower()
@@ -723,6 +814,7 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     aggregate: dict[tuple[str, str], dict[str, Any]] = {}
     quantity_mode_rows = 0
     emissions_mode_rows = 0
+    scope_equivalent_rows = 0
 
     for row in parsed_rows:
         scope = row.get("scope")
@@ -743,6 +835,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         month_ghg_units: dict[int, str | None] = {}
         month_missing: list[dict[str, Any]] = []
         factor_rec_primary: FactorRec | None = None
+        resolved_oid = oid
+        used_scope_equivalent = False
 
         for m in row.get("month_headers") or []:
             pos = int(m["position"])
@@ -754,10 +848,13 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             if dsid is None:
                 month_missing.append({"position": pos, "reason": f"no dataset for year {year}"})
                 continue
-            rec = factors.get((int(dsid), str(scope), oid))
+            month_oid, rec = _resolve_factor_for_scope(factors, int(dsid), str(scope), resolved_oid)
             if rec is None or rec.factor is None:
                 month_missing.append({"position": pos, "reason": f"factor missing for dataset {dsid}"})
                 continue
+            if _clean(month_oid) and _clean(month_oid) != _clean(resolved_oid):
+                resolved_oid = _clean(month_oid)
+                used_scope_equivalent = True
             if factor_rec_primary is None:
                 factor_rec_primary = rec
             month_quantities[pos] = float(qty)
@@ -775,6 +872,17 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 scope_mismatch_rows += 1
             unresolved_rows.append({**row, "reason": reason, "month_errors": month_missing})
             continue
+        row = dict(row)
+        if _clean(resolved_oid) and _clean(resolved_oid) != _clean(oid):
+            row["original_id"] = resolved_oid
+            row["factor_original_id"] = resolved_oid
+            row["storage_original_id"] = _legacy_storage_original_id(resolved_oid, _clean(row.get("lookup_key")))
+            row["match_source"] = "scope_equivalent_lookup"
+            prior_note = _clean(row.get("match_note"))
+            extra_note = f"Resolved to scope-matched factor {resolved_oid}."
+            row["match_note"] = f"{prior_note} {extra_note}".strip()
+        if used_scope_equivalent:
+            scope_equivalent_rows += 1
         if row.get("match_source") == "scope_mismatch_candidate":
             scope_candidate_resolved_rows += 1
 
@@ -915,6 +1023,10 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
         parse_warnings.append(
             f"{scope_candidate_resolved_rows} rows were resolved by using a candidate template ID while keeping the workbook scope."
         )
+    if scope_equivalent_rows:
+        parse_warnings.append(
+            f"{scope_equivalent_rows} rows were resolved by translating a cross-scope factor ID to the equivalent factor for the workbook scope."
+        )
 
     parse_warnings.append(
         "Rows with one consistent dataset/factor are committed as raw quantities; mixed-factor rows fall back to monthly tCO2e storage."
@@ -932,6 +1044,7 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             "ignored_rows": ignored_rows,
             "scope_override_rows": scope_override_rows,
             "scope_mismatch_rows": scope_mismatch_rows,
+            "scope_equivalent_rows": scope_equivalent_rows,
             "dataset_years_available": sorted(dataset_by_year.keys()),
         },
         "warnings": parse_warnings,
@@ -1248,6 +1361,7 @@ def resolve_unresolved_rows(
         month_ghg_units: dict[int, str | None] = {}
         month_errors: list[dict[str, Any]] = []
         factor_primary: FactorRec | None = None
+        resolved_oid = oid
 
         for m in row.get("month_headers") or []:
             pos = int(m.get("position"))
@@ -1259,10 +1373,12 @@ def resolve_unresolved_rows(
             if dsid is None:
                 month_errors.append({"position": pos, "reason": f"no dataset for year {year}"})
                 continue
-            rec = factors.get((int(dsid), scope, oid))
+            month_oid, rec = _resolve_factor_for_scope(factors, int(dsid), scope, resolved_oid)
             if rec is None or rec.factor is None:
                 month_errors.append({"position": pos, "reason": f"factor missing for dataset {dsid}"})
                 continue
+            if _clean(month_oid) and _clean(month_oid) != _clean(resolved_oid):
+                resolved_oid = _clean(month_oid)
             if factor_primary is None:
                 factor_primary = rec
             month_quantities[pos] = float(qty)
@@ -1274,10 +1390,19 @@ def resolve_unresolved_rows(
             month_emissions[pos] = _to_tco2e(float(qty), float(rec.factor), rec.ghg_unit)
 
         if not month_emissions:
-            row["reason"] = "manual original_id did not resolve to monthly factor data"
+            row["reason"] = "manual original_id did not resolve to monthly factor data for the row scope"
             row["month_errors"] = month_errors
             unresolved_rows.append(row)
             continue
+        row = dict(row)
+        if _clean(resolved_oid) and _clean(resolved_oid) != _clean(oid):
+            row["original_id"] = resolved_oid
+            row["factor_original_id"] = resolved_oid
+            row["storage_original_id"] = _legacy_storage_original_id(resolved_oid, _clean(row.get("lookup_key")))
+            row["match_source"] = "scope_equivalent_lookup"
+            prior_note = _clean(row.get("match_note"))
+            extra_note = f"Resolved to scope-matched factor {resolved_oid}."
+            row["match_note"] = f"{prior_note} {extra_note}".strip()
 
         storage_original_id = _storage_original_id_from_row(row)
         key = (scope, storage_original_id)
@@ -1301,7 +1426,7 @@ def resolve_unresolved_rows(
                     row,
                     factor_primary,
                     storage_plan["dataset_id"],
-                    factor_original_id=oid,
+                    factor_original_id=_factor_original_id_from_row(row),
                     storage_original_id=storage_original_id,
                 ),
                 "value_mode": storage_plan["value_mode"],
