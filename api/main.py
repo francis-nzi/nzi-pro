@@ -315,6 +315,21 @@ def _ensure_job_additional_datasets_table() -> None:
         pass
 
 
+def _ensure_client_billing_columns(con) -> None:
+    """Ensure client billing-address columns exist for older deployments."""
+    statements = [
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_same_as_main BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line1 VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line2 VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_city VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_region VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_postcode VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_country VARCHAR",
+    ]
+    for statement in statements:
+        con.execute(statement)
+
+
 def _resolve_scope_dataset_map(
     job_id: int,
 ) -> tuple[dict[str, int], dict[str, object] | None, list[str]]:
@@ -2446,8 +2461,24 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
         client_name = body.get("client_name", "").strip()
         if not client_name:
             raise HTTPException(status_code=400, detail="client_name is required")
+
+        billing_same_as_main = bool(body.get("billing_same_as_main", True))
+        main_addr_line1 = body.get("addr_line1")
+        main_addr_line2 = body.get("addr_line2")
+        main_addr_city = body.get("addr_city")
+        main_addr_region = body.get("addr_region")
+        main_addr_postcode = body.get("addr_postcode")
+        main_addr_country = body.get("addr_country")
+
+        billing_addr_line1 = main_addr_line1 if billing_same_as_main else body.get("billing_addr_line1")
+        billing_addr_line2 = main_addr_line2 if billing_same_as_main else body.get("billing_addr_line2")
+        billing_addr_city = main_addr_city if billing_same_as_main else body.get("billing_addr_city")
+        billing_addr_region = main_addr_region if billing_same_as_main else body.get("billing_addr_region")
+        billing_addr_postcode = main_addr_postcode if billing_same_as_main else body.get("billing_addr_postcode")
+        billing_addr_country = main_addr_country if billing_same_as_main else body.get("billing_addr_country")
         
         with get_conn() as con:
+            _ensure_client_billing_columns(con)
             existing = con.execute(
                 """
                 SELECT db_id
@@ -2472,9 +2503,11 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
                     crm_owner, currency, status, net_zero_year, benchmark_year,
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
-                    target_s3_year, target_s3_pct
+                    target_s3_year, target_s3_pct, billing_same_as_main,
+                    billing_addr_line1, billing_addr_line2, billing_addr_city,
+                    billing_addr_region, billing_addr_postcode, billing_addr_country
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -2486,12 +2519,12 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     body.get("company_reg"),
                     body.get("sic_code"),
                     body.get("headquarters"),
-                    body.get("addr_line1"),
-                    body.get("addr_line2"),
-                    body.get("addr_city"),
-                    body.get("addr_region"),
-                    body.get("addr_postcode"),
-                    body.get("addr_country"),
+                    main_addr_line1,
+                    main_addr_line2,
+                    main_addr_city,
+                    main_addr_region,
+                    main_addr_postcode,
+                    main_addr_country,
                     body.get("logo_url"),
                     body.get("portfolio"),
                     body.get("crm_owner"),
@@ -2505,6 +2538,13 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     body.get("target_s2_pct"),
                     body.get("target_s3_year"),
                     body.get("target_s3_pct"),
+                    billing_same_as_main,
+                    billing_addr_line1,
+                    billing_addr_line2,
+                    billing_addr_city,
+                    billing_addr_region,
+                    billing_addr_postcode,
+                    billing_addr_country,
                 ],
             ).fetchone()
             
@@ -2778,6 +2818,7 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     with get_conn() as con:
+        _ensure_client_billing_columns(con)
         row = con.execute(
             """
             SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status, 
@@ -2786,7 +2827,10 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
                    c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
                    c.interim_s3_pct, c.portfolio, c.benchmark_year,
-                   c.benchmark_period_start, c.benchmark_period_end, c.currency
+                   c.benchmark_period_start, c.benchmark_period_end, c.currency,
+                   COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
+                   c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
+                   c.billing_addr_postcode, c.billing_addr_country
             FROM clients c
             WHERE c.db_id=?
             """,
@@ -2825,6 +2869,13 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "benchmark_period_start": str(row[25]) if row[25] is not None else None,
         "benchmark_period_end": str(row[26]) if row[26] is not None else None,
         "currency": row[27] if row[27] is not None else "GBP",
+        "billing_same_as_main": bool(row[28]) if row[28] is not None else True,
+        "billing_addr_line1": row[29],
+        "billing_addr_line2": row[30],
+        "billing_addr_city": row[31],
+        "billing_addr_region": row[32],
+        "billing_addr_postcode": row[33],
+        "billing_addr_country": row[34],
     }
 
 
@@ -2837,14 +2888,61 @@ def update_client(
     """Update client information."""
     try:
         with get_conn() as con:
+            _ensure_client_billing_columns(con)
             # Check client exists
             exists = con.execute("SELECT 1 FROM clients WHERE db_id = ?", [int(client_db_id)]).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Client not found")
+
+            existing_client = con.execute(
+                """
+                SELECT addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
+                       billing_same_as_main, billing_addr_line1, billing_addr_line2, billing_addr_city,
+                       billing_addr_region, billing_addr_postcode, billing_addr_country
+                FROM clients
+                WHERE db_id = ?
+                """,
+                [int(client_db_id)],
+            ).fetchone()
             
             # Build update query dynamically based on provided fields
             updates = []
             params = []
+            normalized_body = dict(body)
+            billing_related_fields = {
+                "billing_same_as_main",
+                "billing_addr_line1",
+                "billing_addr_line2",
+                "billing_addr_city",
+                "billing_addr_region",
+                "billing_addr_postcode",
+                "billing_addr_country",
+                "addr_line1",
+                "addr_line2",
+                "addr_city",
+                "addr_region",
+                "addr_postcode",
+                "addr_country",
+            }
+            if any(field in normalized_body for field in billing_related_fields):
+                current_main_addr = {
+                    "addr_line1": existing_client[0] if existing_client else None,
+                    "addr_line2": existing_client[1] if existing_client else None,
+                    "addr_city": existing_client[2] if existing_client else None,
+                    "addr_region": existing_client[3] if existing_client else None,
+                    "addr_postcode": existing_client[4] if existing_client else None,
+                    "addr_country": existing_client[5] if existing_client else None,
+                }
+                billing_same_default = bool(existing_client[6]) if existing_client and existing_client[6] is not None else True
+                billing_same_as_main = bool(normalized_body.get("billing_same_as_main", billing_same_default))
+                normalized_body["billing_same_as_main"] = billing_same_as_main
+                if billing_same_as_main:
+                    normalized_body["billing_addr_line1"] = normalized_body.get("addr_line1", current_main_addr["addr_line1"])
+                    normalized_body["billing_addr_line2"] = normalized_body.get("addr_line2", current_main_addr["addr_line2"])
+                    normalized_body["billing_addr_city"] = normalized_body.get("addr_city", current_main_addr["addr_city"])
+                    normalized_body["billing_addr_region"] = normalized_body.get("addr_region", current_main_addr["addr_region"])
+                    normalized_body["billing_addr_postcode"] = normalized_body.get("addr_postcode", current_main_addr["addr_postcode"])
+                    normalized_body["billing_addr_country"] = normalized_body.get("addr_country", current_main_addr["addr_country"])
             
             field_mapping = {
                 "client_name": "client_name",
@@ -2880,12 +2978,19 @@ def update_client(
                 "target_s2_pct": "target_s2_pct",
                 "target_s3_year": "target_s3_year",
                 "target_s3_pct": "target_s3_pct",
+                "billing_same_as_main": "billing_same_as_main",
+                "billing_addr_line1": "billing_addr_line1",
+                "billing_addr_line2": "billing_addr_line2",
+                "billing_addr_city": "billing_addr_city",
+                "billing_addr_region": "billing_addr_region",
+                "billing_addr_postcode": "billing_addr_postcode",
+                "billing_addr_country": "billing_addr_country",
             }
             
             for field_name, col_name in field_mapping.items():
-                if field_name in body:
+                if field_name in normalized_body:
                     updates.append(f"{col_name} = ?")
-                    params.append(body[field_name])
+                    params.append(normalized_body[field_name])
             
             if updates:
                 params.append(int(client_db_id))

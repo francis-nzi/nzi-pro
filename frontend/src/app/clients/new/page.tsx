@@ -63,6 +63,7 @@ export default function NewClientPage() {
   const [industry, setIndustry] = useState("");
   const [website, setWebsite] = useState("");
   const [companyReg, setCompanyReg] = useState("");
+  const [sicCode, setSicCode] = useState("");
   const [headquarters, setHeadquarters] = useState("");
   const [yearEndMonth, setYearEndMonth] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
@@ -78,8 +79,18 @@ export default function NewClientPage() {
   const [region, setRegion] = useState("");
   const [postcode, setPostcode] = useState("");
   const [country, setCountry] = useState("");
+  const [billingSameAsMain, setBillingSameAsMain] = useState(true);
+  const [billingAddrLine1, setBillingAddrLine1] = useState("");
+  const [billingAddrLine2, setBillingAddrLine2] = useState("");
+  const [billingCity, setBillingCity] = useState("");
+  const [billingRegion, setBillingRegion] = useState("");
+  const [billingPostcode, setBillingPostcode] = useState("");
+  const [billingCountry, setBillingCountry] = useState("");
   const [countryMenuOpen, setCountryMenuOpen] = useState(false);
   const [countrySearchStarted, setCountrySearchStarted] = useState(false);
+  const [billingCountryMenuOpen, setBillingCountryMenuOpen] = useState(false);
+  const [billingCountrySearchStarted, setBillingCountrySearchStarted] =
+    useState(false);
 
   // Targets
   const [netZeroYear, setNetZeroYear] = useState("2050");
@@ -153,9 +164,20 @@ export default function NewClientPage() {
   );
 
   const stepTwoComplete =
-    [addrLine1, addrLine2, city, region, postcode, country].some((value) =>
-      value.trim().length > 0
-    ) || createSiteFromAddress;
+    [
+      addrLine1,
+      addrLine2,
+      city,
+      region,
+      postcode,
+      country,
+      billingAddrLine1,
+      billingAddrLine2,
+      billingCity,
+      billingRegion,
+      billingPostcode,
+      billingCountry,
+    ].some((value) => value.trim().length > 0) || createSiteFromAddress;
 
   const stepThreeComplete =
     [netZeroYear, benchmarkYear, targetS1Year, targetS2Year, targetS3Year].some(
@@ -177,6 +199,17 @@ export default function NewClientPage() {
         );
     return filtered.slice(0, 100);
   }, [country, countrySearchStarted]);
+  const filteredBillingCountryOptions = useMemo(() => {
+    const query = billingCountrySearchStarted
+      ? billingCountry.trim().toLowerCase()
+      : "";
+    const filtered = !query
+      ? STANDARD_COUNTRIES
+      : STANDARD_COUNTRIES.filter((option) =>
+          option.toLowerCase().includes(query)
+        );
+    return filtered.slice(0, 100);
+  }, [billingCountry, billingCountrySearchStarted]);
 
   function clearFieldError(field: ClientRequiredField) {
     if (!formErrors[field]) return;
@@ -327,6 +360,7 @@ export default function NewClientPage() {
           website: website || null,
           year_end_month: yearEndMonth || null,
           company_reg: companyReg || null,
+          sic_code: sicCode || null,
           headquarters: headquarters || null,
           addr_line1: addrLine1 || null,
           addr_line2: addrLine2 || null,
@@ -334,6 +368,13 @@ export default function NewClientPage() {
           addr_region: region || null,
           addr_postcode: postcode || null,
           addr_country: country || null,
+          billing_same_as_main: billingSameAsMain,
+          billing_addr_line1: billingAddrLine1 || null,
+          billing_addr_line2: billingAddrLine2 || null,
+          billing_addr_city: billingCity || null,
+          billing_addr_region: billingRegion || null,
+          billing_addr_postcode: billingPostcode || null,
+          billing_addr_country: billingCountry || null,
           logo_url: logoUrl || null,
           portfolio: portfolio || null,
           crm_owner: crmOwner || null,
@@ -579,6 +620,15 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="sicCode">Industry Code (SIC)</Label>
+                    <Input
+                      id="sicCode"
+                      value={sicCode}
+                      onChange={(e) => setSicCode(e.target.value)}
+                      placeholder="e.g. 62012"
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="currency">Currency</Label>
                     <Select value={currency} onValueChange={setCurrency}>
                       <SelectTrigger id="currency">
@@ -674,6 +724,12 @@ export default function NewClientPage() {
                 <CardTitle>Address & sites</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Main address</h3>
+                  <p className="text-xs text-muted-foreground">
+                    This is the client&apos;s primary registered or trading address.
+                  </p>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="addrLine1">Address Line 1</Label>
                   <Input
@@ -770,6 +826,132 @@ export default function NewClientPage() {
                     </div>
                   </div>
                 </div>
+
+                <div className="flex items-center space-x-2 border-t pt-2">
+                  <input
+                    type="checkbox"
+                    id="billingSameAsMain"
+                    checked={billingSameAsMain}
+                    onChange={(e) => setBillingSameAsMain(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label
+                    htmlFor="billingSameAsMain"
+                    className="cursor-pointer font-normal"
+                  >
+                    Billing address same as main address
+                  </Label>
+                </div>
+
+                {!billingSameAsMain && (
+                  <div className="space-y-4 rounded-md border bg-muted/30 p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold">Billing address</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Use this only if invoices should go to a different address.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
+                      <Input
+                        id="billingAddrLine1"
+                        value={billingAddrLine1}
+                        onChange={(e) => setBillingAddrLine1(e.target.value)}
+                        placeholder="123 Finance Street"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
+                      <Input
+                        id="billingAddrLine2"
+                        value={billingAddrLine2}
+                        onChange={(e) => setBillingAddrLine2(e.target.value)}
+                        placeholder="Suite 200"
+                      />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="billingCity">Billing City</Label>
+                        <Input
+                          id="billingCity"
+                          value={billingCity}
+                          onChange={(e) => setBillingCity(e.target.value)}
+                          placeholder="London"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="billingRegion">Billing Region/State</Label>
+                        <Input
+                          id="billingRegion"
+                          value={billingRegion}
+                          onChange={(e) => setBillingRegion(e.target.value)}
+                          placeholder="Greater London"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="billingPostcode">Billing Postcode/ZIP</Label>
+                        <Input
+                          id="billingPostcode"
+                          value={billingPostcode}
+                          onChange={(e) => setBillingPostcode(e.target.value)}
+                          placeholder="SW1A 1AA"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="billingCountry">Billing Country</Label>
+                        <div className="relative">
+                          <Input
+                            id="billingCountry"
+                            value={billingCountry}
+                            onChange={(e) => {
+                              setBillingCountry(e.target.value);
+                              setBillingCountrySearchStarted(true);
+                              setBillingCountryMenuOpen(true);
+                            }}
+                            onFocus={() => {
+                              setBillingCountrySearchStarted(false);
+                              setBillingCountryMenuOpen(true);
+                            }}
+                            onBlur={() => {
+                              setTimeout(
+                                () => setBillingCountryMenuOpen(false),
+                                120
+                              );
+                            }}
+                            placeholder="Search country..."
+                          />
+                          {billingCountryMenuOpen && (
+                            <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
+                              {filteredBillingCountryOptions.length === 0 ? (
+                                <div className="px-3 py-2 text-sm text-muted-foreground">
+                                  No countries found
+                                </div>
+                              ) : (
+                                filteredBillingCountryOptions.map((countryOption) => (
+                                  <button
+                                    key={`billing-${countryOption}`}
+                                    type="button"
+                                    className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setBillingCountry(countryOption);
+                                      setBillingCountrySearchStarted(false);
+                                      setBillingCountryMenuOpen(false);
+                                    }}
+                                  >
+                                    {countryOption}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center space-x-2">
                   <input

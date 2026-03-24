@@ -46,6 +46,7 @@ type Client = {
   website: string | null;
   year_end_month: string | null;
   company_reg: string | null;
+  sic_code: string | null;
   headquarters: string | null;
   addr_line1: string | null;
   addr_line2: string | null;
@@ -53,6 +54,13 @@ type Client = {
   addr_region: string | null;
   addr_postcode: string | null;
   addr_country: string | null;
+  billing_same_as_main: boolean | null;
+  billing_addr_line1: string | null;
+  billing_addr_line2: string | null;
+  billing_addr_city: string | null;
+  billing_addr_region: string | null;
+  billing_addr_postcode: string | null;
+  billing_addr_country: string | null;
   logo_url: string | null;
   crm_owner: string | null;
   status: string | null;
@@ -112,6 +120,7 @@ export default function EditClientPage() {
   const [website, setWebsite] = useState<string>("");
   const [yearEndMonth, setYearEndMonth] = useState<string>("");
   const [companyReg, setCompanyReg] = useState<string>("");
+  const [sicCode, setSicCode] = useState<string>("");
   const [headquarters, setHeadquarters] = useState<string>("");
   const [addrLine1, setAddrLine1] = useState<string>("");
   const [addrLine2, setAddrLine2] = useState<string>("");
@@ -119,6 +128,13 @@ export default function EditClientPage() {
   const [addrRegion, setAddrRegion] = useState<string>("");
   const [addrPostcode, setAddrPostcode] = useState<string>("");
   const [addrCountry, setAddrCountry] = useState<string>("");
+  const [billingSameAsMain, setBillingSameAsMain] = useState<boolean>(true);
+  const [billingAddrLine1, setBillingAddrLine1] = useState<string>("");
+  const [billingAddrLine2, setBillingAddrLine2] = useState<string>("");
+  const [billingAddrCity, setBillingAddrCity] = useState<string>("");
+  const [billingAddrRegion, setBillingAddrRegion] = useState<string>("");
+  const [billingAddrPostcode, setBillingAddrPostcode] = useState<string>("");
+  const [billingAddrCountry, setBillingAddrCountry] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [crmOwner, setCrmOwner] = useState<string>("");
   const [portfolio, setPortfolio] = useState<string>("NZI");
@@ -249,6 +265,7 @@ export default function EditClientPage() {
         setWebsite(json.website || "");
         setYearEndMonth(json.year_end_month || "");
         setCompanyReg(json.company_reg || "");
+        setSicCode(json.sic_code || "");
         setHeadquarters(json.headquarters || "");
         setAddrLine1(json.addr_line1 || "");
         setAddrLine2(json.addr_line2 || "");
@@ -256,6 +273,13 @@ export default function EditClientPage() {
         setAddrRegion(json.addr_region || "");
         setAddrPostcode(json.addr_postcode || "");
         setAddrCountry(json.addr_country || "");
+        setBillingSameAsMain(json.billing_same_as_main ?? true);
+        setBillingAddrLine1(json.billing_addr_line1 || "");
+        setBillingAddrLine2(json.billing_addr_line2 || "");
+        setBillingAddrCity(json.billing_addr_city || "");
+        setBillingAddrRegion(json.billing_addr_region || "");
+        setBillingAddrPostcode(json.billing_addr_postcode || "");
+        setBillingAddrCountry(json.billing_addr_country || "");
         setLogoUrl(json.logo_url || "");
         setPortfolio(json.portfolio || "NZI");
         setCrmOwner(json.crm_owner || "");
@@ -401,6 +425,7 @@ export default function EditClientPage() {
           website: website || null,
           year_end_month: yearEndMonth || null,
           company_reg: companyReg || null,
+          sic_code: sicCode || null,
           headquarters: headquarters || null,
           addr_line1: addrLine1 || null,
           addr_line2: addrLine2 || null,
@@ -408,6 +433,13 @@ export default function EditClientPage() {
           addr_region: addrRegion || null,
           addr_postcode: addrPostcode || null,
           addr_country: addrCountry || null,
+          billing_same_as_main: billingSameAsMain,
+          billing_addr_line1: billingAddrLine1 || null,
+          billing_addr_line2: billingAddrLine2 || null,
+          billing_addr_city: billingAddrCity || null,
+          billing_addr_region: billingAddrRegion || null,
+          billing_addr_postcode: billingAddrPostcode || null,
+          billing_addr_country: billingAddrCountry || null,
           logo_url: logoUrl || null,
           portfolio: portfolio || null,
           crm_owner: crmOwner || null,
@@ -549,6 +581,15 @@ export default function EditClientPage() {
                     value={companyReg}
                     onChange={(e) => setCompanyReg(e.target.value)}
                     placeholder="12345678"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sicCode">Industry Code (SIC)</Label>
+                  <Input
+                    id="sicCode"
+                    value={sicCode}
+                    onChange={(e) => setSicCode(e.target.value)}
+                    placeholder="e.g. 62012"
                   />
                 </div>
               </div>
@@ -783,6 +824,12 @@ export default function EditClientPage() {
               <CardTitle>Address</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold">Main address</h3>
+                <p className="text-xs text-muted-foreground">
+                  This is the client&apos;s primary registered or trading address.
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="addrLine1">Address Line 1</Label>
                 <Input
@@ -842,6 +889,89 @@ export default function EditClientPage() {
                   placeholder="United Kingdom"
                 />
               </div>
+
+              <div className="flex items-center space-x-2 border-t pt-2">
+                <input
+                  type="checkbox"
+                  id="billingSameAsMain"
+                  checked={billingSameAsMain}
+                  onChange={(e) => setBillingSameAsMain(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="billingSameAsMain" className="font-normal cursor-pointer">
+                  Billing address same as main address
+                </Label>
+              </div>
+
+              {!billingSameAsMain && (
+                <div className="space-y-4 rounded-md border bg-muted/30 p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Billing address</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Use this only if invoices should go to a different address.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
+                    <Input
+                      id="billingAddrLine1"
+                      value={billingAddrLine1}
+                      onChange={(e) => setBillingAddrLine1(e.target.value)}
+                      placeholder="123 Finance Street"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
+                    <Input
+                      id="billingAddrLine2"
+                      value={billingAddrLine2}
+                      onChange={(e) => setBillingAddrLine2(e.target.value)}
+                      placeholder="Suite 200"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrCity">Billing City</Label>
+                      <Input
+                        id="billingAddrCity"
+                        value={billingAddrCity}
+                        onChange={(e) => setBillingAddrCity(e.target.value)}
+                        placeholder="London"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrRegion">Billing Region/County</Label>
+                      <Input
+                        id="billingAddrRegion"
+                        value={billingAddrRegion}
+                        onChange={(e) => setBillingAddrRegion(e.target.value)}
+                        placeholder="Greater London"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="billingAddrPostcode">Billing Postcode</Label>
+                      <Input
+                        id="billingAddrPostcode"
+                        value={billingAddrPostcode}
+                        onChange={(e) => setBillingAddrPostcode(e.target.value)}
+                        placeholder="SW1A 1AA"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="billingAddrCountry">Billing Country</Label>
+                    <Input
+                      id="billingAddrCountry"
+                      value={billingAddrCountry}
+                      onChange={(e) => setBillingAddrCountry(e.target.value)}
+                      placeholder="United Kingdom"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center space-x-2">
                 <input
