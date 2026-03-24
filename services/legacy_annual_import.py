@@ -599,6 +599,7 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     ignored_rows = 0
     scope_override_rows = 0
     scope_mismatch_rows = 0
+    scope_candidate_resolved_rows = 0
 
     for ws in wb.worksheets:
         current_section = ""
@@ -661,12 +662,12 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 scope_col=scope_col,
             )
             row_key = lookup_match.get("lookup_key") or _lookup_key(current_section, c1, c2, c3, c4, c5, c6, c7)
-            factor_original_id = c0 if _is_factor_original_id(c0) else _clean(lookup_match.get("factor_original_id"))
+            factor_original_id = c0 if _is_factor_original_id(c0) else _clean(
+                lookup_match.get("factor_original_id") or lookup_match.get("candidate_original_id")
+            )
             if not _is_factor_original_id(c0) and lookup_match.get("scope_override"):
                 scope = lookup_match.get("scope_override")
                 scope_override_rows += 1
-            if lookup_match.get("match_source") == "scope_mismatch_candidate":
-                scope_mismatch_rows += 1
             storage_original_id = _legacy_storage_original_id(factor_original_id, row_key) if factor_original_id else ""
             match_source = "id_column" if _is_factor_original_id(c0) else (lookup_match.get("match_source") or "unresolved")
             line_label = _build_line_label(c1, c2, c3, c4, c5, c6, c7, scope_col=scope_col)
@@ -768,8 +769,14 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
             month_emissions[pos] = _to_tco2e(float(qty), float(rec.factor), rec.ghg_unit)
 
         if not month_emissions:
-            unresolved_rows.append({**row, "reason": "no mappable monthly factor data", "month_errors": month_missing})
+            reason = "no mappable monthly factor data"
+            if row.get("match_source") == "scope_mismatch_candidate":
+                reason = "workbook scope conflicts with template mapping and no factor matched that workbook scope"
+                scope_mismatch_rows += 1
+            unresolved_rows.append({**row, "reason": reason, "month_errors": month_missing})
             continue
+        if row.get("match_source") == "scope_mismatch_candidate":
+            scope_candidate_resolved_rows += 1
 
         dataset_counter = Counter(month_datasets.values())
         primary_dataset = int(dataset_counter.most_common(1)[0][0]) if dataset_counter else None
@@ -903,6 +910,10 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
     if scope_mismatch_rows:
         parse_warnings.append(
             f"{scope_mismatch_rows} rows were left unresolved because the workbook scope conflicts with the template mapping."
+        )
+    if scope_candidate_resolved_rows:
+        parse_warnings.append(
+            f"{scope_candidate_resolved_rows} rows were resolved by using a candidate template ID while keeping the workbook scope."
         )
 
     parse_warnings.append(
