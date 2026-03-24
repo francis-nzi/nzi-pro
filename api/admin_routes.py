@@ -32,6 +32,21 @@ from services.attribute_override_import import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def _ensure_legacy_cleanup_schema(con) -> None:
+    """Keep legacy cleanup resilient on older production schemas."""
+    statements = [
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS site_id INTEGER",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS data_source VARCHAR DEFAULT 'Company Data'",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ]
+    for ddl in statements:
+        try:
+            con.execute(ddl)
+        except Exception:
+            pass
+
+
 def _resolve_job_reference(con, raw_value: object) -> tuple[int, str | None]:
     token = str(raw_value or "").strip()
     if not token:
@@ -3524,6 +3539,78 @@ def legacy_annual_commit(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to commit legacy annual upload: {e}")
+
+
+@router.post("/import-export/legacy/clear")
+def legacy_annual_clear(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        job_id_raw = body.get("job_id")
+        site_id_raw = body.get("site_id")
+        if job_id_raw is None:
+            raise HTTPException(status_code=400, detail="job_id is required")
+
+        with get_conn() as con:
+            _ensure_legacy_cleanup_schema(con)
+            job_id, job_number = _resolve_job_reference(con, job_id_raw)
+
+            site_id = None
+            if site_id_raw is not None and str(site_id_raw).strip() != "":
+                try:
+                    site_id = int(site_id_raw)
+                except Exception:
+                    raise HTTPException(status_code=400, detail="site_id must be an integer")
+
+            where_clause = "WHERE job_id=%s AND data_source='Legacy Annual Upload' AND enabled=TRUE"
+            params: list[object] = [int(job_id)]
+            if site_id is not None:
+                where_clause += " AND site_id=%s"
+                params.append(int(site_id))
+
+            affected_site_rows = con.execute(
+                f"""
+                SELECT DISTINCT site_id
+                FROM job_scope_rows
+                {where_clause}
+                ORDER BY site_id
+                """,
+                params,
+            ).fetchall()
+            affected_site_ids = [int(r[0]) for r in affected_site_rows if r and r[0] is not None]
+
+            count_row = con.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM job_scope_rows
+                {where_clause}
+                """,
+                params,
+            ).fetchone()
+            disabled_rows = int(count_row[0] or 0) if count_row else 0
+
+            con.execute(
+                f"""
+                UPDATE job_scope_rows
+                SET enabled=FALSE, updated_at=NOW()
+                {where_clause}
+                """,
+                params,
+            )
+
+        return {
+            "ok": True,
+            "job_id": int(job_id),
+            "job_number": job_number,
+            "site_id": int(site_id) if site_id is not None else None,
+            "disabled_rows": disabled_rows,
+            "affected_site_ids": affected_site_ids,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear legacy annual rows: {e}")
 
 
 @router.post("/import-export/legacy/resolve")

@@ -87,6 +87,14 @@ type LegacyCommitResult = {
   updated?: number;
   disabled_existing_legacy_rows?: number;
 };
+type LegacyCleanupResult = {
+  ok?: boolean;
+  job_id?: number;
+  job_number?: string;
+  site_id?: number | null;
+  disabled_rows?: number;
+  affected_site_ids?: number[];
+};
 type ImpactItem = {
   count?: number;
   samples?: string[];
@@ -325,6 +333,7 @@ export default function AdminImportExportPage() {
   const [legacyFile, setLegacyFile] = useState<File | null>(null);
   const [legacyPreview, setLegacyPreview] = useState<any>(null);
   const [legacyCommitResult, setLegacyCommitResult] = useState<LegacyCommitResult | null>(null);
+  const [legacyCleanupResult, setLegacyCleanupResult] = useState<LegacyCleanupResult | null>(null);
   const [legacyManualLookup, setLegacyManualLookup] = useState<Record<string, string>>({});
   const [attributeOverrideFile, setAttributeOverrideFile] = useState<File | null>(null);
   const [attributeOverridePreview, setAttributeOverridePreview] = useState<AttributeOverridePreview | null>(null);
@@ -730,6 +739,7 @@ export default function AdminImportExportPage() {
     setStatus("Parsing legacy annual file...");
     setLegacyPreview(null);
     setLegacyCommitResult(null);
+    setLegacyCleanupResult(null);
     try {
       const fd = new FormData();
       fd.append("job_id", legacyJobId.trim());
@@ -794,11 +804,63 @@ export default function AdminImportExportPage() {
       }
       if (!res.ok) throw new Error(formatApiError("Legacy commit", res.status, text));
       setLegacyCommitResult(json);
+      setLegacyCleanupResult(null);
       const inserted = Number(json?.inserted || 0);
       const updated = Number(json?.updated || 0);
       const disabled = Number(json?.disabled_existing_legacy_rows || 0);
       setStatus(
         `Legacy annual rows committed for ${legacyPreview?.job_number || `job ${json?.job_id ?? legacyJobId.trim()}`}: ${inserted} inserted, ${updated} updated${disabled ? `, ${disabled} prior legacy rows replaced` : ""}.`
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearLegacyAnnualRows() {
+    const targetRef = legacyPreview?.job_number || legacyJobId.trim();
+    const targetJobId = legacyPreview?.job_id ?? legacyJobId.trim();
+    if (!targetJobId) {
+      setError("Please enter Job ID or Job Number first.");
+      return;
+    }
+    const siteLabel = legacySiteId.trim() ? `site ${legacySiteId.trim()}` : "all sites for this job";
+    const confirmed = window.confirm(
+      `Disable active Legacy Annual Upload rows for ${targetRef || `job ${targetJobId}`} on ${siteLabel}?\n\nThis will only affect rows imported via Legacy Annual Upload.`
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError("");
+    setStatus("Clearing legacy annual rows...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/import-export/legacy/clear`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: targetJobId,
+          site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
+        }),
+      });
+      const text = await res.text().catch(() => "");
+      let json: any = {};
+      if (text.trim()) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = { raw: text };
+        }
+      }
+      if (!res.ok) throw new Error(formatApiError("Legacy clear", res.status, text));
+      setLegacyCleanupResult(json);
+      setLegacyCommitResult(null);
+      setLegacyPreview(null);
+      setLegacyManualLookup({});
+      setStatus(
+        `Legacy annual rows cleared for ${json?.job_number || targetRef || `job ${json?.job_id ?? targetJobId}`}: ${Number(json?.disabled_rows || 0)} rows disabled.`
       );
     } catch (e) {
       setError((e as Error).message);
@@ -1601,6 +1663,7 @@ export default function AdminImportExportPage() {
                     setLegacyJobId(e.target.value);
                     setLegacyPreview(null);
                     setLegacyCommitResult(null);
+                    setLegacyCleanupResult(null);
                   }}
                   placeholder="e.g. J000267 or internal Job ID 258"
                 />
@@ -1616,6 +1679,7 @@ export default function AdminImportExportPage() {
                     setLegacySiteId(e.target.value);
                     setLegacyPreview(null);
                     setLegacyCommitResult(null);
+                    setLegacyCleanupResult(null);
                   }}
                   placeholder="Auto if blank"
                 />
@@ -1629,6 +1693,7 @@ export default function AdminImportExportPage() {
                     setLegacyFile(e.target.files?.[0] || null);
                     setLegacyPreview(null);
                     setLegacyCommitResult(null);
+                    setLegacyCleanupResult(null);
                   }}
                 />
               </div>
@@ -1649,6 +1714,13 @@ export default function AdminImportExportPage() {
                 onClick={() => void commitLegacyAnnualFile()}
               >
                 Commit Legacy Rows
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || !legacyJobId.trim()}
+                onClick={() => void clearLegacyAnnualRows()}
+              >
+                Clear Legacy Rows
               </Button>
             </div>
             {legacyCommitResult ? (
@@ -1678,6 +1750,37 @@ export default function AdminImportExportPage() {
                 <div className="rounded border bg-muted/20 p-3 text-xs text-muted-foreground">
                   Replaced prior legacy rows for this job/site: <strong>{Number(legacyCommitResult.disabled_existing_legacy_rows || 0)}</strong>.
                   Imported rows should now be visible under <strong>Jobs &gt; Data</strong> for {legacyPreview?.job_number || `job ${legacyCommitResult.job_id ?? "-"}`}.
+                </div>
+              </div>
+            ) : null}
+            {legacyCleanupResult ? (
+              <div className="rounded border p-3 space-y-3">
+                <div className="text-sm font-medium">Last Legacy Cleanup</div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Job</div>
+                    <div className="text-lg font-semibold">{legacyCleanupResult.job_number || `ID ${legacyCleanupResult.job_id ?? "-"}`}</div>
+                    <div className="text-xs text-muted-foreground">Internal ID {legacyCleanupResult.job_id ?? "-"}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Disabled Rows</div>
+                    <div className="text-lg font-semibold">{Number(legacyCleanupResult.disabled_rows || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Requested Site</div>
+                    <div className="text-lg font-semibold">{legacyCleanupResult.site_id ?? "All"}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Affected Sites</div>
+                    <div className="text-lg font-semibold">
+                      {Array.isArray(legacyCleanupResult.affected_site_ids) && legacyCleanupResult.affected_site_ids.length
+                        ? legacyCleanupResult.affected_site_ids.join(", ")
+                        : "-"}
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  This only disabled rows whose data source is <strong>Legacy Annual Upload</strong>. Manual entries and other job data were left unchanged.
                 </div>
               </div>
             ) : null}
