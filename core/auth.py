@@ -180,7 +180,7 @@ def user_has_client_access(user_id: str, client_db_id: int) -> bool:
         user = get_user_by_id(user_id)
         if not user:
             return False
-        if (user.get("role") or "").lower() in ("admin", "nzi", "staff"):
+        if (user.get("role") or "").lower() in ("admin", "superadmin", "nzi", "staff"):
             return True
         with get_conn() as con:
             row = con.execute(

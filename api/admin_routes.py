@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, F
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from api.auth import _current_user
+from api.permissions import require_permission
 from core.database import get_conn
 from core.auth import set_user_password
 from services.messaging_templates import build_email_content
@@ -29,8 +30,13 @@ from services.attribute_override_import import (
     parse_override_workbook,
 )
 from services.audit_log import ensure_audit_log_table, parse_json_text
+from services.permissions import ADMIN_ACCESS_PERMISSION, SUPERADMIN_ROLE
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
+)
 
 
 def _ensure_legacy_cleanup_schema(con) -> None:
@@ -59,6 +65,7 @@ def get_audit_log(
     job_id: int | None = Query(None),
     q: str | None = Query(None),
     _user: dict = Depends(_current_user),
+    _audit_access: dict = Depends(require_permission("admin.audit.view")),
 ):
     try:
         with get_conn() as con:
@@ -1487,6 +1494,7 @@ def list_roles(_user: dict = Depends(_current_user)):
         else:
             # Default roles if table is empty
             items = [
+                {"role_name": SUPERADMIN_ROLE, "is_active": True},
                 {"role_name": "Admin", "is_active": True},
                 {"role_name": "Consultant", "is_active": True},
                 {"role_name": "ReadOnly", "is_active": True},

@@ -466,7 +466,7 @@ export default function TeamManagementPage() {
                   <SelectItem value="all">All roles</SelectItem>
                   {(activeRoles.length > 0
                     ? activeRoles
-                    : ["Admin", "Consultant", "ReadOnly", "CRM", "QA", "Support"]
+                    : ["SuperAdmin", "Admin", "Consultant", "ReadOnly", "CRM", "QA", "Support"]
                   ).map((r) => (
                     <SelectItem key={r} value={r}>
                       {r}
@@ -659,7 +659,7 @@ export default function TeamManagementPage() {
                     <SelectContent>
                       {(activeRoles.length > 0
                         ? activeRoles
-                        : ["Admin", "Consultant", "ReadOnly", "CRM", "QA", "Support"]
+                        : ["SuperAdmin", "Admin", "Consultant", "ReadOnly", "CRM", "QA", "Support"]
                       ).map((r) => (
                         <SelectItem key={r} value={r}>
                           {r}
@@ -839,9 +839,12 @@ export default function TeamManagementPage() {
             <CardTitle>Roles & Permissions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div>
-              <span className="font-medium">Admin:</span> Full system access including team management and settings.
-            </div>
+              <div>
+                <span className="font-medium">SuperAdmin:</span> Full unrestricted access across all clients, jobs, settings, and security controls.
+              </div>
+              <div>
+                <span className="font-medium">Admin:</span> Full system access including team management and settings.
+              </div>
             <div>
               <span className="font-medium">Consultant:</span> Manage clients, jobs, and reports.
             </div>

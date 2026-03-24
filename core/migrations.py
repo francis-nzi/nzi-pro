@@ -1,5 +1,6 @@
 # nzi_pro/core/migrations.py
 from core.database import db_backend, get_conn
+from services.permissions import ensure_permission_schema
 
 
 def run_migrations():
@@ -669,6 +670,8 @@ def run_migrations():
                 """,
                 [email_norm, full_name, role, email_norm, status],
             )
+
+        ensure_permission_schema(con)
 
         # =========================
         # INDUSTRIES LOOKUP

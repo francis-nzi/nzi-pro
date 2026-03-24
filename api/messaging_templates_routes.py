@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
+from api.permissions import require_permission
 from core.database import get_conn
 from services.messaging_templates import (
     ensure_message_template_tables,
@@ -12,8 +13,12 @@ from services.messaging_templates import (
     resolve_template,
     render_template_text,
 )
+from services.permissions import ADMIN_ACCESS_PERMISSION
 
-router = APIRouter(tags=["messaging-templates"])
+router = APIRouter(
+    tags=["messaging-templates"],
+    dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
+)
 
 
 @router.get("/admin/message-templates")

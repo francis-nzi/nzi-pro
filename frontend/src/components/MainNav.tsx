@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
+import { apiUrl, clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -51,21 +51,49 @@ export function MainNav() {
   const { theme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoErrored, setLogoErrored] = useState(false);
-  const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string }>({
+  const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string; adminAccess: boolean }>({
     ready: false,
     authed: false,
     userId: "",
+    adminAccess: false,
   });
 
   useEffect(() => {
+    let cancelled = false;
     const timer = setTimeout(() => {
-      setAuthUi({
-        ready: true,
-        authed: hasAuthState(),
-        userId: getAuthUserIdentifier() || "",
-      });
+      void (async () => {
+        const authed = hasAuthState();
+        const userId = getAuthUserIdentifier() || "";
+        let adminAccess = false;
+
+        if (authed) {
+          try {
+            const res = await fetch(apiUrl("/auth/me"), { credentials: "include" });
+            if (res.ok) {
+              const payload = await res.json().catch(() => ({}));
+              const user = payload?.user || {};
+              const permissions = Array.isArray(user?.effective_permissions) ? user.effective_permissions : [];
+              adminAccess = Boolean(user?.is_super_admin) || permissions.includes("admin.access");
+            }
+          } catch {
+            adminAccess = false;
+          }
+        }
+
+        if (!cancelled) {
+          setAuthUi({
+            ready: true,
+            authed,
+            userId,
+            adminAccess,
+          });
+        }
+      })();
     }, 0);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [pathname]);
 
   const links = [
@@ -75,9 +103,11 @@ export function MainNav() {
     { href: "/jobs", label: "Jobs" },
     { href: "/time", label: "Time" },
     { href: "/business-development", label: "Sales" },
-    { href: "/admin", label: "Admin" },
     { href: "/support", label: "Help" },
   ];
+  if (authUi.adminAccess) {
+    links.splice(6, 0, { href: "/admin", label: "Admin" });
+  }
   const isAdminRoute = pathname === "/admin" || pathname?.startsWith("/admin/");
   const isHelpRoute =
     pathname === "/support" ||
@@ -190,7 +220,7 @@ export function MainNav() {
           )}
         </div>
       </div>
-      {isAdminRoute ? (
+      {isAdminRoute && authUi.adminAccess ? (
         <div className="border-t bg-muted/20">
           <div className="mx-auto w-full max-w-7xl px-6 py-4">
             <div className="mb-3 text-sm font-semibold text-foreground">Admin Areas</div>

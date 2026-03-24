@@ -14,6 +14,7 @@ from core.database import get_conn
 from api.auth import _current_user
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
+from services.permissions import enrich_user_permissions
 
 try:
     import jwt
@@ -338,6 +339,7 @@ def login(body: Dict):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    user = enrich_user_permissions(user) or user
     mfa_row = _user_mfa_row(str(user.get("email") or user.get("user_id") or ""))
     mfa_enabled = bool(mfa_row and mfa_row[2])
     remember_token = str(body.get("mfa_remember_token") or "").strip()
@@ -363,6 +365,7 @@ def login(body: Dict):
             "must_accept_portal_terms": _must_accept_portal_terms(user),
             "portal_terms_version": PORTAL_TERMS_VERSION,
         }
+    user = enrich_user_permissions(user) or user
     result = _issue_login_result(user)
     result["mfa_required"] = False
     return result

@@ -10,8 +10,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from api.auth import _current_user
+from api.permissions import require_permission
+from services.permissions import ADMIN_ACCESS_PERMISSION
 
-router = APIRouter(prefix="/admin/storage/onedrive", tags=["onedrive"])
+router = APIRouter(
+    prefix="/admin/storage/onedrive",
+    tags=["onedrive"],
+    dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
+)
 
 
 def _require_env(name: str) -> str:
