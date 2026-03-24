@@ -11,6 +11,18 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
+function formatApiError(action: string, status: number, text: string): string {
+  const body = text.trim();
+  if (!body) return `${action} failed (${status}).`;
+  if (body.startsWith("<!DOCTYPE html") || body.startsWith("<html")) {
+    if (status >= 500) {
+      return `${action} failed (${status}): the backend returned an HTML error page, likely a temporary Render outage. Please try again in a minute.`;
+    }
+    return `${action} failed (${status}): the backend returned an unexpected HTML response.`;
+  }
+  return `${action} failed (${status}): ${body}`;
+}
+
 type WfmSummary = {
   file_count: number;
   total_size_bytes: number;
@@ -726,7 +738,7 @@ export default function AdminImportExportPage() {
           json = { raw: text };
         }
       }
-      if (!res.ok) throw new Error(`Legacy preview failed (${res.status})${text ? `: ${text}` : ""}`);
+      if (!res.ok) throw new Error(formatApiError("Legacy preview", res.status, text));
       setLegacyPreview(json);
       setLegacyManualLookup({});
       setStatus("Legacy preview ready.");
@@ -770,7 +782,7 @@ export default function AdminImportExportPage() {
           json = { raw: text };
         }
       }
-      if (!res.ok) throw new Error(`Legacy commit failed (${res.status})${text ? `: ${text}` : ""}`);
+      if (!res.ok) throw new Error(formatApiError("Legacy commit", res.status, text));
       setRunResult(json);
       setStatus("Legacy annual rows committed.");
     } catch (e) {
@@ -810,7 +822,7 @@ export default function AdminImportExportPage() {
           json = { raw: text };
         }
       }
-      if (!res.ok) throw new Error(`Legacy resolve failed (${res.status})${text ? `: ${text}` : ""}`);
+      if (!res.ok) throw new Error(formatApiError("Legacy resolve", res.status, text));
       setLegacyPreview((prev: any) => ({
         ...(prev || {}),
         rows_ready: json.rows_ready || [],

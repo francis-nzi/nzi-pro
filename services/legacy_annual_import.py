@@ -969,12 +969,51 @@ def _resolve_site_id(job_id: int, site_id: int | None) -> int:
         return int(row[0])
 
 
+def _ensure_job_scope_rows_schema(con) -> None:
+    """Keep legacy commit writes tolerant of older production schemas."""
+    ddl_statements = [
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS site_id INTEGER",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS category VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS level_4 VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS report_label VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS ghg_unit VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_1 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_2 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_3 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_4 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_5 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_6 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_7 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_8 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_9 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_10 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_11 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS month_12 NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS apply_pct NUMERIC DEFAULT 100",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS data_source VARCHAR DEFAULT 'Company Data'",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS data_confidence VARCHAR DEFAULT 'M'",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS is_custom_entry BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS override_tco2e NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS override_reason VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ]
+    for ddl in ddl_statements:
+        try:
+            con.execute(ddl)
+        except Exception:
+            # Some environments may already be aligned or reject a specific ALTER.
+            pass
+
+
 def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
     effective_site_id = _resolve_site_id(int(job_id), int(site_id) if site_id is not None else None)
     inserted = 0
     updated = 0
     disabled_existing = 0
     with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
         disabled_row = con.execute(
             """
             SELECT COUNT(*)
