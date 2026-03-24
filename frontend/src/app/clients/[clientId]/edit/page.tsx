@@ -61,6 +61,7 @@ type Client = {
   billing_addr_region: string | null;
   billing_addr_postcode: string | null;
   billing_addr_country: string | null;
+  create_site_from_address?: boolean | null;
   logo_url: string | null;
   crm_owner: string | null;
   status: string | null;
@@ -280,6 +281,14 @@ export default function EditClientPage() {
         setBillingAddrRegion(json.billing_addr_region || "");
         setBillingAddrPostcode(json.billing_addr_postcode || "");
         setBillingAddrCountry(json.billing_addr_country || "");
+        setCreateSiteFromAddress(json.create_site_from_address ?? Boolean(
+          json.addr_line1 ||
+          json.addr_line2 ||
+          json.addr_city ||
+          json.addr_region ||
+          json.addr_postcode ||
+          json.addr_country
+        ));
         setLogoUrl(json.logo_url || "");
         setPortfolio(json.portfolio || "NZI");
         setCrmOwner(json.crm_owner || "");

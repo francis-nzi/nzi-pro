@@ -62,7 +62,7 @@ from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
 from services.job_folder_excel import build_excel_template_bytes
-from services.sites import list_sites
+from services.sites import ensure_registered_office_site, list_sites
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
@@ -318,6 +318,7 @@ def _ensure_job_additional_datasets_table() -> None:
 def _ensure_client_billing_columns(con) -> None:
     """Ensure client billing-address columns exist for older deployments."""
     statements = [
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS create_site_from_address BOOLEAN",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_same_as_main BOOLEAN DEFAULT TRUE",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line1 VARCHAR",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line2 VARCHAR",
@@ -2476,9 +2477,10 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
                     target_s3_year, target_s3_pct, billing_same_as_main,
                     billing_addr_line1, billing_addr_line2, billing_addr_city,
-                    billing_addr_region, billing_addr_postcode, billing_addr_country
+                    billing_addr_region, billing_addr_postcode, billing_addr_country,
+                    create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -2516,6 +2518,7 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     billing_addr_region,
                     billing_addr_postcode,
                     billing_addr_country,
+                    body.get("create_site_from_address", False),
                 ],
             ).fetchone()
             
@@ -2801,7 +2804,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.benchmark_period_start, c.benchmark_period_end, c.currency,
                    COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
                    c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
-                   c.billing_addr_postcode, c.billing_addr_country
+                   c.billing_addr_postcode, c.billing_addr_country,
+                   c.create_site_from_address
             FROM clients c
             WHERE c.db_id=?
             """,
@@ -2847,6 +2851,9 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "billing_addr_region": row[32],
         "billing_addr_postcode": row[33],
         "billing_addr_country": row[34],
+        "create_site_from_address": bool(row[35]) if row[35] is not None else bool(
+            row[10] or row[11] or row[12] or row[13] or row[14] or row[15]
+        ),
     }
 
 
@@ -2956,6 +2963,7 @@ def update_client(
                 "billing_addr_region": "billing_addr_region",
                 "billing_addr_postcode": "billing_addr_postcode",
                 "billing_addr_country": "billing_addr_country",
+                "create_site_from_address": "create_site_from_address",
             }
             
             for field_name, col_name in field_mapping.items():
@@ -3020,6 +3028,8 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
     # Return both active and vacated sites
     try:
         with get_conn() as con:
+            _ensure_client_billing_columns(con)
+            ensure_registered_office_site(int(client_db_id), con=con)
             df = con.execute(
                 """
                 SELECT site_id, site_name, location, is_registered_office, vacated_date
