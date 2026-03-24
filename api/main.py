@@ -681,63 +681,34 @@ def list_jobs(
                 params,
             ).fetchone()
 
-            try:
-                rows = (
-                    con.execute(
-                        f"""
-                        SELECT j.job_id, j.job_number, j.title, j.reporting_year, 
-                               {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
-                               j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr},
-                               jp.data_collection_due, jp.data_collection_completed_at,
-                               jp.first_draft_due, jp.first_draft_completed_at,
-                               jp.final_report_due, jp.final_report_completed_at
-                        FROM jobs j
-                        JOIN clients c ON c.db_id = j.client_db_id
-                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        {where_sql}
-                        ORDER BY j.job_id DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        [*params, int(limit), int(offset)],
-                    )
-                    .df()
+            job_plan_join_sql = ""
+            job_plan_select_sql = ""
+            if has_job_plan:
+                job_plan_join_sql = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id"
+                job_plan_select_sql = """
+                               , jp.data_collection_due, jp.data_collection_completed_at
+                               , jp.first_draft_due, jp.first_draft_completed_at
+                               , jp.final_report_due, jp.final_report_completed_at
+                """
+
+            rows = (
+                con.execute(
+                    f"""
+                    SELECT j.job_id, j.job_number, j.title, j.reporting_year,
+                           {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
+                           j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr}
+                           {job_plan_select_sql}
+                    FROM jobs j
+                    JOIN clients c ON c.db_id = j.client_db_id
+                    {job_plan_join_sql}
+                    {where_sql}
+                    ORDER BY j.job_id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    [*params, int(limit), int(offset)],
                 )
-            except Exception:
-                # Fallback for environments where job_plan table/columns are not present yet.
-                if not has_job_plan:
-                    rows = (
-                        con.execute(
-                            f"""
-                            SELECT j.job_id, j.job_number, j.title, j.reporting_year,
-                                   {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
-                                   j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr}
-                            FROM jobs j
-                            JOIN clients c ON c.db_id = j.client_db_id
-                            {where_sql}
-                            ORDER BY j.job_id DESC
-                            LIMIT ? OFFSET ?
-                            """,
-                            [*params, int(limit), int(offset)],
-                        )
-                        .df()
-                    )
-                else:
-                    rows = (
-                        con.execute(
-                            f"""
-                            SELECT j.job_id, j.job_number, j.title, j.reporting_year,
-                                   {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
-                                   j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr}
-                            FROM jobs j
-                            JOIN clients c ON c.db_id = j.client_db_id
-                            {where_sql}
-                            ORDER BY j.job_id DESC
-                            LIMIT ? OFFSET ?
-                            """,
-                            [*params, int(limit), int(offset)],
-                        )
-                        .df()
-                    )
+                .df()
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/jobs failed: {e}")
 
