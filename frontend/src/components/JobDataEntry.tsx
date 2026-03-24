@@ -106,6 +106,8 @@ type TemplateFactor = {
   factor_db_id: number | null;
   factor: number | null;
   ghg_unit: string | null;
+  level_3?: string | null;
+  level_4?: string | null;
   is_custom?: boolean;
   source?: string;
 };
@@ -658,11 +660,44 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       return (
         factor.report_label?.toLowerCase().includes(q) ||
         factor.category?.toLowerCase().includes(q) ||
+        factor.level_3?.toLowerCase().includes(q) ||
+        factor.level_4?.toLowerCase().includes(q) ||
         factor.original_id?.toLowerCase().includes(q)
       );
     }
     return true;
   });
+
+  const factorDisplayParts = (factor: TemplateFactor) => {
+    const normalize = (value?: string | null) => value?.trim() || "";
+    const parts = [
+      normalize(factor.category),
+      normalize(factor.report_label),
+      normalize(factor.level_3),
+      normalize(factor.level_4),
+    ];
+    const seen = new Set<string>();
+    return parts.filter((part) => {
+      if (!part) return false;
+      const key = part.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const factorDisplayTitle = (factor: TemplateFactor) => {
+    const parts = factorDisplayParts(factor);
+    return parts.length ? parts.join(" | ") : factor.original_id;
+  };
+
+  const factorDisplaySubtitle = (factor: TemplateFactor) => {
+    const extras = [factor.level_3, factor.level_4]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value));
+    const deduped = extras.filter((value, index) => extras.findIndex((x) => x.toLowerCase() === value.toLowerCase()) === index);
+    return deduped.join(" • ");
+  };
 
   // Check if a factor is already added to the job
   const isFactorAdded = (originalId: string) => {
@@ -1231,11 +1266,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                                 </span>
                               )}
                               <span className="text-sm font-medium truncate">
-                                {factor.report_label}
+                                {factorDisplayTitle(factor)}
                               </span>
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {factor.category}
+                              {factorDisplaySubtitle(factor) || factor.original_id}
                             </div>
                             <div className="mt-1 flex items-center gap-3 text-xs">
                               <span className="font-mono">
