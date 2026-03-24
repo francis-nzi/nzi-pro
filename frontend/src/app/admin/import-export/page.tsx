@@ -11,10 +11,23 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
+function isHtmlErrorBody(text: string): boolean {
+  const body = text.trim();
+  return body.startsWith("<!DOCTYPE html") || body.startsWith("<html");
+}
+
+function isTransientGatewayError(status: number, text: string): boolean {
+  return [502, 503, 504].includes(status) && isHtmlErrorBody(text);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function formatApiError(action: string, status: number, text: string): string {
   const body = text.trim();
   if (!body) return `${action} failed (${status}).`;
-  if (body.startsWith("<!DOCTYPE html") || body.startsWith("<html")) {
+  if (isHtmlErrorBody(body)) {
     if (status >= 500) {
       return `${action} failed (${status}): the backend returned an HTML error page, likely a temporary Render outage. Please try again in a minute.`;
     }
@@ -783,26 +796,42 @@ export default function AdminImportExportPage() {
     setError("");
     setStatus("Committing legacy annual rows...");
     try {
-      const res = await fetch(`${baseUrl}/admin/import-export/legacy/commit`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: legacyPreview?.job_number || legacyJobId.trim(),
-          site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
-          rows_ready: legacyPreview.rows_ready,
-        }),
-      });
-      const text = await res.text().catch(() => "");
       let json: any = {};
-      if (text.trim()) {
-        try {
-          json = JSON.parse(text);
-        } catch {
-          json = { raw: text };
+      let success = false;
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const res = await fetch(`${baseUrl}/admin/import-export/legacy/commit`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_id: legacyPreview?.job_number || legacyJobId.trim(),
+            site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
+            rows_ready: legacyPreview.rows_ready,
+          }),
+        });
+        const text = await res.text().catch(() => "");
+        json = {};
+        if (text.trim()) {
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = { raw: text };
+          }
         }
+        if (res.ok) {
+          success = true;
+          break;
+        }
+        if (attempt < 3 && isTransientGatewayError(res.status, text)) {
+          setStatus(`Legacy commit hit a temporary backend error. Retrying (${attempt}/3)...`);
+          await sleep(1500 * attempt);
+          continue;
+        }
+        lastError = new Error(formatApiError("Legacy commit", res.status, text));
+        break;
       }
-      if (!res.ok) throw new Error(formatApiError("Legacy commit", res.status, text));
+      if (!success) throw lastError || new Error("Legacy commit failed.");
       setLegacyCommitResult(json);
       setLegacyCleanupResult(null);
       const inserted = Number(json?.inserted || 0);
@@ -836,25 +865,41 @@ export default function AdminImportExportPage() {
     setError("");
     setStatus("Clearing legacy annual rows...");
     try {
-      const res = await fetch(`${baseUrl}/admin/import-export/legacy/clear`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: targetJobId,
-          site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
-        }),
-      });
-      const text = await res.text().catch(() => "");
       let json: any = {};
-      if (text.trim()) {
-        try {
-          json = JSON.parse(text);
-        } catch {
-          json = { raw: text };
+      let success = false;
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const res = await fetch(`${baseUrl}/admin/import-export/legacy/clear`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_id: targetJobId,
+            site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
+          }),
+        });
+        const text = await res.text().catch(() => "");
+        json = {};
+        if (text.trim()) {
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = { raw: text };
+          }
         }
+        if (res.ok) {
+          success = true;
+          break;
+        }
+        if (attempt < 3 && isTransientGatewayError(res.status, text)) {
+          setStatus(`Legacy cleanup hit a temporary backend error. Retrying (${attempt}/3)...`);
+          await sleep(1500 * attempt);
+          continue;
+        }
+        lastError = new Error(formatApiError("Legacy clear", res.status, text));
+        break;
       }
-      if (!res.ok) throw new Error(formatApiError("Legacy clear", res.status, text));
+      if (!success) throw lastError || new Error("Legacy clear failed.");
       setLegacyCleanupResult(json);
       setLegacyCommitResult(null);
       setLegacyPreview(null);
