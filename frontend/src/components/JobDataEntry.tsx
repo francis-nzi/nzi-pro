@@ -43,6 +43,14 @@ type ScopeDataRow = {
   uom: string | null;
   qty: number | null;
   factor: number | null;
+  source_qty?: number | null;
+  source_uom?: string | null;
+  storage_qty?: number | null;
+  storage_uom?: string | null;
+  storage_factor?: number | null;
+  factor_reference?: string | null;
+  storage_reason?: string | null;
+  uses_emissions_fallback?: boolean;
   ghg_unit: string | null;
   calc_tco2e: number;
   tco2e_before_apply: number;
@@ -567,6 +575,31 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     return "bg-amber-100 text-amber-800";
   }
 
+  function isLegacyFallbackRow(row: ScopeDataRow): boolean {
+    return Boolean(row.uses_emissions_fallback);
+  }
+
+  function formatMaybeNumber(value: number | null | undefined, digits = 2): string {
+    if (value === null || value === undefined || Number.isNaN(value)) return "-";
+    return value.toFixed(digits);
+  }
+
+  function factorDisplayText(row: ScopeDataRow): string {
+    if (isLegacyFallbackRow(row)) {
+      return row.factor_reference || row.original_id || "Monthly factors";
+    }
+    if (row.factor === null || row.factor === undefined || Number.isNaN(row.factor)) return "-";
+    return row.factor.toFixed(5);
+  }
+
+  function storageReasonText(reason: string | null | undefined): string {
+    const value = String(reason || "").trim();
+    if (!value) return "-";
+    if (value === "multi_dataset_or_factor") return "Monthly dataset/factor fallback";
+    if (value === "single_dataset_factor") return "Monthly raw quantity";
+    return value.replaceAll("_", " ");
+  }
+
   const filteredData = scopeData.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (confidenceFilter !== "All") {
@@ -777,7 +810,14 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                         <td className="p-2 max-w-xs truncate" title={row.report_label || ""}>{row.report_label || row.original_id}</td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
-                            {editingRowId === row.row_id && !editingField ? (
+                            {isLegacyFallbackRow(row) ? (
+                              <span
+                                className="inline-block px-2 py-1 font-mono"
+                                title="Legacy annual row shows the original source volume. This row is stored monthly as tCO2e for audit compatibility."
+                              >
+                                {row.qty?.toFixed(2) || "0.00"}
+                              </span>
+                            ) : editingRowId === row.row_id && !editingField ? (
                               <div className="flex gap-1 justify-end">
                                 <Input
                                   type="number"
@@ -857,7 +897,18 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                         <td className="p-2 text-xs text-muted-foreground">{monthlyCount(row)}/12</td>
                         <td className="p-2">
                           <div className="flex gap-1">
-                            <Button variant="outline" size="sm" onClick={() => openMonthlyModal(row)}>Monthly</Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openMonthlyModal(row)}
+                              title={
+                                isLegacyFallbackRow(row)
+                                  ? "This legacy row stores monthly fallback tCO2e values while showing the original source volume above."
+                                  : undefined
+                              }
+                            >
+                              {isLegacyFallbackRow(row) ? "Monthly tCO2e" : "Monthly"}
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => deleteRow(row.row_id)}>Delete</Button>
                           </div>
                         </td>
@@ -876,12 +927,42 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor</div>
-                                <div className="font-mono">{row.factor?.toFixed(5) || "-"}</div>
+                                <div className="font-mono break-all">
+                                  {isLegacyFallbackRow(row) ? "Monthly factors" : factorDisplayText(row)}
+                                </div>
+                              </div>
+                              <div className="text-xs">
+                                <div className="text-muted-foreground">Factor ID</div>
+                                <div className="font-mono break-all">{row.factor_reference || row.original_id || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">tCO2e (Before)</div>
                                 <div className="font-mono">{row.tco2e_before_apply.toFixed(4)}</div>
                               </div>
+                              {isLegacyFallbackRow(row) && (
+                                <>
+                                  <div className="text-xs">
+                                    <div className="text-muted-foreground">Source Volume</div>
+                                    <div className="font-mono">
+                                      {formatMaybeNumber(row.qty, 2)} {row.uom || ""}
+                                    </div>
+                                  </div>
+                                  <div className="text-xs">
+                                    <div className="text-muted-foreground">Stored As</div>
+                                    <div className="font-mono">
+                                      {formatMaybeNumber(row.storage_qty, 4)} {row.storage_uom || ""}
+                                    </div>
+                                  </div>
+                                  <div className="text-xs">
+                                    <div className="text-muted-foreground">Storage Factor</div>
+                                    <div className="font-mono">{formatMaybeNumber(row.storage_factor, 5)}</div>
+                                  </div>
+                                  <div className="text-xs">
+                                    <div className="text-muted-foreground">Storage Mode</div>
+                                    <div>{storageReasonText(row.storage_reason)}</div>
+                                  </div>
+                                </>
+                              )}
                               <div className="text-xs md:col-span-2">
                                 <div className="text-muted-foreground mb-1">Source</div>
                                 {editingRowId === row.row_id && editingField === "source" ? (
@@ -1144,6 +1225,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
           </DialogHeader>
 
           <div className="space-y-4">
+            {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                This legacy annual row shows the original source volume in the grid, but its monthly values are stored as fallback tCO2e for audit compatibility. Monthly values are read-only here.
+              </div>
+            )}
             {/* Copy to All Months Button */}
             <div className="flex justify-end">
               <Button
@@ -1151,6 +1237,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                 size="sm"
                 onClick={copyFirstMonthToAll}
                 type="button"
+                disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
               >
                 Copy First Month to All
               </Button>
@@ -1172,6 +1259,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                       value={monthlyValues[actualIndex] || ""}
                       onChange={(e) => updateMonthlyValue(actualIndex, e.target.value)}
                       className="h-8 text-sm font-mono text-right"
+                      disabled={monthlyEditRow ? isLegacyFallbackRow(monthlyEditRow) : false}
                     />
                   </div>
                 );
@@ -1181,16 +1269,22 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
             {/* Summary */}
             <div className="border-t pt-4">
               <div className="flex justify-between items-center mb-2">
-                <span className="font-semibold">Monthly Total:</span>
-                <span className="font-mono text-lg">{getMonthlySum().toFixed(2)} {monthlyEditRow?.uom}</span>
+                <span className="font-semibold">
+                  {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Monthly Stored Total:" : "Monthly Total:"}
+                </span>
+                <span className="font-mono text-lg">
+                  {getMonthlySum().toFixed(2)} {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? (monthlyEditRow.storage_uom || monthlyEditRow.ghg_unit || monthlyEditRow.uom) : monthlyEditRow?.uom}
+                </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="font-semibold">Annual Qty:</span>
+                <span className="font-semibold">
+                  {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Displayed Annual Volume:" : "Annual Qty:"}
+                </span>
                 <span className="font-mono text-lg">{monthlyEditRow?.qty?.toFixed(2) || "0.00"} {monthlyEditRow?.uom}</span>
               </div>
               
               {/* Validation Warning */}
-              {monthlyEditRow && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
+              {monthlyEditRow && !isLegacyFallbackRow(monthlyEditRow) && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                   <div className="flex items-start gap-2">
                     <span className="text-yellow-600 font-semibold text-sm">⚠️ Warning:</span>
@@ -1206,11 +1300,13 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
 
           <DialogFooter>
             <Button variant="outline" onClick={closeMonthlyModal}>
-              Cancel
+              {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Close" : "Cancel"}
             </Button>
-            <Button onClick={saveMonthlyData}>
-              Save Monthly Data
-            </Button>
+            {!(monthlyEditRow && isLegacyFallbackRow(monthlyEditRow)) && (
+              <Button onClick={saveMonthlyData}>
+                Save Monthly Data
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

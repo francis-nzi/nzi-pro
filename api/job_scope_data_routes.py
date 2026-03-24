@@ -4,6 +4,7 @@ Supports in-app data entry with real-time calculations.
 """
 
 import math
+import re
 import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from core.database import get_conn
@@ -11,6 +12,9 @@ from api.auth import _current_user
 from services.dataset_selector import get_scope_primary_datasets
 
 router = APIRouter()
+
+_FACTOR_ORIGINAL_ID_RE = re.compile(r"(?:^|[;( ])factor_original_id=([^;)\s]+)", re.IGNORECASE)
+_STORAGE_REASON_RE = re.compile(r"(?:^|[;( ])storage_reason=([^;)\s]+)", re.IGNORECASE)
 
 
 def _ensure_job_scope_rows_schema(con) -> None:
@@ -49,6 +53,14 @@ def _ensure_job_scope_rows_schema(con) -> None:
         pass
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS is_custom_entry BOOLEAN DEFAULT FALSE")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_qty NUMERIC")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_uom VARCHAR")
     except Exception:
         pass
 
@@ -170,6 +182,17 @@ def _table_columns(con, table_name: str) -> set[str]:
         return set()
 
 
+def _extract_note_token(notes: str | None, pattern: re.Pattern[str]) -> str | None:
+    text = str(notes or "")
+    if not text:
+        return None
+    match = pattern.search(text)
+    if not match:
+        return None
+    value = str(match.group(1) or "").strip()
+    return value or None
+
+
 def _factor_lookup_select_parts(con) -> dict[str, str]:
     cols = _table_columns(con, "factor_lookup")
     has = lambda c: c in cols
@@ -270,6 +293,11 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
+            cols = _table_columns(con, "job_scope_rows")
+            has_source_qty = "source_qty" in cols
+            has_source_uom = "source_uom" in cols
+            source_qty_select = "source_qty" if has_source_qty else "NULL::numeric AS source_qty"
+            source_uom_select = "source_uom" if has_source_uom else "NULL::text AS source_uom"
             # Verify job exists
             print(f"DEBUG: About to convert job_id to int")
             job_id_int = int(job_id)
@@ -291,6 +319,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     row_id, job_id, scope, site_id, dataset_id, factor_db_id, original_id,
                     category, level_1, level_2, level_3, level_4, column_text, report_label,
                     qty, uom, factor, ghg_unit, calc_tco2e, apply_pct,
+                    {source_qty_select}, {source_uom_select},
                     month_1, month_2, month_3, month_4, month_5, month_6,
                     month_7, month_8, month_9, month_10, month_11, month_12,
                     data_source, data_confidence, notes, is_custom_entry, created_at, updated_at
@@ -353,6 +382,22 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     qty_val = safe_float(r.get('qty')) or monthly_total or 0
                     factor_val = safe_float(r.get('factor')) or 0
                     apply_pct_val = safe_float(r.get('apply_pct')) or 100
+                    source_qty_val = safe_float(r.get("source_qty"))
+                    source_uom_val = r.get("source_uom")
+                    storage_qty_val = safe_float(r.get("qty"))
+                    storage_uom_val = r.get("uom")
+                    storage_factor_val = safe_float(r.get("factor"))
+                    factor_reference = _extract_note_token(r.get("notes"), _FACTOR_ORIGINAL_ID_RE)
+                    storage_reason = _extract_note_token(r.get("notes"), _STORAGE_REASON_RE)
+                    uses_emissions_fallback = bool(
+                        source_qty_val is not None
+                        and storage_uom_val is not None
+                        and str(storage_uom_val).strip().lower() == "tco2e"
+                        and storage_factor_val is not None
+                        and abs(float(storage_factor_val) - 1.0) < 1e-9
+                    )
+                    display_qty_val = source_qty_val if uses_emissions_fallback and source_qty_val is not None else storage_qty_val
+                    display_uom_val = source_uom_val if uses_emissions_fallback and source_uom_val else storage_uom_val
                     
                     # Convert based on ghg_unit
                     ghg_unit = str(r.get('ghg_unit') or 'kgCO2e').lower()
@@ -379,9 +424,17 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "level_4": r.get("level_4"),
                         "column_text": r.get("column_text"),
                         "report_label": r.get("report_label"),
-                        "qty": safe_float(r.get("qty")),
-                        "uom": r.get("uom"),
+                        "qty": display_qty_val,
+                        "uom": display_uom_val,
                         "factor": safe_float(r.get("factor")),
+                        "source_qty": source_qty_val,
+                        "source_uom": source_uom_val,
+                        "storage_qty": storage_qty_val,
+                        "storage_uom": storage_uom_val,
+                        "storage_factor": storage_factor_val,
+                        "factor_reference": factor_reference,
+                        "storage_reason": storage_reason,
+                        "uses_emissions_fallback": uses_emissions_fallback,
                         "ghg_unit": r.get("ghg_unit"),
                         "calc_tco2e": round(emissions, 4),
                         "tco2e_before_apply": round(tco2e_before_apply, 4),
