@@ -24,6 +24,7 @@ from typing import Optional, Any
 
 from core.database import get_conn
 from api.auth import _current_user
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 from api.report_template_routes import (
     _validate_required_template_variables,
     _get_job_report_metadata,
@@ -671,12 +672,13 @@ def get_scope_totals(job_id: int):
     """Get emissions totals by scope."""
     with get_conn() as con:
         df = con.execute("""
-            SELECT scope, qty, factor, ghg_unit, apply_pct,
+            SELECT scope, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
                    month_1, month_2, month_3, month_4, month_5, month_6,
                    month_7, month_8, month_9, month_10, month_11, month_12
             FROM job_scope_rows
             WHERE job_id=%s AND enabled=TRUE
         """, [int(job_id)]).df()
+        resolver = JobMonthlyEmissionsResolver(con, int(job_id))
         
         # Use raw totals first, round only at the end to ensure Scope 1 + Scope 2 + Scope 3 = Total
         raw_totals = {
@@ -686,18 +688,8 @@ def get_scope_totals(job_id: int):
         }
         
         if df is not None and not df.empty:
-            df = df.fillna(0)
             for _, row in df.iterrows():
-                monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
-                qty_val = float(row.get('qty', 0) or monthly_total or 0)
-                factor_val = float(row.get('factor', 0) or 0)
-                apply_pct_val = float(row.get('apply_pct', 100) or 100)
-                
-                ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
-                emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-                if 'kg' in ghg_unit:
-                    emissions = emissions / 1000.0
-                
+                emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
                 scope = row.get('scope', '')
                 if scope in raw_totals:
                     raw_totals[scope] += emissions
@@ -721,37 +713,32 @@ def get_emissions_by_category(job_id: int):
     """Get emissions breakdown by category."""
     with get_conn() as con:
         df = con.execute("""
-            SELECT scope, category, report_label, qty, uom, factor, ghg_unit, apply_pct,
+            SELECT scope, category, report_label, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
                    month_1, month_2, month_3, month_4, month_5, month_6,
                    month_7, month_8, month_9, month_10, month_11, month_12
             FROM job_scope_rows
             WHERE job_id=%s AND enabled=TRUE
             ORDER BY scope, category, report_label
         """, [int(job_id)]).df()
+        resolver = JobMonthlyEmissionsResolver(con, int(job_id))
         
         if df is None or df.empty:
             return []
         
-        df = df.fillna({'category': 'Uncategorized', 'qty': 0, 'factor': 0, 'apply_pct': 100})
+        df = df.fillna({'category': 'Uncategorized'})
         
         categories = []
         for _, row in df.iterrows():
-            monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
-            qty_val = float(row.get('qty', 0) or monthly_total or 0)
-            factor_val = float(row.get('factor', 0) or 0)
-            apply_pct_val = float(row.get('apply_pct', 100) or 100)
-            
-            ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
-            emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-            if 'kg' in ghg_unit:
-                emissions = emissions / 1000.0
+            metrics = resolver.row_metrics(row)
+            qty_val = float(metrics.get("display_qty") or 0.0)
+            emissions = float(metrics.get("calc_tco2e") or 0.0)
             
             categories.append({
                 'scope': row.get('scope', ''),
                 'category': row.get('category', 'Uncategorized'),
                 'report_label': row.get('report_label', ''),
                 'qty': qty_val,
-                'uom': row.get('uom', ''),
+                'uom': metrics.get('display_uom') or '',
                 'emissions': emissions
             })
         
@@ -989,35 +976,27 @@ def get_emissions_by_site(job_id: int):
     try:
         with get_conn() as con:
             df = con.execute("""
-                SELECT s.site_name, jsr.scope, 
-                       jsr.qty, jsr.factor, jsr.ghg_unit, jsr.apply_pct,
+                SELECT s.site_name, jsr.scope, jsr.dataset_id, jsr.factor_db_id, jsr.original_id,
+                       jsr.qty, jsr.uom, jsr.factor, jsr.ghg_unit, jsr.apply_pct, jsr.notes, jsr.source_qty, jsr.source_uom,
                        jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                        jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
                 FROM job_scope_rows jsr
                 LEFT JOIN client_sites s ON s.site_id = jsr.site_id
                 WHERE jsr.job_id = %s AND jsr.enabled = TRUE
             """, [int(job_id)]).df()
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
 
             
             if df is None or df.empty:
                 return {}
             
-            df = df.fillna({'site_name': 'Unassigned', 'qty': 0, 'factor': 0, 'apply_pct': 100})
+            df = df.fillna({'site_name': 'Unassigned'})
             
             sites = {}
             for _, row in df.iterrows():
                 site_name = row.get('site_name', 'Unassigned')
                 scope = row.get('scope', '')
-                
-                monthly_total = sum([float(row.get(f'month_{i}', 0) or 0) for i in range(1, 13)])
-                qty_val = float(row.get('qty', 0) or monthly_total or 0)
-                factor_val = float(row.get('factor', 0) or 0)
-                apply_pct_val = float(row.get('apply_pct', 100) or 100)
-                
-                ghg_unit = str(row.get('ghg_unit', 'kgCO2e') or 'kgCO2e').lower()
-                emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-                if 'kg' in ghg_unit:
-                    emissions = emissions / 1000.0
+                emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
                 
                 if site_name not in sites:
                     sites[site_name] = {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}
@@ -1065,11 +1044,17 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 jsr.scope,
                 COALESCE(jsr.category, 'Uncategorized') AS category,
                 COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label,
+                jsr.dataset_id,
+                jsr.factor_db_id,
+                jsr.original_id,
                 jsr.qty,
                 jsr.uom,
                 jsr.factor,
                 jsr.ghg_unit,
                 jsr.apply_pct,
+                jsr.notes,
+                jsr.source_qty,
+                jsr.source_uom,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                 jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
             FROM job_scope_rows jsr
@@ -1079,188 +1064,180 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             """,
             [int(job_id)],
         ).df()
+        resolver = JobMonthlyEmissionsResolver(con, int(job_id))
 
-    empty_result = {
-        "show_site_tables": False,
-        "site_count": 0,
-        "overall": [],
-        "scope": [],
-        "activity": [],
-        "appendix_rows": [],
-    }
-    configured_site_names: list[str] = []
-    if configured_sites_df is not None and not configured_sites_df.empty:
-        configured_site_names = [
-            str(r.get("site_name") or "").strip()
-            for _, r in configured_sites_df.iterrows()
-            if str(r.get("site_name") or "").strip()
-        ]
-
-    if df is None or df.empty:
-        # No emissions rows yet, but if client has multiple sites configured
-        # still show empty site tables to support the reporting structure.
-        if len(configured_site_names) > 1:
-            zero_scope_rows = [
-                {
-                    "site_name": s,
-                    "scope_1": 0.0,
-                    "scope_2": 0.0,
-                    "scope_3": 0.0,
-                    "total": 0.0,
-                }
-                for s in configured_site_names
+        empty_result = {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+        configured_site_names: list[str] = []
+        if configured_sites_df is not None and not configured_sites_df.empty:
+            configured_site_names = [
+                str(r.get("site_name") or "").strip()
+                for _, r in configured_sites_df.iterrows()
+                if str(r.get("site_name") or "").strip()
             ]
-            return {
-                "show_site_tables": True,
-                "site_count": len(configured_site_names),
-                "overall": [{"site_name": s, "total": 0.0, "pct_total": 0.0} for s in configured_site_names],
-                "scope": zero_scope_rows,
-                "activity": [
+
+        if df is None or df.empty:
+            # No emissions rows yet, but if client has multiple sites configured
+            # still show empty site tables to support the reporting structure.
+            if len(configured_site_names) > 1:
+                zero_scope_rows = [
                     {
                         "site_name": s,
-                        "energy": 0.0,
-                        "business_travel": 0.0,
-                        "employee_commuting": 0.0,
-                        "pgs": 0.0,
-                        "other": 0.0,
+                        "scope_1": 0.0,
+                        "scope_2": 0.0,
+                        "scope_3": 0.0,
                         "total": 0.0,
                     }
                     for s in configured_site_names
-                ],
-                "appendix_rows": [],
-            }
-        return empty_result
+                ]
+                return {
+                    "show_site_tables": True,
+                    "site_count": len(configured_site_names),
+                    "overall": [{"site_name": s, "total": 0.0, "pct_total": 0.0} for s in configured_site_names],
+                    "scope": zero_scope_rows,
+                    "activity": [
+                        {
+                            "site_name": s,
+                            "energy": 0.0,
+                            "business_travel": 0.0,
+                            "employee_commuting": 0.0,
+                            "pgs": 0.0,
+                            "other": 0.0,
+                            "total": 0.0,
+                        }
+                        for s in configured_site_names
+                    ],
+                    "appendix_rows": [],
+                }
+            return empty_result
 
-    df = df.fillna(
-        {
-            "site_name": "Unassigned",
-            "scope": "",
-            "category": "Uncategorized",
-            "report_label": "Uncategorized",
-            "qty": 0,
-            "uom": "",
-            "factor": 0,
-            "ghg_unit": "kgCO2e",
-            "apply_pct": 100,
-        }
-    )
-
-    site_scope_totals: dict[str, dict[str, float]] = {}
-    site_activity_totals: dict[str, dict[str, float]] = {}
-    appendix_rows: list[dict[str, Any]] = []
-
-    # Seed with configured sites so zero-emission sites are still shown.
-    for s in configured_site_names:
-        if s not in site_scope_totals:
-            site_scope_totals[s] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
-        if s not in site_activity_totals:
-            site_activity_totals[s] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
-            site_activity_totals[s]["Total"] = 0.0
-
-    for _, row in df.iterrows():
-        site_name = str(row.get("site_name") or "Unassigned")
-        scope = str(row.get("scope") or "")
-        category = str(row.get("category") or "Uncategorized")
-        report_label = str(row.get("report_label") or category)
-
-        monthly_total = sum(float(row.get(f"month_{i}", 0) or 0) for i in range(1, 13))
-        qty_val = float(row.get("qty", 0) or monthly_total or 0)
-        factor_val = float(row.get("factor", 0) or 0)
-        apply_pct_val = float(row.get("apply_pct", 100) or 100)
-        uom = str(row.get("uom") or "")
-
-        ghg_unit = str(row.get("ghg_unit", "kgCO2e") or "kgCO2e").lower()
-        emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-        if "kg" in ghg_unit:
-            emissions = emissions / 1000.0
-
-        if site_name not in site_scope_totals:
-            site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
-        if scope in ("Scope 1", "Scope 2", "Scope 3"):
-            site_scope_totals[site_name][scope] += emissions
-        site_scope_totals[site_name]["Total"] += emissions
-
-        group = _classify_activity_group(scope, category, report_label)
-        if site_name not in site_activity_totals:
-            site_activity_totals[site_name] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
-            site_activity_totals[site_name]["Total"] = 0.0
-        site_activity_totals[site_name][group] += emissions
-        site_activity_totals[site_name]["Total"] += emissions
-
-        appendix_rows.append(
+        df = df.fillna(
             {
-                "site_name": site_name,
-                "scope": scope,
-                "activity_group": group,
-                "emission_type": report_label,
-                "category": category,
-                "qty": qty_val,
-                "uom": uom,
-                "emissions": emissions,
+                "site_name": "Unassigned",
+                "scope": "",
+                "category": "Uncategorized",
+                "report_label": "Uncategorized",
+                "uom": "",
+                "ghg_unit": "kgCO2e",
             }
         )
 
-    # Keep only non-empty sites and deterministic ordering.
-    scope_rows = [
-        {
-            "site_name": site,
-            "scope_1": round(vals.get("Scope 1", 0.0), 2),
-            "scope_2": round(vals.get("Scope 2", 0.0), 2),
-            "scope_3": round(vals.get("Scope 3", 0.0), 2),
-            "total": round(vals.get("Total", 0.0), 2),
-        }
-        for site, vals in site_scope_totals.items()
-    ]
-    scope_rows.sort(key=lambda r: (-float(r["total"]), str(r["site_name"]).lower()))
+        site_scope_totals: dict[str, dict[str, float]] = {}
+        site_activity_totals: dict[str, dict[str, float]] = {}
+        appendix_rows: list[dict[str, Any]] = []
 
-    site_count = len(scope_rows)
-    if site_count <= 1:
-        return empty_result
+        # Seed with configured sites so zero-emission sites are still shown.
+        for s in configured_site_names:
+            if s not in site_scope_totals:
+                site_scope_totals[s] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+            if s not in site_activity_totals:
+                site_activity_totals[s] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
+                site_activity_totals[s]["Total"] = 0.0
 
-    grand_total = sum(float(r["total"]) for r in scope_rows)
-    overall_rows = [
-        {
-            "site_name": r["site_name"],
-            "total": r["total"],
-            "pct_total": (round((float(r["total"]) / grand_total) * 100.0, 1) if grand_total > 0 else 0.0),
-        }
-        for r in scope_rows
-    ]
+        for _, row in df.iterrows():
+            site_name = str(row.get("site_name") or "Unassigned")
+            scope = str(row.get("scope") or "")
+            category = str(row.get("category") or "Uncategorized")
+            report_label = str(row.get("report_label") or category)
 
-    activity_rows = []
-    for site_row in scope_rows:
-        site = str(site_row["site_name"])
-        vals = site_activity_totals.get(site, {})
-        activity_rows.append(
+            metrics = resolver.row_metrics(row)
+            qty_val = float(metrics.get("display_qty") or 0.0)
+            uom = str(metrics.get("display_uom") or "")
+            emissions = float(metrics.get("calc_tco2e") or 0.0)
+
+            if site_name not in site_scope_totals:
+                site_scope_totals[site_name] = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+            if scope in ("Scope 1", "Scope 2", "Scope 3"):
+                site_scope_totals[site_name][scope] += emissions
+            site_scope_totals[site_name]["Total"] += emissions
+
+            group = _classify_activity_group(scope, category, report_label)
+            if site_name not in site_activity_totals:
+                site_activity_totals[site_name] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
+                site_activity_totals[site_name]["Total"] = 0.0
+            site_activity_totals[site_name][group] += emissions
+            site_activity_totals[site_name]["Total"] += emissions
+
+            appendix_rows.append(
+                {
+                    "site_name": site_name,
+                    "scope": scope,
+                    "activity_group": group,
+                    "emission_type": report_label,
+                    "category": category,
+                    "qty": qty_val,
+                    "uom": uom,
+                    "emissions": emissions,
+                }
+            )
+
+        # Keep only non-empty sites and deterministic ordering.
+        scope_rows = [
             {
                 "site_name": site,
-                "energy": round(float(vals.get("Energy", 0.0) or 0.0), 2),
-                "business_travel": round(float(vals.get("Business Travel", 0.0) or 0.0), 2),
-                "employee_commuting": round(float(vals.get("Employee Commuting", 0.0) or 0.0), 2),
-                "pgs": round(float(vals.get("Purchased Goods & Services (PG&S)", 0.0) or 0.0), 2),
-                "other": round(float(vals.get("Other Emissions", 0.0) or 0.0), 2),
-                "total": round(float(vals.get("Total", 0.0) or 0.0), 2),
+                "scope_1": round(vals.get("Scope 1", 0.0), 2),
+                "scope_2": round(vals.get("Scope 2", 0.0), 2),
+                "scope_3": round(vals.get("Scope 3", 0.0), 2),
+                "total": round(vals.get("Total", 0.0), 2),
             }
+            for site, vals in site_scope_totals.items()
+        ]
+        scope_rows.sort(key=lambda r: (-float(r["total"]), str(r["site_name"]).lower()))
+
+        site_count = len(scope_rows)
+        if site_count <= 1:
+            return empty_result
+
+        grand_total = sum(float(r["total"]) for r in scope_rows)
+        overall_rows = [
+            {
+                "site_name": r["site_name"],
+                "total": r["total"],
+                "pct_total": (round((float(r["total"]) / grand_total) * 100.0, 1) if grand_total > 0 else 0.0),
+            }
+            for r in scope_rows
+        ]
+
+        activity_rows = []
+        for site_row in scope_rows:
+            site = str(site_row["site_name"])
+            vals = site_activity_totals.get(site, {})
+            activity_rows.append(
+                {
+                    "site_name": site,
+                    "energy": round(float(vals.get("Energy", 0.0) or 0.0), 2),
+                    "business_travel": round(float(vals.get("Business Travel", 0.0) or 0.0), 2),
+                    "employee_commuting": round(float(vals.get("Employee Commuting", 0.0) or 0.0), 2),
+                    "pgs": round(float(vals.get("Purchased Goods & Services (PG&S)", 0.0) or 0.0), 2),
+                    "other": round(float(vals.get("Other Emissions", 0.0) or 0.0), 2),
+                    "total": round(float(vals.get("Total", 0.0) or 0.0), 2),
+                }
+            )
+
+        appendix_rows = sorted(
+            appendix_rows,
+            key=lambda r: (
+                str(r.get("site_name") or "").lower(),
+                str(r.get("scope") or "").lower(),
+                str(r.get("activity_group") or "").lower(),
+                str(r.get("emission_type") or "").lower(),
+            ),
         )
 
-    appendix_rows = sorted(
-        appendix_rows,
-        key=lambda r: (
-            str(r.get("site_name") or "").lower(),
-            str(r.get("scope") or "").lower(),
-            str(r.get("activity_group") or "").lower(),
-            str(r.get("emission_type") or "").lower(),
-        ),
-    )
-
-    return {
-        "show_site_tables": True,
-        "site_count": site_count,
-        "overall": overall_rows,
-        "scope": scope_rows,
-        "activity": activity_rows,
-        "appendix_rows": appendix_rows,
-    }
+        return {
+            "show_site_tables": True,
+            "site_count": site_count,
+            "overall": overall_rows,
+            "scope": scope_rows,
+            "activity": activity_rows,
+            "appendix_rows": appendix_rows,
+        }
 
 
 def _get_benchmark_job_id(job_id: int, benchmark_year: int | None) -> int | None:

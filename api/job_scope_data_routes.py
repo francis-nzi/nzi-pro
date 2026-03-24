@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from core.database import get_conn
 from api.auth import _current_user
 from services.dataset_selector import get_scope_primary_datasets
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 
 router = APIRouter()
 
@@ -380,6 +381,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [job_id_int]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
+            resolver = JobMonthlyEmissionsResolver(con, job_id_int)
             
             # Build query
             where_clause = "WHERE jsr.job_id=%s AND jsr.enabled=TRUE"
@@ -450,73 +452,20 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         except (ValueError, TypeError):
                             return False
                     
-                    # Calculate total qty from monthly values
-                    monthly_total = sum([
-                        safe_float(r.get(f'month_{i}')) or 0
-                        for i in range(1, 13)
-                    ])
-                    
-                    # Calculate tCO2e
-                    qty_val = safe_float(r.get('qty')) or monthly_total or 0
-                    factor_val = safe_float(r.get('factor')) or 0
-                    apply_pct_val = safe_float(r.get('apply_pct')) or 100
-                    source_qty_val = safe_float(r.get("source_qty"))
-                    source_uom_val = r.get("source_uom")
-                    storage_qty_val = safe_float(r.get("qty"))
-                    storage_uom_val = r.get("uom")
-                    storage_factor_val = safe_float(r.get("factor"))
-                    lookup_factor_val = safe_float(r.get("lookup_factor"))
-                    factor_reference = _extract_note_token(r.get("notes"), _FACTOR_ORIGINAL_ID_RE)
-                    storage_reason = _extract_note_token(r.get("notes"), _STORAGE_REASON_RE)
-                    if lookup_factor_val is None and factor_reference:
-                        fallback_lookup = _lookup_factor_from_reference(
-                            con,
-                            safe_int(r.get("dataset_id")),
-                            r.get("scope"),
-                            factor_reference,
-                        )
-                        if fallback_lookup:
-                            lookup_factor_val = _safe_float(fallback_lookup.get("factor"))
-                            if not r.get("lookup_ghg_unit") and fallback_lookup.get("ghg_unit"):
-                                r["lookup_ghg_unit"] = fallback_lookup.get("ghg_unit")
-
-                    has_source_volume = bool(
-                        source_qty_val is not None and source_uom_val is not None and str(source_uom_val).strip()
-                    )
-                    fallback_storage = bool(
-                        storage_uom_val is not None
-                        and str(storage_uom_val).strip().lower() == "tco2e"
-                        and storage_factor_val is not None
-                        and abs(float(storage_factor_val) - 1.0) < 1e-9
-                    )
-                    uses_emissions_fallback = bool(
-                        fallback_storage
-                        and (
-                            has_source_volume
-                            or lookup_factor_val is not None
-                            or factor_reference is not None
-                            or storage_reason is not None
-                        )
-                    )
-                    display_qty_val = source_qty_val if uses_emissions_fallback and has_source_volume else storage_qty_val
-                    display_uom_val = source_uom_val if uses_emissions_fallback and has_source_volume else storage_uom_val
-                    
-                    # Convert based on ghg_unit
-                    ghg_unit = str(r.get('ghg_unit') or 'kgCO2e').lower()
-                    emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-                    if 'kg' in ghg_unit:
-                        emissions = emissions / 1000.0  # Convert kg to tonnes
-                    
-                    tco2e_before_apply = qty_val * factor_val
-                    if 'kg' in ghg_unit:
-                        tco2e_before_apply = tco2e_before_apply / 1000.0
+                    metrics = resolver.row_metrics(r)
+                    source_qty_val = safe_float(metrics.get("source_qty"))
+                    source_uom_val = metrics.get("source_uom")
+                    storage_qty_val = safe_float(metrics.get("storage_qty"))
+                    storage_uom_val = metrics.get("storage_uom")
+                    storage_factor_val = safe_float(metrics.get("storage_factor"))
+                    reference_factor_val = safe_float(metrics.get("reference_factor"))
                     
                     rows.append({
                         "row_id": safe_int(r.get("row_id")),
                         "job_id": safe_int(r.get("job_id")),
                         "scope": r.get("scope"),
                         "site_id": safe_int(r.get("site_id")),
-                        "dataset_id": safe_int(r.get("dataset_id")),
+                        "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
                         "category": r.get("category"),
@@ -526,22 +475,26 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "level_4": r.get("level_4"),
                         "column_text": r.get("column_text"),
                         "report_label": r.get("report_label"),
-                        "qty": display_qty_val,
-                        "uom": display_uom_val,
-                        "factor": lookup_factor_val if uses_emissions_fallback and lookup_factor_val is not None else storage_factor_val,
+                        "qty": safe_float(metrics.get("display_qty")),
+                        "uom": metrics.get("display_uom"),
+                        "factor": safe_float(metrics.get("display_factor")),
                         "source_qty": source_qty_val,
                         "source_uom": source_uom_val,
                         "storage_qty": storage_qty_val,
                         "storage_uom": storage_uom_val,
                         "storage_factor": storage_factor_val,
-                        "reference_factor": lookup_factor_val,
-                        "factor_reference": factor_reference,
-                        "storage_reason": storage_reason,
-                        "uses_emissions_fallback": uses_emissions_fallback,
-                        "source_volume_available": has_source_volume,
+                        "reference_factor": reference_factor_val,
+                        "factor_reference": metrics.get("factor_reference"),
+                        "storage_reason": metrics.get("storage_reason"),
+                        "uses_emissions_fallback": bool(metrics.get("uses_emissions_fallback")),
+                        "source_volume_available": bool(metrics.get("source_volume_available")),
+                        "factor_label": metrics.get("factor_label"),
+                        "dataset_label": metrics.get("dataset_label"),
+                        "monthly_factor_details": metrics.get("monthly_factor_details") or [],
+                        "uses_monthly_factors": bool(metrics.get("uses_monthly_factors")),
                         "ghg_unit": r.get("ghg_unit"),
-                        "calc_tco2e": round(emissions, 4),
-                        "tco2e_before_apply": round(tco2e_before_apply, 4),
+                        "calc_tco2e": round(float(metrics.get("calc_tco2e") or 0.0), 4),
+                        "tco2e_before_apply": round(float(metrics.get("tco2e_before_apply") or 0.0), 4),
                         "apply_pct": safe_float(r.get("apply_pct")) or 100,
                         "month_1": safe_float(r.get("month_1")),
                         "month_2": safe_float(r.get("month_2")),
@@ -598,11 +551,12 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
             
             # Get all rows
             df = con.execute(
                 """
-                SELECT scope, qty, factor, ghg_unit, apply_pct,
+                SELECT scope, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
                        month_1, month_2, month_3, month_4, month_5, month_6,
                        month_7, month_8, month_9, month_10, month_11, month_12
                 FROM job_scope_rows
@@ -620,22 +574,8 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             
             if df is not None and not df.empty:
                 for _, r in df.iterrows():
-                    # Calculate total qty from monthly values
-                    monthly_total = sum([
-                        float(r.get(f'month_{i}') or 0) 
-                        for i in range(1, 13)
-                    ])
-                    
-                    qty_val = float(r.get('qty') or monthly_total or 0)
-                    factor_val = float(r.get('factor') or 0)
-                    apply_pct_val = float(r.get('apply_pct') or 100)
-                    
-                    # Calculate emissions
-                    ghg_unit = str(r.get('ghg_unit') or 'kgCO2e').lower()
-                    emissions = qty_val * factor_val * (apply_pct_val / 100.0)
-                    if 'kg' in ghg_unit:
-                        emissions = emissions / 1000.0
-                    
+                    metrics = resolver.row_metrics(r)
+                    emissions = float(metrics.get("calc_tco2e") or 0.0)
                     scope = r.get('scope')
                     if scope in totals:
                         totals[scope] += emissions

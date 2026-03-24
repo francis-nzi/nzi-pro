@@ -6,6 +6,7 @@ Provides hierarchical view of emissions data by Scope > Categories > Sites.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from core.database import get_conn
 from api.auth import _current_user
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 
 router = APIRouter()
 
@@ -73,32 +74,35 @@ def get_job_data_output(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             reporting_year = job_check[1]
-            has_source_qty = _column_exists(con, "job_scope_rows", "source_qty")
-            has_source_uom = _column_exists(con, "job_scope_rows", "source_uom")
-            quantity_sql = "COALESCE(jsr.source_qty, jsr.qty)" if has_source_qty else "jsr.qty"
-            unit_sql = "COALESCE(jsr.source_uom, jsr.uom)" if has_source_uom else "jsr.uom"
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
 
             if scope:
                 # Detailed breakdown for specific scope
                 data_df = con.execute(
-                    f"""
+                    """
                     SELECT 
+                        jsr.row_id,
                         jsr.scope,
                         COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) as category,
                         COALESCE(s.site_name, 'No Site Assigned'::text) as site_name,
                         jsr.level_3,
                         jsr.level_4,
                         COALESCE(jsr.column_text, jsr.report_label) as activity_name,
-                        {quantity_sql} as quantity,
-                        {unit_sql} as unit,
+                        jsr.dataset_id,
+                        jsr.factor_db_id,
+                        jsr.original_id,
+                        jsr.qty,
+                        jsr.uom,
                         jsr.factor,
                         jsr.ghg_unit,
                         jsr.apply_pct,
+                        jsr.notes,
+                        jsr.source_qty,
+                        jsr.source_uom,
                         jsr.is_custom_entry,
                         jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                         jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
-                        jsr.row_id
+                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
                     FROM job_scope_rows jsr
                     LEFT JOIN client_sites s ON jsr.site_id = s.site_id
                     WHERE jsr.job_id = %s 
@@ -122,21 +126,9 @@ def get_job_data_output(
                 for _, row in data_df.iterrows():
                     category = row['category'] or 'Uncategorized'
                     site = row['site_name'] or 'No Site Assigned'
-
-                    # Calculate emissions on-the-fly
-                    monthly_total = sum([
-                        float(row.get(f'month_{i}') or 0)
-                        for i in range(1, 13)
-                    ])
-                    qty_val = float(row.get('quantity') or monthly_total or 0)
-                    factor_val = float(row.get('factor') or 0)
-                    apply_pct_val = float(row.get('apply_pct') or 100)
-
-                    # Convert based on ghg_unit
-                    ghg_unit = str(row.get('ghg_unit') or 'kgCO2e').lower()
-                    emission = qty_val * factor_val * (apply_pct_val / 100.0)
-                    if 'kg' in ghg_unit:
-                        emission = emission / 1000.0  # Convert kg to tonnes
+                    metrics = resolver.row_metrics(row)
+                    qty_val = float(metrics.get("display_qty") or 0.0)
+                    emission = float(metrics.get("calc_tco2e") or 0.0)
 
                     if category not in categories:
                         categories[category] = {
@@ -160,7 +152,7 @@ def get_job_data_output(
                         "level_4": row['level_4'],
                         "activity_name": row['activity_name'],
                         "quantity": qty_val if qty_val > 0 else None,
-                        "unit": row['unit'],
+                        "unit": metrics.get("display_uom"),
                         "emissions": round(emission, 2),
                         "is_custom_entry": bool(row.get("is_custom_entry") or False),
                     })
@@ -195,13 +187,21 @@ def get_job_data_output(
                 summary_df = con.execute(
                     """
                     SELECT 
+                        jsr.row_id,
                         jsr.scope,
                         COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) as category,
                         COALESCE(s.site_name, 'No Site Assigned'::text) as site_name,
+                        jsr.dataset_id,
+                        jsr.factor_db_id,
+                        jsr.original_id,
                         jsr.qty,
+                        jsr.uom,
                         jsr.factor,
                         jsr.ghg_unit,
                         jsr.apply_pct,
+                        jsr.notes,
+                        jsr.source_qty,
+                        jsr.source_uom,
                         jsr.is_custom_entry,
                         jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                         jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
@@ -228,21 +228,8 @@ def get_job_data_output(
                     scope_name = row['scope'] or 'Unknown'
                     category = row['category'] or 'Uncategorized'
                     site = row['site_name'] or 'No Site Assigned'
-                    
-                    # Calculate emissions on-the-fly
-                    monthly_total = sum([
-                        float(row.get(f'month_{i}') or 0) 
-                        for i in range(1, 13)
-                    ])
-                    qty_val = float(row.get('qty') or monthly_total or 0)
-                    factor_val = float(row.get('factor') or 0)
-                    apply_pct_val = float(row.get('apply_pct') or 100)
-                    
-                    # Convert based on ghg_unit
-                    ghg_unit = str(row.get('ghg_unit') or 'kgCO2e').lower()
-                    emission = qty_val * factor_val * (apply_pct_val / 100.0)
-                    if 'kg' in ghg_unit:
-                        emission = emission / 1000.0  # Convert kg to tonnes
+                    metrics = resolver.row_metrics(row)
+                    emission = float(metrics.get("calc_tco2e") or 0.0)
                     
                     if scope_name not in scopes:
                         scopes[scope_name] = {
@@ -323,18 +310,25 @@ def get_job_data_output_audit(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             reporting_year = job_check[1]
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
             df = con.execute(
                 """
                 SELECT
                     COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
+                    jsr.row_id,
                     jsr.scope,
+                    jsr.dataset_id,
+                    jsr.factor_db_id,
                     jsr.original_id,
                     COALESCE(jsr.report_label, jsr.column_text, '-'::text) AS report_label,
+                    jsr.source_qty,
+                    jsr.source_uom,
                     jsr.uom,
                     jsr.qty,
                     jsr.factor,
                     jsr.ghg_unit,
                     jsr.apply_pct,
+                    jsr.notes,
                     jsr.data_confidence,
                     d.name AS dataset_name,
                     d.version AS dataset_version,
@@ -362,16 +356,11 @@ def get_job_data_output_audit(
             rows: list[dict] = []
             subtotal_map: dict[tuple[str, str], float] = {}
             for _, row in df.iterrows():
-                monthly_total = sum([float(row.get(f"month_{i}") or 0) for i in range(1, 13)])
-                qty_val = float(row.get("qty") or monthly_total or 0)
                 scope_name = str(row.get("scope") or "Unknown")
                 site_name = str(row.get("site_name") or "No Site Assigned")
-                emissions = _calc_emissions_tco2e(
-                    qty=qty_val,
-                    factor=float(row.get("factor") or 0),
-                    apply_pct=float(row.get("apply_pct") or 100),
-                    ghg_unit=str(row.get("ghg_unit") or "kgCO2e"),
-                )
+                metrics = resolver.row_metrics(row)
+                qty_val = float(metrics.get("display_qty") or 0.0)
+                emissions = float(metrics.get("calc_tco2e") or 0.0)
 
                 rows.append(
                     {
@@ -379,12 +368,13 @@ def get_job_data_output_audit(
                         "scope": scope_name,
                         "id": str(row.get("original_id") or ""),
                         "report_label": str(row.get("report_label") or "-"),
-                        "uom": str(row.get("uom") or ""),
+                        "uom": str(metrics.get("display_uom") or ""),
                         "qty": qty_val,
-                        "factor": float(row.get("factor") or 0),
+                        "factor": float(metrics.get("display_factor") or 0.0),
+                        "factor_label": metrics.get("factor_label"),
                         "tco2e_after_apply": round(emissions, 6),
                         "data_confidence": str(row.get("data_confidence") or ""),
-                        "dataset_name": str(row.get("dataset_name") or ""),
+                        "dataset_name": str(metrics.get("dataset_label") or row.get("dataset_name") or ""),
                         "dataset_version": str(row.get("dataset_version") or ""),
                     }
                 )

@@ -43,6 +43,21 @@ type ScopeDataRow = {
   uom: string | null;
   qty: number | null;
   factor: number | null;
+  factor_label?: string | null;
+  dataset_label?: string | null;
+  uses_monthly_factors?: boolean;
+  monthly_factor_details?: Array<{
+    month_index: number;
+    month_label?: string | null;
+    dataset_id?: number | null;
+    dataset_name?: string | null;
+    factor_db_id?: number | null;
+    factor_original_id?: string | null;
+    factor?: number | null;
+    ghg_unit?: string | null;
+    qty?: number | null;
+    emissions?: number | null;
+  }>;
   source_qty?: number | null;
   source_uom?: string | null;
   storage_qty?: number | null;
@@ -593,6 +608,9 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       }
       return row.factor_reference || row.original_id || "Monthly factors";
     }
+    if (row.uses_monthly_factors) {
+      return row.factor_label || "Monthly factors";
+    }
     if (row.factor === null || row.factor === undefined || Number.isNaN(row.factor)) return "-";
     return row.factor.toFixed(5);
   }
@@ -953,6 +971,36 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                                 <div className="text-muted-foreground">tCO2e (Before)</div>
                                 <div className="font-mono">{row.tco2e_before_apply.toFixed(4)}</div>
                               </div>
+                              <div className="text-xs">
+                                <div className="text-muted-foreground">Dataset</div>
+                                <div>{row.dataset_label || "-"}</div>
+                              </div>
+                              {row.uses_monthly_factors && (
+                                <div className="text-xs md:col-span-2 lg:col-span-4">
+                                  <div className="text-muted-foreground mb-1">Monthly Dataset / Factor Audit</div>
+                                  <div className="rounded border bg-background px-3 py-2">
+                                    <div className="mb-2 text-[11px] text-muted-foreground">
+                                      Emissions for this row are calculated month by month using the setup dataset applicable to each month.
+                                    </div>
+                                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                                      {(row.monthly_factor_details || []).map((detail) => (
+                                        <div key={`${row.row_id}-${detail.month_index}`} className="rounded border px-2 py-2 text-[11px]">
+                                          <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
+                                          <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
+                                          <div className="font-mono">
+                                            Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
+                                              ? detail.factor.toFixed(5)
+                                              : "-"}
+                                          </div>
+                                          <div className="font-mono break-all">
+                                            ID: {detail.factor_original_id || "-"}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                               {isLegacyFallbackRow(row) && (
                                 <>
                                   <div className="text-xs">

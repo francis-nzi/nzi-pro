@@ -6,6 +6,7 @@ Provides year-over-year emissions comparison data for client reporting.
 from fastapi import APIRouter, HTTPException, Depends, Query
 from core.database import get_conn
 from api.auth import _current_user
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 
 router = APIRouter()
 
@@ -139,12 +140,16 @@ def get_client_reporting(
             
             placeholders = ",".join(["%s"] * len(job_ids))
             has_source_qty = _column_exists(con, "job_scope_rows", "source_qty")
+            has_source_uom = _column_exists(con, "job_scope_rows", "source_uom")
             source_qty_sql = "jsr.source_qty" if has_source_qty else "NULL"
+            source_uom_sql = "jsr.source_uom" if has_source_uom else "NULL"
             
             # Get scope rows with all needed fields
             scope_df = con.execute(
                 f"""
                 SELECT 
+                    jsr.job_id,
+                    jsr.row_id,
                     COALESCE(
                         EXTRACT(YEAR FROM j.reporting_period_end),
                         EXTRACT(YEAR FROM cjd.reporting_period_to),
@@ -153,11 +158,17 @@ def get_client_reporting(
                     jsr.scope,
                     COALESCE(jsr.category, jsr.level_2, 'Uncategorized') as category,
                     COALESCE(s.site_name, 'No Site Assigned') as site_name,
+                    jsr.dataset_id,
+                    jsr.factor_db_id,
+                    jsr.original_id,
                     {source_qty_sql} as source_qty,
+                    {source_uom_sql} as source_uom,
                     jsr.qty,
+                    jsr.uom,
                     jsr.factor,
                     jsr.ghg_unit,
                     jsr.apply_pct,
+                    jsr.notes,
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                     jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
                     jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
@@ -182,9 +193,22 @@ def get_client_reporting(
                     "by_site": []
                 }
             
-            # Calculate emissions for each row
-            scope_df['emissions'] = scope_df.apply(_calc_emissions, axis=1)
-            scope_df['quantity'] = scope_df.apply(_calc_quantity, axis=1)
+            # Calculate emissions and quantity using the same month-aware row resolver
+            resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
+            emissions_vals: list[float] = []
+            quantity_vals: list[float] = []
+            for _, row in scope_df.iterrows():
+                row_job_id = int(row.get('job_id'))
+                resolver = resolver_by_job.get(row_job_id)
+                if resolver is None:
+                    resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                    resolver_by_job[row_job_id] = resolver
+                metrics = resolver.row_metrics(row)
+                emissions_vals.append(float(metrics.get('calc_tco2e') or 0.0))
+                quantity_vals.append(float(metrics.get('display_qty') or 0.0))
+
+            scope_df['emissions'] = emissions_vals
+            scope_df['quantity'] = quantity_vals
             
             # Get unique years
             years = sorted([int(y) for y in scope_df['dashboard_year'].dropna().unique().tolist()])
