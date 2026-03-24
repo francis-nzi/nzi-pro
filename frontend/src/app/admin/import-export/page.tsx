@@ -778,7 +778,7 @@ export default function AdminImportExportPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          job_id: legacyJobId.trim(),
+          job_id: legacyPreview?.job_id ?? legacyJobId.trim(),
           site_id: legacySiteId.trim() ? Number(legacySiteId) : null,
           rows_ready: legacyPreview.rows_ready,
         }),
@@ -1597,17 +1597,40 @@ export default function AdminImportExportPage() {
                 <Label>Job ID / Number *</Label>
                 <Input
                   value={legacyJobId}
-                  onChange={(e) => setLegacyJobId(e.target.value)}
-                  placeholder="e.g. 267 or J000267"
+                  onChange={(e) => {
+                    setLegacyJobId(e.target.value);
+                    setLegacyPreview(null);
+                    setLegacyCommitResult(null);
+                  }}
+                  placeholder="e.g. J000267 or internal Job ID 258"
                 />
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Use the full job number where possible. Bare numbers can be ambiguous if they overlap with an internal Job ID.
+                </div>
               </div>
               <div>
                 <Label>Site ID (optional)</Label>
-                <Input value={legacySiteId} onChange={(e) => setLegacySiteId(e.target.value)} placeholder="Auto if blank" />
+                <Input
+                  value={legacySiteId}
+                  onChange={(e) => {
+                    setLegacySiteId(e.target.value);
+                    setLegacyPreview(null);
+                    setLegacyCommitResult(null);
+                  }}
+                  placeholder="Auto if blank"
+                />
               </div>
               <div>
                 <Label>Legacy XLSX File *</Label>
-                <Input type="file" accept=".xlsx" onChange={(e) => setLegacyFile(e.target.files?.[0] || null)} />
+                <Input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => {
+                    setLegacyFile(e.target.files?.[0] || null);
+                    setLegacyPreview(null);
+                    setLegacyCommitResult(null);
+                  }}
+                />
               </div>
             </div>
             <div className="flex gap-2">
@@ -1634,7 +1657,10 @@ export default function AdminImportExportPage() {
                 <div className="grid gap-3 md:grid-cols-4">
                   <div className="rounded border bg-muted/20 p-3">
                     <div className="text-xs text-muted-foreground">Job</div>
-                    <div className="text-lg font-semibold">{legacyPreview?.job_number || `ID ${legacyCommitResult.job_id ?? "-"}`}</div>
+                    <div className="text-lg font-semibold">
+                      {legacyPreview?.job_number || `ID ${legacyCommitResult.job_id ?? "-"}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Internal ID {legacyCommitResult.job_id ?? "-"}</div>
                   </div>
                   <div className="rounded border bg-muted/20 p-3">
                     <div className="text-xs text-muted-foreground">Inserted</div>
@@ -1662,6 +1688,7 @@ export default function AdminImportExportPage() {
                     <div className="text-sm font-medium">Preview Summary</div>
                     <div className="text-xs text-muted-foreground">
                       {legacyPreview.job_number ? `Job ${legacyPreview.job_number}` : null}
+                      {legacyPreview.job_id ? `${legacyPreview.job_number ? " " : ""}(Internal ID ${legacyPreview.job_id})` : null}
                       {legacyPreview.filename ? `${legacyPreview.job_number ? " | " : ""}${legacyPreview.filename}` : null}
                     </div>
                   </div>
