@@ -48,6 +48,7 @@ type ScopeDataRow = {
   storage_qty?: number | null;
   storage_uom?: string | null;
   storage_factor?: number | null;
+  reference_factor?: number | null;
   factor_reference?: string | null;
   storage_reason?: string | null;
   uses_emissions_fallback?: boolean;
@@ -586,6 +587,9 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
 
   function factorDisplayText(row: ScopeDataRow): string {
     if (isLegacyFallbackRow(row)) {
+      if (row.reference_factor !== null && row.reference_factor !== undefined && !Number.isNaN(row.reference_factor)) {
+        return row.reference_factor.toFixed(5);
+      }
       return row.factor_reference || row.original_id || "Monthly factors";
     }
     if (row.factor === null || row.factor === undefined || Number.isNaN(row.factor)) return "-";
@@ -927,9 +931,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor</div>
-                                <div className="font-mono break-all">
-                                  {isLegacyFallbackRow(row) ? "Monthly factors" : factorDisplayText(row)}
-                                </div>
+                                <div className="font-mono break-all">{factorDisplayText(row)}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor ID</div>

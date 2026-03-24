@@ -307,25 +307,28 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                 raise HTTPException(status_code=404, detail="Job not found")
             
             # Build query
-            where_clause = "WHERE job_id=%s AND enabled=TRUE"
+            where_clause = "WHERE jsr.job_id=%s AND jsr.enabled=TRUE"
             params = [int(job_id)]
             
             if scope:
-                where_clause += " AND scope=%s"
+                where_clause += " AND jsr.scope=%s"
                 params.append(scope)
             
             query = f"""
                 SELECT 
-                    row_id, job_id, scope, site_id, dataset_id, factor_db_id, original_id,
-                    category, level_1, level_2, level_3, level_4, column_text, report_label,
-                    qty, uom, factor, ghg_unit, calc_tco2e, apply_pct,
+                    jsr.row_id, jsr.job_id, jsr.scope, jsr.site_id, jsr.dataset_id, jsr.factor_db_id, jsr.original_id,
+                    jsr.category, jsr.level_1, jsr.level_2, jsr.level_3, jsr.level_4, jsr.column_text, jsr.report_label,
+                    jsr.qty, jsr.uom, jsr.factor, jsr.ghg_unit, jsr.calc_tco2e, jsr.apply_pct,
                     {source_qty_select}, {source_uom_select},
-                    month_1, month_2, month_3, month_4, month_5, month_6,
-                    month_7, month_8, month_9, month_10, month_11, month_12,
-                    data_source, data_confidence, notes, is_custom_entry, created_at, updated_at
-                FROM job_scope_rows
+                    jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
+                    jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
+                    jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.created_at, jsr.updated_at,
+                    fl.factor AS lookup_factor,
+                    fl.ghg_unit AS lookup_ghg_unit
+                FROM job_scope_rows jsr
+                LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
                 {where_clause}
-                ORDER BY scope, category, report_label
+                ORDER BY jsr.scope, jsr.category, jsr.report_label
             """
             
             # Execute query and get raw cursor
@@ -387,6 +390,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     storage_qty_val = safe_float(r.get("qty"))
                     storage_uom_val = r.get("uom")
                     storage_factor_val = safe_float(r.get("factor"))
+                    lookup_factor_val = safe_float(r.get("lookup_factor"))
                     factor_reference = _extract_note_token(r.get("notes"), _FACTOR_ORIGINAL_ID_RE)
                     storage_reason = _extract_note_token(r.get("notes"), _STORAGE_REASON_RE)
                     uses_emissions_fallback = bool(
@@ -426,12 +430,13 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "report_label": r.get("report_label"),
                         "qty": display_qty_val,
                         "uom": display_uom_val,
-                        "factor": safe_float(r.get("factor")),
+                        "factor": lookup_factor_val if uses_emissions_fallback and lookup_factor_val is not None else storage_factor_val,
                         "source_qty": source_qty_val,
                         "source_uom": source_uom_val,
                         "storage_qty": storage_qty_val,
                         "storage_uom": storage_uom_val,
                         "storage_factor": storage_factor_val,
+                        "reference_factor": lookup_factor_val,
                         "factor_reference": factor_reference,
                         "storage_reason": storage_reason,
                         "uses_emissions_fallback": uses_emissions_fallback,
