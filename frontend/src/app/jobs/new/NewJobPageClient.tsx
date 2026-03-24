@@ -26,6 +26,12 @@ type Client = {
   crm_owner?: string | null;
 };
 
+type TeamUser = {
+  email: string;
+  full_name: string;
+  status?: string | null;
+};
+
 type Dataset = {
   dataset_id: number;
   name: string | null;
@@ -68,6 +74,7 @@ function NewJobPageContent() {
   const [clients, setClients] = useState<Client[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
 
   // Form fields
   const [clientId, setClientId] = useState("");
@@ -253,6 +260,7 @@ function NewJobPageContent() {
     loadClients();
     loadDatasets();
     loadJobTypes();
+    loadTeamMembers();
   }, [baseUrl]);
 
   useEffect(() => {
@@ -369,6 +377,25 @@ function NewJobPageContent() {
       }
     } catch (err) {
       console.error("Error loading job types:", err);
+    }
+  }
+
+  async function loadTeamMembers() {
+    try {
+      const res = await fetch(`${baseUrl}/admin/users`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        console.error("Failed to load team members");
+        return;
+      }
+      const json = await res.json();
+      const activeMembers = ((json.items ?? []) as TeamUser[])
+        .filter((member) => String(member.status ?? "Active").toLowerCase() === "active")
+        .sort((a, b) => (a.full_name || a.email || "").localeCompare(b.full_name || b.email || ""));
+      setTeamMembers(activeMembers);
+    } catch (err) {
+      console.error("Error loading team members:", err);
     }
   }
 
@@ -579,12 +606,25 @@ function NewJobPageContent() {
 
                     <div className="space-y-2">
                       <Label htmlFor="crmName">CRM Owner</Label>
-                      <Input
-                        id="crmName"
-                        value={crmName}
-                        onChange={(e) => setCrmName(e.target.value)}
-                        placeholder="Auto-filled from client"
-                      />
+                      <Select
+                        value={crmName || "__none__"}
+                        onValueChange={(value) => setCrmName(value === "__none__" ? "" : value)}
+                      >
+                        <SelectTrigger id="crmName">
+                          <SelectValue placeholder="Select team member..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">None</SelectItem>
+                          {teamMembers.map((member) => (
+                            <SelectItem
+                              key={member.email || member.full_name}
+                              value={member.full_name || member.email}
+                            >
+                              {member.full_name || member.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="space-y-2">

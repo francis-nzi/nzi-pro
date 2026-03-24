@@ -138,7 +138,7 @@ export default function NewClientPage() {
   const requiredFieldLabels: Record<ClientRequiredField, string> = {
     clientName: "Client name",
     portfolio: "Portfolio",
-    crmOwner: "CRM owner",
+    crmOwner: "Client owner",
     industry: "Industry",
     yearEndMonth: "Financial year end",
   };
@@ -536,7 +536,7 @@ export default function NewClientPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="crmOwner">CRM Owner *</Label>
+                    <Label htmlFor="crmOwner">Client Owner *</Label>
                     <Select
                       value={crmOwner}
                       onValueChange={(value) => {
@@ -549,7 +549,7 @@ export default function NewClientPage() {
                         aria-invalid={!!formErrors.crmOwner}
                         className={formErrors.crmOwner ? "border-destructive" : ""}
                       >
-                        <SelectValue placeholder="Select owner..." />
+                        <SelectValue placeholder="Select client owner..." />
                       </SelectTrigger>
                       <SelectContent>
                         {users.map((u, idx) => (

@@ -540,7 +540,7 @@ function ClientDetailPageContent() {
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">Industry:</span> {client?.industry ?? ""}</div>
               <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={client?.status} /></div>
-              <div><span className="text-muted-foreground">CRM Owner:</span> {client?.crm_owner ?? ""}</div>
+              <div><span className="text-muted-foreground">Client Owner:</span> {client?.crm_owner ?? ""}</div>
               <div><span className="text-muted-foreground">HQ:</span> {client?.headquarters ?? ""}</div>
               <div><span className="text-muted-foreground">Reg:</span> {client?.company_reg ?? ""}</div>
               <div><span className="text-muted-foreground">Website:</span> {client?.website ?? ""}</div>

@@ -196,6 +196,12 @@ type SavedReport = {
   updated_at: string | null;
 };
 
+type TeamUser = {
+  email: string;
+  full_name: string;
+  status?: string | null;
+};
+
 type ReportDrillState = {
   key: string;
   label: string;
@@ -274,7 +280,7 @@ const REPORT_PRESETS = [
   {
     key: "client_portfolio",
     label: "Client Portfolio",
-    description: "Client mix, CRM ownership, and delivery volume.",
+    description: "Client mix, client ownership, and delivery volume.",
   },
   {
     key: "job_delivery",
@@ -409,7 +415,7 @@ function reportFilterSummary(filters: {
     reportPresetLabel(filters.view),
     filters.year ? `Year ${filters.year}` : "All years",
     filters.industry || "All industries",
-    filters.crm_owner || "All CRM owners",
+    filters.crm_owner || "All client owners",
   ].join(" | ");
 }
 
@@ -527,7 +533,7 @@ function toneForMilestoneStatus(status: string | null | undefined): string {
 function overviewSubtitle(data: DashboardOverview | null): string {
   if (!data) return "Portfolio-wide business intelligence for clients, jobs, and delivery performance.";
   const year = data.selected_year || new Date().getFullYear();
-  return `Portfolio-wide business intelligence for ${year}, with filters for industry and CRM owner.`;
+  return `Portfolio-wide business intelligence for ${year}, with filters for industry and client owner.`;
 }
 
 export default function InsightsPageClient() {
@@ -550,6 +556,7 @@ export default function InsightsPageClient() {
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
   const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
 
   const readApiError = useCallback(async (res: Response, fallback: string) => {
     const text = await res.text();
@@ -680,6 +687,31 @@ export default function InsightsPageClient() {
   useEffect(() => {
     void loadSavedReports();
   }, [loadSavedReports]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTeamMembers() {
+      try {
+        const res = await fetch(`${baseUrl}/admin/users`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const activeMembers = ((json.items ?? []) as TeamUser[])
+          .filter((member) => String(member.status ?? "Active").toLowerCase() === "active")
+          .sort((a, b) => (a.full_name || a.email || "").localeCompare(b.full_name || b.email || ""));
+        setTeamMembers(activeMembers);
+      } catch {
+        if (!cancelled) setTeamMembers([]);
+      }
+    }
+    void loadTeamMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
 
   useEffect(() => {
     setReportDrill(null);
@@ -981,16 +1013,16 @@ export default function InsightsPageClient() {
               </Select>
             </div>
             <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">CRM Owner</div>
+              <div className="text-sm text-muted-foreground">Client Owner</div>
               <Select value={selectedCrm ?? ALL_FILTER_VALUE} onValueChange={(value) => setSelectedCrm(value === ALL_FILTER_VALUE ? null : value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="All CRM owners" />
+                  <SelectValue placeholder="All client owners" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_FILTER_VALUE}>All CRM owners</SelectItem>
-                  {(data?.available_crm || []).map((crm) => (
-                    <SelectItem key={crm} value={crm}>
-                      {crm}
+                  <SelectItem value={ALL_FILTER_VALUE}>All client owners</SelectItem>
+                  {teamMembers.map((member) => (
+                    <SelectItem key={member.email || member.full_name} value={member.full_name || member.email}>
+                      {member.full_name || member.email}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1171,7 +1203,7 @@ export default function InsightsPageClient() {
                 <div className="rounded border p-4">
                   <div className="text-sm font-medium">Portfolio Mix</div>
                   <div className="mt-2 text-sm text-muted-foreground">
-                    Industry concentration, CRM ownership, benchmark coverage, and client growth patterns.
+                    Industry concentration, client ownership, benchmark coverage, and client growth patterns.
                   </div>
                 </div>
                 <div className="rounded border p-4">

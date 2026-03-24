@@ -401,7 +401,7 @@ export default function EditClientPage() {
 
     // Validate required fields
     if (!crmOwner || !crmOwner.trim()) {
-      setError("CRM Owner is required");
+      setError("Client Owner is required");
       return;
     }
     if (!portfolio || !portfolio.trim()) {
@@ -544,10 +544,10 @@ export default function EditClientPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="crmOwner">CRM Owner</Label>
+                  <Label htmlFor="crmOwner">Client Owner</Label>
                   <Select value={crmOwner} onValueChange={setCrmOwner}>
                     <SelectTrigger id="crmOwner">
-                      <SelectValue placeholder="Select owner..." />
+                      <SelectValue placeholder="Select client owner..." />
                     </SelectTrigger>
                     <SelectContent>
                       {users.map((u, idx) => (
