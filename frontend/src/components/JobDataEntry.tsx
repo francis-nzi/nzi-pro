@@ -52,6 +52,7 @@ type ScopeDataRow = {
   factor_reference?: string | null;
   storage_reason?: string | null;
   uses_emissions_fallback?: boolean;
+  source_volume_available?: boolean;
   ghg_unit: string | null;
   calc_tco2e: number;
   tco2e_before_apply: number;
@@ -604,6 +605,17 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     return value.replaceAll("_", " ");
   }
 
+  function hasLegacySourceVolume(row: ScopeDataRow): boolean {
+    if (!isLegacyFallbackRow(row)) return false;
+    if (row.source_volume_available !== undefined) return Boolean(row.source_volume_available);
+    return Boolean(
+      row.source_qty !== null &&
+      row.source_qty !== undefined &&
+      row.source_uom &&
+      String(row.source_uom).trim()
+    );
+  }
+
   const filteredData = scopeData.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (confidenceFilter !== "All") {
@@ -945,9 +957,15 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                                 <>
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Source Volume</div>
-                                    <div className="font-mono">
-                                      {formatMaybeNumber(row.qty, 2)} {row.uom || ""}
-                                    </div>
+                                    {hasLegacySourceVolume(row) ? (
+                                      <div className="font-mono">
+                                        {formatMaybeNumber(row.source_qty, 2)} {row.source_uom || ""}
+                                      </div>
+                                    ) : (
+                                      <div className="text-muted-foreground">
+                                        Unavailable on this import. Re-import the legacy file to restore source volume.
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="text-xs">
                                     <div className="text-muted-foreground">Stored As</div>

@@ -193,6 +193,80 @@ def _extract_note_token(notes: str | None, pattern: re.Pattern[str]) -> str | No
     return value or None
 
 
+def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None, original_id: str | None) -> dict[str, Any] | None:
+    oid = str(original_id or "").strip()
+    if not oid:
+        return None
+
+    attempts: list[tuple[str, list[Any]]] = []
+    if dataset_id is not None and scope:
+        attempts.append(
+            (
+                """
+                SELECT db_id, factor, ghg_unit
+                FROM factor_lookup
+                WHERE dataset_id=%s AND scope=%s AND original_id=%s
+                ORDER BY db_id ASC
+                LIMIT 1
+                """,
+                [int(dataset_id), str(scope), oid],
+            )
+        )
+    if dataset_id is not None:
+        attempts.append(
+            (
+                """
+                SELECT db_id, factor, ghg_unit
+                FROM factor_lookup
+                WHERE dataset_id=%s AND original_id=%s
+                ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, db_id ASC
+                LIMIT 1
+                """,
+                [int(dataset_id), oid, str(scope or "")],
+            )
+        )
+    if scope:
+        attempts.append(
+            (
+                """
+                SELECT db_id, factor, ghg_unit
+                FROM factor_lookup
+                WHERE scope=%s AND original_id=%s
+                ORDER BY dataset_id DESC, db_id ASC
+                LIMIT 1
+                """,
+                [str(scope), oid],
+            )
+        )
+    attempts.append(
+        (
+            """
+            SELECT db_id, factor, ghg_unit
+            FROM factor_lookup
+            WHERE original_id=%s
+            ORDER BY CASE WHEN scope=%s THEN 0 ELSE 1 END, dataset_id DESC, db_id ASC
+            LIMIT 1
+            """,
+            [oid, str(scope or "")],
+        )
+    )
+
+    for query, params in attempts:
+        try:
+            row = con.execute(query, params).fetchone()
+        except Exception:
+            row = None
+        if not row:
+            continue
+        db_id, factor, ghg_unit = row
+        return {
+            "db_id": _safe_int(db_id),
+            "factor": _safe_float(factor),
+            "ghg_unit": str(ghg_unit).strip() if ghg_unit is not None else None,
+        }
+    return None
+
+
 def _factor_lookup_select_parts(con) -> dict[str, str]:
     cols = _table_columns(con, "factor_lookup")
     has = lambda c: c in cols
@@ -393,15 +467,38 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     lookup_factor_val = safe_float(r.get("lookup_factor"))
                     factor_reference = _extract_note_token(r.get("notes"), _FACTOR_ORIGINAL_ID_RE)
                     storage_reason = _extract_note_token(r.get("notes"), _STORAGE_REASON_RE)
-                    uses_emissions_fallback = bool(
-                        source_qty_val is not None
-                        and storage_uom_val is not None
+                    if lookup_factor_val is None and factor_reference:
+                        fallback_lookup = _lookup_factor_from_reference(
+                            con,
+                            safe_int(r.get("dataset_id")),
+                            r.get("scope"),
+                            factor_reference,
+                        )
+                        if fallback_lookup:
+                            lookup_factor_val = _safe_float(fallback_lookup.get("factor"))
+                            if not r.get("lookup_ghg_unit") and fallback_lookup.get("ghg_unit"):
+                                r["lookup_ghg_unit"] = fallback_lookup.get("ghg_unit")
+
+                    has_source_volume = bool(
+                        source_qty_val is not None and source_uom_val is not None and str(source_uom_val).strip()
+                    )
+                    fallback_storage = bool(
+                        storage_uom_val is not None
                         and str(storage_uom_val).strip().lower() == "tco2e"
                         and storage_factor_val is not None
                         and abs(float(storage_factor_val) - 1.0) < 1e-9
                     )
-                    display_qty_val = source_qty_val if uses_emissions_fallback and source_qty_val is not None else storage_qty_val
-                    display_uom_val = source_uom_val if uses_emissions_fallback and source_uom_val else storage_uom_val
+                    uses_emissions_fallback = bool(
+                        fallback_storage
+                        and (
+                            has_source_volume
+                            or lookup_factor_val is not None
+                            or factor_reference is not None
+                            or storage_reason is not None
+                        )
+                    )
+                    display_qty_val = source_qty_val if uses_emissions_fallback and has_source_volume else storage_qty_val
+                    display_uom_val = source_uom_val if uses_emissions_fallback and has_source_volume else storage_uom_val
                     
                     # Convert based on ghg_unit
                     ghg_unit = str(r.get('ghg_unit') or 'kgCO2e').lower()
@@ -440,6 +537,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "factor_reference": factor_reference,
                         "storage_reason": storage_reason,
                         "uses_emissions_fallback": uses_emissions_fallback,
+                        "source_volume_available": has_source_volume,
                         "ghg_unit": r.get("ghg_unit"),
                         "calc_tco2e": round(emissions, 4),
                         "tco2e_before_apply": round(tco2e_before_apply, 4),
