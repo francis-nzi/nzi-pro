@@ -29,6 +29,7 @@ const ADMIN_QUICK_LINKS: Array<{
   { label: "Templates", href: "/admin/templates", domain: "Reporting & Delivery" },
   { label: "Milestone Templates", href: "/admin/milestone-templates", domain: "Reporting & Delivery" },
   { label: "Automation Rules", href: "/admin/automations", domain: "Reporting & Delivery" },
+  { label: "Missing Data", href: "/admin/missing-data", domain: "Reporting & Delivery" },
   { label: "Theme Settings", href: "/admin/theme", domain: "System & Governance" },
   { label: "Custom Fields", href: "/admin/custom-fields", domain: "System & Governance" },
   { label: "System Settings", href: "/admin/settings", domain: "System & Governance" },
