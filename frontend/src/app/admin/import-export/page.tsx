@@ -79,6 +79,14 @@ type RunResult = {
     errors?: string[];
   };
 };
+type LegacyCommitResult = {
+  ok?: boolean;
+  job_id?: number;
+  site_id?: number;
+  inserted?: number;
+  updated?: number;
+  disabled_existing_legacy_rows?: number;
+};
 type ImpactItem = {
   count?: number;
   samples?: string[];
@@ -316,6 +324,7 @@ export default function AdminImportExportPage() {
   const [legacySiteId, setLegacySiteId] = useState("");
   const [legacyFile, setLegacyFile] = useState<File | null>(null);
   const [legacyPreview, setLegacyPreview] = useState<any>(null);
+  const [legacyCommitResult, setLegacyCommitResult] = useState<LegacyCommitResult | null>(null);
   const [legacyManualLookup, setLegacyManualLookup] = useState<Record<string, string>>({});
   const [attributeOverrideFile, setAttributeOverrideFile] = useState<File | null>(null);
   const [attributeOverridePreview, setAttributeOverridePreview] = useState<AttributeOverridePreview | null>(null);
@@ -720,6 +729,7 @@ export default function AdminImportExportPage() {
     setError("");
     setStatus("Parsing legacy annual file...");
     setLegacyPreview(null);
+    setLegacyCommitResult(null);
     try {
       const fd = new FormData();
       fd.append("job_id", legacyJobId.trim());
@@ -783,8 +793,13 @@ export default function AdminImportExportPage() {
         }
       }
       if (!res.ok) throw new Error(formatApiError("Legacy commit", res.status, text));
-      setRunResult(json);
-      setStatus("Legacy annual rows committed.");
+      setLegacyCommitResult(json);
+      const inserted = Number(json?.inserted || 0);
+      const updated = Number(json?.updated || 0);
+      const disabled = Number(json?.disabled_existing_legacy_rows || 0);
+      setStatus(
+        `Legacy annual rows committed for ${legacyPreview?.job_number || `job ${json?.job_id ?? legacyJobId.trim()}`}: ${inserted} inserted, ${updated} updated${disabled ? `, ${disabled} prior legacy rows replaced` : ""}.`
+      );
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
@@ -1613,6 +1628,33 @@ export default function AdminImportExportPage() {
                 Commit Legacy Rows
               </Button>
             </div>
+            {legacyCommitResult ? (
+              <div className="rounded border p-3 space-y-3">
+                <div className="text-sm font-medium">Last Legacy Commit</div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Job</div>
+                    <div className="text-lg font-semibold">{legacyPreview?.job_number || `ID ${legacyCommitResult.job_id ?? "-"}`}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Inserted</div>
+                    <div className="text-lg font-semibold">{Number(legacyCommitResult.inserted || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Updated</div>
+                    <div className="text-lg font-semibold">{Number(legacyCommitResult.updated || 0)}</div>
+                  </div>
+                  <div className="rounded border bg-muted/20 p-3">
+                    <div className="text-xs text-muted-foreground">Site ID</div>
+                    <div className="text-lg font-semibold">{legacyCommitResult.site_id ?? "-"}</div>
+                  </div>
+                </div>
+                <div className="rounded border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  Replaced prior legacy rows for this job/site: <strong>{Number(legacyCommitResult.disabled_existing_legacy_rows || 0)}</strong>.
+                  Imported rows should now be visible under <strong>Jobs &gt; Data</strong> for {legacyPreview?.job_number || `job ${legacyCommitResult.job_id ?? "-"}`}.
+                </div>
+              </div>
+            ) : null}
             {legacyPreview ? (
               <div className="rounded border p-3 space-y-2">
                 <div className="flex flex-wrap items-start justify-between gap-3">
