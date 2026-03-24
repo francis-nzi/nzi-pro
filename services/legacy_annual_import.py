@@ -15,6 +15,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
+from services.sites import add_site
 
 ID_RE = re.compile(r"^\d+_\d+_\d+_\d+_\d+$")
 SPEND_ID_RE = re.compile(r"^(?:[A-Z0-9]+-)?SPEND-[A-Z0-9.\-]+$", re.IGNORECASE)
@@ -1054,6 +1055,26 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
 
 
 def _resolve_site_id(job_id: int, site_id: int | None) -> int:
+    def _lookup_existing_site_id(client_db_id: int) -> int | None:
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT site_id
+                FROM client_sites
+                WHERE client_db_id=%s
+                ORDER BY is_registered_office DESC, site_id ASC
+                LIMIT 1
+                """,
+                [int(client_db_id)],
+            ).fetchone()
+        return int(row[0]) if row else None
+
+    def _build_registered_office_location(client_row: tuple[Any, ...] | None) -> str:
+        if not client_row:
+            return "Registered Office"
+        parts = [_clean(value) for value in client_row[1:] if _clean(value)]
+        return ", ".join(parts) if parts else "Registered Office"
+
     with get_conn() as con:
         job = con.execute("SELECT client_db_id FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone()
         if not job:
@@ -1078,8 +1099,28 @@ def _resolve_site_id(job_id: int, site_id: int | None) -> int:
             [int(client_db_id)],
         ).fetchone()
         if not row:
-            raise ValueError("No site found for this job/client")
+            client_row = con.execute(
+                """
+                SELECT client_name, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country
+                FROM clients
+                WHERE db_id=%s
+                """,
+                [int(client_db_id)],
+            ).fetchone()
+        else:
+            client_row = None
+    if row:
         return int(row[0])
+    if not client_row:
+        raise ValueError("No site found for this job/client")
+
+    try:
+        return int(add_site(int(client_db_id), "Registered Office", _build_registered_office_location(client_row), True))
+    except Exception:
+        existing_site_id = _lookup_existing_site_id(int(client_db_id))
+        if existing_site_id is not None:
+            return int(existing_site_id)
+        raise ValueError("No site found for this job/client")
 
 
 def _ensure_job_scope_rows_schema(con) -> None:
