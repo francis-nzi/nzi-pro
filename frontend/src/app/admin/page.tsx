@@ -111,6 +111,13 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "System & Governance",
   },
   {
+    title: "Missing Data",
+    description: "Find clients and jobs with blank fields, then update those values in one place.",
+    href: "/admin/missing-data",
+    cta: "Open Missing Data",
+    domain: "Reporting & Delivery",
+  },
+  {
     title: "Email Outbox",
     description: "Monitor outbound emails, delivery status, and failures across the platform.",
     href: "/admin/email-outbox",

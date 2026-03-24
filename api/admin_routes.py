@@ -19,7 +19,7 @@ import string
 import re
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
 import pandas as pd
 from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
@@ -189,6 +189,396 @@ def _ensure_positions_lookup_table(con) -> None:
     except Exception:
         # Keep admin routes resilient during schema transitions.
         pass
+
+
+MISSING_DATA_MONTH_OPTIONS = [
+    {"value": "January", "label": "January"},
+    {"value": "February", "label": "February"},
+    {"value": "March", "label": "March"},
+    {"value": "April", "label": "April"},
+    {"value": "May", "label": "May"},
+    {"value": "June", "label": "June"},
+    {"value": "July", "label": "July"},
+    {"value": "August", "label": "August"},
+    {"value": "September", "label": "September"},
+    {"value": "October", "label": "October"},
+    {"value": "November", "label": "November"},
+    {"value": "December", "label": "December"},
+]
+
+MISSING_DATA_FIELDS: dict[str, dict[str, dict[str, object]]] = {
+    "client": {
+        "client_name": {"label": "Client Name", "column": "client_name", "type": "text"},
+        "industry": {
+            "label": "Industry",
+            "column": "industry",
+            "type": "select",
+            "options_source": "industries_lookup",
+        },
+        "description_long": {"label": "Description", "column": "description_long", "type": "textarea"},
+        "website": {"label": "Website", "column": "website", "type": "text"},
+        "year_end_month": {
+            "label": "Financial Year End Month",
+            "column": "year_end_month",
+            "type": "select",
+            "options_source": "months",
+        },
+        "company_reg": {"label": "Company Registration", "column": "company_reg", "type": "text"},
+        "sic_code": {"label": "SIC Code", "column": "sic_code", "type": "text"},
+        "headquarters": {"label": "Headquarters", "column": "headquarters", "type": "text"},
+        "addr_line1": {"label": "Address Line 1", "column": "addr_line1", "type": "text"},
+        "addr_line2": {"label": "Address Line 2", "column": "addr_line2", "type": "text"},
+        "addr_city": {"label": "City", "column": "addr_city", "type": "text"},
+        "addr_region": {"label": "Region", "column": "addr_region", "type": "text"},
+        "addr_postcode": {"label": "Postcode", "column": "addr_postcode", "type": "text"},
+        "addr_country": {"label": "Country", "column": "addr_country", "type": "text"},
+        "crm_owner": {
+            "label": "CRM Owner",
+            "column": "crm_owner",
+            "type": "select",
+            "options_source": "users",
+        },
+        "portfolio": {
+            "label": "Portfolio",
+            "column": "portfolio",
+            "type": "select",
+            "options_source": "portfolios_lookup",
+        },
+        "currency": {
+            "label": "Currency",
+            "column": "currency",
+            "type": "select",
+            "options_source": "currency_lookup",
+        },
+        "benchmark_year": {"label": "Benchmark Year", "column": "benchmark_year", "type": "integer"},
+        "benchmark_period_start": {"label": "Benchmark Period Start", "column": "benchmark_period_start", "type": "date"},
+        "benchmark_period_end": {"label": "Benchmark Period End", "column": "benchmark_period_end", "type": "date"},
+        "net_zero_year": {"label": "Net Zero Year", "column": "net_zero_year", "type": "integer"},
+        "target_s1_year": {"label": "Scope 1 Target Year", "column": "target_s1_year", "type": "integer"},
+        "target_s1_pct": {"label": "Scope 1 Target %", "column": "target_s1_pct", "type": "integer"},
+        "target_s2_year": {"label": "Scope 2 Target Year", "column": "target_s2_year", "type": "integer"},
+        "target_s2_pct": {"label": "Scope 2 Target %", "column": "target_s2_pct", "type": "integer"},
+        "target_s3_year": {"label": "Scope 3 Target Year", "column": "target_s3_year", "type": "integer"},
+        "target_s3_pct": {"label": "Scope 3 Target %", "column": "target_s3_pct", "type": "integer"},
+    },
+    "job": {
+        "title": {"label": "Job Title", "column": "title", "type": "text"},
+        "status": {
+            "label": "Job Status",
+            "column": "status",
+            "type": "select",
+            "options_source": "job_statuses_lookup",
+        },
+        "crm_name": {
+            "label": "CRM Name",
+            "column": "crm_name",
+            "type": "select",
+            "options_source": "users",
+        },
+        "reporting_year": {"label": "Reporting Year", "column": "reporting_year", "type": "integer"},
+        "reporting_period_start": {"label": "Reporting Period Start", "column": "reporting_period_start", "type": "date"},
+        "reporting_period_end": {"label": "Reporting Period End", "column": "reporting_period_end", "type": "date"},
+        "start_date": {"label": "Job Start Date", "column": "start_date", "type": "date"},
+        "due_date": {"label": "Job End Date", "column": "due_date", "type": "date"},
+        "legacy_job_no": {"label": "Legacy Job No", "column": "legacy_job_no", "type": "text"},
+    },
+}
+
+
+def _missing_data_table_options(con, table_name: str) -> list[dict[str, str]]:
+    try:
+        rows = con.execute(
+            f"""
+            SELECT name
+            FROM {table_name}
+            WHERE COALESCE(is_active, TRUE) = TRUE
+            ORDER BY name
+            """
+        ).fetchall()
+    except Exception:
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        value = str(row[0] or "").strip()
+        lowered = value.lower()
+        if not value or lowered in seen:
+            continue
+        seen.add(lowered)
+        out.append({"value": value, "label": value})
+    return out
+
+
+def _missing_data_user_options(con) -> list[dict[str, str]]:
+    try:
+        rows = con.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(full_name), ''), email) AS label
+            FROM users
+            WHERE COALESCE(status, 'Active') = 'Active'
+            ORDER BY COALESCE(NULLIF(TRIM(full_name), ''), email)
+            """
+        ).fetchall()
+    except Exception:
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        value = str(row[0] or "").strip()
+        lowered = value.lower()
+        if not value or lowered in seen:
+            continue
+        seen.add(lowered)
+        out.append({"value": value, "label": value})
+    return out
+
+
+def _missing_data_field_options(con, entity: str, field_name: str, meta: dict[str, object]) -> list[dict[str, str]]:
+    source = str(meta.get("options_source") or "").strip()
+    if not source:
+        return []
+    if source == "months":
+        return list(MISSING_DATA_MONTH_OPTIONS)
+    if source == "users":
+        return _missing_data_user_options(con)
+    if source == "currency_lookup":
+        try:
+            rows = con.execute(
+                """
+                SELECT currency_code, currency_name
+                FROM currency_lookup
+                WHERE COALESCE(is_active, TRUE) = TRUE
+                ORDER BY currency_code
+                """
+            ).fetchall()
+            return [
+                {
+                    "value": str(row[0]),
+                    "label": f"{row[0]} - {row[1]}" if str(row[1] or "").strip() else str(row[0]),
+                }
+                for row in rows
+                if str(row[0] or "").strip()
+            ]
+        except Exception:
+            return []
+    if source in {"industries_lookup", "portfolios_lookup", "job_statuses_lookup"}:
+        options = _missing_data_table_options(con, source)
+        if options:
+            return options
+    if entity == "client" and field_name == "industry":
+        try:
+            rows = con.execute(
+                """
+                SELECT DISTINCT industry
+                FROM clients
+                WHERE NULLIF(TRIM(COALESCE(industry, '')), '') IS NOT NULL
+                ORDER BY industry
+                """
+            ).fetchall()
+            return [{"value": str(row[0]), "label": str(row[0])} for row in rows if str(row[0] or "").strip()]
+        except Exception:
+            return []
+    return []
+
+
+def _missing_data_field_catalog(con) -> dict[str, list[dict[str, object]]]:
+    payload: dict[str, list[dict[str, object]]] = {"client": [], "job": []}
+    for entity, fields in MISSING_DATA_FIELDS.items():
+        for field_name, meta in fields.items():
+            payload[entity].append(
+                {
+                    "name": field_name,
+                    "label": str(meta.get("label") or field_name.replace("_", " ").title()),
+                    "type": str(meta.get("type") or "text"),
+                    "options": _missing_data_field_options(con, entity, field_name, meta),
+                }
+            )
+        payload[entity].sort(key=lambda item: str(item.get("label") or ""))
+    return payload
+
+
+def _missing_data_field_meta(entity: str, field_name: str) -> dict[str, object]:
+    entity_key = str(entity or "").strip().lower()
+    fields = MISSING_DATA_FIELDS.get(entity_key) or {}
+    meta = fields.get(str(field_name or "").strip())
+    if not meta:
+        raise HTTPException(status_code=400, detail=f"Unsupported missing-data field '{field_name}' for entity '{entity}'")
+    return {"entity": entity_key, "name": field_name, **meta}
+
+
+def _missing_data_missing_clause(value_sql: str, field_type: str) -> str:
+    if field_type in {"integer", "number"}:
+        return f"{value_sql} IS NULL"
+    return f"NULLIF(TRIM(COALESCE(CAST({value_sql} AS TEXT), '')), '') IS NULL"
+
+
+def _serialize_missing_data_value(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    return str(value)
+
+
+def _coerce_missing_data_value(raw_value, field_type: str):
+    if raw_value is None:
+        return None
+    if field_type in {"text", "textarea", "select"}:
+        text = str(raw_value).strip()
+        return text or None
+    if field_type == "date":
+        text = str(raw_value).strip()
+        if not text:
+            return None
+        try:
+            return datetime.strptime(text, "%Y-%m-%d").date().isoformat()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Date values must be in YYYY-MM-DD format")
+    if field_type == "integer":
+        text = str(raw_value).strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Value must be an integer")
+    if field_type == "number":
+        text = str(raw_value).strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Value must be a number")
+    return raw_value
+
+
+def _missing_data_query(con, *, entity: str, field_name: str, missing_only: bool, search: str, limit: int) -> dict[str, object]:
+    meta = _missing_data_field_meta(entity, field_name)
+    field_type = str(meta.get("type") or "text")
+    column = str(meta.get("column") or field_name)
+    limit_i = max(1, min(int(limit or 200), 500))
+
+    if entity == "client":
+        from_sql = "FROM clients c"
+        value_sql = f"c.{column}"
+        order_sql = "ORDER BY c.client_name ASC, c.db_id ASC"
+        select_sql = f"""
+            SELECT
+              c.db_id AS record_id,
+              c.client_name AS primary_label,
+              c.crm_owner AS owner_label,
+              c.status AS status_label,
+              {value_sql} AS current_value
+            {from_sql}
+        """
+        search_clauses = [
+            "LOWER(COALESCE(c.client_name, '')) LIKE %s",
+            "LOWER(COALESCE(c.crm_owner, '')) LIKE %s",
+            "LOWER(COALESCE(c.industry, '')) LIKE %s",
+        ]
+        edit_url_builder = lambda row: f"/clients/{int(row[0])}/edit"
+    else:
+        from_sql = "FROM jobs j LEFT JOIN clients c ON c.db_id = j.client_db_id"
+        value_sql = f"j.{column}"
+        order_sql = "ORDER BY COALESCE(j.job_number, ''), j.job_id ASC"
+        select_sql = f"""
+            SELECT
+              j.job_id AS record_id,
+              COALESCE(NULLIF(TRIM(j.job_number), ''), CONCAT('Job ', j.job_id)) AS primary_label,
+              COALESCE(NULLIF(TRIM(j.title), ''), '') AS secondary_label,
+              COALESCE(c.client_name, '') AS client_label,
+              COALESCE(j.crm_name, '') AS owner_label,
+              COALESCE(j.status, '') AS status_label,
+              {value_sql} AS current_value
+            {from_sql}
+        """
+        search_clauses = [
+            "LOWER(COALESCE(j.job_number, '')) LIKE %s",
+            "LOWER(COALESCE(j.title, '')) LIKE %s",
+            "LOWER(COALESCE(c.client_name, '')) LIKE %s",
+            "LOWER(COALESCE(j.crm_name, '')) LIKE %s",
+        ]
+        edit_url_builder = lambda row: f"/jobs/{int(row[0])}"
+
+    where_clauses = ["COALESCE(c.archived, FALSE) = FALSE"] if entity == "client" else ["COALESCE(j.archived, FALSE) = FALSE"]
+    params: list[object] = []
+    if missing_only:
+        where_clauses.append(_missing_data_missing_clause(value_sql, field_type))
+    if str(search or "").strip():
+        search_term = f"%{str(search).strip().lower()}%"
+        where_clauses.append("(" + " OR ".join(search_clauses) + ")")
+        params.extend([search_term] * len(search_clauses))
+    where_sql = f"WHERE {' AND '.join(where_clauses)}"
+
+    count_row = con.execute(f"SELECT COUNT(*) {from_sql} {where_sql}", params).fetchone()
+    rows = con.execute(f"{select_sql} {where_sql} {order_sql} LIMIT %s", [*params, limit_i]).fetchall()
+
+    items: list[dict[str, object]] = []
+    for row in rows:
+        if entity == "client":
+            items.append(
+                {
+                    "record_id": int(row[0]),
+                    "primary_label": str(row[1] or ""),
+                    "secondary_label": "",
+                    "client_label": "",
+                    "owner_label": str(row[2] or ""),
+                    "status_label": str(row[3] or ""),
+                    "current_value": _serialize_missing_data_value(row[4]),
+                    "edit_url": edit_url_builder(row),
+                }
+            )
+        else:
+            items.append(
+                {
+                    "record_id": int(row[0]),
+                    "primary_label": str(row[1] or ""),
+                    "secondary_label": str(row[2] or ""),
+                    "client_label": str(row[3] or ""),
+                    "owner_label": str(row[4] or ""),
+                    "status_label": str(row[5] or ""),
+                    "current_value": _serialize_missing_data_value(row[6]),
+                    "edit_url": edit_url_builder(row),
+                }
+            )
+
+    return {
+        "ok": True,
+        "entity": entity,
+        "field": field_name,
+        "summary": {
+            "total_matching": int(count_row[0] or 0) if count_row else 0,
+            "returned_rows": len(items),
+            "missing_only": bool(missing_only),
+            "limit": limit_i,
+        },
+        "rows": items,
+    }
+
+
+def _missing_data_update_one(con, *, entity: str, field_name: str, record_id: int, value):
+    meta = _missing_data_field_meta(entity, field_name)
+    column = str(meta.get("column") or field_name)
+    field_type = str(meta.get("type") or "text")
+    coerced_value = _coerce_missing_data_value(value, field_type)
+    if entity == "client":
+        exists = con.execute("SELECT 1 FROM clients WHERE db_id = %s", [int(record_id)]).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Client not found")
+        con.execute(f"UPDATE clients SET {column} = %s WHERE db_id = %s", [coerced_value, int(record_id)])
+    else:
+        exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(record_id)]).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Job not found")
+        con.execute(f"UPDATE jobs SET {column} = %s WHERE job_id = %s", [coerced_value, int(record_id)])
+    return coerced_value
 
 
 def _ensure_job_types_lookup_table(con) -> None:
@@ -2945,6 +3335,107 @@ def remove_job_type_item(
         return {"ok": True, "message": "Job item removed from job type"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to remove job type item: {e}")
+
+
+# =========================
+# Missing Data
+# =========================
+
+@router.get("/missing-data/fields")
+def admin_missing_data_fields(_user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            return {"ok": True, "entities": _missing_data_field_catalog(con)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load missing-data fields: {e}")
+
+
+@router.post("/missing-data/query")
+def admin_missing_data_query(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        missing_only = bool(body.get("missing_only", True))
+        search = str(body.get("search") or "").strip()
+        limit = int(body.get("limit") or 200)
+        with get_conn() as con:
+            return _missing_data_query(
+                con,
+                entity=entity,
+                field_name=field_name,
+                missing_only=missing_only,
+                search=search,
+                limit=limit,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query missing data: {e}")
+
+
+@router.post("/missing-data/update")
+def admin_missing_data_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        record_id = body.get("record_id")
+        if record_id is None:
+            raise HTTPException(status_code=400, detail="record_id is required")
+        with get_conn() as con:
+            value = _missing_data_update_one(
+                con,
+                entity=entity,
+                field_name=field_name,
+                record_id=int(record_id),
+                value=body.get("value"),
+            )
+        return {
+            "ok": True,
+            "entity": entity,
+            "field": field_name,
+            "record_id": int(record_id),
+            "value": _serialize_missing_data_value(value),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update missing-data field: {e}")
+
+
+@router.post("/missing-data/bulk-update")
+def admin_missing_data_bulk_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        record_ids_raw = body.get("record_ids") or []
+        if not isinstance(record_ids_raw, list) or not record_ids_raw:
+            raise HTTPException(status_code=400, detail="record_ids must be a non-empty list")
+        record_ids = [int(record_id) for record_id in record_ids_raw]
+        with get_conn() as con:
+            value = None
+            updated = 0
+            for record_id in record_ids:
+                value = _missing_data_update_one(
+                    con,
+                    entity=entity,
+                    field_name=field_name,
+                    record_id=record_id,
+                    value=body.get("value"),
+                )
+                updated += 1
+        return {
+            "ok": True,
+            "entity": entity,
+            "field": field_name,
+            "updated_rows": updated,
+            "value": _serialize_missing_data_value(value),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to bulk update missing-data field: {e}")
 
 
 # =========================
