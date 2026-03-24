@@ -2143,11 +2143,11 @@ def job_excel_template(
             )
         filename = "_".join(
             [
-                _safe_name_part(client_name),
                 _safe_name_part(job_number),
+                _safe_name_part(client_name),
                 _safe_name_part(str(site)),
-                "Data_File",
                 _safe_name_part(period_part),
+                "data_upload",
             ]
         ) + ".xlsx"
     except ValueError as e:

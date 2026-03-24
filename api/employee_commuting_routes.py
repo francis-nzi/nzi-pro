@@ -395,11 +395,11 @@ def _template_filename(meta: dict[str, Any], site_label: str) -> str:
 
     return "_".join(
         [
-            _safe_name_part(str(meta.get("client_name") or "Client")),
             _safe_name_part(str(meta.get("job_number") or f"Job-{meta.get('job_id')}")),
+            _safe_name_part(str(meta.get("client_name") or "Client")),
             _safe_name_part(site_label),
-            "Employee_Commuting_File",
             _safe_name_part(period_part),
+            "employee_commuting",
         ]
     ) + ".xlsx"
 

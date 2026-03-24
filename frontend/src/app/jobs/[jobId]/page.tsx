@@ -1682,10 +1682,29 @@ export default function JobDetailPage() {
       const blob = await res.blob();
       const contentDisposition = res.headers.get("content-disposition") ?? "";
       console.log("Content-Disposition:", contentDisposition);
+
+      const safeNamePart = (value: string) =>
+        (value || "")
+          .trim()
+          .replace(/[<>:"/\\|?*]+/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/^-+|-+$/g, "") || "Unknown";
+      const fallbackPeriod =
+        periodStartLabel && periodEndLabel
+          ? `${safeNamePart(periodStartLabel)}-to-${safeNamePart(periodEndLabel)}`
+          : "reporting-period";
       
       // Extract filename from Content-Disposition header
       const filenameMatch = contentDisposition.match(/filename="([^"]+)"/i);
-      const filename = filenameMatch?.[1] ?? `job_${jobId}_template.xlsx`;
+      const filename =
+        filenameMatch?.[1] ??
+        [
+          safeNamePart(jobNumberLabel),
+          safeNamePart(clientLabel),
+          safeNamePart(siteName),
+          fallbackPeriod,
+          "data_upload.xlsx",
+        ].join("_");
       console.log("Extracted filename:", filename);
 
       const url = window.URL.createObjectURL(blob);
