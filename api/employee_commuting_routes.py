@@ -1,0 +1,1175 @@
+"""
+Employee commuting and working-from-home template workflow.
+
+This route set provides:
+- a downloadable workbook template
+- upload preview/validation
+- commit into job_scope_rows
+- a lightweight summary for the Jobs -> Data screen
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import math
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.worksheet.datavalidation import DataValidation
+
+from api.auth import _current_user
+from api.job_scope_data_routes import (
+    _additional_dataset_ids,
+    _ensure_job_scope_rows_schema,
+    _legacy_scope_dataset_map,
+)
+from core.database import get_conn
+from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
+
+router = APIRouter()
+
+
+COMMUTING_DATA_SOURCE = "Employee Commuting Template"
+TEMPLATE_VERSION = "Employee Commuting Template v2"
+COMMUTING_SHEET = "Employee Commuting"
+WFH_SHEET = "Working From Home"
+LOOKUPS_SHEET = "Lookups"
+HEADER_ROW = 9
+DATA_START_ROW = HEADER_ROW + 1
+BLANK_TEMPLATE_ROWS = 120
+MILES_TO_KM = 1.609344
+
+COMMUTE_HEADERS = [
+    "Employee / Team",
+    "Commute Mode",
+    "Vehicle / Service Type",
+    "Distance Unit",
+    "One-Way Distance",
+    "Office Days / Week",
+    "Weeks / Year",
+    "Annual Distance",
+    "Notes",
+]
+
+WFH_HEADERS = [
+    "Employee / Team",
+    "Annual WFH Days",
+    "Hours Per Day",
+    "Annual WFH Hours",
+    "Notes",
+]
+
+COMMUTE_MODE_OPTIONS = [
+    "Car - Petrol",
+    "Car - Diesel",
+    "Car - Hybrid",
+    "Car - Electric",
+    "Motorbike",
+    "Taxi",
+    "Bus",
+    "Rail",
+    "Ferry",
+    "Walking",
+    "Cycling",
+]
+
+SERVICE_TYPE_OPTIONS = [
+    "Average",
+    "Small",
+    "Medium",
+    "Large",
+    "Regular",
+    "Black",
+    "Local Bus",
+    "Local Bus (London)",
+    "National",
+    "International",
+    "Light / Tram",
+    "London Underground",
+    "Foot Passenger",
+    "Car Passenger",
+]
+
+UNIT_OPTIONS = ["miles", "km"]
+
+MODE_ALIASES = {
+    "car petrol": "car - petrol",
+    "car - petrol": "car - petrol",
+    "petrol car": "car - petrol",
+    "car diesel": "car - diesel",
+    "car - diesel": "car - diesel",
+    "diesel car": "car - diesel",
+    "car hybrid": "car - hybrid",
+    "car - hybrid": "car - hybrid",
+    "hybrid car": "car - hybrid",
+    "car electric": "car - electric",
+    "car - electric": "car - electric",
+    "electric car": "car - electric",
+    "motorbike": "motorbike",
+    "motor bike": "motorbike",
+    "motorcycle": "motorbike",
+    "taxi": "taxis",
+    "taxis": "taxis",
+    "cab": "taxis",
+    "bus": "bus",
+    "rail": "rail",
+    "train": "rail",
+    "ferry": "ferry",
+    "walking": "walking",
+    "walk": "walking",
+    "cycling": "cycling",
+    "cycle": "cycling",
+    "bike": "cycling",
+    "bicycle": "cycling",
+}
+
+VARIANT_ALIASES = {
+    "": "",
+    "average": "average",
+    "small": "small",
+    "medium": "medium",
+    "large": "large",
+    "regular": "regular",
+    "black": "black",
+    "local bus": "local bus",
+    "local bus london": "local bus (london)",
+    "local bus (london)": "local bus (london)",
+    "national": "national",
+    "international": "international",
+    "light tram": "light/tram",
+    "light / tram": "light/tram",
+    "light/tram": "light/tram",
+    "tram": "light/tram",
+    "london underground": "london underground",
+    "tube": "london underground",
+    "foot passenger": "foot passenger",
+    "car passenger": "car passenger",
+}
+
+UNIT_ALIASES = {
+    "mi": "miles",
+    "mile": "miles",
+    "miles": "miles",
+    "km": "km",
+    "kilometre": "km",
+    "kilometres": "km",
+    "kilometer": "km",
+    "kilometers": "km",
+}
+
+LOOKUP_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "wfm_import"
+    / "analysis"
+    / "wfm_template_id_lookup.json"
+)
+
+
+def _norm_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = text.replace("&", " and ")
+    text = re.sub(r"[^a-z0-9()]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _safe_float(value: Any, default: float | None = None) -> float | None:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return float(value)
+    try:
+        text = str(value).replace(",", "").strip()
+        if not text:
+            return default
+        out = float(text)
+        if not math.isfinite(out):
+            return default
+        return out
+    except Exception:
+        return default
+
+
+def _safe_int(value: Any) -> int | None:
+    out = _safe_float(value)
+    if out is None:
+        return None
+    try:
+        return int(out)
+    except Exception:
+        return None
+
+
+def _safe_str(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
+def _safe_name_part(value: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[<>:"/\\\\|?*]+', "", text)
+    text = re.sub(r"\s+", "_", text)
+    return text.strip("_") or "Unknown"
+
+
+def _fmt_period_part(value: Any) -> str:
+    if not value:
+        return ""
+    if hasattr(value, "strftime"):
+        return value.strftime("%d-%b-%Y")
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text[:10]).strftime("%d-%b-%Y")
+    except Exception:
+        return text
+
+
+def _load_lookup_payload() -> tuple[dict[tuple[str, str, str], str], str | None]:
+    payload = json.loads(LOOKUP_PATH.read_text(encoding="utf-8"))
+    preferred = payload.get("preferred_items") or {}
+    commute_map: dict[tuple[str, str, str], str] = {}
+    wfh_original_id: str | None = None
+
+    for raw_key, raw_original_id in preferred.items():
+        if not isinstance(raw_key, str) or not isinstance(raw_original_id, str):
+            continue
+
+        parts = raw_key.split("|")
+        if len(parts) < 8:
+            continue
+
+        bucket = _norm_text(parts[0])
+        activity = _norm_text(parts[1])
+
+        if bucket == "employee commuting":
+            activity = MODE_ALIASES.get(_norm_text(parts[1]), _norm_text(parts[1]))
+            variant = VARIANT_ALIASES.get(_norm_text(parts[6]), _norm_text(parts[6]))
+            unit = UNIT_ALIASES.get(_norm_text(parts[7]), _norm_text(parts[7]))
+            commute_map[(activity, variant, unit)] = raw_original_id
+            continue
+
+        if bucket == "detailed carbon" and activity == "wfh electricity":
+            wfh_original_id = raw_original_id
+
+    return commute_map, wfh_original_id
+
+
+COMMUTE_FACTOR_MAP, WFH_ORIGINAL_ID = _load_lookup_payload()
+
+
+def _canonical_mode(value: Any) -> str:
+    return MODE_ALIASES.get(_norm_text(value), "")
+
+
+def _canonical_variant(value: Any) -> str:
+    return VARIANT_ALIASES.get(_norm_text(value), "")
+
+
+def _canonical_unit(value: Any) -> str:
+    return UNIT_ALIASES.get(_norm_text(value), "")
+
+
+def _default_variant_for_mode(mode: str) -> str | None:
+    if mode.startswith("car - "):
+        return "average"
+    if mode == "bus":
+        return "average"
+    if mode == "taxis":
+        return "regular"
+    if mode in {"motorbike", "walking", "cycling"}:
+        return ""
+    return None
+
+
+def _default_unit_for_mode(mode: str) -> str | None:
+    if mode.startswith("car - ") or mode == "motorbike":
+        return "miles"
+    if mode in {"taxis", "bus", "rail", "ferry", "walking", "cycling"}:
+        return "km"
+    return None
+
+
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = %s
+            """,
+            [str(table_name)],
+        ).fetchall()
+        return {str(row[0]).strip().lower() for row in (rows or [])}
+    except Exception:
+        return set()
+
+
+def _factor_select_parts(con) -> dict[str, str]:
+    cols = _table_columns(con, "factor_lookup")
+    has = lambda col: col in cols
+    return {
+        "category": (
+            "COALESCE(category, level_2, level_1, 'Employee Commuting')"
+            if has("category")
+            else "COALESCE(level_2, level_1, 'Employee Commuting')"
+        ),
+        "level_4": "level_4" if has("level_4") else "NULL::text",
+        "report_label": "report_label" if has("report_label") else "NULL::text",
+        "ghg_unit": "ghg_unit" if has("ghg_unit") else "NULL::text",
+    }
+
+
+def _job_meta(con, job_id: int) -> dict[str, Any]:
+    row = con.execute(
+        """
+        SELECT
+          j.job_id,
+          j.job_number,
+          j.reporting_year,
+          j.reporting_period_start,
+          j.reporting_period_end,
+          j.client_db_id,
+          c.client_name
+        FROM jobs j
+        LEFT JOIN clients c ON c.db_id = j.client_db_id
+        WHERE j.job_id = %s
+        LIMIT 1
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "job_id": int(row[0]),
+        "job_number": str(row[1] or f"Job-{job_id}"),
+        "reporting_year": row[2],
+        "reporting_period_start": row[3],
+        "reporting_period_end": row[4],
+        "client_db_id": int(row[5]) if row[5] is not None else None,
+        "client_name": str(row[6] or "Client"),
+    }
+
+
+def _job_site_label(con, job_id: int, site_id: int | None) -> tuple[int | None, str]:
+    if site_id is None:
+        return None, "All_Staff"
+
+    row = con.execute(
+        """
+        SELECT s.site_id, s.site_name
+        FROM jobs j
+        JOIN client_sites s ON s.client_db_id = j.client_db_id
+        WHERE j.job_id = %s
+          AND s.site_id = %s
+        LIMIT 1
+        """,
+        [int(job_id), int(site_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="Selected site is not linked to this job")
+    return int(row[0]), str(row[1] or f"Site-{site_id}")
+
+
+def _template_filename(meta: dict[str, Any], site_label: str) -> str:
+    period_part = (
+        f"{_fmt_period_part(meta.get('reporting_period_start'))}"
+        f"-to-"
+        f"{_fmt_period_part(meta.get('reporting_period_end'))}"
+    )
+    if period_part == "-to-":
+        period_part = str(meta.get("reporting_year") or datetime.now().year)
+
+    return "_".join(
+        [
+            _safe_name_part(str(meta.get("client_name") or "Client")),
+            _safe_name_part(str(meta.get("job_number") or f"Job-{meta.get('job_id')}")),
+            _safe_name_part(site_label),
+            "Employee_Commuting_File",
+            _safe_name_part(period_part),
+        ]
+    ) + ".xlsx"
+
+
+def _apply_header_row(ws, row_number: int, headers: list[str]) -> None:
+    fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+    for idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=row_number, column=idx, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = fill
+
+
+def _set_column_widths(ws, widths: dict[str, float]) -> None:
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+
+
+def _add_list_validation(ws, cell_range: str, formula: str) -> None:
+    dv = DataValidation(type="list", formula1=formula, allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add(cell_range)
+
+
+def _build_template_workbook(meta: dict[str, Any], site_label: str) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = COMMUTING_SHEET
+    wfh = wb.create_sheet(WFH_SHEET)
+    lookups = wb.create_sheet(LOOKUPS_SHEET)
+
+    title_fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
+
+    for target, title, intro in [
+        (
+            ws,
+            "Employee Commuting",
+            "Add one row per employee or team. Leave blank rows empty. Annual Distance is calculated automatically.",
+        ),
+        (
+            wfh,
+            "Working From Home",
+            "Add one row per employee or team. Enter annual WFH days and the sheet will calculate annual hours.",
+        ),
+    ]:
+        target["A1"] = title
+        target["A1"].font = Font(bold=True, size=14)
+        target["A2"] = intro
+        target["A4"] = "Client"
+        target["B4"] = meta.get("client_name")
+        target["A5"] = "Job Number"
+        target["B5"] = meta.get("job_number")
+        target["A6"] = "Site"
+        target["B6"] = site_label
+        target["A7"] = "Reporting Period"
+        target["B7"] = (
+            f"{_fmt_period_part(meta.get('reporting_period_start'))}"
+            f" to "
+            f"{_fmt_period_part(meta.get('reporting_period_end'))}"
+        ).strip()
+        target["D4"] = "Template"
+        target["E4"] = TEMPLATE_VERSION
+        for ref_cell in ("A4", "A5", "A6", "A7", "D4"):
+            target[ref_cell].font = Font(bold=True)
+            target[ref_cell].fill = title_fill
+
+    _apply_header_row(ws, HEADER_ROW, COMMUTE_HEADERS)
+    _apply_header_row(wfh, HEADER_ROW, WFH_HEADERS)
+
+    _set_column_widths(
+        ws,
+        {
+            "A": 24,
+            "B": 20,
+            "C": 24,
+            "D": 16,
+            "E": 18,
+            "F": 18,
+            "G": 16,
+            "H": 18,
+            "I": 36,
+        },
+    )
+    _set_column_widths(
+        wfh,
+        {
+            "A": 24,
+            "B": 18,
+            "C": 16,
+            "D": 18,
+            "E": 36,
+        },
+    )
+
+    lookups["A1"] = "Commute Modes"
+    for row_num, value in enumerate(COMMUTE_MODE_OPTIONS, start=2):
+        lookups.cell(row=row_num, column=1, value=value)
+
+    lookups["B1"] = "Service Types"
+    for row_num, value in enumerate(SERVICE_TYPE_OPTIONS, start=2):
+        lookups.cell(row=row_num, column=2, value=value)
+
+    lookups["C1"] = "Distance Units"
+    for row_num, value in enumerate(UNIT_OPTIONS, start=2):
+        lookups.cell(row=row_num, column=3, value=value)
+
+    lookups.sheet_state = "hidden"
+
+    commute_end_row = DATA_START_ROW + BLANK_TEMPLATE_ROWS - 1
+    wfh_end_row = DATA_START_ROW + BLANK_TEMPLATE_ROWS - 1
+
+    _add_list_validation(ws, f"B{DATA_START_ROW}:B{commute_end_row}", f"={LOOKUPS_SHEET}!$A$2:$A${len(COMMUTE_MODE_OPTIONS) + 1}")
+    _add_list_validation(ws, f"C{DATA_START_ROW}:C{commute_end_row}", f"={LOOKUPS_SHEET}!$B$2:$B${len(SERVICE_TYPE_OPTIONS) + 1}")
+    _add_list_validation(ws, f"D{DATA_START_ROW}:D{commute_end_row}", f"={LOOKUPS_SHEET}!$C$2:$C${len(UNIT_OPTIONS) + 1}")
+
+    for row_num in range(DATA_START_ROW, commute_end_row + 1):
+        ws.cell(row=row_num, column=7, value=46)
+        ws.cell(
+            row=row_num,
+            column=8,
+            value=f'=IF(OR(E{row_num}="",F{row_num}="",G{row_num}=""),"",E{row_num}*2*F{row_num}*G{row_num})',
+        )
+
+    for row_num in range(DATA_START_ROW, wfh_end_row + 1):
+        wfh.cell(row=row_num, column=3, value=7.5)
+        wfh.cell(
+            row=row_num,
+            column=4,
+            value=f'=IF(OR(B{row_num}="",C{row_num}=""),"",B{row_num}*C{row_num})',
+        )
+
+    ws.freeze_panes = f"A{DATA_START_ROW}"
+    wfh.freeze_panes = f"A{DATA_START_ROW}"
+
+    stream = io.BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def _sheet_row_empty(values: list[Any]) -> bool:
+    return all(_is_blank(value) for value in values)
+
+
+def _commuting_row_has_user_input(values: list[Any]) -> bool:
+    # Ignore helper/default columns (weeks/year and calculated annual distance)
+    # so unused template rows remain blank to the parser.
+    user_columns = [0, 1, 2, 3, 4, 5, 8]
+    return any(not _is_blank(values[idx]) for idx in user_columns if idx < len(values))
+
+
+def _wfh_row_has_user_input(values: list[Any]) -> bool:
+    # Ignore helper/default columns (hours/day and calculated annual hours)
+    # so unused template rows remain blank to the parser.
+    user_columns = [0, 1, 4]
+    return any(not _is_blank(values[idx]) for idx in user_columns if idx < len(values))
+
+
+def _parse_commuting_sheet(ws) -> list[dict[str, Any]]:
+    parsed: list[dict[str, Any]] = []
+    for row_num in range(DATA_START_ROW, ws.max_row + 1):
+        values = [ws.cell(row=row_num, column=col_idx).value for col_idx in range(1, 10)]
+        if not _commuting_row_has_user_input(values):
+            continue
+
+        employee_name = _safe_str(values[0])
+        mode_value = _safe_str(values[1])
+        service_value = _safe_str(values[2])
+        unit_value = _safe_str(values[3])
+        one_way_distance = _safe_float(values[4])
+        office_days = _safe_float(values[5])
+        weeks_per_year = _safe_float(values[6])
+        annual_distance = _safe_float(values[7])
+        notes = _safe_str(values[8])
+
+        if annual_distance is None and None not in (one_way_distance, office_days, weeks_per_year):
+            annual_distance = float(one_way_distance) * 2.0 * float(office_days) * float(weeks_per_year)
+
+        parsed.append(
+            {
+                "sheet": COMMUTING_SHEET,
+                "row_number": row_num,
+                "row_type": "commuting",
+                "employee_name": employee_name,
+                "mode_value": mode_value,
+                "service_value": service_value,
+                "unit_value": unit_value,
+                "annual_quantity": annual_distance,
+                "notes": notes,
+                "one_way_distance": one_way_distance,
+                "office_days": office_days,
+                "weeks_per_year": weeks_per_year,
+            }
+        )
+    return parsed
+
+
+def _parse_wfh_sheet(ws) -> list[dict[str, Any]]:
+    parsed: list[dict[str, Any]] = []
+    for row_num in range(DATA_START_ROW, ws.max_row + 1):
+        values = [ws.cell(row=row_num, column=col_idx).value for col_idx in range(1, 6)]
+        if not _wfh_row_has_user_input(values):
+            continue
+
+        employee_name = _safe_str(values[0])
+        annual_days = _safe_float(values[1])
+        hours_per_day = _safe_float(values[2])
+        annual_hours = _safe_float(values[3])
+        notes = _safe_str(values[4])
+
+        if annual_hours is None and annual_days is not None and hours_per_day is not None:
+            annual_hours = float(annual_days) * float(hours_per_day)
+
+        parsed.append(
+            {
+                "sheet": WFH_SHEET,
+                "row_number": row_num,
+                "row_type": "wfh",
+                "employee_name": employee_name,
+                "annual_quantity": annual_hours,
+                "annual_days": annual_days,
+                "hours_per_day": hours_per_day,
+                "notes": notes,
+            }
+        )
+    return parsed
+
+
+def _parse_template(raw_bytes: bytes) -> list[dict[str, Any]]:
+    try:
+        wb = load_workbook(io.BytesIO(raw_bytes), data_only=False)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read workbook: {exc}")
+
+    if COMMUTING_SHEET not in wb.sheetnames or WFH_SHEET not in wb.sheetnames:
+        raise HTTPException(
+            status_code=400,
+            detail="This workbook is not a valid employee commuting template. Please download a fresh template from the app.",
+        )
+
+    parsed = []
+    parsed.extend(_parse_commuting_sheet(wb[COMMUTING_SHEET]))
+    parsed.extend(_parse_wfh_sheet(wb[WFH_SHEET]))
+    return parsed
+
+
+def _candidate_dataset_ids(con, job_id: int, scope: str) -> list[int]:
+    ordered: list[int] = []
+
+    def _add(value: Any) -> None:
+        dataset_id = _safe_int(value)
+        if dataset_id is None:
+            return
+        if dataset_id not in ordered:
+            ordered.append(dataset_id)
+
+    primary = get_scope_primary_datasets(int(job_id))
+    _add(primary.get(scope))
+
+    applicable = get_applicable_datasets(int(job_id))
+    for dataset_id in applicable.get(scope, []) or []:
+        _add(dataset_id)
+
+    legacy = _legacy_scope_dataset_map(int(job_id))
+    _add(legacy.get(scope))
+
+    for dataset_id in _additional_dataset_ids(con, int(job_id)):
+        _add(dataset_id)
+
+    return ordered
+
+
+def _resolve_factor_record(con, job_id: int, original_id: str, scope: str) -> dict[str, Any] | None:
+    parts = _factor_select_parts(con)
+    rows = con.execute(
+        f"""
+        SELECT
+          db_id,
+          dataset_id,
+          original_id,
+          scope,
+          {parts["category"]} AS category,
+          level_1,
+          level_2,
+          level_3,
+          {parts["level_4"]} AS level_4,
+          column_text,
+          COALESCE({parts["report_label"]}, column_text) AS report_label,
+          uom,
+          factor,
+          {parts["ghg_unit"]} AS ghg_unit
+        FROM factor_lookup
+        WHERE original_id = %s
+        """,
+        [str(original_id)],
+    ).fetchall()
+
+    if not rows:
+        return None
+
+    preferred_ids = _candidate_dataset_ids(con, int(job_id), scope)
+    preferred_rank = {dataset_id: idx for idx, dataset_id in enumerate(preferred_ids)}
+
+    def _row_rank(row: Any) -> tuple[int, int]:
+        dataset_id = _safe_int(row[1])
+        if dataset_id in preferred_rank:
+            return (0, preferred_rank[dataset_id])
+        return (1, dataset_id or 999999)
+
+    row = sorted(rows, key=_row_rank)[0]
+    return {
+        "factor_db_id": int(row[0]),
+        "dataset_id": _safe_int(row[1]),
+        "original_id": str(row[2]),
+        "scope": str(row[3] or scope),
+        "category": _safe_str(row[4]) or "Employee Commuting",
+        "level_1": _safe_str(row[5]) or "Employee Commuting",
+        "level_2": _safe_str(row[6]) or "Employee Commuting",
+        "level_3": _safe_str(row[7]) or None,
+        "level_4": _safe_str(row[8]) or None,
+        "column_text": _safe_str(row[9]) or None,
+        "report_label": _safe_str(row[10]) or _safe_str(row[9]) or "Employee Commuting",
+        "uom": _safe_str(row[11]) or None,
+        "factor": _safe_float(row[12], 0.0) or 0.0,
+        "ghg_unit": _safe_str(row[13]) or "tCO2e",
+    }
+
+
+def _convert_quantity(quantity: float, from_unit: str, to_unit: str) -> float | None:
+    src = _canonical_unit(from_unit) or _norm_text(from_unit)
+    dst = _canonical_unit(to_unit) or _norm_text(to_unit)
+    if not src or not dst:
+        return None
+    if src == dst:
+        return float(quantity)
+    if src == "miles" and dst == "km":
+        return float(quantity) * MILES_TO_KM
+    if src == "km" and dst == "miles":
+        return float(quantity) / MILES_TO_KM
+    return None
+
+
+def _resolve_commuting_original_id(mode_value: str, service_value: str, unit_value: str) -> tuple[str | None, str | None, str | None, str | None]:
+    mode = _canonical_mode(mode_value)
+    if not mode:
+        return None, None, None, "Commute Mode is required or not recognised"
+
+    variant = _canonical_variant(service_value)
+    if service_value and not variant:
+        return None, None, None, "Vehicle / Service Type is not recognised"
+
+    if not service_value:
+        variant = _default_variant_for_mode(mode) or ""
+
+    unit = _canonical_unit(unit_value)
+    if unit_value and not unit:
+        return None, None, None, "Distance Unit is not recognised"
+    if not unit:
+        unit = _default_unit_for_mode(mode) or ""
+
+    original_id = COMMUTE_FACTOR_MAP.get((mode, variant, unit))
+    if not original_id:
+        return None, mode, variant, "This commute mode/service combination does not match an emissions factor"
+
+    return original_id, mode, variant, None
+
+
+def _build_commuting_notes(parsed_row: dict[str, Any], mode: str, variant: str) -> str:
+    details = [
+        f"Employee/Team: {parsed_row.get('employee_name') or 'Unspecified'}",
+        f"Mode: {mode}",
+    ]
+    if variant:
+        details.append(f"Service Type: {variant}")
+    if parsed_row.get("one_way_distance") is not None:
+        details.append(f"One Way Distance: {parsed_row['one_way_distance']}")
+    if parsed_row.get("office_days") is not None:
+        details.append(f"Office Days/Week: {parsed_row['office_days']}")
+    if parsed_row.get("weeks_per_year") is not None:
+        details.append(f"Weeks/Year: {parsed_row['weeks_per_year']}")
+    if parsed_row.get("notes"):
+        details.append(f"Notes: {parsed_row['notes']}")
+    return " | ".join(details)
+
+
+def _build_wfh_notes(parsed_row: dict[str, Any]) -> str:
+    details = [f"Employee/Team: {parsed_row.get('employee_name') or 'Unspecified'}"]
+    if parsed_row.get("annual_days") is not None:
+        details.append(f"Annual WFH Days: {parsed_row['annual_days']}")
+    if parsed_row.get("hours_per_day") is not None:
+        details.append(f"Hours/Day: {parsed_row['hours_per_day']}")
+    if parsed_row.get("notes"):
+        details.append(f"Notes: {parsed_row['notes']}")
+    return " | ".join(details)
+
+
+def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ready_rows: list[dict[str, Any]] = []
+    unresolved_rows: list[dict[str, Any]] = []
+
+    for parsed_row in parsed_rows:
+        row_number = int(parsed_row["row_number"])
+        employee_name = _safe_str(parsed_row.get("employee_name"))
+
+        quantity = _safe_float(parsed_row.get("annual_quantity"))
+        if quantity is None or quantity <= 0:
+            unresolved_rows.append(
+                {
+                    "sheet": parsed_row["sheet"],
+                    "row_number": row_number,
+                    "employee_name": employee_name,
+                    "reason": "Annual quantity is missing or zero",
+                }
+            )
+            continue
+
+        if parsed_row["row_type"] == "commuting":
+            original_id, mode, variant, error = _resolve_commuting_original_id(
+                parsed_row.get("mode_value"),
+                parsed_row.get("service_value"),
+                parsed_row.get("unit_value"),
+            )
+            if error or not original_id or not mode:
+                unresolved_rows.append(
+                    {
+                        "sheet": parsed_row["sheet"],
+                        "row_number": row_number,
+                        "employee_name": employee_name,
+                        "reason": error or "Could not resolve commute factor",
+                    }
+                )
+                continue
+
+            factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+            if not factor_record:
+                unresolved_rows.append(
+                    {
+                        "sheet": parsed_row["sheet"],
+                        "row_number": row_number,
+                        "employee_name": employee_name,
+                        "reason": f"Original ID {original_id} was not found in factor_lookup",
+                        "original_id": original_id,
+                    }
+                )
+                continue
+
+            input_unit = _canonical_unit(parsed_row.get("unit_value")) or (_default_unit_for_mode(mode) or "")
+            factor_uom = _safe_str(factor_record.get("uom")) or input_unit
+            converted_qty = _convert_quantity(float(quantity), input_unit, factor_uom)
+            if converted_qty is None:
+                unresolved_rows.append(
+                    {
+                        "sheet": parsed_row["sheet"],
+                        "row_number": row_number,
+                        "employee_name": employee_name,
+                        "reason": f"Could not convert quantity from {input_unit or 'blank'} to {factor_uom or 'blank'}",
+                        "original_id": original_id,
+                    }
+                )
+                continue
+
+            notes = _build_commuting_notes(parsed_row, mode, variant or "")
+            calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+            ready_rows.append(
+                {
+                    "sheet": parsed_row["sheet"],
+                    "row_number": row_number,
+                    "row_type": "commuting",
+                    "employee_name": employee_name,
+                    "site_id": site_id,
+                    "scope": "Scope 3",
+                    "original_id": original_id,
+                    "dataset_id": factor_record.get("dataset_id"),
+                    "factor_db_id": factor_record.get("factor_db_id"),
+                    "category": factor_record.get("category"),
+                    "level_1": factor_record.get("level_1"),
+                    "level_2": factor_record.get("level_2"),
+                    "level_3": factor_record.get("level_3"),
+                    "level_4": factor_record.get("level_4"),
+                    "column_text": factor_record.get("column_text"),
+                    "report_label": factor_record.get("report_label"),
+                    "qty": converted_qty,
+                    "uom": factor_uom,
+                    "factor": factor_record.get("factor"),
+                    "ghg_unit": factor_record.get("ghg_unit"),
+                    "calc_tco2e": calc_tco2e,
+                    "apply_pct": 100,
+                    "data_source": COMMUTING_DATA_SOURCE,
+                    "data_confidence": "M",
+                    "notes": notes,
+                    "is_custom_entry": False,
+                }
+            )
+            continue
+
+        original_id = WFH_ORIGINAL_ID
+        if not original_id:
+            unresolved_rows.append(
+                {
+                    "sheet": parsed_row["sheet"],
+                    "row_number": row_number,
+                    "employee_name": employee_name,
+                    "reason": "Working from home factor ID is not configured",
+                }
+            )
+            continue
+
+        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+        if not factor_record:
+            unresolved_rows.append(
+                {
+                    "sheet": parsed_row["sheet"],
+                    "row_number": row_number,
+                    "employee_name": employee_name,
+                    "reason": f"Original ID {original_id} was not found in factor_lookup",
+                    "original_id": original_id,
+                }
+            )
+            continue
+
+        factor_uom = _safe_str(factor_record.get("uom")) or "hours"
+        converted_qty = _convert_quantity(float(quantity), "hours", factor_uom)
+        if converted_qty is None:
+            unresolved_rows.append(
+                {
+                    "sheet": parsed_row["sheet"],
+                    "row_number": row_number,
+                    "employee_name": employee_name,
+                    "reason": f"Could not convert WFH hours to {factor_uom}",
+                    "original_id": original_id,
+                }
+            )
+            continue
+
+        notes = _build_wfh_notes(parsed_row)
+        calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+        ready_rows.append(
+            {
+                "sheet": parsed_row["sheet"],
+                "row_number": row_number,
+                "row_type": "wfh",
+                "employee_name": employee_name,
+                "site_id": site_id,
+                "scope": "Scope 3",
+                "original_id": original_id,
+                "dataset_id": factor_record.get("dataset_id"),
+                "factor_db_id": factor_record.get("factor_db_id"),
+                "category": factor_record.get("category"),
+                "level_1": factor_record.get("level_1"),
+                "level_2": factor_record.get("level_2"),
+                "level_3": factor_record.get("level_3"),
+                "level_4": factor_record.get("level_4"),
+                "column_text": factor_record.get("column_text"),
+                "report_label": factor_record.get("report_label"),
+                "qty": converted_qty,
+                "uom": factor_uom,
+                "factor": factor_record.get("factor"),
+                "ghg_unit": factor_record.get("ghg_unit"),
+                "calc_tco2e": calc_tco2e,
+                "apply_pct": 100,
+                "data_source": COMMUTING_DATA_SOURCE,
+                "data_confidence": "M",
+                "notes": notes,
+                "is_custom_entry": False,
+            }
+        )
+
+    return {
+        "parsed_count": len(parsed_rows),
+        "ready_count": len(ready_rows),
+        "unresolved_count": len(unresolved_rows),
+        "total_tco2e": round(sum(float(row["calc_tco2e"] or 0.0) for row in ready_rows), 6),
+        "ready_rows": ready_rows,
+        "unresolved_rows": unresolved_rows,
+    }
+
+
+def _disable_existing_commuting_rows(con, job_id: int, site_id: int | None) -> int:
+    rows = con.execute(
+        """
+        UPDATE job_scope_rows
+        SET enabled = FALSE, updated_at = NOW()
+        WHERE job_id = %s
+          AND COALESCE(data_source, '') = %s
+          AND (
+                (%s IS NULL AND site_id IS NULL)
+             OR (%s IS NOT NULL AND site_id = %s)
+          )
+          AND enabled = TRUE
+        RETURNING row_id
+        """,
+        [int(job_id), COMMUTING_DATA_SOURCE, site_id, site_id, site_id],
+    ).fetchall()
+    return len(rows or [])
+
+
+def _insert_ready_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> int:
+    inserted = 0
+    for row in ready_rows:
+        con.execute(
+            """
+            INSERT INTO job_scope_rows (
+              job_id, scope, site_id, dataset_id, factor_db_id, original_id,
+              category, level_1, level_2, level_3, level_4, column_text, report_label,
+              qty, uom, factor, ghg_unit, calc_tco2e, apply_pct, data_source,
+              data_confidence, notes, is_custom_entry
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s, %s, %s,
+              %s, %s, %s
+            )
+            """,
+            [
+                int(job_id),
+                row.get("scope"),
+                row.get("site_id"),
+                row.get("dataset_id"),
+                row.get("factor_db_id"),
+                row.get("original_id"),
+                row.get("category"),
+                row.get("level_1"),
+                row.get("level_2"),
+                row.get("level_3"),
+                row.get("level_4"),
+                row.get("column_text"),
+                row.get("report_label"),
+                row.get("qty"),
+                row.get("uom"),
+                row.get("factor"),
+                row.get("ghg_unit"),
+                row.get("calc_tco2e"),
+                row.get("apply_pct", 100),
+                row.get("data_source", COMMUTING_DATA_SOURCE),
+                row.get("data_confidence", "M"),
+                row.get("notes"),
+                row.get("is_custom_entry", False),
+            ],
+        )
+        inserted += 1
+    return inserted
+
+
+@router.get("/jobs/{job_id}/employee-commuting/template")
+def download_employee_commuting_template(
+    job_id: int,
+    site_id: int | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    with get_conn() as con:
+        meta = _job_meta(con, int(job_id))
+        _, site_label = _job_site_label(con, int(job_id), site_id)
+        workbook_bytes = _build_template_workbook(meta, site_label)
+        filename = _template_filename(meta, site_label)
+
+    safe_filename = filename.replace('"', '\\"')
+    return Response(
+        content=workbook_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+    )
+
+
+@router.get("/jobs/{job_id}/employee-commuting/summary")
+def employee_commuting_summary(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _job_meta(con, int(job_id))
+        row = con.execute(
+            """
+            SELECT
+              COUNT(*) AS row_count,
+              COALESCE(SUM(calc_tco2e), 0) AS total_tco2e,
+              COUNT(DISTINCT COALESCE(site_id, -1)) AS site_count
+            FROM job_scope_rows
+            WHERE job_id = %s
+              AND COALESCE(data_source, '') = %s
+              AND enabled = TRUE
+            """,
+            [int(job_id), COMMUTING_DATA_SOURCE],
+        ).fetchone()
+
+    return {
+        "job_id": int(job_id),
+        "row_count": int(row[0] or 0) if row else 0,
+        "total_tco2e": float(row[1] or 0.0) if row else 0.0,
+        "site_count": int(row[2] or 0) if row else 0,
+        "data_source": COMMUTING_DATA_SOURCE,
+    }
+
+
+@router.post("/jobs/{job_id}/employee-commuting/upload-preview")
+async def preview_employee_commuting_upload(
+    job_id: int,
+    site_id: int | None = Query(None),
+    file: UploadFile = File(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _job_meta(con, int(job_id))
+        validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
+        parsed_rows = _parse_template(raw)
+        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
+
+    return {
+        "job_id": int(job_id),
+        "site_id": validated_site_id,
+        "site_label": site_label,
+        "template_version": TEMPLATE_VERSION,
+        **preview,
+    }
+
+
+@router.post("/jobs/{job_id}/employee-commuting/upload-commit")
+async def commit_employee_commuting_upload(
+    job_id: int,
+    site_id: int | None = Query(None),
+    replace_existing: bool = Query(True),
+    file: UploadFile = File(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _job_meta(con, int(job_id))
+        validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
+        parsed_rows = _parse_template(raw)
+        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
+
+        if preview["unresolved_count"] > 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Upload contains unresolved rows. Please correct the workbook and preview again before import.",
+                    "preview": {
+                        "job_id": int(job_id),
+                        "site_id": validated_site_id,
+                        "site_label": site_label,
+                        "template_version": TEMPLATE_VERSION,
+                        **preview,
+                    },
+                },
+            )
+
+        if preview["ready_count"] <= 0:
+            raise HTTPException(status_code=400, detail="No importable employee commuting rows were found")
+
+        disabled = 0
+        if replace_existing:
+            disabled = _disable_existing_commuting_rows(con, int(job_id), validated_site_id)
+
+        inserted = _insert_ready_rows(con, int(job_id), preview["ready_rows"])
+
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "site_id": validated_site_id,
+        "site_label": site_label,
+        "inserted": int(inserted),
+        "disabled": int(disabled),
+        "total_tco2e": float(preview["total_tco2e"]),
+        "data_source": COMMUTING_DATA_SOURCE,
+    }

@@ -25,6 +25,7 @@ import IntensityMetrics from "@/components/IntensityMetrics";
 import DataOutput from "@/components/DataOutput";
 import JobCustomDataset from "@/components/JobCustomDataset";
 import SpendDataCollection from "@/components/SpendDataCollection";
+import EmployeeCommutingData from "@/components/EmployeeCommutingData";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import JobReporting from "@/components/JobReporting";
 import JobLca from "@/components/JobLca";
@@ -2516,7 +2517,10 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="data-entry" className="mt-0">
-            <JobDataEntry jobId={jobId} />
+            <div className="space-y-6">
+              <EmployeeCommutingData jobId={jobId} baseUrl={baseUrl} />
+              <JobDataEntry jobId={jobId} />
+            </div>
           </TabsContent>
 
           <TabsContent value="upload" className="mt-0">

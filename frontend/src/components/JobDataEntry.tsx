@@ -138,6 +138,15 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     loadData();
   }, [jobId]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadData();
+    };
+    window.addEventListener("nzi-job-scope-refresh", handleRefresh);
+    return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+
   async function loadData() {
     setLoading(true);
     setError("");
