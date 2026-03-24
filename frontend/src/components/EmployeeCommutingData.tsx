@@ -62,9 +62,17 @@ type PreviewPayload = {
 export default function EmployeeCommutingData({
   jobId,
   baseUrl,
+  jobNumber,
+  clientName,
+  reportingPeriodStart,
+  reportingPeriodEnd,
 }: {
   jobId: number;
   baseUrl: string;
+  jobNumber?: string | null;
+  clientName?: string | null;
+  reportingPeriodStart?: string | null;
+  reportingPeriodEnd?: string | null;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -81,6 +89,55 @@ export default function EmployeeCommutingData({
     const siteId = Number(selectedSiteId);
     return sites.find((site) => site.site_id === siteId)?.site_name || "All_Staff";
   }, [selectedSiteId, sites]);
+
+  function safeNamePart(value: string | null | undefined) {
+    const text = String(value || "").trim();
+    const cleaned = text.replace(/[<>:"/\\|?*]+/g, "").replace(/\s+/g, "_").replace(/^_+|_+$/g, "");
+    return cleaned || "Unknown";
+  }
+
+  function formatPeriodPart(value: string | null | undefined) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const datePart = raw.includes("T") ? raw.split("T")[0] : raw.slice(0, 10);
+    const parsed = new Date(datePart);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }).replace(/\s+/g, "-");
+  }
+
+  function fallbackTemplateFilename() {
+    const periodStart = formatPeriodPart(reportingPeriodStart);
+    const periodEnd = formatPeriodPart(reportingPeriodEnd);
+    const periodPart = periodStart && periodEnd ? `${periodStart}-to-${periodEnd}` : "Reporting_Period";
+    return [
+      safeNamePart(jobNumber || `Job-${jobId}`),
+      safeNamePart(clientName || "Client"),
+      safeNamePart(selectedSiteLabel),
+      safeNamePart(periodPart),
+      "employee_commuting",
+    ].join("_") + ".xlsx";
+  }
+
+  function filenameFromDisposition(disposition: string | null, fallback: string) {
+    if (!disposition) return fallback;
+    const filenameStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+    if (filenameStar?.[1]) {
+      try {
+        return decodeURIComponent(filenameStar[1].trim().replace(/^"(.*)"$/, "$1"));
+      } catch {
+        // fall through
+      }
+    }
+    const filenameMatch = disposition.match(/filename\s*=\s*("?)([^";]+)\1/i);
+    if (filenameMatch?.[2]) {
+      return filenameMatch[2].trim();
+    }
+    return fallback;
+  }
 
   useEffect(() => {
     void loadSummary();
@@ -130,9 +187,10 @@ export default function EmployeeCommutingData({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      const disposition = res.headers.get("content-disposition") || "";
-      const match = disposition.match(/filename="?([^"]+)"?/i);
-      link.download = match?.[1] || `job-${jobId}-employee-commuting.xlsx`;
+      link.download = filenameFromDisposition(
+        res.headers.get("content-disposition"),
+        fallbackTemplateFilename()
+      );
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

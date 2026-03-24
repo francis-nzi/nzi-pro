@@ -2547,7 +2547,14 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="employee-commuting" className="mt-0">
-            <EmployeeCommutingData jobId={jobId} baseUrl={baseUrl} />
+            <EmployeeCommutingData
+              jobId={jobId}
+              baseUrl={baseUrl}
+              jobNumber={job?.job_number}
+              clientName={job?.client_name}
+              reportingPeriodStart={job?.reporting_period_start}
+              reportingPeriodEnd={job?.reporting_period_end}
+            />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-0">
