@@ -12,6 +12,22 @@ router = APIRouter()
 _SCOPE_SORT = {"Scope 1": 1, "Scope 2": 2, "Scope 3": 3}
 
 
+def _column_exists(con, table_name: str, column_name: str) -> bool:
+    row = con.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+              AND column_name = %s
+        )
+        """,
+        [table_name, column_name],
+    ).fetchone()
+    return bool(row and row[0])
+
+
 def _scope_sort_key(scope_name: str | None) -> tuple[int, str]:
     name = str(scope_name or "").strip()
     return (_SCOPE_SORT.get(name, 99), name)
@@ -57,11 +73,15 @@ def get_job_data_output(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             reporting_year = job_check[1]
+            has_source_qty = _column_exists(con, "job_scope_rows", "source_qty")
+            has_source_uom = _column_exists(con, "job_scope_rows", "source_uom")
+            quantity_sql = "COALESCE(jsr.source_qty, jsr.qty)" if has_source_qty else "jsr.qty"
+            unit_sql = "COALESCE(jsr.source_uom, jsr.uom)" if has_source_uom else "jsr.uom"
 
             if scope:
                 # Detailed breakdown for specific scope
                 data_df = con.execute(
-                    """
+                    f"""
                     SELECT 
                         jsr.scope,
                         COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) as category,
@@ -69,8 +89,8 @@ def get_job_data_output(
                         jsr.level_3,
                         jsr.level_4,
                         COALESCE(jsr.column_text, jsr.report_label) as activity_name,
-                        jsr.qty as quantity,
-                        jsr.uom as unit,
+                        {quantity_sql} as quantity,
+                        {unit_sql} as unit,
                         jsr.factor,
                         jsr.ghg_unit,
                         jsr.apply_pct,

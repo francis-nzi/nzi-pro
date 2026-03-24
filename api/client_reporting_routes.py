@@ -10,6 +10,34 @@ from api.auth import _current_user
 router = APIRouter()
 
 
+def _column_exists(con, table_name: str, column_name: str) -> bool:
+    row = con.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+              AND column_name = %s
+        )
+        """,
+        [table_name, column_name],
+    ).fetchone()
+    return bool(row and row[0])
+
+
+def _optional_float(value):
+    if value is None:
+        return None
+    try:
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return None
+        return float(text)
+    except Exception:
+        return None
+
+
 def _calc_emissions(row):
     """Calculate emissions from a row with qty, factor, ghg_unit, apply_pct, and monthly values."""
     monthly_total = sum([
@@ -29,7 +57,10 @@ def _calc_emissions(row):
 
 
 def _calc_quantity(row):
-    """Calculate quantity using qty or monthly total fallback."""
+    """Calculate quantity using preserved source quantity when available."""
+    source_qty = _optional_float(row.get('source_qty'))
+    if source_qty is not None:
+        return float(source_qty)
     monthly_total = sum([
         float(row.get(f'month_{i}') or 0)
         for i in range(1, 13)
@@ -107,6 +138,8 @@ def get_client_reporting(
                 }
             
             placeholders = ",".join(["%s"] * len(job_ids))
+            has_source_qty = _column_exists(con, "job_scope_rows", "source_qty")
+            source_qty_sql = "jsr.source_qty" if has_source_qty else "NULL"
             
             # Get scope rows with all needed fields
             scope_df = con.execute(
@@ -120,6 +153,7 @@ def get_client_reporting(
                     jsr.scope,
                     COALESCE(jsr.category, jsr.level_2, 'Uncategorized') as category,
                     COALESCE(s.site_name, 'No Site Assigned') as site_name,
+                    {source_qty_sql} as source_qty,
                     jsr.qty,
                     jsr.factor,
                     jsr.ghg_unit,

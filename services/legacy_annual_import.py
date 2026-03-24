@@ -235,6 +235,8 @@ def _quantity_storage_plan(
     factor_value = _single_numeric([v for v in month_factor_values.values() if v is not None])
     uom = _single_text([v for v in month_uoms.values() if v is not None]) or (factor_rec_primary.uom if factor_rec_primary else None)
     ghg_unit = _single_text([v for v in month_ghg_units.values() if v is not None]) or (factor_rec_primary.ghg_unit if factor_rec_primary else None)
+    source_qty = float(sum(month_quantities.values()))
+    source_uom = uom
 
     raw_supported = (
         bool(month_quantities)
@@ -259,6 +261,8 @@ def _quantity_storage_plan(
             "factor": float(factor_value),
             "qty": float(sum(month_quantities.values())),
             "calc_tco2e": float(sum(month_emissions.values())),
+            "source_qty": source_qty,
+            "source_uom": source_uom,
             "monthly_values": {i: float(month_quantities.get(i, 0.0)) for i in range(1, 13)},
         }
 
@@ -275,6 +279,8 @@ def _quantity_storage_plan(
         "factor": 1.0,
         "qty": float(sum(month_emissions.values())),
         "calc_tco2e": float(sum(month_emissions.values())),
+        "source_qty": source_qty,
+        "source_uom": source_uom,
         "monthly_values": {i: float(month_emissions.get(i, 0.0)) for i in range(1, 13)},
     }
 
@@ -925,6 +931,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
                 "calc_tco2e": 0.0,
+                "source_qty": 0.0,
+                "source_uom": storage_plan.get("source_uom"),
                 "source_rows": [],
                 "month_errors": [],
             }
@@ -951,6 +959,14 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 entry["monthly_dataset_ids"][int(pos)] = int(month_datasets[pos])
         entry["qty"] = float(entry["qty"]) + float(qty_to_add)
         entry["calc_tco2e"] = float(entry["calc_tco2e"]) + float(calc_to_add)
+        entry["source_qty"] = float(entry.get("source_qty") or 0.0) + float(storage_plan.get("source_qty") or 0.0)
+        incoming_source_uom = _clean(storage_plan.get("source_uom"))
+        current_source_uom = _clean(entry.get("source_uom"))
+        if incoming_source_uom:
+            if not current_source_uom:
+                entry["source_uom"] = incoming_source_uom
+            elif current_source_uom.lower() != incoming_source_uom.lower():
+                entry["source_uom"] = None
         entry["source_rows"].append({"sheet": row.get("sheet_name"), "row": row.get("row_number"), "activity": row.get("activity")})
         entry["month_errors"].extend(month_missing)
 
@@ -980,6 +996,8 @@ def parse_legacy_annual_workbook(raw_bytes: bytes) -> dict[str, Any]:
                 "ghg_unit": entry["ghg_unit"],
                 "factor": float(entry["factor"] or 0.0),
                 "calc_tco2e": float(entry["calc_tco2e"]),
+                "source_qty": float(entry.get("source_qty") or 0.0),
+                "source_uom": entry.get("source_uom"),
                 "month_1": float(entry["monthly_values"].get(1, 0.0)),
                 "month_2": float(entry["monthly_values"].get(2, 0.0)),
                 "month_3": float(entry["monthly_values"].get(3, 0.0)),
@@ -1150,6 +1168,8 @@ def _ensure_job_scope_rows_schema(con) -> None:
         "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS is_custom_entry BOOLEAN DEFAULT FALSE",
         "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS override_tco2e NUMERIC",
         "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS override_reason VARCHAR",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_qty NUMERIC",
+        "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_uom VARCHAR",
         "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
     ]
@@ -1227,6 +1247,8 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                 float(r.get("factor") or 1.0),
                 r.get("ghg_unit") or "tCO2e",
                 float(r.get("calc_tco2e") or 0),
+                float(r.get("source_qty") or 0),
+                r.get("source_uom") or r.get("uom"),
                 r.get("level_1"),
                 r.get("level_2"),
                 r.get("level_3"),
@@ -1260,6 +1282,8 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                         factor=%s,
                         ghg_unit=%s,
                         calc_tco2e=%s,
+                        source_qty=%s,
+                        source_uom=%s,
                         level_1=%s,
                         level_2=%s,
                         level_3=%s,
@@ -1285,7 +1309,7 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                     INSERT INTO job_scope_rows (
                         job_id, site_id, scope, category, dataset_id, factor_db_id, original_id,
                         level_1, level_2, level_3, level_4, column_text, report_label, notes, enabled,
-                        qty, uom, factor, ghg_unit, calc_tco2e, override_tco2e, override_reason,
+                        qty, uom, factor, ghg_unit, calc_tco2e, source_qty, source_uom, override_tco2e, override_reason,
                         month_1, month_2, month_3, month_4, month_5, month_6,
                         month_7, month_8, month_9, month_10, month_11, month_12,
                         apply_pct, data_source, data_confidence, is_custom_entry, created_at, updated_at
@@ -1293,7 +1317,7 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, TRUE,
-                        %s, %s, %s, %s, %s, NULL, NULL,
+                        %s, %s, %s, %s, %s, %s, %s, NULL, NULL,
                         %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s,
                         100, 'Legacy Annual Upload', 'M', FALSE, NOW(), NOW()
@@ -1319,6 +1343,8 @@ def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, An
                         float(r.get("factor") or 1.0),
                         r.get("ghg_unit") or "tCO2e",
                         float(r.get("calc_tco2e") or 0),
+                        float(r.get("source_qty") or 0),
+                        r.get("source_uom") or r.get("uom"),
                         float(r.get("month_1") or 0),
                         float(r.get("month_2") or 0),
                         float(r.get("month_3") or 0),
@@ -1480,6 +1506,8 @@ def resolve_unresolved_rows(
                 "monthly_dataset_ids": {},
                 "qty": 0.0,
                 "calc_tco2e": 0.0,
+                "source_qty": 0.0,
+                "source_uom": storage_plan.get("source_uom"),
                 "source_rows": [],
                 "month_errors": [],
             }
@@ -1506,6 +1534,14 @@ def resolve_unresolved_rows(
                 entry["monthly_dataset_ids"][int(pos)] = int(month_datasets[pos])
         entry["qty"] = float(entry["qty"]) + float(qty_to_add)
         entry["calc_tco2e"] = float(entry["calc_tco2e"]) + float(calc_to_add)
+        entry["source_qty"] = float(entry.get("source_qty") or 0.0) + float(storage_plan.get("source_qty") or 0.0)
+        incoming_source_uom = _clean(storage_plan.get("source_uom"))
+        current_source_uom = _clean(entry.get("source_uom"))
+        if incoming_source_uom:
+            if not current_source_uom:
+                entry["source_uom"] = incoming_source_uom
+            elif current_source_uom.lower() != incoming_source_uom.lower():
+                entry["source_uom"] = None
         entry["source_rows"].append({"sheet": row.get("sheet_name"), "row": row.get("row_number"), "activity": row.get("activity")})
         entry["month_errors"].extend(month_errors)
 
@@ -1531,6 +1567,8 @@ def resolve_unresolved_rows(
                 "ghg_unit": entry["ghg_unit"],
                 "factor": float(entry["factor"] or 0.0),
                 "calc_tco2e": float(entry["calc_tco2e"]),
+                "source_qty": float(entry.get("source_qty") or 0.0),
+                "source_uom": entry.get("source_uom"),
                 "month_1": float(entry["monthly_values"].get(1, 0.0)),
                 "month_2": float(entry["monthly_values"].get(2, 0.0)),
                 "month_3": float(entry["monthly_values"].get(3, 0.0)),
@@ -1574,6 +1612,14 @@ def resolve_unresolved_rows(
             cur[f"month_{i}"] = float(cur.get(f"month_{i}") or 0) + float(row_to_merge.get(f"month_{i}") or 0)
         cur["qty"] = float(cur.get("qty") or 0) + float(row_to_merge.get("qty") or 0)
         cur["calc_tco2e"] = float(cur.get("calc_tco2e") or 0) + float(row_to_merge.get("calc_tco2e") or 0)
+        cur["source_qty"] = float(cur.get("source_qty") or 0) + float(row_to_merge.get("source_qty") or 0)
+        cur_source_uom = _clean(cur.get("source_uom"))
+        row_source_uom = _clean(row_to_merge.get("source_uom"))
+        if row_source_uom:
+            if not cur_source_uom:
+                cur["source_uom"] = row_source_uom
+            elif cur_source_uom.lower() != row_source_uom.lower():
+                cur["source_uom"] = None
         cur["collision_count"] = int(cur.get("collision_count") or 1) + 1
 
     merged_rows = list(merged.values())
