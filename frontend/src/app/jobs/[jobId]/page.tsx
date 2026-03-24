@@ -747,7 +747,11 @@ export default function JobDetailPage() {
 
   const setupCompletedCount = setupSteps.filter((step) => step.complete).length;
   const setupTotalCount = setupSteps.length;
+  const isSetupComplete = setupTotalCount > 0 && setupCompletedCount >= setupTotalCount;
   const setupCompletionLabel = `Setup ${setupCompletedCount}/${setupTotalCount} complete`;
+  const setupCompletionBadgeClassName = isSetupComplete
+    ? "border-green-200 bg-green-50 text-green-800"
+    : "border-red-200 bg-red-50 text-red-800";
   const primaryActionTab = setupCompletedCount < setupTotalCount ? "setup" : "data-entry";
   const primaryActionLabel =
     primaryActionTab === "setup" ? "Continue Setup" : "Go to Data Entry";
@@ -1741,7 +1745,7 @@ export default function JobDetailPage() {
                 </Badge>
                 <Badge
                   variant="outline"
-                  className="border-muted-foreground/20 text-muted-foreground"
+                  className={setupCompletionBadgeClassName}
                 >
                   {setupCompletionLabel}
                 </Badge>
