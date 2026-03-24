@@ -1816,6 +1816,9 @@ export default function JobDetailPage() {
                 <TabsTrigger value="data-entry" className={navTriggerClassName}>
                   Data Entry
                 </TabsTrigger>
+                <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
+                  Employee Commuting
+                </TabsTrigger>
                 <TabsTrigger value="upload" className={navTriggerClassName}>
                   Data Upload
                 </TabsTrigger>
@@ -2517,10 +2520,11 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="data-entry" className="mt-0">
-            <div className="space-y-6">
-              <EmployeeCommutingData jobId={jobId} baseUrl={baseUrl} />
-              <JobDataEntry jobId={jobId} />
-            </div>
+            <JobDataEntry jobId={jobId} />
+          </TabsContent>
+
+          <TabsContent value="employee-commuting" className="mt-0">
+            <EmployeeCommutingData jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-0">
