@@ -10,12 +10,13 @@ from functools import lru_cache
 import math
 from pathlib import Path
 import re
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from pydantic import BaseModel
 from typing import Optional, List, Any
 
 from core.database import get_conn
 from api.auth import _current_user
+from services.audit_log import record_audit_event
 from services.dataset_selector import (
     get_datasets_names_for_report,
     get_scope_primary_datasets,
@@ -1899,6 +1900,7 @@ def get_job_report_metadata(job_id: int, _user: dict = Depends(_current_user)):
 
 @router.post("/jobs/{job_id}/report-metadata")
 def save_job_report_metadata(
+    request: Request,
     job_id: int,
     payload: SaveReportMetadataPayload = Body(...),
     _user: dict = Depends(_current_user),
@@ -1929,6 +1931,7 @@ def save_job_report_metadata(
 
     with get_conn() as con:
         _get_job_client_id(con, int(job_id))
+        before = _serialize_report_meta(_fetch_report_meta_row(con, int(job_id)) or {})
         merged = _ensure_job_report_meta(
             con,
             int(job_id),
@@ -1953,6 +1956,21 @@ def save_job_report_metadata(
 
         refreshed = _fetch_report_meta_row(con, int(job_id)) or merged
         factor_details = _get_energy_emissions_factor_details(con, int(job_id))
+        after = _serialize_report_meta(refreshed)
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="update",
+            entity_type="job_report_metadata",
+            entity_id=int(job_id),
+            job_id=int(job_id),
+            before=before,
+            after=after,
+            metadata={
+                "updated_keys": sorted(list(resolved_updates.keys())),
+            },
+        )
 
     return {
         "job_id": int(job_id),

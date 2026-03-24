@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
@@ -31,6 +31,7 @@ from api.job_scope_data_routes import (
     _legacy_scope_dataset_map,
 )
 from core.database import get_conn
+from services.audit_log import record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
 
 router = APIRouter()
@@ -1122,6 +1123,7 @@ async def preview_employee_commuting_upload(
 
 @router.post("/jobs/{job_id}/employee-commuting/upload-commit")
 async def commit_employee_commuting_upload(
+    request: Request,
     job_id: int,
     site_id: int | None = Query(None),
     replace_existing: bool = Query(True),
@@ -1134,7 +1136,7 @@ async def commit_employee_commuting_upload(
 
     with get_conn() as con:
         _ensure_job_scope_rows_schema(con)
-        _job_meta(con, int(job_id))
+        meta = _job_meta(con, int(job_id))
         validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
         parsed_rows = _parse_template(raw)
         preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
@@ -1162,6 +1164,29 @@ async def commit_employee_commuting_upload(
             disabled = _disable_existing_commuting_rows(con, int(job_id), validated_site_id)
 
         inserted = _insert_ready_rows(con, int(job_id), preview["ready_rows"])
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="import",
+            entity_type="employee_commuting_import",
+            entity_id=f"{int(job_id)}:{validated_site_id if validated_site_id is not None else 'all'}",
+            client_id=meta.get("client_db_id"),
+            job_id=int(job_id),
+            metadata={
+                "site_id": validated_site_id,
+                "site_label": site_label,
+                "replace_existing": bool(replace_existing),
+                "inserted": int(inserted),
+                "disabled": int(disabled),
+                "parsed_count": int(preview.get("parsed_count") or 0),
+                "ready_count": int(preview.get("ready_count") or 0),
+                "unresolved_count": int(preview.get("unresolved_count") or 0),
+                "total_tco2e": float(preview.get("total_tco2e") or 0.0),
+                "data_source": COMMUTING_DATA_SOURCE,
+            },
+        )
 
     return {
         "ok": True,

@@ -36,6 +36,7 @@ import JobCommunications from "@/components/JobCommunications";
 import ClientTimeline from "@/components/ClientTimeline";
 import CustomFields from "@/components/CustomFields";
 import { milestoneDotClass } from "@/lib/status-utils";
+import { withAuditHeaders } from "@/lib/auth-client";
 import {
   AUTO_REPORT_METADATA_KEYS,
   calculateDerivedEnergyEmissionFields,
@@ -1313,9 +1314,12 @@ export default function JobDetailPage() {
 
       const res = await fetch(`${baseUrl}/jobs/${jobId}/report-metadata`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: withAuditHeaders(
+          {
+            "Content-Type": "application/json",
+          },
+          { page: "Jobs", section: "Setup Overview", container: "Report Variables" }
+        ),
         body: JSON.stringify({ metadata: metadataPayload }),
       });
 
@@ -1368,9 +1372,12 @@ export default function JobDetailPage() {
 
       const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-config`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: withAuditHeaders(
+          {
+            "Content-Type": "application/json",
+          },
+          { page: "Jobs", section: "Setup Overview", container: "Dataset Configuration" }
+        ),
         credentials: "include",
         body: JSON.stringify({
           items,
@@ -1425,9 +1432,12 @@ export default function JobDetailPage() {
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/job-template`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: withAuditHeaders(
+          {
+            "Content-Type": "application/json",
+          },
+          { page: "Jobs", section: "Setup Overview", container: "Job Template" }
+        ),
         body: JSON.stringify({ job_template_id: Number(jobTemplateId) }),
       });
 
@@ -1451,15 +1461,18 @@ export default function JobDetailPage() {
 
     setBusy(true);
     setStatus("Saving job details...");
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          title: jobTitle,
-          status: jobStatus,
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            {
+              "Content-Type": "application/json",
+            },
+            { page: "Jobs", section: "Setup Overview", container: "Job Details" }
+          ),
+          body: JSON.stringify({ 
+            title: jobTitle,
+            status: jobStatus,
           crm_name: crmName,
           legacy_job_no: legacyJobNo || null,
           start_date: jobStartDate || null,
@@ -1508,15 +1521,18 @@ export default function JobDetailPage() {
 
     setBusy(true);
     setStatus("Saving reporting period...");
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          reporting_period_start: reportingPeriodStart || null,
-          reporting_period_end: reportingPeriodEnd || null,
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            {
+              "Content-Type": "application/json",
+            },
+            { page: "Jobs", section: "Setup Overview", container: "Reporting Period" }
+          ),
+          body: JSON.stringify({
+            reporting_period_start: reportingPeriodStart || null,
+            reporting_period_end: reportingPeriodEnd || null,
         }),
       });
 

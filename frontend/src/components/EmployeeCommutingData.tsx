@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { withAuditHeaders } from "@/lib/auth-client";
 
 type SiteOption = {
   site_id: number | null;
@@ -265,16 +266,21 @@ export default function EmployeeCommutingData({
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const siteSuffix = selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`;
-      const res = await fetch(
-        `${baseUrl}/jobs/${jobId}/employee-commuting/upload-commit?${siteSuffix}replace_existing=${
-          replaceExisting ? "true" : "false"
-        }`,
-        {
-          method: "POST",
-          body: fd,
-        }
-      );
+        const siteSuffix = selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`;
+        const res = await fetch(
+          `${baseUrl}/jobs/${jobId}/employee-commuting/upload-commit?${siteSuffix}replace_existing=${
+            replaceExisting ? "true" : "false"
+          }`,
+          {
+            method: "POST",
+            headers: withAuditHeaders(undefined, {
+              page: "Jobs",
+              section: "Employee Commuting",
+              container: "Import to Job Data",
+            }),
+            body: fd,
+          }
+        );
       if (!res.ok) {
         const apiError = await readError(res);
         if (apiError.preview) {

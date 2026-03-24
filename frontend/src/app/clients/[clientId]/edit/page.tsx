@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { withAuditHeaders } from "@/lib/auth-client";
 import {
   Select,
   SelectContent,
@@ -325,7 +326,10 @@ export default function EditClientPage() {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Clients", section: "Sites", container: "Add Site" }
+        ),
         body: JSON.stringify(siteForm),
       });
 
@@ -343,7 +347,10 @@ export default function EditClientPage() {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Clients", section: "Sites", container: "Edit Site" }
+        ),
         body: JSON.stringify(siteForm),
       });
 
@@ -366,7 +373,10 @@ export default function EditClientPage() {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}/vacate`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Clients", section: "Sites", container: "Vacate Site" }
+        ),
         body: JSON.stringify({ vacated_date: vacatedDate }),
       });
 
@@ -424,9 +434,12 @@ export default function EditClientPage() {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: withAuditHeaders(
+          {
+            "Content-Type": "application/json",
+          },
+          { page: "Clients", section: "Basic Information", container: "Edit Client" }
+        ),
         body: JSON.stringify({
           client_name: clientName || null,
           industry: industry || null,

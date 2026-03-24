@@ -111,6 +111,13 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "System & Governance",
   },
   {
+    title: "Audit Log",
+    description: "Review append-only changes made by team members across clients, jobs, sites, and data.",
+    href: "/admin/audit-log",
+    cta: "Open Audit Log",
+    domain: "System & Governance",
+  },
+  {
     title: "Missing Data",
     description: "Find clients and jobs with blank fields, then update those values in one place.",
     href: "/admin/missing-data",

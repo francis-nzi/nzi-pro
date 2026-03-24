@@ -7,9 +7,10 @@ import math
 import re
 from typing import Any
 import pandas as pd
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from core.database import get_conn
 from api.auth import _current_user
+from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 
@@ -267,6 +268,14 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
             "ghg_unit": str(ghg_unit).strip() if ghg_unit is not None else None,
         }
     return None
+
+
+def _job_scope_row_snapshot(con, job_id: int, row_id: int) -> dict[str, Any] | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM job_scope_rows WHERE row_id = %s AND job_id = %s",
+        [int(row_id), int(job_id)],
+    )
 
 
 def _factor_lookup_select_parts(con) -> dict[str, str]:
@@ -602,6 +611,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
 
 @router.post("/jobs/{job_id}/scope-data")
 def create_scope_data_row(
+    request: Request,
     job_id: int,
     payload: dict = Body(...),
     _user: dict[str, str] = Depends(_current_user)
@@ -684,7 +694,24 @@ def create_scope_data_row(
             ).fetchone()
             
             row_id = result[0] if result else None
-            
+            after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="job_scope_row",
+                entity_id=int(row_id),
+                job_id=int(job_id),
+                after=after,
+                metadata={
+                    "scope": scope,
+                    "original_id": original_id,
+                    "dataset_id": payload.get("dataset_id"),
+                    "factor_db_id": payload.get("factor_db_id"),
+                },
+            )
+
             return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
             
     except HTTPException:
@@ -695,6 +722,7 @@ def create_scope_data_row(
 
 @router.patch("/jobs/{job_id}/scope-data/{row_id}")
 def update_scope_data_row(
+    request: Request,
     job_id: int,
     row_id: int,
     payload: dict = Body(...),
@@ -706,6 +734,7 @@ def update_scope_data_row(
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
+            before = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             # Verify row exists and belongs to job
             row_exists = con.execute(
                 "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
@@ -746,7 +775,21 @@ def update_scope_data_row(
             """
             
             con.execute(query, params)
-            
+
+            after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_scope_row",
+                entity_id=int(row_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={"updated_fields": [field for field in allowed_fields if field in payload]},
+            )
+
             return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
             
     except HTTPException:
@@ -757,6 +800,7 @@ def update_scope_data_row(
 
 @router.delete("/jobs/{job_id}/scope-data/{row_id}")
 def delete_scope_data_row(
+    request: Request,
     job_id: int,
     row_id: int,
     _user: dict[str, str] = Depends(_current_user)
@@ -767,6 +811,7 @@ def delete_scope_data_row(
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
+            before = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             # Verify row exists and belongs to job
             row_exists = con.execute(
                 "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
@@ -781,7 +826,20 @@ def delete_scope_data_row(
                 "UPDATE job_scope_rows SET enabled=FALSE, updated_at=NOW() WHERE row_id=%s",
                 [int(row_id)]
             )
-            
+
+            after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="delete",
+                entity_type="job_scope_row",
+                entity_id=int(row_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+            )
+
             return {"ok": True, "row_id": int(row_id), "job_id": int(job_id)}
             
     except HTTPException:

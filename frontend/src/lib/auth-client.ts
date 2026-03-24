@@ -5,6 +5,12 @@ export const USER_COOKIE = "nzi_user";
 export const FORCE_PASSWORD_CHANGE_COOKIE = "nzi_force_pw_change";
 export const ACCEPT_TERMS_COOKIE = "nzi_accept_terms";
 
+export type AuditUiContext = {
+  page?: string;
+  section?: string;
+  container?: string;
+};
+
 function cookieValue(name: string): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
@@ -31,6 +37,14 @@ export function apiUrl(path: string): string {
     return normalized;
   }
   return `/api/backend${normalized}`;
+}
+
+export function withAuditHeaders(headersInit?: HeadersInit, ctx?: AuditUiContext): Headers {
+  const headers = new Headers(headersInit);
+  if (ctx?.page) headers.set("X-Audit-Page", ctx.page);
+  if (ctx?.section) headers.set("X-Audit-Section", ctx.section);
+  if (ctx?.container) headers.set("X-Audit-Container", ctx.container);
+  return headers;
 }
 
 export function getToken(): string | null {

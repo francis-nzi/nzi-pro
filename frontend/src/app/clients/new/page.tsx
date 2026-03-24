@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
+import { withAuditHeaders } from "@/lib/auth-client";
 import {
   Select,
   SelectContent,
@@ -349,12 +350,15 @@ export default function NewClientPage() {
     setSaving(true);
     setStatus("Creating client...");
 
-    try {
-      const res = await fetch(`${baseUrl}/clients`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_name: clientName.trim(),
+      try {
+        const res = await fetch(`${baseUrl}/clients`, {
+          method: "POST",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Clients", section: "Basic Information", container: "Create Client" }
+          ),
+          body: JSON.stringify({
+            client_name: clientName.trim(),
           industry: industry || null,
           description_long: description || null,
           website: website || null,

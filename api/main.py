@@ -53,7 +53,7 @@ if _strict_auth_required() and not str(os.getenv("NZI_JWT_SECRET") or "").strip(
     _safe_startup_log("WARN", "Strict auth mode is enabled but NZI_JWT_SECRET is missing.")
 
 import pandas as pd
-from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -61,6 +61,7 @@ from fastapi.staticfiles import StaticFiles
 from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
+from services.audit_log import fetch_row_dict, record_audit_event
 from services.job_folder_excel import build_excel_template_bytes
 from services.sites import ensure_registered_office_site, list_sites
 from services.dataset_selector import (
@@ -102,6 +103,92 @@ from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
+
+
+def _client_audit_snapshot(con, client_db_id: int) -> dict | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM clients WHERE db_id = ?",
+        [int(client_db_id)],
+    )
+
+
+def _job_audit_snapshot(con, job_id: int) -> dict | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM jobs WHERE job_id = ?",
+        [int(job_id)],
+    )
+
+
+def _client_site_audit_snapshot(con, client_db_id: int, site_id: int) -> dict | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM client_sites WHERE client_db_id = ? AND site_id = ?",
+        [int(client_db_id), int(site_id)],
+    )
+
+
+def _client_contact_audit_snapshot(con, client_db_id: int, contact_id: int) -> dict | None:
+    return fetch_row_dict(
+        con,
+        "SELECT * FROM client_contacts WHERE client_db_id = ? AND contact_id = ?",
+        [int(client_db_id), int(contact_id)],
+    )
+
+
+def _job_template_assignment_audit_snapshot(con, job_id: int) -> dict | None:
+    row = fetch_row_dict(
+        con,
+        """
+        SELECT
+            j.job_id,
+            j.job_template_id,
+            jt.template_name,
+            jt.template_key
+        FROM jobs j
+        LEFT JOIN job_templates jt ON jt.job_template_id = j.job_template_id
+        WHERE j.job_id = ?
+        """,
+        [int(job_id)],
+    )
+    return row
+
+
+def _job_scope_config_audit_snapshot(con, job_id: int) -> dict:
+    config_rows = con.execute(
+        """
+        SELECT scope, include_scope, dataset_id, factor_method
+        FROM job_scope_config
+        WHERE job_id = ?
+        ORDER BY scope
+        """,
+        [int(job_id)],
+    ).fetchall()
+    additional_rows = con.execute(
+        """
+        SELECT dataset_id
+        FROM job_additional_datasets
+        WHERE job_id = ?
+        ORDER BY dataset_id
+        """,
+        [int(job_id)],
+    ).fetchall()
+    return {
+        "job_id": int(job_id),
+        "items": [
+            {
+                "scope": str(row[0]) if row and row[0] is not None else None,
+                "include_scope": bool(row[1]) if row and row[1] is not None else None,
+                "dataset_id": int(row[2]) if row and row[2] is not None else None,
+                "factor_method": str(row[3]) if row and row[3] is not None else None,
+            }
+            for row in config_rows
+        ],
+        "additional_dataset_ids": [
+            int(row[0]) for row in additional_rows if row and row[0] is not None
+        ],
+    }
 
 app = FastAPI(title="NZI Pro API", version="0.1.0")
 
@@ -406,7 +493,7 @@ def debug_env(_user: dict[str, str] = Depends(_current_user)):
 
 
 @app.post("/jobs")
-def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
     """Create a new job with automatic period calculation."""
     try:
         from datetime import date, timedelta
@@ -564,6 +651,23 @@ def create_job(body: dict = Body(...), _user: dict[str, str] = Depends(_current_
             con.execute(
                 "UPDATE jobs SET job_number = ? WHERE job_id = ?",
                 [job_number, job_id],
+            )
+            after = _job_audit_snapshot(con, job_id)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="job",
+                entity_id=job_id,
+                client_id=int(client_db_id),
+                job_id=job_id,
+                after=after,
+                metadata={
+                    "job_number": job_number,
+                    "job_type": job_type_name,
+                    "is_benchmark": bool(is_benchmark),
+                },
             )
             
             return {
@@ -1012,6 +1116,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
 
 @app.patch("/jobs/{job_id}")
 def update_job(
+    request: Request,
     job_id: int,
     body: dict = Body(...),
     _user: dict[str, str] = Depends(_current_user)
@@ -1019,6 +1124,7 @@ def update_job(
     """Update job fields including reporting period."""
     try:
         with get_conn() as con:
+            before = _job_audit_snapshot(con, int(job_id))
             # Check job exists
             exists = con.execute("SELECT 1 FROM jobs WHERE job_id = ?", [int(job_id)]).fetchone()
             if not exists:
@@ -1071,6 +1177,20 @@ def update_job(
             query = f"UPDATE jobs SET {', '.join(updates)} WHERE job_id = ?"
             
             con.execute(query, params)
+            after = _job_audit_snapshot(con, int(job_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job",
+                entity_id=int(job_id),
+                client_id=int(after.get("client_db_id")) if after and after.get("client_db_id") is not None else None,
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={"updated_fields": list(body.keys())},
+            )
             
             # Auto-create/update milestones if anchor-driving fields changed:
             # - start_date
@@ -1556,6 +1676,7 @@ def archive_job_template(
 
 @app.put("/jobs/{job_id}/job-template")
 def update_job_template(
+    request: Request,
     job_id: int,
     payload: dict[str, object] = Body(...),
     _user: dict[str, str] = Depends(_current_user),
@@ -1570,12 +1691,13 @@ def update_job_template(
 
     try:
         with get_conn() as con:
+            before = _job_template_assignment_audit_snapshot(con, int(job_id))
             exists_job = con.execute("SELECT 1 FROM jobs WHERE job_id=?", [int(job_id)]).fetchone()
             if not exists_job:
                 raise HTTPException(status_code=404, detail="Job not found")
 
             tpl = con.execute(
-                "SELECT job_template_id FROM job_templates WHERE job_template_id=? AND is_active=TRUE",
+                "SELECT job_template_id, template_name, template_key FROM job_templates WHERE job_template_id=? AND is_active=TRUE",
                 [int(jt_id)],
             ).fetchone()
             if not tpl:
@@ -1584,6 +1706,23 @@ def update_job_template(
             con.execute(
                 "UPDATE jobs SET job_template_id=? WHERE job_id=?",
                 [int(jt_id), int(job_id)],
+            )
+            after = _job_template_assignment_audit_snapshot(con, int(job_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_template_assignment",
+                entity_id=int(job_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={
+                    "job_template_id": int(jt_id),
+                    "template_name": str(tpl[1]) if tpl[1] is not None else None,
+                    "template_key": str(tpl[2]) if tpl[2] is not None else None,
+                },
             )
     except HTTPException:
         raise
@@ -1771,6 +1910,7 @@ def get_job_scope_config(job_id: int, _user: dict[str, str] = Depends(_current_u
 
 @app.put("/jobs/{job_id}/scope-config")
 def update_job_scope_config(
+    request: Request,
     job_id: int,
     payload: dict[str, object] = Body(...),
     _user: dict[str, str] = Depends(_current_user),
@@ -1830,6 +1970,7 @@ def update_job_scope_config(
     try:
         _ensure_job_additional_datasets_table()
         with get_conn() as con:
+            before = _job_scope_config_audit_snapshot(con, int(job_id))
             exists_job = con.execute("SELECT 1 FROM jobs WHERE job_id=?", [int(job_id)]).fetchone()
             if not exists_job:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -1873,6 +2014,22 @@ def update_job_scope_config(
                     """,
                     [int(job_id), int(dsid)],
                 )
+            after = _job_scope_config_audit_snapshot(con, int(job_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="job_scope_config",
+                entity_id=int(job_id),
+                job_id=int(job_id),
+                before=before,
+                after=after,
+                metadata={
+                    "updated_scopes": sorted([scope for scope, _, _, _ in updates]),
+                    "additional_dataset_ids": additional_dataset_ids,
+                },
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -2427,7 +2584,11 @@ async def job_excel_upload(
 
 
 @app.post("/clients")
-def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+def create_client(
+    request: Request,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """Create a new client."""
     try:
         client_name = body.get("client_name", "").strip()
@@ -2550,6 +2711,21 @@ def create_client(body: dict = Body(...), _user: dict[str, str] = Depends(_curre
                     [client_db_id, "Registered Office", location, True]
                 )
             
+            after = _client_audit_snapshot(con, client_db_id)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="client",
+                entity_id=int(client_db_id),
+                client_id=int(client_db_id),
+                after=after,
+                metadata={
+                    "create_site_from_address": bool(body.get("create_site_from_address", False)),
+                },
+            )
+
             return {"ok": True, "client_db_id": client_db_id}
     except HTTPException:
         raise
@@ -2859,6 +3035,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
 
 @app.patch("/clients/{client_db_id}")
 def update_client(
+    request: Request,
     client_db_id: int,
     body: dict = Body(...),
     _user: dict[str, str] = Depends(_current_user)
@@ -2867,6 +3044,7 @@ def update_client(
     try:
         with get_conn() as con:
             _ensure_client_billing_columns(con)
+            before = _client_audit_snapshot(con, int(client_db_id))
             # Check client exists
             exists = con.execute("SELECT 1 FROM clients WHERE db_id = ?", [int(client_db_id)]).fetchone()
             if not exists:
@@ -3016,6 +3194,20 @@ def update_client(
                         [int(client_db_id), "Registered Office", location, True]
                     )
             
+            after = _client_audit_snapshot(con, int(client_db_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="client",
+                entity_id=int(client_db_id),
+                client_id=int(client_db_id),
+                before=before,
+                after=after,
+                metadata={"updated_fields": list(normalized_body.keys())},
+            )
+
             return {"ok": True, "message": "Client updated successfully"}
     except HTTPException:
         raise
@@ -3072,6 +3264,7 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
 
 @app.post("/clients/{client_db_id}/sites")
 def create_client_site(
+    request: Request,
     client_db_id: int,
     body: dict = Body(...),
     _user: dict[str, str] = Depends(_current_user)
@@ -3100,13 +3293,28 @@ def create_client_site(
                 ]
             ).fetchone()
             
-            return {"ok": True, "site_id": int(row[0])}
+            site_id_value = int(row[0])
+            after = _client_site_audit_snapshot(con, int(client_db_id), site_id_value)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="client_site",
+                entity_id=site_id_value,
+                client_id=int(client_db_id),
+                after=after,
+                metadata={"is_registered_office": bool(body.get("is_registered_office", False))},
+            )
+
+            return {"ok": True, "site_id": site_id_value}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create site: {e}")
 
 
 @app.patch("/clients/{client_db_id}/sites/{site_id}")
 def update_client_site(
+    request: Request,
     client_db_id: int,
     site_id: int,
     body: dict = Body(...),
@@ -3115,6 +3323,7 @@ def update_client_site(
     """Update a client site."""
     try:
         with get_conn() as con:
+            before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
                 "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
@@ -3151,6 +3360,20 @@ def update_client_site(
                 query = f"UPDATE client_sites SET {', '.join(updates)} WHERE site_id = %s AND client_db_id = %s"
                 con.execute(query, params)
             
+            after = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="client_site",
+                entity_id=int(site_id),
+                client_id=int(client_db_id),
+                before=before,
+                after=after,
+                metadata={"updated_fields": list(body.keys())},
+            )
+
             return {"ok": True, "message": "Site updated successfully"}
     except HTTPException:
         raise
@@ -3160,6 +3383,7 @@ def update_client_site(
 
 @app.patch("/clients/{client_db_id}/sites/{site_id}/vacate")
 def vacate_client_site(
+    request: Request,
     client_db_id: int,
     site_id: int,
     body: dict = Body(...),
@@ -3168,6 +3392,7 @@ def vacate_client_site(
     """Mark a site as vacated with a date (preserves historical emissions data)."""
     try:
         with get_conn() as con:
+            before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
                 "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s",
@@ -3194,6 +3419,20 @@ def vacate_client_site(
                 [vacated_date, _user.get("email", "unknown"), int(site_id), int(client_db_id)]
             )
             
+            after = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="vacate",
+                entity_type="client_site",
+                entity_id=int(site_id),
+                client_id=int(client_db_id),
+                before=before,
+                after=after,
+                metadata={"vacated_date": vacated_date},
+            )
+
             return {"ok": True, "message": "Site vacated successfully"}
     except HTTPException:
         raise
@@ -3236,6 +3475,7 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
 
 @app.post("/clients/{client_db_id}/contacts")
 def create_client_contact(
+    request: Request,
     client_db_id: int,
     body: dict = Body(...),
     _user: dict[str, str] = Depends(_current_user)
@@ -3266,13 +3506,28 @@ def create_client_contact(
                 ]
             ).fetchone()
             
-            return {"ok": True, "contact_id": int(row[0])}
+            contact_id_value = int(row[0])
+            after = _client_contact_audit_snapshot(con, int(client_db_id), contact_id_value)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="client_contact",
+                entity_id=contact_id_value,
+                client_id=int(client_db_id),
+                after=after,
+                metadata={"is_primary": bool(body.get("is_primary", False))},
+            )
+
+            return {"ok": True, "contact_id": contact_id_value}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create contact: {e}")
 
 
 @app.patch("/clients/{client_db_id}/contacts/{contact_id}")
 def update_client_contact(
+    request: Request,
     client_db_id: int,
     contact_id: int,
     body: dict = Body(...),
@@ -3281,6 +3536,7 @@ def update_client_contact(
     """Update a client contact."""
     try:
         with get_conn() as con:
+            before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id))
             # Check contact exists
             exists = con.execute(
                 "SELECT 1 FROM client_contacts WHERE contact_id = ? AND client_db_id = ?",
@@ -3319,6 +3575,20 @@ def update_client_contact(
                 query = f"UPDATE client_contacts SET {', '.join(updates)} WHERE contact_id = ? AND client_db_id = ?"
                 con.execute(query, params)
             
+            after = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id))
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="client_contact",
+                entity_id=int(contact_id),
+                client_id=int(client_db_id),
+                before=before,
+                after=after,
+                metadata={"updated_fields": list(body.keys())},
+            )
+
             return {"ok": True, "message": "Contact updated successfully"}
     except HTTPException:
         raise
@@ -3328,6 +3598,7 @@ def update_client_contact(
 
 @app.delete("/clients/{client_db_id}/contacts/{contact_id}")
 def delete_client_contact(
+    request: Request,
     client_db_id: int,
     contact_id: int,
     _user: dict[str, str] = Depends(_current_user)
@@ -3335,11 +3606,24 @@ def delete_client_contact(
     """Delete a client contact."""
     try:
         with get_conn() as con:
+            before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id))
             result = con.execute(
                 "DELETE FROM client_contacts WHERE contact_id = ? AND client_db_id = ?",
                 [int(contact_id), int(client_db_id)]
             )
-            
+
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="delete",
+                entity_type="client_contact",
+                entity_id=int(contact_id),
+                client_id=int(client_db_id),
+                before=before,
+                metadata={"deleted": bool(result is not None)},
+            )
+
             return {"ok": True, "message": "Contact deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete contact: {e}")

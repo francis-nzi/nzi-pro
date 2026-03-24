@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { withAuditHeaders } from "@/lib/auth-client";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
@@ -288,13 +289,16 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   }
 
   async function updateQuantity(rowId: number, newQty: number | null) {
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ qty: newQty }),
-      });
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Jobs", section: "Data Entry", container: "Scope Data Row" }
+          ),
+          credentials: "include",
+          body: JSON.stringify({ qty: newQty }),
+        });
 
       if (res.ok) {
         await loadData();
@@ -381,13 +385,16 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   }
 
   async function updateField(rowId: number, fields: Record<string, unknown>) {
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(fields),
-      });
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Jobs", section: "Data Entry", container: "Scope Data Row" }
+          ),
+          credentials: "include",
+          body: JSON.stringify(fields),
+        });
 
       if (res.ok) {
         await loadData();
@@ -518,7 +525,10 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       
       const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Data Entry", container: "Browse & Add Factors" }
+        ),
         credentials: "include",
         body: JSON.stringify(payload),
       });
@@ -552,11 +562,16 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     });
     if (!confirmed) return;
     
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+          method: "DELETE",
+          headers: withAuditHeaders(undefined, {
+            page: "Jobs",
+            section: "Data Entry",
+            container: "Scope Data Row",
+          }),
+          credentials: "include",
+        });
 
       if (res.ok) {
         await loadData();
