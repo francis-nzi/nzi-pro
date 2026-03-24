@@ -16,6 +16,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { milestoneDotClass } from "@/lib/status-utils";
 
@@ -60,11 +61,17 @@ type ClientJobsResponse = {
 
 type ClientSitesResponse = {
   client_db_id: number;
-  sites: Array<{
-    site_name: string | null;
-    location: string | null;
-    is_registered_office: boolean;
-  }>;
+  active_sites?: ClientSite[];
+  vacated_sites?: ClientSite[];
+  sites?: ClientSite[];
+};
+
+type ClientSite = {
+  site_id: number;
+  site_name: string | null;
+  location: string | null;
+  is_registered_office: boolean;
+  vacated_date?: string | null;
 };
 
 type ClientContactsResponse = {
@@ -160,6 +167,7 @@ type ClientSection =
   | "dashboard"
   | "timeline"
   | "details"
+  | "sites"
   | "contacts"
   | "jobs"
   | "reporting"
@@ -172,6 +180,7 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "timeline", label: "Communications" },
   { id: "details", label: "Details" },
+  { id: "sites", label: "Sites" },
   { id: "contacts", label: "Contacts" },
   { id: "jobs", label: "Jobs" },
   { id: "reporting", label: "Reporting" },
@@ -188,7 +197,8 @@ function ClientDetailPageContent() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [jobs, setJobs] = useState<ClientJobsResponse["items"]>([]);
-  const [sites, setSites] = useState<ClientSitesResponse["sites"]>([]);
+  const [sites, setSites] = useState<ClientSite[]>([]);
+  const [vacatedSites, setVacatedSites] = useState<ClientSite[]>([]);
   const [contacts, setContacts] = useState<ClientContactsResponse["contacts"]>([]);
   const [quotes, setQuotes] = useState<ClientQuotesResponse["items"]>([]);
   const [invoices, setInvoices] = useState<ClientInvoicesResponse["items"]>([]);
@@ -202,12 +212,21 @@ function ClientDetailPageContent() {
 
   const [showAddContact, setShowAddContact] = useState<boolean>(false);
   const [editingContact, setEditingContact] = useState<number | null>(null);
+  const [showAddSite, setShowAddSite] = useState<boolean>(false);
+  const [editingSite, setEditingSite] = useState<number | null>(null);
+  const [vacatingSite, setVacatingSite] = useState<number | null>(null);
+  const [vacatedDate, setVacatedDate] = useState<string>("");
   const [contactForm, setContactForm] = useState({
     full_name: "",
     job_title: "",
     email: "",
     phone: "",
     is_primary: false,
+  });
+  const [siteForm, setSiteForm] = useState({
+    site_name: "",
+    location: "",
+    is_registered_office: false,
   });
   const [invoiceForm, setInvoiceForm] = useState({
     quote_id: "",
@@ -251,6 +270,14 @@ function ClientDetailPageContent() {
       const data = (await contactsRes.json()) as ClientContactsResponse;
       setContacts(data.contacts ?? []);
     }
+  }
+
+  async function reloadSites() {
+    const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include" });
+    if (!sitesRes.ok) return;
+    const data = (await sitesRes.json()) as ClientSitesResponse;
+    setSites(data.active_sites ?? data.sites ?? []);
+    setVacatedSites(data.vacated_sites ?? []);
   }
 
   async function reloadFinancialData() {
@@ -328,7 +355,8 @@ function ClientDetailPageContent() {
 
         setClient(cJson);
         setJobs(jJson?.items ?? []);
-        setSites((sJson as unknown as { active_sites?: ClientSitesResponse["sites"]; sites?: ClientSitesResponse["sites"] })?.active_sites ?? sJson?.sites ?? []);
+        setSites(sJson?.active_sites ?? sJson?.sites ?? []);
+        setVacatedSites(sJson?.vacated_sites ?? []);
         setContacts(contactsJson?.contacts ?? []);
         setQuotes(quotesJson?.items ?? []);
         setInvoices(invoicesJson?.items ?? []);
@@ -340,6 +368,7 @@ function ClientDetailPageContent() {
         setClient(null);
         setJobs([]);
         setSites([]);
+        setVacatedSites([]);
         setContacts([]);
         setQuotes([]);
         setInvoices([]);
@@ -410,6 +439,62 @@ function ClientDetailPageContent() {
     }
   }
 
+  async function handleAddSite() {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(siteForm),
+      });
+      if (!res.ok) throw new Error("Failed to add site");
+      await reloadSites();
+      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setShowAddSite(false);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function handleEditSite(siteId: number) {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(siteForm),
+      });
+      if (!res.ok) throw new Error("Failed to update site");
+      await reloadSites();
+      setSiteForm({ site_name: "", location: "", is_registered_office: false });
+      setEditingSite(null);
+      setShowAddSite(false);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  async function handleVacateSite(siteId: number) {
+    if (!vacatedDate) {
+      alert("Please select a vacated date");
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites/${siteId}/vacate`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ vacated_date: vacatedDate }),
+      });
+      if (!res.ok) throw new Error("Failed to vacate site");
+      await reloadSites();
+      setVacatingSite(null);
+      setVacatedDate("");
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   function startEditContact(contact: ClientContactsResponse["contacts"][0]) {
     setContactForm({
       full_name: contact.full_name ?? "",
@@ -426,6 +511,22 @@ function ClientDetailPageContent() {
     setContactForm({ full_name: "", job_title: "", email: "", phone: "", is_primary: false });
     setEditingContact(null);
     setShowAddContact(false);
+  }
+
+  function startEditSite(site: ClientSite) {
+    setSiteForm({
+      site_name: site.site_name ?? "",
+      location: site.location ?? "",
+      is_registered_office: site.is_registered_office,
+    });
+    setEditingSite(site.site_id);
+    setShowAddSite(false);
+  }
+
+  function cancelSiteEdit() {
+    setSiteForm({ site_name: "", location: "", is_registered_office: false });
+    setEditingSite(null);
+    setShowAddSite(false);
   }
 
   function renderDetailsSection() {
@@ -556,6 +657,161 @@ function ClientDetailPageContent() {
           )}
         </CardContent>
       </Card>
+    );
+  }
+
+  function renderSitesSection() {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Active Sites ({sites.length})</CardTitle>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setShowAddSite(true);
+                  setEditingSite(null);
+                  setSiteForm({ site_name: "", location: "", is_registered_office: false });
+                }}
+              >
+                + Add Site
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {showAddSite || editingSite ? (
+              <div className="mb-4 space-y-3 rounded-md border p-4">
+                <div className="space-y-2">
+                  <Label htmlFor="clientSiteName">Site Name</Label>
+                  <Input
+                    id="clientSiteName"
+                    value={siteForm.site_name}
+                    onChange={(e) => setSiteForm({ ...siteForm, site_name: e.target.value })}
+                    placeholder="Main Office"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="clientSiteLocation">Location</Label>
+                  <Input
+                    id="clientSiteLocation"
+                    value={siteForm.location}
+                    onChange={(e) => setSiteForm({ ...siteForm, location: e.target.value })}
+                    placeholder="London, UK"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="clientSiteRegisteredOffice"
+                    checked={siteForm.is_registered_office}
+                    onChange={(e) => setSiteForm({ ...siteForm, is_registered_office: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="clientSiteRegisteredOffice" className="font-normal cursor-pointer">
+                    Registered Office
+                  </Label>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => (editingSite ? handleEditSite(editingSite) : handleAddSite())}>
+                    {editingSite ? "Update" : "Add"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={cancelSiteEdit}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {sites.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No active sites.</div>
+            ) : (
+              <div className="space-y-2">
+                {sites.map((site) => (
+                  <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm">
+                    {vacatingSite === site.site_id ? (
+                      <div className="space-y-3">
+                        <div className="font-medium">Vacate Site: {site.site_name}</div>
+                        <div className="space-y-2">
+                          <Label htmlFor="clientVacatedDate">Vacated Date</Label>
+                          <Input
+                            id="clientVacatedDate"
+                            type="date"
+                            value={vacatedDate}
+                            onChange={(e) => setVacatedDate(e.target.value)}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => handleVacateSite(site.site_id)}>
+                            Confirm Vacate
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { setVacatingSite(null); setVacatedDate(""); }}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="font-medium">
+                            {site.site_name ?? ""}
+                            {site.is_registered_office ? (
+                              <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
+                                Registered Office
+                              </span>
+                            ) : null}
+                          </div>
+                          {site.location ? <div className="text-muted-foreground">{site.location}</div> : null}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="outline" onClick={() => startEditSite(site)}>
+                            Edit
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => { setVacatingSite(site.site_id); setVacatedDate(""); }}>
+                            Vacate
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Vacated Sites ({vacatedSites.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {vacatedSites.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No vacated sites.</div>
+            ) : (
+              <div className="space-y-2">
+                {vacatedSites.map((site) => (
+                  <div key={site.site_id} className="rounded-md border px-3 py-2 text-sm bg-muted/50">
+                    <div className="font-medium">
+                      {site.site_name ?? ""}
+                      {site.is_registered_office ? (
+                        <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">
+                          Registered Office
+                        </span>
+                      ) : null}
+                    </div>
+                    {site.location ? <div className="text-muted-foreground">{site.location}</div> : null}
+                    {site.vacated_date ? (
+                      <div className="text-sm text-muted-foreground mt-1">
+                        Vacated: {new Date(site.vacated_date).toLocaleDateString("en-GB")}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -1144,6 +1400,7 @@ function ClientDetailPageContent() {
       return <ClientCommunications clientId={clientId} baseUrl={baseUrl} jobs={commJobs} />;
     }
     if (activeSection === "details") return renderDetailsSection();
+    if (activeSection === "sites") return renderSitesSection();
     if (activeSection === "contacts") return renderContactsSection();
     if (activeSection === "jobs") return renderJobsSection();
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
