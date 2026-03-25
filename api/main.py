@@ -63,11 +63,17 @@ from openpyxl import load_workbook
 from core.database import db_backend, get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.job_folder_excel import build_excel_template_bytes
-from services.sites import ensure_client_sites_runtime_columns, ensure_registered_office_site, list_sites
+from services.sites import (
+    ensure_client_sites_runtime_columns,
+    ensure_registered_office_site,
+    fetch_client_sites_payload,
+    list_sites,
+)
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
 from services.kaleido_browser import ensure_kaleido_browser
+from services.playwright_browser import ensure_playwright_browser
 from api.admin_routes import router as admin_router
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.custom_factors_routes import router as custom_factors_router
@@ -326,6 +332,11 @@ async def startup_event():
         _safe_startup_log("OK", f"Kaleido browser ready at {browser_path}")
     except Exception as e:
         _safe_startup_log("WARN", f"Kaleido browser setup failed: {e}")
+    try:
+        browser_root = ensure_playwright_browser()
+        _safe_startup_log("OK", f"Playwright Chromium ready in {browser_root}")
+    except Exception as e:
+        _safe_startup_log("WARN", f"Playwright Chromium setup failed: {e}")
 
 
 def _job_template_paths(job_id: int) -> dict[str, str | None]:
@@ -3267,44 +3278,9 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
-            ensure_client_sites_runtime_columns(con)
-            ensure_registered_office_site(int(client_db_id), con=con)
-            df = con.execute(
-                """
-                SELECT site_id, site_name, location, is_registered_office, vacated_date
-                FROM client_sites
-                WHERE client_db_id = %s AND (archived = FALSE OR archived IS NULL)
-                ORDER BY 
-                    CASE WHEN vacated_date IS NULL THEN 0 ELSE 1 END,
-                    is_registered_office DESC, 
-                    site_name ASC
-                """,
-                [int(client_db_id)]
-            ).df()
-            
-            active_sites: list[dict[str, object]] = []
-            vacated_sites: list[dict[str, object]] = []
-            
-            if df is not None and (not df.empty):
-                for _, r in df.iterrows():
-                    site_data = {
-                        "site_id": int(r.get("site_id")) if r.get("site_id") is not None else None,
-                        "site_name": r.get("site_name"),
-                        "location": r.get("location"),
-                        "is_registered_office": bool(r.get("is_registered_office")) if r.get("is_registered_office") is not None else False,
-                        "vacated_date": str(r.get("vacated_date")) if r.get("vacated_date") is not None else None,
-                    }
-                    
-                    if r.get("vacated_date") is None:
-                        active_sites.append(site_data)
-                    else:
-                        vacated_sites.append(site_data)
-            
-            return {
-                "client_db_id": int(client_db_id), 
-                "active_sites": active_sites,
-                "vacated_sites": vacated_sites
-            }
+            return fetch_client_sites_payload(int(client_db_id), con=con)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch sites: {e}")
 

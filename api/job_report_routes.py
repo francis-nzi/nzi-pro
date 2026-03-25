@@ -35,6 +35,7 @@ from api.chart_generation import (
     validate_report_assets,
     REQUIRED_ASSETS,
 )
+from services.playwright_browser import ensure_playwright_browser
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
@@ -1952,6 +1953,7 @@ def generate_report_with_assets(
         # Convert HTML to PDF using Playwright
         from playwright.sync_api import sync_playwright
         
+        ensure_playwright_browser()
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
@@ -2225,6 +2227,7 @@ def generate_job_report(
         from playwright.sync_api import sync_playwright
         
         # Convert HTML to PDF using Playwright
+        ensure_playwright_browser()
         with sync_playwright() as p:
 
             browser = p.chromium.launch()
