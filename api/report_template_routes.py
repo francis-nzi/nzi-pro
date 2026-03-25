@@ -29,6 +29,21 @@ router = APIRouter()
 _REPORT_TEMPLATE_SCHEMA_READY = False
 
 
+def _get_table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            [str(table_name)],
+        ).fetchall()
+    except Exception:
+        return set()
+    return {str(r[0]).strip().lower() for r in (rows or []) if r and r[0]}
+
+
 def _ensure_report_template_schema(con) -> None:
     """
     Ensure only the schema required by the report generator/template-assignment
@@ -2717,50 +2732,105 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
     with get_conn() as con:
         _ensure_report_template_schema(con)
         client_db_id = _get_job_client_id(con, int(job_id))
-        _auto_assign_default_crp_template(
-            con,
-            int(job_id),
-            _user.get("email", "system:auto-template"),
+        try:
+            _auto_assign_default_crp_template(
+                con,
+                int(job_id),
+                _user.get("email", "system:auto-template"),
+            )
+        except Exception:
+            # Don't block the UI if auto-assignment can't run on an older schema.
+            pass
+
+        assignment_cols = _get_table_columns(con, "job_report_template_assignments")
+        template_cols = _get_table_columns(con, "report_templates")
+        version_cols = _get_table_columns(con, "report_template_versions")
+
+        assigned_at_expr = "a.assigned_at" if "assigned_at" in assignment_cols else "NULL::TIMESTAMP"
+        assigned_by_expr = "a.assigned_by" if "assigned_by" in assignment_cols else "NULL::VARCHAR"
+        template_key_expr = "rt.template_key" if "template_key" in template_cols else "NULL::VARCHAR"
+        template_type_expr = "rt.template_type" if "template_type" in template_cols else "NULL::VARCHAR"
+        is_global_expr = "COALESCE(rt.is_global, TRUE)" if "is_global" in template_cols else "TRUE"
+        client_db_id_expr = "rt.client_db_id" if "client_db_id" in template_cols else "NULL::INTEGER"
+        version_number_expr = "rv.version_number" if "version_number" in version_cols else "NULL::INTEGER"
+        version_label_expr = "rv.version_label" if "version_label" in version_cols else "NULL::VARCHAR"
+        version_status_expr = "rv.status" if "status" in version_cols else "NULL::VARCHAR"
+
+        row = None
+        try:
+            row = con.execute(
+                f"""
+                SELECT a.job_id, a.template_id, a.version_id, {assigned_at_expr}, {assigned_by_expr},
+                       {template_key_expr}, rt.template_name, {template_type_expr},
+                       {is_global_expr} AS is_global, {client_db_id_expr} AS client_db_id,
+                       {version_number_expr} AS version_number,
+                       {version_label_expr} AS version_label,
+                       {version_status_expr} AS version_status
+                FROM job_report_template_assignments a
+                JOIN report_templates rt ON rt.template_id = a.template_id
+                LEFT JOIN report_template_versions rv ON rv.version_id = a.version_id
+                WHERE a.job_id = %s
+                """,
+                [int(job_id)],
+            ).fetchone()
+        except Exception:
+            row = None
+
+        active_filter = "COALESCE(rt.is_active, TRUE) = TRUE" if "is_active" in template_cols else "TRUE"
+        archived_filter = "COALESCE(rt.archived, FALSE) = FALSE" if "archived" in template_cols else "TRUE"
+        if "is_global" in template_cols and "client_db_id" in template_cols:
+            scope_filter = "(COALESCE(rt.is_global, TRUE) = TRUE OR rt.client_db_id = %s)"
+        else:
+            scope_filter = "TRUE"
+
+        latest_version_number_expr = (
+            """
+            (
+              SELECT MAX(rv.version_number)
+              FROM report_template_versions rv
+              WHERE rv.template_id = rt.template_id
+            )
+            """
+            if "version_number" in version_cols
+            else "NULL::INTEGER"
+        )
+        latest_version_order_expr = "rv.version_number DESC" if "version_number" in version_cols else "rv.version_id DESC"
+        latest_version_id_expr = (
+            f"""
+            (
+              SELECT rv.version_id
+              FROM report_template_versions rv
+              WHERE rv.template_id = rt.template_id
+              ORDER BY {latest_version_order_expr}
+              LIMIT 1
+            )
+            """
+            if "version_id" in version_cols
+            else "NULL::INTEGER"
         )
 
-        row = con.execute(
-            """
-            SELECT a.job_id, a.template_id, a.version_id, a.assigned_at, a.assigned_by,
-                   rt.template_key, rt.template_name, rt.template_type,
-                   COALESCE(rt.is_global, TRUE) AS is_global, rt.client_db_id,
-                   rv.version_number, rv.version_label, rv.status
-            FROM job_report_template_assignments a
-            JOIN report_templates rt ON rt.template_id = a.template_id
-            LEFT JOIN report_template_versions rv ON rv.version_id = a.version_id
-            WHERE a.job_id = %s
-            """,
-            [int(job_id)],
-        ).fetchone()
-
-        available_df = con.execute(
-            """
-            SELECT rt.template_id, rt.template_key, rt.template_name, rt.template_type,
-                   COALESCE(rt.is_global, TRUE) AS is_global, rt.client_db_id,
-                   (
-                     SELECT MAX(rv.version_number)
-                     FROM report_template_versions rv
-                     WHERE rv.template_id = rt.template_id
-                   ) AS latest_version_number,
-                   (
-                     SELECT rv.version_id
-                     FROM report_template_versions rv
-                     WHERE rv.template_id = rt.template_id
-                     ORDER BY rv.version_number DESC
-                     LIMIT 1
-                   ) AS latest_version_id
-            FROM report_templates rt
-            WHERE rt.is_active = TRUE
-              AND COALESCE(rt.archived, FALSE) = FALSE
-              AND (COALESCE(rt.is_global, TRUE) = TRUE OR rt.client_db_id = %s)
-            ORDER BY COALESCE(rt.is_global, TRUE) ASC, rt.template_name
-            """,
-            [int(client_db_id)],
-        ).df()
+        available_df = None
+        try:
+            available_df = con.execute(
+                f"""
+                SELECT rt.template_id,
+                       {template_key_expr} AS template_key,
+                       rt.template_name,
+                       {template_type_expr} AS template_type,
+                       {is_global_expr} AS is_global,
+                       {client_db_id_expr} AS client_db_id,
+                       {latest_version_number_expr} AS latest_version_number,
+                       {latest_version_id_expr} AS latest_version_id
+                FROM report_templates rt
+                WHERE {active_filter}
+                  AND {archived_filter}
+                  AND {scope_filter}
+                ORDER BY {is_global_expr} ASC, rt.template_name
+                """,
+                [int(client_db_id)] if "%s" in scope_filter else [],
+            ).df()
+        except Exception:
+            available_df = None
 
     available = []
     if available_df is not None and not available_df.empty:
