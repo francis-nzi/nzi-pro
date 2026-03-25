@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any
 
 from core.database import get_conn
+from core.migrations import run_migrations
 from api.auth import _current_user
 from services.audit_log import record_audit_event
 from services.dataset_selector import (
@@ -24,6 +25,17 @@ from services.dataset_selector import (
 )
 
 router = APIRouter()
+
+
+@lru_cache(maxsize=1)
+def _ensure_report_template_schema_once() -> bool:
+    """
+    Older live environments may not have the latest report-template schema if
+    startup migrations were not enabled. Ensure the reporting template tables
+    and columns exist before template-assignment routes query them.
+    """
+    run_migrations()
+    return True
 
 
 class JobVariableValue(BaseModel):
@@ -2383,6 +2395,7 @@ def list_report_templates(
     _user: dict = Depends(_current_user),
 ):
     """List report templates with version metadata and optional client filter."""
+    _ensure_report_template_schema_once()
     where = ["1=1"]
     params: list[object] = []
 
@@ -2462,6 +2475,7 @@ def list_report_templates(
 
 @router.get("/report-templates/{template_id}/versions")
 def list_template_versions(template_id: int, _user: dict = Depends(_current_user)):
+    _ensure_report_template_schema_once()
     with get_conn() as con:
         exists = con.execute(
             "SELECT 1 FROM report_templates WHERE template_id = %s",
@@ -2507,6 +2521,7 @@ def get_template_variables(
     _user: dict = Depends(_current_user),
 ):
     """Get variable schema for a template. Version is accepted for forward compatibility."""
+    _ensure_report_template_schema_once()
     with get_conn() as con:
         exists = con.execute(
             "SELECT 1 FROM report_templates WHERE template_id = %s",
@@ -2564,6 +2579,7 @@ def get_template_variables(
 
 @router.get("/jobs/{job_id}/report-template-assignment")
 def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_current_user)):
+    _ensure_report_template_schema_once()
     with get_conn() as con:
         client_db_id = _get_job_client_id(con, int(job_id))
         _auto_assign_default_crp_template(
@@ -2670,6 +2686,7 @@ def upsert_job_report_template_assignment(
     payload: AssignTemplatePayload,
     _user: dict = Depends(_current_user),
 ):
+    _ensure_report_template_schema_once()
     with get_conn() as con:
         client_db_id = _get_job_client_id(con, int(job_id))
 
