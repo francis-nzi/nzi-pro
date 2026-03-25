@@ -6,6 +6,9 @@ from core.database import get_conn
 
 SUPERADMIN_ROLE = "SuperAdmin"
 ADMIN_ACCESS_PERMISSION = "admin.access"
+DEFAULT_INTERNAL_ACCESS_SCOPE = "all"
+DEFAULT_PORTAL_ACCESS_SCOPE = "linked_clients"
+ACCESS_SCOPES = {DEFAULT_INTERNAL_ACCESS_SCOPE, DEFAULT_PORTAL_ACCESS_SCOPE}
 
 PERMISSIONS: dict[str, str] = {
     "admin.access": "Access the admin area.",
@@ -18,10 +21,13 @@ PERMISSIONS: dict[str, str] = {
     "clients.view": "View clients.",
     "clients.create": "Create clients.",
     "clients.edit": "Edit clients.",
+    "clients.sites.manage": "Manage client sites.",
+    "clients.contacts.manage": "Manage client contacts.",
     "jobs.view": "View jobs.",
     "jobs.create": "Create jobs.",
     "jobs.edit": "Edit jobs.",
     "jobs.data.edit": "Edit job data.",
+    "jobs.data.import": "Import job data from templates and files.",
     "jobs.reporting.view": "View job reporting outputs.",
     "insights.view": "View insights.",
     "sales.view": "View sales data.",
@@ -37,10 +43,13 @@ ROLE_PERMISSION_GRANTS: dict[str, set[str]] = {
         "clients.view",
         "clients.create",
         "clients.edit",
+        "clients.sites.manage",
+        "clients.contacts.manage",
         "jobs.view",
         "jobs.create",
         "jobs.edit",
         "jobs.data.edit",
+        "jobs.data.import",
         "jobs.reporting.view",
         "insights.view",
         "sales.view",
@@ -59,6 +68,7 @@ ROLE_PERMISSION_GRANTS: dict[str, set[str]] = {
         "clients.view",
         "clients.create",
         "clients.edit",
+        "clients.contacts.manage",
         "jobs.view",
         "jobs.create",
         "jobs.edit",
@@ -76,6 +86,35 @@ ROLE_PERMISSION_GRANTS: dict[str, set[str]] = {
         "clients.view",
         "jobs.view",
         "jobs.data.edit",
+        "jobs.reporting.view",
+        "insights.view",
+    },
+    "ClientAdmin": {
+        "clients.view",
+        "clients.edit",
+        "clients.sites.manage",
+        "clients.contacts.manage",
+        "jobs.view",
+        "jobs.data.edit",
+        "jobs.data.import",
+        "jobs.reporting.view",
+    },
+    "ClientContributor": {
+        "clients.view",
+        "clients.contacts.manage",
+        "jobs.view",
+        "jobs.data.edit",
+        "jobs.data.import",
+        "jobs.reporting.view",
+    },
+    "ClientViewer": {
+        "clients.view",
+        "jobs.view",
+        "jobs.reporting.view",
+    },
+    "ClientReporting": {
+        "clients.view",
+        "jobs.view",
         "jobs.reporting.view",
         "insights.view",
     },
@@ -124,6 +163,24 @@ def ensure_permission_schema(con) -> None:
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS user_type VARCHAR DEFAULT 'internal'")
     except Exception:
         pass
+    try:
+        con.execute(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS access_scope VARCHAR DEFAULT '{DEFAULT_INTERNAL_ACCESS_SCOPE}'")
+    except Exception:
+        pass
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS client_users (
+            user_id VARCHAR NOT NULL,
+            client_db_id INTEGER NOT NULL,
+            role_name VARCHAR,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            created_by VARCHAR,
+            PRIMARY KEY (user_id, client_db_id)
+        )
+        """
+    )
 
     for role_name in ROLE_PERMISSION_GRANTS.keys():
         con.execute(
@@ -165,23 +222,48 @@ def ensure_permission_schema(con) -> None:
         WHERE user_type IS NULL OR TRIM(user_type) = ''
         """
     )
+    con.execute(
+        f"""
+        UPDATE users
+        SET access_scope = CASE
+            WHEN LOWER(COALESCE(user_type, 'internal')) = 'client_portal' THEN '{DEFAULT_PORTAL_ACCESS_SCOPE}'
+            ELSE '{DEFAULT_INTERNAL_ACCESS_SCOPE}'
+        END
+        WHERE access_scope IS NULL OR TRIM(access_scope) = ''
+        """
+    )
 
     for email in SEEDED_SUPERADMINS:
         con.execute(
             """
             UPDATE users
-            SET role = ?, user_type = 'internal'
+            SET role = ?, user_type = 'internal', access_scope = ?
             WHERE LOWER(COALESCE(email, '')) = LOWER(?)
             """,
-            [SUPERADMIN_ROLE, email],
+            [SUPERADMIN_ROLE, DEFAULT_INTERNAL_ACCESS_SCOPE, email],
         )
 
 
-def _load_user_identity(con, user_id: str) -> tuple[str, str] | None:
+def _normalize_user_type(value: str | None) -> str:
+    normalized = str(value or "internal").strip().lower()
+    return "client_portal" if normalized == "client_portal" else "internal"
+
+
+def _normalize_access_scope(user_type: str | None, value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in ACCESS_SCOPES:
+        return normalized
+    if _normalize_user_type(user_type) == "client_portal":
+        return DEFAULT_PORTAL_ACCESS_SCOPE
+    return DEFAULT_INTERNAL_ACCESS_SCOPE
+
+
+def _load_user_identity(con, user_id: str) -> tuple[str, str, str] | None:
     row = con.execute(
         """
         SELECT COALESCE(role, 'ReadOnly') AS role,
-               COALESCE(user_type, 'internal') AS user_type
+               COALESCE(user_type, 'internal') AS user_type,
+               COALESCE(access_scope, 'all') AS access_scope
         FROM users
         WHERE LOWER(COALESCE(user_id, '')) = LOWER(?)
         LIMIT 1
@@ -190,7 +272,36 @@ def _load_user_identity(con, user_id: str) -> tuple[str, str] | None:
     ).fetchone()
     if not row:
         return None
-    return str(row[0] or "ReadOnly"), str(row[1] or "internal")
+    user_type = _normalize_user_type(str(row[1] or "internal"))
+    access_scope = _normalize_access_scope(user_type, str(row[2] or DEFAULT_INTERNAL_ACCESS_SCOPE))
+    return str(row[0] or "ReadOnly"), user_type, access_scope
+
+
+def _load_linked_clients(con, user_id: str) -> list[dict[str, Any]]:
+    rows = con.execute(
+        """
+        SELECT cu.client_db_id, COALESCE(cu.role_name, ''), COALESCE(c.client_name, '')
+        FROM client_users cu
+        LEFT JOIN clients c ON c.db_id = cu.client_db_id
+        WHERE LOWER(COALESCE(cu.user_id, '')) = LOWER(?)
+          AND COALESCE(cu.is_active, TRUE) = TRUE
+        ORDER BY c.client_name ASC, cu.client_db_id ASC
+        """,
+        [str(user_id or "").strip()],
+    ).fetchall()
+    linked: list[dict[str, Any]] = []
+    for row in rows or []:
+        client_id = int(row[0]) if row and row[0] is not None else None
+        if client_id is None:
+            continue
+        linked.append(
+            {
+                "client_db_id": client_id,
+                "role_name": str(row[1] or "").strip() or None,
+                "client_name": str(row[2] or "").strip() or None,
+            }
+        )
+    return linked
 
 
 def get_effective_permissions_for_user(user_id: str, role_hint: str | None = None) -> dict[str, Any]:
@@ -199,9 +310,12 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
         return {
             "role": str(role_hint or "ReadOnly"),
             "user_type": "internal",
+            "access_scope": DEFAULT_INTERNAL_ACCESS_SCOPE,
             "is_super_admin": False,
             "effective_permissions": [],
             "denied_permissions": [],
+            "linked_client_ids": [],
+            "linked_clients": [],
         }
 
     with get_conn() as con:
@@ -209,15 +323,21 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
         identity = _load_user_identity(con, user_id_norm)
         role_name = str(role_hint or (identity[0] if identity else "ReadOnly") or "ReadOnly")
         user_type = str(identity[1] if identity else "internal")
+        access_scope = str(identity[2] if identity else _normalize_access_scope(user_type, None))
+        linked_clients = _load_linked_clients(con, user_id_norm)
+        linked_client_ids = sorted({int(item["client_db_id"]) for item in linked_clients if item.get("client_db_id") is not None})
         is_super_admin = role_name.strip().lower() == SUPERADMIN_ROLE.lower()
 
         if is_super_admin:
             return {
                 "role": role_name,
                 "user_type": user_type,
+                "access_scope": DEFAULT_INTERNAL_ACCESS_SCOPE,
                 "is_super_admin": True,
                 "effective_permissions": sorted(PERMISSIONS.keys()),
                 "denied_permissions": [],
+                "linked_client_ids": linked_client_ids,
+                "linked_clients": linked_clients,
             }
 
         role_rows = con.execute(
@@ -255,9 +375,12 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
         return {
             "role": role_name,
             "user_type": user_type,
+            "access_scope": access_scope,
             "is_super_admin": False,
             "effective_permissions": sorted(granted),
             "denied_permissions": sorted(denied),
+            "linked_client_ids": linked_client_ids,
+            "linked_clients": linked_clients,
         }
 
 
@@ -270,9 +393,12 @@ def enrich_user_permissions(user: dict[str, Any] | None) -> dict[str, Any] | Non
     enriched = dict(user)
     enriched["role"] = resolved["role"]
     enriched["user_type"] = resolved["user_type"]
+    enriched["access_scope"] = resolved["access_scope"]
     enriched["is_super_admin"] = bool(resolved["is_super_admin"])
     enriched["effective_permissions"] = list(resolved["effective_permissions"])
     enriched["denied_permissions"] = list(resolved["denied_permissions"])
+    enriched["linked_client_ids"] = list(resolved.get("linked_client_ids") or [])
+    enriched["linked_clients"] = list(resolved.get("linked_clients") or [])
     return enriched
 
 
@@ -283,3 +409,42 @@ def user_has_permission(user: dict[str, Any] | None, permission_key: str) -> boo
         return True
     effective_permissions = user.get("effective_permissions") or []
     return str(permission_key or "").strip() in {str(p or "").strip() for p in effective_permissions}
+
+
+def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bool:
+    if not user:
+        return False
+    if bool(user.get("is_super_admin")):
+        return True
+    client_id = int(client_db_id)
+    access_scope = _normalize_access_scope(user.get("user_type"), user.get("access_scope"))
+    if access_scope == DEFAULT_INTERNAL_ACCESS_SCOPE:
+        return True
+    linked_client_ids = {int(v) for v in (user.get("linked_client_ids") or []) if v is not None}
+    if linked_client_ids:
+        return client_id in linked_client_ids
+    user_id = str(user.get("user_id") or "").strip()
+    if not user_id:
+        return False
+    with get_conn() as con:
+        ensure_permission_schema(con)
+        rows = _load_linked_clients(con, user_id)
+    return client_id in {int(item["client_db_id"]) for item in rows if item.get("client_db_id") is not None}
+
+
+def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
+    if not user:
+        return False
+    if bool(user.get("is_super_admin")):
+        return True
+    access_scope = _normalize_access_scope(user.get("user_type"), user.get("access_scope"))
+    if access_scope == DEFAULT_INTERNAL_ACCESS_SCOPE:
+        return True
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT client_db_id FROM jobs WHERE job_id = ? LIMIT 1",
+            [int(job_id)],
+        ).fetchone()
+    if not row or row[0] is None:
+        return False
+    return user_can_access_client(user, int(row[0]))

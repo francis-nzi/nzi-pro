@@ -103,6 +103,7 @@ from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
+from api.permissions import assert_client_access, assert_job_access, assert_permission
 
 
 def _client_audit_snapshot(con, client_db_id: int) -> dict | None:
@@ -498,6 +499,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
     try:
         from datetime import date, timedelta
         from dateutil.relativedelta import relativedelta
+        assert_permission(_user, "jobs.create")
 
         def _next_job_number(con) -> str:
             rows = con.execute(
@@ -535,7 +537,8 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         
         if not start_date or not due_date:
             raise HTTPException(status_code=400, detail="start_date and due_date are required")
-        
+        assert_client_access(_user, int(client_db_id))
+
         with get_conn() as con:
             # Lookup job_type_id and is_crp from job_types table
             job_type_row = con.execute(
@@ -692,6 +695,7 @@ def list_jobs(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    assert_permission(_user, "jobs.view")
     query = (q or "").strip()
     crm_filter = (crm or "").strip()
 
@@ -751,6 +755,18 @@ def list_jobs(
 
             where_clauses = []
             params: list[object] = []
+            if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
+                linked_client_ids = sorted(
+                    {
+                        int(client_id)
+                        for client_id in (_user.get("linked_client_ids") or [])
+                        if client_id is not None
+                    }
+                )
+                if not linked_client_ids:
+                    return {"items": [], "limit": int(limit), "offset": int(offset), "total": 0}
+                where_clauses.append(f"j.client_db_id IN ({','.join(['?'] * len(linked_client_ids))})")
+                params.extend(linked_client_ids)
 
             if query:
                 if db_backend() == "postgres":
@@ -928,6 +944,8 @@ def list_jobs(
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
     try:
         with get_conn() as con:
             def _table_exists(table_name: str) -> bool:
@@ -1123,6 +1141,8 @@ def update_job(
 ):
     """Update job fields including reporting period."""
     try:
+        assert_permission(_user, "jobs.edit")
+        assert_job_access(_user, int(job_id))
         with get_conn() as con:
             before = _job_audit_snapshot(con, int(job_id))
             # Check job exists
@@ -2591,6 +2611,7 @@ def create_client(
 ):
     """Create a new client."""
     try:
+        assert_permission(_user, "clients.create")
         client_name = body.get("client_name", "").strip()
         if not client_name:
             raise HTTPException(status_code=400, detail="client_name is required")
@@ -2741,6 +2762,7 @@ def list_clients(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    assert_permission(_user, "clients.view")
     query = (q or "").strip()
 
     def _col_exists(con, table_name: str, col_name: str) -> bool:
@@ -2766,6 +2788,18 @@ def list_clients(
 
             where_clauses: list[str] = []
             params: list[object] = []
+            if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
+                linked_client_ids = sorted(
+                    {
+                        int(client_id)
+                        for client_id in (_user.get("linked_client_ids") or [])
+                        if client_id is not None
+                    }
+                )
+                if not linked_client_ids:
+                    return {"items": [], "limit": int(limit), "offset": int(offset), "total": 0}
+                where_clauses.append(f"c.db_id IN ({','.join(['%s'] * len(linked_client_ids))})")
+                params.extend(linked_client_ids)
             if not include_archived and has_status:
                 where_clauses.append("(c.status IS NULL OR lower(c.status) <> 'archived')")
 
@@ -2967,6 +3001,8 @@ def list_clients(
 
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
+    assert_permission(_user, "clients.view")
+    assert_client_access(_user, int(client_db_id))
     with get_conn() as con:
         _ensure_client_billing_columns(con)
         row = con.execute(
@@ -3042,6 +3078,8 @@ def update_client(
 ):
     """Update client information."""
     try:
+        assert_permission(_user, "clients.edit")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
             before = _client_audit_snapshot(con, int(client_db_id))
@@ -3219,6 +3257,8 @@ def update_client(
 def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     # Return both active and vacated sites
     try:
+        assert_permission(_user, "clients.view")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
             ensure_registered_office_site(int(client_db_id), con=con)
@@ -3271,6 +3311,8 @@ def create_client_site(
 ):
     """Create a new site for a client."""
     try:
+        assert_permission(_user, "clients.sites.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             # If this site is marked as registered office, unset other registered offices
             if body.get("is_registered_office", False):
@@ -3322,6 +3364,8 @@ def update_client_site(
 ):
     """Update a client site."""
     try:
+        assert_permission(_user, "clients.sites.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
@@ -3391,6 +3435,8 @@ def vacate_client_site(
 ):
     """Mark a site as vacated with a date (preserves historical emissions data)."""
     try:
+        assert_permission(_user, "clients.sites.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
@@ -3444,6 +3490,8 @@ def vacate_client_site(
 def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Get all contacts for a client."""
     try:
+        assert_permission(_user, "clients.view")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             df = con.execute(
                 """
@@ -3482,6 +3530,8 @@ def create_client_contact(
 ):
     """Create a new contact for a client."""
     try:
+        assert_permission(_user, "clients.contacts.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             # If this contact is marked as primary, unset other primary contacts
             if body.get("is_primary", False):
@@ -3535,6 +3585,8 @@ def update_client_contact(
 ):
     """Update a client contact."""
     try:
+        assert_permission(_user, "clients.contacts.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id))
             # Check contact exists
@@ -3605,6 +3657,8 @@ def delete_client_contact(
 ):
     """Delete a client contact."""
     try:
+        assert_permission(_user, "clients.contacts.manage")
+        assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id))
             result = con.execute(
@@ -3636,6 +3690,8 @@ def client_jobs(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    assert_permission(_user, "jobs.view")
+    assert_client_access(_user, int(client_db_id))
     with get_conn() as con:
         total_row = con.execute(
             "SELECT COUNT(*) FROM jobs WHERE client_db_id=?",

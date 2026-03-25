@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException
 
 from api.auth import _current_user
-from services.permissions import user_has_permission
+from services.permissions import user_can_access_client, user_can_access_job, user_has_permission
 
 
 def require_permission(permission_key: str):
@@ -13,3 +13,21 @@ def require_permission(permission_key: str):
         raise HTTPException(status_code=403, detail=f"Missing permission: {permission_key}")
 
     return _dependency
+
+
+def assert_permission(user: dict | None, permission_key: str) -> None:
+    if user_has_permission(user, permission_key):
+        return
+    raise HTTPException(status_code=403, detail=f"Missing permission: {permission_key}")
+
+
+def assert_client_access(user: dict | None, client_db_id: int) -> None:
+    if user_can_access_client(user, client_db_id):
+        return
+    raise HTTPException(status_code=403, detail="You do not have access to this client")
+
+
+def assert_job_access(user: dict | None, job_id: int) -> None:
+    if user_can_access_job(user, job_id):
+        return
+    raise HTTPException(status_code=403, detail="You do not have access to this job")

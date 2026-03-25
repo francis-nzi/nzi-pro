@@ -30,7 +30,16 @@ from services.attribute_override_import import (
     parse_override_workbook,
 )
 from services.audit_log import ensure_audit_log_table, parse_json_text
-from services.permissions import ADMIN_ACCESS_PERMISSION, SUPERADMIN_ROLE
+from services.permissions import (
+    ACCESS_SCOPES,
+    ADMIN_ACCESS_PERMISSION,
+    DEFAULT_INTERNAL_ACCESS_SCOPE,
+    DEFAULT_PORTAL_ACCESS_SCOPE,
+    PERMISSIONS,
+    SUPERADMIN_ROLE,
+    ensure_permission_schema,
+    get_effective_permissions_for_user,
+)
 
 router = APIRouter(
     prefix="/admin",
@@ -52,6 +61,83 @@ def _ensure_legacy_cleanup_schema(con) -> None:
             con.execute(ddl)
         except Exception:
             pass
+
+
+def _normalize_user_type(value: object | None) -> str:
+    normalized = str(value or "internal").strip().lower()
+    return "client_portal" if normalized == "client_portal" else "internal"
+
+
+def _normalize_access_scope(user_type: str, value: object | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in ACCESS_SCOPES:
+        return normalized
+    if user_type == "client_portal":
+        return DEFAULT_PORTAL_ACCESS_SCOPE
+    return DEFAULT_INTERNAL_ACCESS_SCOPE
+
+
+def _fetch_linked_clients(con, email: str) -> list[dict[str, object]]:
+    rows = con.execute(
+        """
+        SELECT cu.client_db_id, COALESCE(cu.role_name, ''), COALESCE(c.client_name, '')
+        FROM client_users cu
+        LEFT JOIN clients c ON c.db_id = cu.client_db_id
+        WHERE LOWER(COALESCE(cu.user_id, '')) = LOWER(?)
+          AND COALESCE(cu.is_active, TRUE) = TRUE
+        ORDER BY c.client_name ASC, cu.client_db_id ASC
+        """,
+        [str(email or "").strip().lower()],
+    ).fetchall()
+    items: list[dict[str, object]] = []
+    for row in rows or []:
+        if not row or row[0] is None:
+            continue
+        items.append(
+            {
+                "client_db_id": int(row[0]),
+                "role_name": str(row[1] or "").strip() or None,
+                "client_name": str(row[2] or "").strip() or None,
+            }
+        )
+    return items
+
+
+def _replace_linked_clients(
+    con,
+    *,
+    email: str,
+    actor: str,
+    linked_clients: list[dict[str, object]] | list[int],
+) -> list[dict[str, object]]:
+    email_norm = str(email or "").strip().lower()
+    con.execute(
+        "DELETE FROM client_users WHERE LOWER(COALESCE(user_id, '')) = LOWER(?)",
+        [email_norm],
+    )
+    seen: set[int] = set()
+    for item in linked_clients or []:
+        if isinstance(item, dict):
+            client_id = item.get("client_db_id")
+            role_name = str(item.get("role_name") or "").strip() or None
+        else:
+            client_id = item
+            role_name = None
+        try:
+            client_id_int = int(client_id)  # type: ignore[arg-type]
+        except Exception:
+            continue
+        if client_id_int in seen:
+            continue
+        seen.add(client_id_int)
+        con.execute(
+            """
+            INSERT INTO client_users (user_id, client_db_id, role_name, is_active, created_by, updated_at)
+            VALUES (?, ?, ?, TRUE, ?, NOW())
+            """,
+            [email_norm, client_id_int, role_name, actor],
+        )
+    return _fetch_linked_clients(con, email_norm)
 
 
 @router.get("/audit-log")
@@ -1428,6 +1514,7 @@ def list_users(_user: dict = Depends(_current_user)):
     """List all users."""
     try:
         with get_conn() as con:
+            ensure_permission_schema(con)
             _ensure_users_position_column(con)
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
@@ -1436,7 +1523,9 @@ def list_users(_user: dict = Depends(_current_user)):
                 """
                 SELECT user_id, full_name, email, role, position, status, password_hash,
                        invited_at, invited_by, invite_expires_at, COALESCE(must_change_password, FALSE) AS must_change_password,
-                       cost_per_hour, sell_per_hour, mobile_phone
+                       cost_per_hour, sell_per_hour, mobile_phone,
+                       COALESCE(user_type, 'internal') AS user_type,
+                       COALESCE(access_scope, 'all') AS access_scope
                 FROM users
                 ORDER BY status DESC, role, full_name
                 """
@@ -1464,6 +1553,11 @@ def list_users(_user: dict = Depends(_current_user)):
                     "cost_per_hour": (float(r.get("cost_per_hour")) if r.get("cost_per_hour") is not None else None),
                     "sell_per_hour": (float(r.get("sell_per_hour")) if r.get("sell_per_hour") is not None else None),
                     "mobile_phone": str(r.get("mobile_phone") or "") or None,
+                    "user_type": _normalize_user_type(r.get("user_type")),
+                    "access_scope": _normalize_access_scope(
+                        _normalize_user_type(r.get("user_type")),
+                        r.get("access_scope"),
+                    ),
                 })
         
         return {"items": items}
@@ -1506,6 +1600,202 @@ def list_roles(_user: dict = Depends(_current_user)):
         return {"items": items}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list roles: {e}")
+
+
+@router.get("/permissions")
+def list_permissions(_user: dict = Depends(_current_user)):
+    try:
+        return {
+            "items": [
+                {"permission_key": key, "description": description}
+                for key, description in sorted(PERMISSIONS.items(), key=lambda item: item[0])
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list permissions: {e}")
+
+
+@router.get("/access/options")
+def get_access_options(_user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            ensure_permission_schema(con)
+            roles_df = con.execute(
+                """
+                SELECT role_name, is_active
+                FROM roles_lookup
+                WHERE COALESCE(is_active, TRUE) = TRUE
+                ORDER BY role_name
+                """
+            ).df()
+            clients_df = con.execute(
+                """
+                SELECT db_id AS client_db_id, client_name
+                FROM clients
+                WHERE status IS NULL OR LOWER(COALESCE(status, '')) <> 'archived'
+                ORDER BY client_name ASC, db_id ASC
+                """
+            ).df()
+        roles = []
+        if roles_df is not None and not roles_df.empty:
+            for _, row in roles_df.iterrows():
+                roles.append(
+                    {
+                        "role_name": str(row.get("role_name") or ""),
+                        "is_active": bool(row.get("is_active", True)),
+                    }
+                )
+        clients = []
+        if clients_df is not None and not clients_df.empty:
+            for _, row in clients_df.iterrows():
+                if row.get("client_db_id") is None:
+                    continue
+                clients.append(
+                    {
+                        "client_db_id": int(row.get("client_db_id")),
+                        "client_name": str(row.get("client_name") or ""),
+                    }
+                )
+        return {
+            "roles": roles,
+            "permissions": [
+                {"permission_key": key, "description": description}
+                for key, description in sorted(PERMISSIONS.items(), key=lambda item: item[0])
+            ],
+            "access_scopes": sorted(ACCESS_SCOPES),
+            "user_types": ["internal", "client_portal"],
+            "clients": clients,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch access options: {e}")
+
+
+@router.get("/users/{email}/access")
+def get_user_access(email: str, _user: dict = Depends(_current_user)):
+    try:
+        email_norm = str(email or "").strip().lower()
+        with get_conn() as con:
+            ensure_permission_schema(con)
+            row = con.execute(
+                """
+                SELECT email, COALESCE(role, 'ReadOnly'), COALESCE(user_type, 'internal'), COALESCE(access_scope, 'all')
+                FROM users
+                WHERE LOWER(COALESCE(email, '')) = LOWER(?)
+                LIMIT 1
+                """,
+                [email_norm],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="User not found")
+            override_rows = con.execute(
+                """
+                SELECT permission_key, LOWER(COALESCE(effect, 'deny')) AS effect, reason
+                FROM user_permission_overrides
+                WHERE LOWER(COALESCE(user_id, '')) = LOWER(?)
+                ORDER BY permission_key
+                """,
+                [email_norm],
+            ).fetchall()
+            linked_clients = _fetch_linked_clients(con, email_norm)
+
+        effective = get_effective_permissions_for_user(email_norm, role_hint=str(row[1] or "ReadOnly"))
+        return {
+            "email": str(row[0] or email_norm),
+            "role": str(row[1] or "ReadOnly"),
+            "user_type": _normalize_user_type(row[2]),
+            "access_scope": _normalize_access_scope(row[2], row[3]),
+            "linked_clients": linked_clients,
+            "overrides": [
+                {
+                    "permission_key": str(item[0] or ""),
+                    "effect": str(item[1] or "deny"),
+                    "reason": str(item[2] or "").strip() or None,
+                }
+                for item in (override_rows or [])
+                if item and item[0]
+            ],
+            "effective_permissions": list(effective.get("effective_permissions") or []),
+            "denied_permissions": list(effective.get("denied_permissions") or []),
+            "is_super_admin": bool(effective.get("is_super_admin")),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user access: {e}")
+
+
+@router.put("/users/{email}/access")
+def update_user_access(email: str, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        email_norm = str(email or "").strip().lower()
+        actor = _actor_identifier(_user)
+        role_name = str(body.get("role") or "ReadOnly").strip() or "ReadOnly"
+        user_type = _normalize_user_type(body.get("user_type"))
+        access_scope = _normalize_access_scope(user_type, body.get("access_scope"))
+        linked_clients_body = body.get("linked_clients") or []
+        overrides_body = body.get("overrides") or []
+
+        with get_conn() as con:
+            ensure_permission_schema(con)
+            exists = con.execute(
+                "SELECT 1 FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(?) LIMIT 1",
+                [email_norm],
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            con.execute(
+                """
+                UPDATE users
+                SET role = ?, user_type = ?, access_scope = ?, user_id = COALESCE(NULLIF(user_id, ''), ?)
+                WHERE LOWER(COALESCE(email, '')) = LOWER(?)
+                """,
+                [role_name, user_type, access_scope, email_norm, email_norm],
+            )
+
+            con.execute(
+                "DELETE FROM user_permission_overrides WHERE LOWER(COALESCE(user_id, '')) = LOWER(?)",
+                [email_norm],
+            )
+            for item in overrides_body:
+                if not isinstance(item, dict):
+                    continue
+                permission_key = str(item.get("permission_key") or "").strip()
+                effect = str(item.get("effect") or "").strip().lower()
+                reason = str(item.get("reason") or "").strip() or None
+                if permission_key not in PERMISSIONS or effect not in {"allow", "deny"}:
+                    continue
+                con.execute(
+                    """
+                    INSERT INTO user_permission_overrides (user_id, permission_key, effect, reason, updated_at)
+                    VALUES (?, ?, ?, ?, NOW())
+                    """,
+                    [email_norm, permission_key, effect, reason],
+                )
+
+            linked_clients = _replace_linked_clients(
+                con,
+                email=email_norm,
+                actor=actor,
+                linked_clients=linked_clients_body,
+            )
+
+        effective = get_effective_permissions_for_user(email_norm, role_hint=role_name)
+        return {
+            "ok": True,
+            "email": email_norm,
+            "role": role_name,
+            "user_type": user_type,
+            "access_scope": access_scope,
+            "linked_clients": linked_clients,
+            "effective_permissions": list(effective.get("effective_permissions") or []),
+            "denied_permissions": list(effective.get("denied_permissions") or []),
+            "is_super_admin": bool(effective.get("is_super_admin")),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update user access: {e}")
 
 
 @router.patch("/users/{user_id}/archive")
@@ -1575,6 +1865,8 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
         cost_per_hour = float(cost_per_hour_raw) if cost_per_hour_raw not in (None, "") else None
         sell_per_hour = float(sell_per_hour_raw) if sell_per_hour_raw not in (None, "") else None
         status = body.get("status", "Active")
+        user_type = _normalize_user_type(body.get("user_type"))
+        access_scope = _normalize_access_scope(user_type, body.get("access_scope"))
         password = str(body.get("password") or "")
         manual_password_provided = bool(password)
         actor = _actor_identifier(_user)
@@ -1586,6 +1878,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
             raise HTTPException(status_code=400, detail="Email and full name are required")
         
         with get_conn() as con:
+            ensure_permission_schema(con)
             _ensure_users_position_column(con)
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
@@ -1611,10 +1904,12 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         cost_per_hour = %s,
                         sell_per_hour = %s,
                         status = %s,
+                        user_type = %s,
+                        access_scope = %s,
                         user_id = %s
                     WHERE lower(email) = lower(%s)
                     """,
-                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, email, email],
+                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, user_type, access_scope, email, email],
                 )
             else:
                 is_new_user = True
@@ -1630,8 +1925,8 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                 invited_by = actor if invite_mode else None
                 con.execute(
                     """
-                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at, user_type, access_scope)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         email,
@@ -1646,6 +1941,8 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         invited_at,
                         invited_by,
                         invite_expires_at,
+                        user_type,
+                        access_scope,
                     ],
                 )
 
@@ -1696,6 +1993,7 @@ def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_curre
     """Update a user's details."""
     try:
         with get_conn() as con:
+            ensure_permission_schema(con)
             _ensure_users_position_column(con)
             _ensure_users_password_column(con)
             _ensure_users_cost_sell_mobile_columns(con)
@@ -1714,6 +2012,23 @@ def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_curre
             if "status" in body:
                 updates.append("status = %s")
                 params.append(body["status"])
+            if "user_type" in body:
+                user_type = _normalize_user_type(body.get("user_type"))
+                updates.append("user_type = %s")
+                params.append(user_type)
+                if "access_scope" not in body:
+                    updates.append("access_scope = %s")
+                    params.append(_normalize_access_scope(user_type, None))
+            if "access_scope" in body:
+                scope_user_type = body.get("user_type")
+                if scope_user_type is None:
+                    current_row = con.execute(
+                        "SELECT COALESCE(user_type, 'internal') FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(%s) LIMIT 1",
+                        [email.lower()],
+                    ).fetchone()
+                    scope_user_type = current_row[0] if current_row else "internal"
+                updates.append("access_scope = %s")
+                params.append(_normalize_access_scope(_normalize_user_type(scope_user_type), body.get("access_scope")))
             if "mobile_phone" in body:
                 updates.append("mobile_phone = %s")
                 mobile_phone = body.get("mobile_phone")
