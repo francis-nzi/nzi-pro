@@ -3008,6 +3008,7 @@ def get_job_report_variables(
 ):
     """Get report variable values for a specific job/template (optionally version-bound)."""
     with get_conn() as con:
+        _ensure_report_template_schema(con)
         _get_job_client_id(con, int(job_id))
 
         version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
@@ -3122,6 +3123,7 @@ def save_job_report_variables(
         )
 
         with get_conn() as con:
+            _ensure_report_template_schema(con)
             _get_job_client_id(con, int(job_id))
 
             version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
@@ -3190,6 +3192,7 @@ def get_job_report_data(
     """
     try:
         with get_conn() as con:
+            _ensure_report_template_schema(con)
             version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
             _validate_template_version(con, int(template_id), version_id)
 
