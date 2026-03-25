@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 from core.database import get_conn
@@ -125,6 +127,12 @@ SEEDED_SUPERADMINS = (
     "david@netzero.international",
     "jennie@netzero.international",
 )
+
+_PERMISSION_CACHE_TTL_SECONDS = 60.0
+_permission_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_permission_cache_lock = threading.Lock()
+_permission_schema_ready = False
+_permission_schema_lock = threading.Lock()
 
 
 def ensure_permission_schema(con) -> None:
@@ -304,6 +312,36 @@ def _load_linked_clients(con, user_id: str) -> list[dict[str, Any]]:
     return linked
 
 
+def _copy_resolved_permissions(payload: dict[str, Any]) -> dict[str, Any]:
+    copied = dict(payload)
+    copied["effective_permissions"] = list(payload.get("effective_permissions") or [])
+    copied["denied_permissions"] = list(payload.get("denied_permissions") or [])
+    copied["linked_client_ids"] = list(payload.get("linked_client_ids") or [])
+    copied["linked_clients"] = [dict(item) for item in (payload.get("linked_clients") or [])]
+    return copied
+
+
+def _ensure_permission_schema_if_needed() -> None:
+    global _permission_schema_ready
+    if _permission_schema_ready:
+        return
+    with _permission_schema_lock:
+        if _permission_schema_ready:
+            return
+        with get_conn() as con:
+            ensure_permission_schema(con)
+        _permission_schema_ready = True
+
+
+def invalidate_permission_cache(user_id: str | None = None) -> None:
+    user_key = str(user_id or "").strip().lower()
+    with _permission_cache_lock:
+        if user_key:
+            _permission_cache.pop(user_key, None)
+            return
+        _permission_cache.clear()
+
+
 def get_effective_permissions_for_user(user_id: str, role_hint: str | None = None) -> dict[str, Any]:
     user_id_norm = str(user_id or "").strip()
     if not user_id_norm:
@@ -318,8 +356,15 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
             "linked_clients": [],
         }
 
+    cache_key = user_id_norm.lower()
+    now = time.monotonic()
+    with _permission_cache_lock:
+        cached = _permission_cache.get(cache_key)
+        if cached and (now - cached[0]) < _PERMISSION_CACHE_TTL_SECONDS:
+            return _copy_resolved_permissions(cached[1])
+
+    _ensure_permission_schema_if_needed()
     with get_conn() as con:
-        ensure_permission_schema(con)
         identity = _load_user_identity(con, user_id_norm)
         role_name = str(role_hint or (identity[0] if identity else "ReadOnly") or "ReadOnly")
         user_type = str(identity[1] if identity else "internal")
@@ -329,7 +374,7 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
         is_super_admin = role_name.strip().lower() == SUPERADMIN_ROLE.lower()
 
         if is_super_admin:
-            return {
+            resolved = {
                 "role": role_name,
                 "user_type": user_type,
                 "access_scope": DEFAULT_INTERNAL_ACCESS_SCOPE,
@@ -339,6 +384,9 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
                 "linked_client_ids": linked_client_ids,
                 "linked_clients": linked_clients,
             }
+            with _permission_cache_lock:
+                _permission_cache[cache_key] = (time.monotonic(), _copy_resolved_permissions(resolved))
+            return _copy_resolved_permissions(resolved)
 
         role_rows = con.execute(
             """
@@ -372,7 +420,7 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
                 denied.add(permission_key)
                 granted.discard(permission_key)
 
-        return {
+        resolved = {
             "role": role_name,
             "user_type": user_type,
             "access_scope": access_scope,
@@ -382,6 +430,9 @@ def get_effective_permissions_for_user(user_id: str, role_hint: str | None = Non
             "linked_client_ids": linked_client_ids,
             "linked_clients": linked_clients,
         }
+        with _permission_cache_lock:
+            _permission_cache[cache_key] = (time.monotonic(), _copy_resolved_permissions(resolved))
+        return _copy_resolved_permissions(resolved)
 
 
 def enrich_user_permissions(user: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -426,10 +477,12 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
     user_id = str(user.get("user_id") or "").strip()
     if not user_id:
         return False
-    with get_conn() as con:
-        ensure_permission_schema(con)
-        rows = _load_linked_clients(con, user_id)
-    return client_id in {int(item["client_db_id"]) for item in rows if item.get("client_db_id") is not None}
+    resolved = get_effective_permissions_for_user(user_id, role_hint=str(user.get("role") or "").strip() or None)
+    return client_id in {
+        int(item["client_db_id"])
+        for item in (resolved.get("linked_clients") or [])
+        if item.get("client_db_id") is not None
+    }
 
 
 def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:

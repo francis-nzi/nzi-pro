@@ -39,6 +39,7 @@ from services.permissions import (
     SUPERADMIN_ROLE,
     ensure_permission_schema,
     get_effective_permissions_for_user,
+    invalidate_permission_cache,
 )
 
 router = APIRouter(
@@ -1780,6 +1781,7 @@ def update_user_access(email: str, body: dict = Body(...), _user: dict = Depends
                 linked_clients=linked_clients_body,
             )
 
+        invalidate_permission_cache(email_norm)
         effective = get_effective_permissions_for_user(email_norm, role_hint=role_name)
         return {
             "ok": True,
@@ -1837,6 +1839,12 @@ def archive_user(
                     """,
                     [False, int(user_id)]
                 )
+            affected_email = con.execute(
+                "SELECT LOWER(COALESCE(email, '')) FROM users WHERE user_id = ? LIMIT 1",
+                [int(user_id)],
+            ).fetchone()
+            if affected_email and affected_email[0]:
+                invalidate_permission_cache(str(affected_email[0]))
             
             return {"ok": True, "message": "User archived successfully" if archived else "User restored successfully"}
     except HTTPException:
@@ -1973,6 +1981,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                 sender_identifier=actor,
             )
 
+        invalidate_permission_cache(email)
         response = {"ok": True, "message": "User saved successfully"}
         if generated_temp_password:
             response["temporary_password"] = generated_temp_password
@@ -2059,6 +2068,8 @@ def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_curre
             if len(password) < 8:
                 raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
             set_user_password(email, password, force_change=True)
+
+        invalidate_permission_cache(email)
         
         return {"ok": True, "message": "User updated successfully"}
     except Exception as e:
