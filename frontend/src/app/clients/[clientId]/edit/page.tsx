@@ -176,7 +176,10 @@ export default function EditClientPage() {
   async function loadSites() {
     if (!Number.isFinite(clientId) || clientId <= 0) return;
     try {
-      const res = await fetch(`${baseUrl}/clients/${clientId}/sites`);
+      const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
+        credentials: "include",
+        cache: "no-store",
+      });
       if (res.ok) {
         const data = await res.json();
         setActiveSites(data.active_sites || []);

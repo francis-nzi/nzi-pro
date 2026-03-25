@@ -273,7 +273,10 @@ function ClientDetailPageContent() {
   }
 
   async function reloadSites() {
-    const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include" });
+    const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
+      credentials: "include",
+      cache: "no-store",
+    });
     if (!sitesRes.ok) return;
     const data = (await sitesRes.json()) as ClientSitesResponse;
     setSites(data.active_sites ?? data.sites ?? []);
@@ -329,7 +332,7 @@ function ClientDetailPageContent() {
         const [cRes, jRes, sRes, contactsRes, quotesRes, invoicesRes, summaryRes, lookupsRes] = await Promise.all([
           fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" }),
           fetch(`${baseUrl}/clients/${clientId}/jobs?limit=50&offset=0`, { credentials: "include" }),
-          fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include" }),
+          fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include", cache: "no-store" }),
           fetch(`${baseUrl}/clients/${clientId}/contacts`, { credentials: "include" }),
           fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
           fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" }),
