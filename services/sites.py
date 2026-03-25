@@ -7,6 +7,20 @@ def _ensure_client_site_flag_column(con) -> None:
     con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS create_site_from_address BOOLEAN")
 
 
+def ensure_client_sites_runtime_columns(con) -> None:
+    statements = [
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS archived_by VARCHAR",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS vacated_date DATE",
+    ]
+    for ddl in statements:
+        try:
+            con.execute(ddl)
+        except Exception:
+            pass
+
+
 def _build_registered_office_location(row) -> str | None:
     parts = [
         row[1],
@@ -29,6 +43,7 @@ def ensure_registered_office_site(client_db_id: int, con=None) -> int | None:
             return ensure_registered_office_site(client_db_id, con=managed_con)
 
     _ensure_client_site_flag_column(con)
+    ensure_client_sites_runtime_columns(con)
     row = con.execute(
         """
         SELECT create_site_from_address, addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country
@@ -97,12 +112,15 @@ def ensure_registered_office_site(client_db_id: int, con=None) -> int | None:
 
 def list_sites(client_db_id: int) -> pd.DataFrame:
     with get_conn() as con:
+        ensure_client_sites_runtime_columns(con)
         ensure_registered_office_site(int(client_db_id), con=con)
         return con.execute(
             """
             SELECT site_id, site_name, location, is_registered_office
             FROM client_sites
             WHERE client_db_id=?
+              AND (archived = FALSE OR archived IS NULL)
+              AND vacated_date IS NULL
             ORDER BY site_name
             """,
             [int(client_db_id)],

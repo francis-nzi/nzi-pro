@@ -63,7 +63,7 @@ from openpyxl import load_workbook
 from core.database import db_backend, get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.job_folder_excel import build_excel_template_bytes
-from services.sites import ensure_registered_office_site, list_sites
+from services.sites import ensure_client_sites_runtime_columns, ensure_registered_office_site, list_sites
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
@@ -3261,6 +3261,7 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
+            ensure_client_sites_runtime_columns(con)
             ensure_registered_office_site(int(client_db_id), con=con)
             df = con.execute(
                 """
@@ -3314,6 +3315,7 @@ def create_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
+            ensure_client_sites_runtime_columns(con)
             # If this site is marked as registered office, unset other registered offices
             if body.get("is_registered_office", False):
                 con.execute(
@@ -3367,6 +3369,7 @@ def update_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
+            ensure_client_sites_runtime_columns(con)
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
@@ -3438,6 +3441,7 @@ def vacate_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
+            ensure_client_sites_runtime_columns(con)
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
