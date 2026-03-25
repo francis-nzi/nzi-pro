@@ -7,6 +7,7 @@ import io
 import base64
 from typing import Optional
 import numpy as np
+from services.kaleido_browser import ensure_kaleido_browser
 
 # Import matplotlib inside functions to avoid startup overhead
 import matplotlib
@@ -674,6 +675,7 @@ def create_reduction_pathway_chart(
                 )
     
     # Export to PNG
+    ensure_kaleido_browser()
     img_buffer = io.BytesIO()
     fig.write_image(img_buffer, format='png', scale=2, width=900, height=500,
                     engine='kaleido')
@@ -817,6 +819,7 @@ def create_intensity_pathway_chart(
     )
     
     # Export to PNG
+    ensure_kaleido_browser()
     img_buffer = io.BytesIO()
     fig.write_image(img_buffer, format='png', scale=2, width=800, height=500,
                     engine='kaleido')

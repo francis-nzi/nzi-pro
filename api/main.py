@@ -67,6 +67,7 @@ from services.sites import ensure_client_sites_runtime_columns, ensure_registere
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
+from services.kaleido_browser import ensure_kaleido_browser
 from api.admin_routes import router as admin_router
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.custom_factors_routes import router as custom_factors_router
@@ -320,6 +321,11 @@ async def startup_event():
             _safe_startup_log("OK", "Startup migrations completed successfully")
         except Exception as e:
             _safe_startup_log("WARN", f"Startup migrations failed: {e}")
+    try:
+        browser_path = ensure_kaleido_browser()
+        _safe_startup_log("OK", f"Kaleido browser ready at {browser_path}")
+    except Exception as e:
+        _safe_startup_log("WARN", f"Kaleido browser setup failed: {e}")
 
 
 def _job_template_paths(job_id: int) -> dict[str, str | None]:
