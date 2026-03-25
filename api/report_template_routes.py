@@ -43,6 +43,7 @@ def _ensure_report_template_schema(con) -> None:
     con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_end DATE")
     con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
     con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS intensity_metrics JSONB")
+    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_benchmark BOOLEAN DEFAULT FALSE")
 
     # Core report template tables/columns
     con.execute(
@@ -59,6 +60,11 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS template_type VARCHAR DEFAULT 'carbon_report'")
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS description TEXT")
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()")
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS report_type VARCHAR DEFAULT 'annual_report'")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS is_global BOOLEAN DEFAULT TRUE")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS client_db_id INTEGER REFERENCES clients(db_id)")
@@ -81,6 +87,11 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR")
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'published'")
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS template_content TEXT")
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()")
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS created_by VARCHAR")
     con.execute(
         """
         CREATE INDEX IF NOT EXISTS report_template_versions_template_idx
@@ -107,6 +118,35 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS variable_type VARCHAR DEFAULT 'text'")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS default_value TEXT")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS placeholder TEXT")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS help_text TEXT")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS is_required BOOLEAN DEFAULT FALSE")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS section VARCHAR")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()")
+
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_report_variable_values (
+          job_id INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+          template_id INTEGER NOT NULL REFERENCES report_templates(template_id) ON DELETE CASCADE,
+          version_id INTEGER REFERENCES report_template_versions(version_id) ON DELETE CASCADE,
+          variable_key VARCHAR NOT NULL,
+          variable_value TEXT,
+          updated_at TIMESTAMP DEFAULT NOW(),
+          updated_by VARCHAR,
+          PRIMARY KEY (job_id, template_id, version_id, variable_key)
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS job_report_variable_values_lookup_idx
+        ON job_report_variable_values (job_id, template_id, version_id)
+        """
+    )
 
     con.execute(
         """
@@ -119,6 +159,9 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS version_id INTEGER")
+    con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP DEFAULT NOW()")
+    con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_by VARCHAR")
 
     con.execute(
         """
