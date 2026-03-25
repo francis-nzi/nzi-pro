@@ -282,11 +282,39 @@ def _factor_lookup_select_parts(con) -> dict[str, str]:
     cols = _table_columns(con, "factor_lookup")
     has = lambda c: c in cols
     return {
+        "level_1_expr": "level_1" if has("level_1") else "NULL::text AS level_1",
+        "level_2_expr": "level_2" if has("level_2") else "NULL::text AS level_2",
         "level_4_expr": "level_4" if has("level_4") else "NULL::text AS level_4",
         "report_label_expr": "report_label" if has("report_label") else "NULL::text AS report_label",
+        "column_text_expr": "column_text" if has("column_text") else "NULL::text AS column_text",
         "ghg_unit_expr": "ghg_unit" if has("ghg_unit") else "NULL::text AS ghg_unit",
         "search_report_label_expr": "COALESCE(report_label, '')" if has("report_label") else "''",
     }
+
+
+def _search_tokens(search_text: str | None) -> list[str]:
+    raw = str(search_text or "").strip().lower()
+    if not raw:
+        return []
+    tokens: list[str] = []
+    for token in re.split(r"\s+", raw):
+        cleaned = token.strip()
+        if cleaned and cleaned not in tokens:
+            tokens.append(cleaned)
+    return tokens
+
+
+def _append_multi_token_like_filters(where_clauses: list[str], params: list, fields: list[str], search_text: str | None) -> None:
+    tokens = _search_tokens(search_text)
+    if not tokens or not fields:
+        return
+
+    for token in tokens:
+        pattern = f"%{token}%"
+        where_clauses.append(
+            "(" + " OR ".join([f"LOWER(COALESCE({field}, '')) LIKE %s" for field in fields]) + ")"
+        )
+        params.extend([pattern] * len(fields))
 
 
 def _custom_factor_legacy_year_values(row: dict) -> dict[int, float]:
@@ -410,7 +438,13 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.created_at, jsr.updated_at,
                     fl.factor AS lookup_factor,
-                    fl.ghg_unit AS lookup_ghg_unit
+                    fl.ghg_unit AS lookup_ghg_unit,
+                    fl.level_1 AS lookup_level_1,
+                    fl.level_2 AS lookup_level_2,
+                    fl.level_3 AS lookup_level_3,
+                    fl.level_4 AS lookup_level_4,
+                    fl.column_text AS lookup_column_text,
+                    fl.report_label AS lookup_report_label
                 FROM job_scope_rows jsr
                 LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
                 {where_clause}
@@ -477,13 +511,13 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
-                        "category": r.get("category"),
-                        "level_1": r.get("level_1"),
-                        "level_2": r.get("level_2"),
-                        "level_3": r.get("level_3"),
-                        "level_4": r.get("level_4"),
-                        "column_text": r.get("column_text"),
-                        "report_label": r.get("report_label"),
+                        "category": r.get("category") or r.get("lookup_level_2") or r.get("lookup_level_1"),
+                        "level_1": r.get("level_1") or r.get("lookup_level_1"),
+                        "level_2": r.get("level_2") or r.get("lookup_level_2"),
+                        "level_3": r.get("level_3") or r.get("lookup_level_3"),
+                        "level_4": r.get("level_4") or r.get("lookup_level_4"),
+                        "column_text": r.get("column_text") or r.get("lookup_column_text"),
+                        "report_label": r.get("report_label") or r.get("lookup_report_label") or r.get("column_text") or r.get("lookup_column_text"),
                         "qty": safe_float(metrics.get("display_qty")),
                         "uom": metrics.get("display_uom"),
                         "factor": safe_float(metrics.get("display_factor")),
@@ -546,6 +580,189 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
         print(f"Exception type: {type(e)}")
         print(f"Exception args: {e.args}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch scope data: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/previous-scope-rows")
+def get_previous_scope_rows(
+    job_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    scope: str = Query(""),
+    search: str = Query(""),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Return reusable dataset-backed rows from recent prior jobs for the same client."""
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            current_job = con.execute(
+                """
+                SELECT client_db_id, reporting_period_start, reporting_period_end
+                FROM jobs
+                WHERE job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+            if not current_job:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            client_db_id = _safe_int(current_job[0])
+            current_start = current_job[1]
+            current_end = current_job[2]
+            if client_db_id is None:
+                return {"job_id": int(job_id), "rows": [], "total": 0}
+
+            prior_job_rows = con.execute(
+                """
+                SELECT job_id, job_number, title, reporting_period_start, reporting_period_end
+                FROM jobs
+                WHERE client_db_id=%s
+                  AND job_id <> %s
+                  AND (
+                    %s IS NULL
+                    OR (reporting_period_end IS NOT NULL AND reporting_period_end < %s)
+                    OR (reporting_period_start IS NOT NULL AND reporting_period_start < %s)
+                    OR (reporting_period_end IS NOT NULL AND %s IS NOT NULL AND reporting_period_end <= %s)
+                  )
+                ORDER BY reporting_period_end DESC NULLS LAST, reporting_period_start DESC NULLS LAST, job_id DESC
+                LIMIT 8
+                """,
+                [int(client_db_id), int(job_id), current_start, current_start, current_start, current_end, current_end],
+            ).fetchall()
+
+            prior_jobs: list[dict[str, Any]] = []
+            for row in prior_job_rows:
+                prior_jobs.append(
+                    {
+                        "job_id": _safe_int(row[0]),
+                        "job_number": row[1],
+                        "title": row[2],
+                        "reporting_period_start": row[3],
+                        "reporting_period_end": row[4],
+                    }
+                )
+            prior_job_ids = [item["job_id"] for item in prior_jobs if item.get("job_id") is not None]
+            if not prior_job_ids:
+                return {"job_id": int(job_id), "rows": [], "total": 0}
+
+            prior_job_map = {int(item["job_id"]): item for item in prior_jobs if item.get("job_id") is not None}
+            where_clauses = [
+                f"jsr.job_id IN ({','.join(['%s'] * len(prior_job_ids))})",
+                "jsr.enabled = TRUE",
+                "COALESCE(jsr.is_custom_entry, FALSE) = FALSE",
+                "COALESCE(jsr.original_id, '') <> ''",
+            ]
+            params: list[Any] = list(prior_job_ids)
+
+            if scope and scope.strip():
+                where_clauses.append("jsr.scope = %s")
+                params.append(scope.strip())
+
+            _append_multi_token_like_filters(
+                where_clauses,
+                params,
+                [
+                    "COALESCE(jsr.report_label, fl.report_label)",
+                    "COALESCE(jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1)",
+                    "COALESCE(jsr.level_1, fl.level_1)",
+                    "COALESCE(jsr.level_2, fl.level_2)",
+                    "COALESCE(jsr.level_3, fl.level_3)",
+                    "COALESCE(jsr.level_4, fl.level_4)",
+                    "COALESCE(jsr.column_text, fl.column_text)",
+                    "jsr.original_id",
+                ],
+                search,
+            )
+
+            query = f"""
+                SELECT
+                    jsr.row_id,
+                    jsr.job_id,
+                    jsr.scope,
+                    jsr.site_id,
+                    cs.site_name,
+                    jsr.dataset_id,
+                    jsr.factor_db_id,
+                    jsr.original_id,
+                    COALESCE(jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1) AS category,
+                    COALESCE(jsr.level_1, fl.level_1) AS level_1,
+                    COALESCE(jsr.level_2, fl.level_2) AS level_2,
+                    COALESCE(jsr.level_3, fl.level_3) AS level_3,
+                    COALESCE(jsr.level_4, fl.level_4) AS level_4,
+                    COALESCE(jsr.column_text, fl.column_text) AS column_text,
+                    COALESCE(jsr.report_label, fl.report_label, jsr.column_text, fl.column_text) AS report_label,
+                    jsr.uom,
+                    COALESCE(jsr.factor, fl.factor) AS factor,
+                    COALESCE(jsr.ghg_unit, fl.ghg_unit) AS ghg_unit,
+                    jsr.qty,
+                    jsr.data_confidence,
+                    jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
+                    jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                FROM job_scope_rows jsr
+                LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
+                WHERE {" AND ".join(where_clauses)}
+                ORDER BY jsr.job_id DESC, jsr.scope, report_label, jsr.original_id
+            """
+
+            raw_rows = con.execute(query, params).fetchall()
+            deduped: list[dict[str, Any]] = []
+            seen: set[tuple[Any, ...]] = set()
+
+            for raw in raw_rows:
+                row = {
+                    "row_id": _safe_int(raw[0]),
+                    "job_id": _safe_int(raw[1]),
+                    "scope": raw[2],
+                    "site_id": _safe_int(raw[3]),
+                    "site_name": raw[4],
+                    "dataset_id": _safe_int(raw[5]),
+                    "factor_db_id": _safe_int(raw[6]),
+                    "original_id": raw[7],
+                    "category": raw[8],
+                    "level_1": raw[9],
+                    "level_2": raw[10],
+                    "level_3": raw[11],
+                    "level_4": raw[12],
+                    "column_text": raw[13],
+                    "report_label": raw[14],
+                    "uom": raw[15],
+                    "factor": _safe_float(raw[16]),
+                    "ghg_unit": raw[17],
+                    "previous_qty": _safe_float(raw[18]),
+                    "data_confidence": raw[19],
+                    "months": [_safe_float(value) for value in raw[20:32]],
+                }
+                dedupe_key = (
+                    row["scope"],
+                    row["original_id"],
+                    row["category"],
+                    row["report_label"],
+                    row["level_1"],
+                    row["level_2"],
+                    row["level_3"],
+                    row["level_4"],
+                    row["column_text"],
+                    row["uom"],
+                    row["site_id"],
+                )
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                source_job = prior_job_map.get(int(row["job_id"])) if row.get("job_id") is not None else None
+                row["previous_month_count"] = sum(1 for value in row["months"] if value is not None and abs(value) > 0)
+                row["source_job_number"] = source_job.get("job_number") if source_job else None
+                row["source_job_title"] = source_job.get("title") if source_job else None
+                row["source_reporting_period_start"] = str(source_job.get("reporting_period_start")) if source_job and source_job.get("reporting_period_start") else None
+                row["source_reporting_period_end"] = str(source_job.get("reporting_period_end")) if source_job and source_job.get("reporting_period_end") else None
+                deduped.append(row)
+                if len(deduped) >= int(limit):
+                    break
+
+            return {"job_id": int(job_id), "rows": deduped, "total": len(deduped)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch previous scope rows: {e}")
 
 
 @router.get("/jobs/{job_id}/scope-totals")
@@ -950,26 +1167,19 @@ def get_template_factors(
                     else:
                         cf_where.append("COALESCE(is_global, TRUE) = TRUE")
 
-                    if search_term:
-                        search_pattern = f"%{search_term}%"
-                        cf_where.append(
-                            """
-                            (
-                              LOWER(COALESCE(custom_id, '')) LIKE %s
-                              OR LOWER(COALESCE(description, '')) LIKE %s
-                              OR LOWER(COALESCE(report_label, '')) LIKE %s
-                              OR LOWER(COALESCE(category, '')) LIKE %s
-                              OR LOWER(COALESCE(source, '')) LIKE %s
-                            )
-                            """
-                        )
-                        cf_params.extend([
-                            search_pattern,
-                            search_pattern,
-                            search_pattern,
-                            search_pattern,
-                            search_pattern,
-                        ])
+                    _append_multi_token_like_filters(
+                        cf_where,
+                        cf_params,
+                        [
+                            "custom_id",
+                            "description",
+                            "report_label",
+                            "category",
+                            "source",
+                            "country",
+                        ],
+                        search_term,
+                    )
 
                     cf_where_sql = " AND ".join(cf_where)
                     cf_df = con.execute(
@@ -1023,8 +1233,11 @@ def get_template_factors(
                                     "factor_db_id": None,
                                     "factor": float(factor_value),
                                     "ghg_unit": row.get("ghg_unit"),
+                                    "level_1": None,
+                                    "level_2": None,
                                     "level_3": None,
                                     "level_4": None,
+                                    "column_text": None,
                                     "is_custom": True,
                                     "source": row.get("source"),
                                     "custom_factor_id": int(factor_id),
@@ -1058,12 +1271,23 @@ def get_template_factors(
                         where_clauses.append("scope = %s")
                         params.append(scope.strip())
 
-                    if search_term:
-                        search_pattern = f"%{search_term}%"
-                        where_clauses.append(
-                            f"(LOWER({fl_parts['search_report_label_expr']}) LIKE %s OR LOWER(COALESCE(level_2, '')) LIKE %s OR LOWER(COALESCE(level_3, '')) LIKE %s OR LOWER(COALESCE(original_id, '')) LIKE %s)"
-                        )
-                        params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
+                    _append_multi_token_like_filters(
+                        where_clauses,
+                        params,
+                        [
+                            "report_label",
+                            "level_1",
+                            "level_2",
+                            "level_3",
+                            "level_4",
+                            "column_text",
+                            "original_id",
+                            "source",
+                            "method",
+                            "region",
+                        ],
+                        search_term,
+                    )
 
                     where_sql = " AND ".join(where_clauses)
 
@@ -1083,8 +1307,8 @@ def get_template_factors(
 
                     if remaining_limit > 0:
                         query = f"""
-                            SELECT db_id, dataset_id, scope, original_id, level_1, level_2, level_3, {fl_parts['level_4_expr']},
-                                   column_text, {fl_parts['report_label_expr']}, uom, factor, {fl_parts['ghg_unit_expr']}
+                            SELECT db_id, dataset_id, scope, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
+                                   original_id, {fl_parts['column_text_expr']}, {fl_parts['report_label_expr']}, uom, factor, {fl_parts['ghg_unit_expr']}
                             FROM factor_lookup
                             WHERE {where_sql}
                             ORDER BY scope, level_2, level_3, report_label
@@ -1107,8 +1331,11 @@ def get_template_factors(
                                     "factor_db_id": int(row.get('db_id')) if row.get('db_id') is not None else None,
                                     "factor": factor_val,
                                     "ghg_unit": row.get('ghg_unit'),
+                                    "level_1": row.get('level_1'),
+                                    "level_2": row.get('level_2'),
                                     "level_3": row.get('level_3'),
                                     "level_4": row.get('level_4'),
+                                    "column_text": row.get('column_text'),
                                     "is_custom": False,
                                     "source": None,
                                 })

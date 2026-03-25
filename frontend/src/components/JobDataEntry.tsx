@@ -39,6 +39,11 @@ type ScopeDataRow = {
   row_id: number;
   scope: string;
   category: string | null;
+  level_1?: string | null;
+  level_2?: string | null;
+  level_3?: string | null;
+  level_4?: string | null;
+  column_text?: string | null;
   report_label: string | null;
   original_id: string;
   uom: string | null;
@@ -107,10 +112,41 @@ type TemplateFactor = {
   factor_db_id: number | null;
   factor: number | null;
   ghg_unit: string | null;
+  level_1?: string | null;
+  level_2?: string | null;
   level_3?: string | null;
   level_4?: string | null;
+  column_text?: string | null;
   is_custom?: boolean;
   source?: string;
+};
+
+type PreviousYearRow = {
+  row_id: number;
+  job_id: number;
+  scope: string;
+  site_id: number | null;
+  site_name: string | null;
+  dataset_id: number | null;
+  factor_db_id: number | null;
+  original_id: string;
+  category: string | null;
+  level_1?: string | null;
+  level_2?: string | null;
+  level_3?: string | null;
+  level_4?: string | null;
+  column_text?: string | null;
+  report_label: string | null;
+  uom: string | null;
+  factor: number | null;
+  ghg_unit: string | null;
+  previous_qty: number | null;
+  previous_month_count: number;
+  data_confidence: string | null;
+  source_job_number?: string | null;
+  source_job_title?: string | null;
+  source_reporting_period_start?: string | null;
+  source_reporting_period_end?: string | null;
 };
 
 export default function JobDataEntry({ jobId }: { jobId: number }) {
@@ -124,6 +160,9 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   const [error, setError] = useState("");
   const [jobData, setJobData] = useState<{ reporting_period_start?: string | null; client_db_id?: number | null } | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
+  const [previousYearRows, setPreviousYearRows] = useState<PreviousYearRow[]>([]);
+  const [previousYearLoading, setPreviousYearLoading] = useState(false);
+  const [previousYearError, setPreviousYearError] = useState("");
   const [selectedScope, setSelectedScope] = useState<string>("All");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -142,6 +181,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   const [factorSearchQuery, setFactorSearchQuery] = useState("");
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>("All");
   const [addingFactorId, setAddingFactorId] = useState<string | null>(null);
+  const [addingPreviousRowId, setAddingPreviousRowId] = useState<number | null>(null);
   const [factorsLoading, setFactorsLoading] = useState(false);
   const [factorsOffset, setFactorsOffset] = useState(0);
   const [factorsTotal, setFactorsTotal] = useState(0);
@@ -181,10 +221,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     
     try {
       // Only load essential data on initial load (not template factors)
-      const [totalsRes, dataRes, jobRes] = await Promise.all([
+      const [totalsRes, dataRes, jobRes, previousRowsRes] = await Promise.all([
         fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
         fetch(`${baseUrl}/jobs/${jobId}/scope-data`, { credentials: "include" }),
         fetch(`${baseUrl}/jobs/${jobId}`, { credentials: "include" }),
+        fetch(`${baseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, { credentials: "include" }),
       ]);
 
       if (totalsRes.ok) {
@@ -214,9 +255,21 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
           }
         }
       }
+
+      if (previousRowsRes.ok) {
+        const previousRowsJson = await previousRowsRes.json();
+        setPreviousYearRows(previousRowsJson.rows || []);
+        setPreviousYearError("");
+      } else {
+        const details = await previousRowsRes.text().catch(() => "");
+        setPreviousYearRows([]);
+        setPreviousYearError(details || "Failed to load previous-year rows");
+      }
     } catch (e) {
       console.error("Error loading data:", e);
       setError((e as Error).message);
+      setPreviousYearRows([]);
+      setPreviousYearError((e as Error).message);
     } finally {
       setLoading(false);
     }
@@ -286,6 +339,88 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     } finally {
       setLoadingMoreFactors(false);
     }
+  }
+
+  async function loadPreviousYearRows() {
+    setPreviousYearLoading(true);
+    try {
+      const previousRowsRes = await fetch(`${baseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, {
+        credentials: "include",
+      });
+      if (previousRowsRes.ok) {
+        const previousRowsJson = await previousRowsRes.json();
+        setPreviousYearRows(previousRowsJson.rows || []);
+        setPreviousYearError("");
+      } else {
+        const details = await previousRowsRes.text().catch(() => "");
+        setPreviousYearRows([]);
+        setPreviousYearError(details || "Failed to load previous-year rows");
+      }
+    } catch (e) {
+      setPreviousYearRows([]);
+      setPreviousYearError((e as Error).message);
+    } finally {
+      setPreviousYearLoading(false);
+    }
+  }
+
+  function normalizeDisplayValue(value?: string | null): string {
+    const normalized = String(value || "").trim().replace(/\s+/g, " ");
+    if (!normalized) return "";
+    const lower = normalized.toLowerCase();
+    if (lower === "nan" || lower === "none" || lower === "null" || lower === "n/a") return "";
+    return normalized;
+  }
+
+  function uniqueDisplayParts(values: Array<string | null | undefined>): string[] {
+    const seen = new Set<string>();
+    const parts: string[] = [];
+    for (const value of values) {
+      const normalized = normalizeDisplayValue(value);
+      if (!normalized) continue;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parts.push(normalized);
+    }
+    return parts;
+  }
+
+  function multiTokenMatch(searchText: string, values: Array<string | null | undefined>): boolean {
+    const tokens = searchText
+      .toLowerCase()
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+    if (!tokens.length) return true;
+    const haystack = values
+      .map((value) => normalizeDisplayValue(value).toLowerCase())
+      .filter(Boolean)
+      .join(" ");
+    return tokens.every((token) => haystack.includes(token));
+  }
+
+  function rowDisplayParts(row: ScopeDataRow | PreviousYearRow): string[] {
+    return uniqueDisplayParts([
+      row.report_label,
+      row.column_text,
+      row.level_3,
+      row.level_4,
+      row.level_2,
+      row.level_1,
+    ]);
+  }
+
+  function rowDisplayTitle(row: ScopeDataRow | PreviousYearRow): string {
+    const parts = rowDisplayParts(row);
+    return parts.length ? parts.join(" | ") : row.original_id;
+  }
+
+  function rowDisplaySubtitle(row: ScopeDataRow | PreviousYearRow): string {
+    return uniqueDisplayParts([
+      row.category,
+      row.original_id,
+    ]).join(" • ");
   }
 
   async function updateQuantity(rowId: number, newQty: number | null) {
@@ -508,6 +643,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
         scope: factor.scope,
         original_id: factor.original_id,
         category: factor.category,
+        level_1: factor.level_1 ?? null,
+        level_2: factor.level_2 ?? null,
+        level_3: factor.level_3 ?? null,
+        level_4: factor.level_4 ?? null,
+        column_text: factor.column_text ?? null,
         report_label: factor.report_label,
         uom: factor.uom,
         factor: factor.factor,
@@ -550,6 +690,56 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       setError((e as Error).message);
     } finally {
       setAddingFactorId(null);
+    }
+  }
+
+  async function addPreviousYearRowToJob(row: PreviousYearRow) {
+    setAddingPreviousRowId(row.row_id);
+    try {
+      const payload = {
+        scope: row.scope,
+        site_id: row.site_id,
+        original_id: row.original_id,
+        category: row.category,
+        level_1: row.level_1 ?? null,
+        level_2: row.level_2 ?? null,
+        level_3: row.level_3 ?? null,
+        level_4: row.level_4 ?? null,
+        column_text: row.column_text ?? null,
+        report_label: row.report_label,
+        uom: row.uom,
+        factor: row.factor,
+        ghg_unit: row.ghg_unit,
+        dataset_id: row.dataset_id,
+        factor_db_id: row.factor_db_id,
+        qty: 0,
+        apply_pct: 100,
+        data_source: "Company Data",
+        data_confidence: row.data_confidence || "M",
+        is_custom_entry: false,
+      };
+
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data`, {
+        method: "POST",
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Data Entry", container: "Reuse Previous Year Rows" }
+        ),
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        await loadData();
+        setError("");
+      } else {
+        const text = await res.text();
+        setError(`Failed to add previous-year row: ${text}`);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAddingPreviousRowId(null);
     }
   }
 
@@ -658,12 +848,17 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       if (confidence !== confidenceFilter) return false;
     }
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        row.report_label?.toLowerCase().includes(q) ||
-        row.category?.toLowerCase().includes(q) ||
-        row.original_id.toLowerCase().includes(q)
-      );
+      return multiTokenMatch(searchQuery, [
+        rowDisplayTitle(row),
+        rowDisplaySubtitle(row),
+        row.category,
+        row.original_id,
+        row.level_1,
+        row.level_2,
+        row.level_3,
+        row.level_4,
+        row.column_text,
+      ]);
     }
     return true;
   });
@@ -671,48 +866,66 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   const filteredFactors = templateFactors.filter((factor) => {
     if (factorScopeFilter !== "All" && factor.scope !== factorScopeFilter) return false;
     if (factorSearchQuery) {
-      const q = factorSearchQuery.toLowerCase();
-      return (
-        factor.report_label?.toLowerCase().includes(q) ||
-        factor.category?.toLowerCase().includes(q) ||
-        factor.level_3?.toLowerCase().includes(q) ||
-        factor.level_4?.toLowerCase().includes(q) ||
-        factor.original_id?.toLowerCase().includes(q)
-      );
+      return multiTokenMatch(factorSearchQuery, [
+        factorDisplayTitle(factor),
+        factorDisplaySubtitle(factor),
+        factor.category,
+        factor.original_id,
+        factor.level_1,
+        factor.level_2,
+        factor.level_3,
+        factor.level_4,
+        factor.column_text,
+        factor.source,
+      ]);
     }
     return true;
   });
 
-  const factorDisplayParts = (factor: TemplateFactor) => {
-    const normalize = (value?: string | null) => value?.trim() || "";
-    const parts = [
-      normalize(factor.category),
-      normalize(factor.report_label),
-      normalize(factor.level_3),
-      normalize(factor.level_4),
-    ];
-    const seen = new Set<string>();
-    return parts.filter((part) => {
-      if (!part) return false;
-      const key = part.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
+  const filteredPreviousYearRows = previousYearRows.filter((row) => {
+    if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (searchQuery) {
+      return multiTokenMatch(searchQuery, [
+        rowDisplayTitle(row),
+        rowDisplaySubtitle(row),
+        row.category,
+        row.original_id,
+        row.level_1,
+        row.level_2,
+        row.level_3,
+        row.level_4,
+        row.column_text,
+        row.source_job_number,
+        row.source_job_title,
+        row.site_name,
+      ]);
+    }
+    return true;
+  });
 
-  const factorDisplayTitle = (factor: TemplateFactor) => {
+  function factorDisplayParts(factor: TemplateFactor): string[] {
+    return uniqueDisplayParts([
+      factor.report_label,
+      factor.column_text,
+      factor.level_3,
+      factor.level_4,
+      factor.level_2,
+      factor.level_1,
+    ]);
+  }
+
+  function factorDisplayTitle(factor: TemplateFactor): string {
     const parts = factorDisplayParts(factor);
     return parts.length ? parts.join(" | ") : factor.original_id;
-  };
+  }
 
-  const factorDisplaySubtitle = (factor: TemplateFactor) => {
-    const extras = [factor.level_3, factor.level_4]
-      .map((value) => value?.trim())
-      .filter((value): value is string => Boolean(value));
-    const deduped = extras.filter((value, index) => extras.findIndex((x) => x.toLowerCase() === value.toLowerCase()) === index);
-    return deduped.join(" • ");
-  };
+  function factorDisplaySubtitle(factor: TemplateFactor): string {
+    return uniqueDisplayParts([
+      factor.category,
+      factor.original_id,
+      factor.source,
+    ]).join(" • ");
+  }
 
   // Check if a factor is already added to the job
   const isFactorAdded = (originalId: string) => {
@@ -891,7 +1104,14 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                             </Select>
                           </td>
                         )}
-                        <td className="p-2 max-w-xs truncate" title={row.report_label || ""}>{row.report_label || row.original_id}</td>
+                        <td className="p-2 max-w-xs">
+                          <div className="truncate font-medium" title={rowDisplayTitle(row)}>
+                            {rowDisplayTitle(row)}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
+                            {rowDisplaySubtitle(row)}
+                          </div>
+                        </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
                             {isLegacyFallbackRow(row) ? (
@@ -1140,6 +1360,90 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Reuse Previous Year Rows</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            Reuse rows from earlier jobs for this client to keep data entry fast and consistent. The factor and hierarchy fields are copied in, ready for this year&apos;s quantities.
+          </div>
+          {previousYearLoading ? (
+            <div className="text-sm text-muted-foreground">Loading previous-year rows...</div>
+          ) : previousYearError ? (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {previousYearError}
+            </div>
+          ) : filteredPreviousYearRows.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              No reusable rows were found for the current filters.
+            </div>
+          ) : (
+            <div className="border rounded-md max-h-96 overflow-y-auto">
+              <div className="divide-y">
+                {filteredPreviousYearRows.map((row) => {
+                  const isAdding = addingPreviousRowId === row.row_id;
+                  return (
+                    <div key={`previous-${row.row_id}`} className="p-3 hover:bg-muted/40 transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-xs ${
+                                row.scope === "Scope 1"
+                                  ? "bg-red-100 text-red-800"
+                                  : row.scope === "Scope 2"
+                                    ? "bg-orange-100 text-orange-800"
+                                    : "bg-blue-100 text-blue-800"
+                              }`}
+                            >
+                              {row.scope}
+                            </span>
+                            <span className="truncate font-medium" title={rowDisplayTitle(row)}>
+                              {rowDisplayTitle(row)}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
+                            {rowDisplaySubtitle(row) || row.original_id}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            From {row.source_job_number || `Job ${row.job_id}`}
+                            {row.source_job_title ? ` • ${row.source_job_title}` : ""}
+                            {row.source_reporting_period_start && row.source_reporting_period_end
+                              ? ` • ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
+                              : ""}
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs">
+                            <span className="font-mono">
+                              Previous Qty: {row.previous_qty?.toFixed(2) || "0.00"} {row.uom || ""}
+                            </span>
+                            <span className="text-muted-foreground">
+                              Months used: {row.previous_month_count}/12
+                            </span>
+                            {row.site_name && (
+                              <span className="text-muted-foreground">
+                                Site: {row.site_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => addPreviousYearRowToJob(row)}
+                          disabled={isAdding}
+                          size="sm"
+                        >
+                          {isAdding ? "Adding..." : "Add to Job"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Dialog open={showColumnManager} onOpenChange={setShowColumnManager}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1334,9 +1638,13 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
             <DialogTitle>Monthly Data Entry</DialogTitle>
             {monthlyEditRow && (
               <div className="mt-2">
-                <div className="font-semibold">{monthlyEditRow.report_label}</div>
+                <div className="font-semibold">{rowDisplayTitle(monthlyEditRow)}</div>
                 <div className="text-xs text-muted-foreground">
-                  {monthlyEditRow.scope} • {monthlyEditRow.category}
+                  {uniqueDisplayParts([
+                    monthlyEditRow.scope,
+                    monthlyEditRow.category,
+                    monthlyEditRow.original_id,
+                  ]).join(" • ")}
                 </div>
               </div>
             )}
