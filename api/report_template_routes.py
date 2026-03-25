@@ -3068,30 +3068,8 @@ def get_job_report_variables(
             is_required_expr = "COALESCE(rtv.is_required, FALSE)" if "is_required" in variable_cols else "FALSE"
             display_order_expr = "rtv.display_order" if "display_order" in variable_cols else "0"
             section_expr = "rtv.section" if "section" in variable_cols else "NULL"
-            value_updated_expr = "jrv.updated_at" if "updated_at" in value_cols else "NULL"
 
-            lateral_where = [
-                "jrv.job_id = %s",
-                "jrv.template_id = rtv.template_id",
-                "jrv.variable_key = rtv.variable_key",
-            ]
-            lateral_params: list[object] = [int(job_id)]
-            if "version_id" in value_cols:
-                lateral_where.append("(%s::INT IS NULL OR jrv.version_id = %s::INT)")
-                lateral_params.extend([version_id, version_id])
-                version_priority_order = """
-                      CASE
-                        WHEN %s::INT IS NOT NULL AND jrv.version_id = %s::INT THEN 0
-                        ELSE 1
-                      END,
-                """
-                lateral_params.extend([version_id, version_id])
-            else:
-                version_priority_order = ""
-
-            updated_order_expr = "jrv.updated_at" if "updated_at" in value_cols else "jrv.variable_key"
-
-            df = con.execute(
+            variable_rows = con.execute(
                 f"""
                 SELECT
                     {variable_id_expr} AS variable_id,
@@ -3103,52 +3081,83 @@ def get_job_report_variables(
                     {help_text_expr} AS help_text,
                     {is_required_expr} AS is_required,
                     {display_order_expr} AS display_order,
-                    {section_expr} AS section,
-                    jrv.variable_value,
-                    {value_updated_expr} AS value_updated_at
+                    {section_expr} AS section
                 FROM report_template_variables rtv
-                LEFT JOIN LATERAL (
-                    SELECT
-                        jrv.variable_value,
-                        {"jrv.updated_at" if "updated_at" in value_cols else "NULL"} AS updated_at
-                    FROM job_report_variable_values jrv
-                    WHERE {" AND ".join(lateral_where)}
-                    ORDER BY
-                      {version_priority_order}
-                      {updated_order_expr} DESC
-                    LIMIT 1
-                ) jrv ON TRUE
                 WHERE rtv.template_id = %s
                 ORDER BY {"rtv.display_order, rtv.variable_key" if "display_order" in variable_cols else "rtv.variable_key"}
                 """,
-                lateral_params + [int(template_id)],
-            ).df()
+                [int(template_id)],
+            ).fetchall()
+
+            latest_values: dict[str, dict[str, Any]] = {}
+            can_lookup_values = {"job_id", "template_id", "variable_key", "variable_value"}.issubset(value_cols)
+            if can_lookup_values:
+                updated_value_expr = "updated_at" if "updated_at" in value_cols else "NULL AS updated_at"
+                value_order_expr = "updated_at DESC" if "updated_at" in value_cols else "variable_key DESC"
+                if "version_id" in value_cols and version_id is not None:
+                    saved_value_rows = con.execute(
+                        f"""
+                        SELECT variable_key, variable_value, {updated_value_expr}
+                        FROM job_report_variable_values
+                        WHERE job_id = %s AND template_id = %s
+                        ORDER BY
+                          variable_key,
+                          CASE WHEN version_id = %s THEN 0 ELSE 1 END,
+                          {value_order_expr}
+                        """,
+                        [int(job_id), int(template_id), int(version_id)],
+                    ).fetchall()
+                else:
+                    saved_value_rows = con.execute(
+                        f"""
+                        SELECT variable_key, variable_value, {updated_value_expr}
+                        FROM job_report_variable_values
+                        WHERE job_id = %s AND template_id = %s
+                        ORDER BY variable_key, {value_order_expr}
+                        """,
+                        [int(job_id), int(template_id)],
+                    ).fetchall()
+
+                for saved_row in saved_value_rows:
+                    variable_key = str(_json_safe_value(saved_row[0]) or "")
+                    if not variable_key or variable_key in latest_values:
+                        continue
+                    latest_values[variable_key] = {
+                        "variable_value": _json_safe_value(saved_row[1]) if len(saved_row) > 1 else None,
+                        "value_updated_at": _json_safe_value(saved_row[2]) if len(saved_row) > 2 else None,
+                    }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load variables: {e}")
+        print(
+            f"[report-variables] job_id={job_id} template_id={template_id} "
+            f"version_id={version_id} error={type(e).__name__}: {e}"
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to load variables: {type(e).__name__}: {e}")
 
-    if df is None or df.empty:
+    if not variable_rows:
         return {"items": [], "version_id": version_id}
 
     items = []
-    for _, row in df.iterrows():
-        variable_id = _safe_int(row.get("variable_id"), 0)
-        display_order = _safe_int(row.get("display_order"), 0)
+    for row in variable_rows:
+        variable_key = str(_json_safe_value(row[1]) or "")
+        saved = latest_values.get(variable_key, {})
+        variable_id = _safe_int(row[0], 0)
+        display_order = _safe_int(row[8], 0)
         items.append(
             {
                 "variable_id": variable_id,
-                "variable_key": str(_json_safe_value(row.get("variable_key")) or ""),
-                "variable_label": str(_json_safe_value(row.get("variable_label")) or ""),
-                "variable_type": str(_json_safe_value(row.get("variable_type")) or "text"),
-                "default_value": _json_safe_value(row.get("default_value")),
-                "placeholder": _json_safe_value(row.get("placeholder")),
-                "help_text": _json_safe_value(row.get("help_text")),
-                "is_required": _safe_bool(row.get("is_required")),
+                "variable_key": variable_key,
+                "variable_label": str(_json_safe_value(row[2]) or ""),
+                "variable_type": str(_json_safe_value(row[3]) or "text"),
+                "default_value": _json_safe_value(row[4]),
+                "placeholder": _json_safe_value(row[5]),
+                "help_text": _json_safe_value(row[6]),
+                "is_required": _safe_bool(row[7]),
                 "display_order": display_order,
-                "section": _json_safe_value(row.get("section")),
-                "variable_value": _json_safe_value(row.get("variable_value")),
-                "value_updated_at": _json_safe_value(row.get("value_updated_at")),
+                "section": _json_safe_value(row[9]),
+                "variable_value": saved.get("variable_value"),
+                "value_updated_at": saved.get("value_updated_at"),
             }
         )
 
