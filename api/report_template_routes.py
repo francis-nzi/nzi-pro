@@ -44,6 +44,162 @@ def _get_table_columns(con, table_name: str) -> set[str]:
     return {str(r[0]).strip().lower() for r in (rows or []) if r and r[0]}
 
 
+_DEFAULT_ANNUAL_REPORT_VARIABLES: list[tuple[str, str, str, str | None, str | None, str | None, bool, int, str]] = [
+    ("report_title", "Report Title", "text", "Annual Carbon Footprint Report", None, "Title of the report", True, 10, "Cover Page"),
+    ("introduction", "Introduction", "textarea", None, "Introduce the purpose and scope of this report...", "Introduction to the carbon footprint report", True, 20, "Introduction"),
+    ("methodology", "Methodology", "textarea", None, "Describe the methodology used for carbon accounting...", "Explanation of calculation methodology and standards used", True, 30, "Methodology"),
+    ("key_findings", "Key Findings", "textarea", None, "Summarize the key findings from this reporting period...", "Main findings and insights from the carbon footprint", True, 40, "Results"),
+    ("recommendations", "Recommendations", "textarea", None, "Provide recommendations for reducing emissions...", "Suggested actions for emissions reduction", False, 50, "Recommendations"),
+    ("conclusion", "Conclusion", "textarea", None, "Conclude the report...", "Final summary and next steps", False, 60, "Conclusion"),
+    ("activity_narrative_intro", "Activity Analysis Introduction", "textarea", None, "Summarise the key activity drivers for this reporting period...", "Introductory narrative shown above the activity chart", False, 70, "Emissions by Activity"),
+    ("activity_energy_commentary", "Energy Commentary", "textarea", None, "Commentary for Energy emissions...", "Narrative shown alongside the Energy activity group", False, 71, "Emissions by Activity"),
+    ("activity_business_travel_commentary", "Business Travel Commentary", "textarea", None, "Commentary for Business Travel emissions...", "Narrative shown alongside the Business Travel activity group", False, 72, "Emissions by Activity"),
+    ("activity_employee_commuting_commentary", "Employee Commuting Commentary", "textarea", None, "Commentary for Employee Commuting emissions...", "Narrative shown alongside the Employee Commuting activity group", False, 73, "Emissions by Activity"),
+    ("activity_pgs_commentary", "Purchased Goods & Services (PG&S) Commentary", "textarea", None, "Commentary for Purchased Goods & Services emissions...", "Narrative shown alongside the PG&S activity group", False, 74, "Emissions by Activity"),
+    ("activity_other_commentary", "Other Emissions Commentary", "textarea", None, "Commentary for other emissions activities...", "Narrative shown alongside the Other Emissions activity group", False, 75, "Emissions by Activity"),
+    ("activity_show_group_breakdown", "Show Activity Group Breakdown Table", "boolean", "true", None, "Set to false to hide the summary activity-group table", False, 76, "Emissions by Activity"),
+    ("activity_show_detail_table", "Show Detailed Activity Table", "boolean", "true", None, "Set to false to hide the detailed emissions-by-activity table", False, 77, "Emissions by Activity"),
+]
+
+
+_DEFAULT_CRP_STANDARD_VARIABLES: list[tuple[str, str, str, str | None, str | None, str | None, bool, int, str]] = [
+    ("executive_summary", "Executive Summary", "textarea", None, "Provide a brief overview of your carbon reduction commitment...", "Summary of your organization's commitment to achieving Net Zero", True, 10, "Executive Summary"),
+    ("commitment_statement", "Commitment to Net Zero", "textarea", None, "[Organization] is committed to achieving Net Zero emissions by [year]...", "Your organization's formal commitment statement", True, 20, "Commitment"),
+    ("baseline_year", "Baseline Year", "number", "2023", None, "The baseline year for your carbon footprint", True, 21, "Commitment"),
+    ("target_year", "Net Zero Target Year", "number", "2050", None, "Target year for achieving Net Zero", True, 22, "Commitment"),
+    ("footprint_summary", "Emissions Footprint Summary", "textarea", None, "Describe your current emissions footprint...", "Overview of your organization's carbon footprint", False, 30, "Emissions Footprint"),
+    ("scope1_description", "Scope 1 Emissions Description", "textarea", None, "Describe your Scope 1 emissions sources...", "Direct emissions from owned or controlled sources", False, 31, "Emissions Footprint"),
+    ("scope2_description", "Scope 2 Emissions Description", "textarea", None, "Describe your Scope 2 emissions sources...", "Indirect emissions from purchased electricity, heat, and cooling", False, 32, "Emissions Footprint"),
+    ("scope3_description", "Scope 3 Emissions Description", "textarea", None, "Describe your Scope 3 emissions sources...", "All other indirect emissions in your value chain", False, 33, "Emissions Footprint"),
+    ("reduction_targets", "Carbon Reduction Targets", "textarea", None, "Outline your specific reduction targets and milestones...", "Specific targets and timelines for emissions reduction", True, 40, "Reduction Targets"),
+    ("interim_target_year", "Interim Target Year", "number", "2030", None, "Interim milestone year (e.g., 2030)", False, 41, "Reduction Targets"),
+    ("interim_reduction_pct", "Interim Reduction Target (%)", "number", "50", None, "Percentage reduction target for interim year", False, 42, "Reduction Targets"),
+    ("reduction_projects", "Carbon Reduction Projects", "textarea", None, "List and describe your carbon reduction initiatives...", "Specific projects and initiatives to reduce emissions", True, 50, "Reduction Projects"),
+    ("completed_projects", "Completed Projects", "textarea", None, "List projects completed to date...", "Carbon reduction projects already completed", False, 51, "Reduction Projects"),
+    ("planned_projects", "Planned Projects", "textarea", None, "List projects planned for the future...", "Future carbon reduction projects", False, 52, "Reduction Projects"),
+    ("declaration_statement", "Declaration Statement", "textarea", "This Carbon Reduction Plan has been completed in accordance with PPN 06/21 and associated guidance and reporting standard for Carbon Reduction Plans.", None, "Formal declaration statement", True, 60, "Declaration"),
+    ("signatory_name", "Signatory Name", "text", None, "Full name of authorized signatory", "Name of person signing the declaration", True, 61, "Declaration"),
+    ("signatory_position", "Signatory Position", "text", None, "e.g., Managing Director", "Job title of signatory", True, 62, "Declaration"),
+    ("signature_date", "Signature Date", "date", None, None, "Date of signature", True, 63, "Declaration"),
+]
+
+
+_DEFAULT_REPORT_TEMPLATES: tuple[dict[str, Any], ...] = (
+    {
+        "template_key": "annual_carbon_report",
+        "template_name": "Annual Carbon Report",
+        "template_type": "carbon_report",
+        "report_type": "annual_report",
+        "description": "Comprehensive annual carbon footprint report",
+        "variables": _DEFAULT_ANNUAL_REPORT_VARIABLES,
+    },
+    {
+        "template_key": "crp_standard",
+        "template_name": "Carbon Reduction Plan - Standard",
+        "template_type": "carbon_reduction_plan",
+        "report_type": "annual_report",
+        "description": "Standard Carbon Reduction Plan template for UK government contracts",
+        "variables": _DEFAULT_CRP_STANDARD_VARIABLES,
+    },
+)
+
+
+def _seed_default_report_templates(con) -> None:
+    """Ensure built-in report templates, variables, and a default published version exist."""
+    for template in _DEFAULT_REPORT_TEMPLATES:
+        template_row = con.execute(
+            """
+            INSERT INTO report_templates
+              (template_key, template_name, template_type, report_type, description,
+               is_active, is_global, client_db_id, archived, archived_at, archived_by)
+            VALUES
+              (%s, %s, %s, %s, %s, TRUE, TRUE, NULL, FALSE, NULL, NULL)
+            ON CONFLICT (template_key) DO UPDATE SET
+              template_name = EXCLUDED.template_name,
+              template_type = EXCLUDED.template_type,
+              report_type = EXCLUDED.report_type,
+              description = EXCLUDED.description,
+              is_active = TRUE,
+              is_global = TRUE,
+              client_db_id = NULL,
+              archived = FALSE,
+              archived_at = NULL,
+              archived_by = NULL,
+              updated_at = NOW()
+            RETURNING template_id
+            """,
+            [
+                template["template_key"],
+                template["template_name"],
+                template["template_type"],
+                template["report_type"],
+                template["description"],
+            ],
+        ).fetchone()
+
+        if not template_row:
+            template_row = con.execute(
+                "SELECT template_id FROM report_templates WHERE template_key = %s",
+                [template["template_key"]],
+            ).fetchone()
+        if not template_row:
+            continue
+
+        template_id = int(template_row[0])
+        for (
+            variable_key,
+            variable_label,
+            variable_type,
+            default_value,
+            placeholder,
+            help_text,
+            is_required,
+            display_order,
+            section,
+        ) in template["variables"]:
+            con.execute(
+                """
+                INSERT INTO report_template_variables
+                  (template_id, variable_key, variable_label, variable_type,
+                   default_value, placeholder, help_text, is_required, display_order, section)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (template_id, variable_key)
+                DO UPDATE SET
+                  variable_label = EXCLUDED.variable_label,
+                  variable_type = EXCLUDED.variable_type,
+                  default_value = EXCLUDED.default_value,
+                  placeholder = EXCLUDED.placeholder,
+                  help_text = EXCLUDED.help_text,
+                  is_required = EXCLUDED.is_required,
+                  display_order = EXCLUDED.display_order,
+                  section = EXCLUDED.section
+                """,
+                [
+                    template_id,
+                    variable_key,
+                    variable_label,
+                    variable_type,
+                    default_value,
+                    placeholder,
+                    help_text,
+                    bool(is_required),
+                    int(display_order),
+                    section,
+                ],
+            )
+
+    con.execute(
+        """
+        INSERT INTO report_template_versions (template_id, version_number, version_label, status, created_by)
+        SELECT rt.template_id, 1, 'v1', 'published', 'system'
+        FROM report_templates rt
+        WHERE NOT EXISTS (
+          SELECT 1 FROM report_template_versions rv WHERE rv.template_id = rt.template_id
+        )
+        """
+    )
+
+
 def _ensure_report_template_schema(con) -> None:
     """
     Ensure only the schema required by the report generator/template-assignment
@@ -198,6 +354,8 @@ def _ensure_report_template_schema(con) -> None:
         ON report_templates (is_global, client_db_id)
         """
     )
+
+    _seed_default_report_templates(con)
 
     _REPORT_TEMPLATE_SCHEMA_READY = True
 
