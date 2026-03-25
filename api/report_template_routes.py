@@ -695,6 +695,40 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _safe_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return default
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"", "nan", "nat", "none", "null"}:
+        return default
+    if text in {"true", "t", "yes", "y", "1"}:
+        return True
+    if text in {"false", "f", "no", "n", "0"}:
+        return False
+    return bool(text)
+
+
+def _json_safe_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    text = str(value).strip()
+    if text.lower() in {"nan", "nat", "none", "null"}:
+        return None
+    return value
+
+
 DEFAULT_LOCATION_BASED_ELECTRICITY_FACTOR_KG_PER_KWH = 0.177
 DEFAULT_TD_ELECTRICITY_FACTOR_KG_PER_KWH = 0.01853
 UK_COUNTRY_TOKENS = {
@@ -2752,15 +2786,15 @@ def get_template_variables(
                 "variable_id": int(row["variable_id"]),
                 "template_id": int(row["template_id"]),
                 "version_id": int(version_id) if version_id is not None else None,
-                "variable_key": row["variable_key"],
-                "variable_label": row["variable_label"],
-                "variable_type": row["variable_type"],
-                "default_value": row.get("default_value"),
-                "placeholder": row.get("placeholder"),
-                "help_text": row.get("help_text"),
-                "is_required": bool(row.get("is_required")),
+                "variable_key": str(_json_safe_value(row.get("variable_key")) or ""),
+                "variable_label": str(_json_safe_value(row.get("variable_label")) or ""),
+                "variable_type": str(_json_safe_value(row.get("variable_type")) or "text"),
+                "default_value": _json_safe_value(row.get("default_value")),
+                "placeholder": _json_safe_value(row.get("placeholder")),
+                "help_text": _json_safe_value(row.get("help_text")),
+                "is_required": _safe_bool(row.get("is_required")),
                 "display_order": int(row.get("display_order") or 0),
-                "section": row.get("section"),
+                "section": _json_safe_value(row.get("section")),
             }
         )
     return {"items": items}
@@ -3104,17 +3138,17 @@ def get_job_report_variables(
         items.append(
             {
                 "variable_id": variable_id,
-                "variable_key": row["variable_key"],
-                "variable_label": row["variable_label"],
-                "variable_type": row["variable_type"],
-                "default_value": row.get("default_value"),
-                "placeholder": row.get("placeholder"),
-                "help_text": row.get("help_text"),
-                "is_required": bool(row.get("is_required")),
+                "variable_key": str(_json_safe_value(row.get("variable_key")) or ""),
+                "variable_label": str(_json_safe_value(row.get("variable_label")) or ""),
+                "variable_type": str(_json_safe_value(row.get("variable_type")) or "text"),
+                "default_value": _json_safe_value(row.get("default_value")),
+                "placeholder": _json_safe_value(row.get("placeholder")),
+                "help_text": _json_safe_value(row.get("help_text")),
+                "is_required": _safe_bool(row.get("is_required")),
                 "display_order": display_order,
-                "section": row.get("section"),
-                "variable_value": row.get("variable_value"),
-                "value_updated_at": str(row["value_updated_at"]) if row.get("value_updated_at") else None,
+                "section": _json_safe_value(row.get("section")),
+                "variable_value": _json_safe_value(row.get("variable_value")),
+                "value_updated_at": _json_safe_value(row.get("value_updated_at")),
             }
         )
 
