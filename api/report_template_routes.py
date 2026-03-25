@@ -75,6 +75,8 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS template_key VARCHAR")
+    con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS template_name VARCHAR")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS template_type VARCHAR DEFAULT 'carbon_report'")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS description TEXT")
     con.execute("ALTER TABLE report_templates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
@@ -102,6 +104,8 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS template_id INTEGER")
+    con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS version_number INTEGER")
     con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR")
     con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'published'")
     con.execute("ALTER TABLE report_template_versions ADD COLUMN IF NOT EXISTS template_content TEXT")
@@ -133,6 +137,9 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS template_id INTEGER")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS variable_key VARCHAR")
+    con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS variable_label VARCHAR")
     con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS variable_type VARCHAR DEFAULT 'text'")
     con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS default_value TEXT")
     con.execute("ALTER TABLE report_template_variables ADD COLUMN IF NOT EXISTS placeholder TEXT")
@@ -180,6 +187,7 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS template_id INTEGER")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS version_id INTEGER")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP DEFAULT NOW()")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_by VARCHAR")
@@ -3007,79 +3015,84 @@ def get_job_report_variables(
     _user: dict = Depends(_current_user),
 ):
     """Get report variable values for a specific job/template (optionally version-bound)."""
-    with get_conn() as con:
-        _ensure_report_template_schema(con)
-        _get_job_client_id(con, int(job_id))
+    try:
+        with get_conn() as con:
+            _ensure_report_template_schema(con)
+            _get_job_client_id(con, int(job_id))
 
-        version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
-        _validate_template_version(con, int(template_id), version_id)
+            version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
+            _validate_template_version(con, int(template_id), version_id)
 
-        variable_cols = _get_table_columns(con, "report_template_variables")
-        value_cols = _get_table_columns(con, "job_report_variable_values")
-        variable_id_expr = "rtv.variable_id" if "variable_id" in variable_cols else "0"
-        variable_label_expr = "rtv.variable_label" if "variable_label" in variable_cols else "rtv.variable_key"
-        variable_type_expr = "rtv.variable_type" if "variable_type" in variable_cols else "'text'"
-        default_value_expr = "rtv.default_value" if "default_value" in variable_cols else "NULL"
-        placeholder_expr = "rtv.placeholder" if "placeholder" in variable_cols else "NULL"
-        help_text_expr = "rtv.help_text" if "help_text" in variable_cols else "NULL"
-        is_required_expr = "COALESCE(rtv.is_required, FALSE)" if "is_required" in variable_cols else "FALSE"
-        display_order_expr = "rtv.display_order" if "display_order" in variable_cols else "0"
-        section_expr = "rtv.section" if "section" in variable_cols else "NULL"
-        value_updated_expr = "jrv.updated_at" if "updated_at" in value_cols else "NULL"
+            variable_cols = _get_table_columns(con, "report_template_variables")
+            value_cols = _get_table_columns(con, "job_report_variable_values")
+            variable_id_expr = "rtv.variable_id" if "variable_id" in variable_cols else "0"
+            variable_label_expr = "rtv.variable_label" if "variable_label" in variable_cols else "rtv.variable_key"
+            variable_type_expr = "rtv.variable_type" if "variable_type" in variable_cols else "'text'"
+            default_value_expr = "rtv.default_value" if "default_value" in variable_cols else "NULL"
+            placeholder_expr = "rtv.placeholder" if "placeholder" in variable_cols else "NULL"
+            help_text_expr = "rtv.help_text" if "help_text" in variable_cols else "NULL"
+            is_required_expr = "COALESCE(rtv.is_required, FALSE)" if "is_required" in variable_cols else "FALSE"
+            display_order_expr = "rtv.display_order" if "display_order" in variable_cols else "0"
+            section_expr = "rtv.section" if "section" in variable_cols else "NULL"
+            value_updated_expr = "jrv.updated_at" if "updated_at" in value_cols else "NULL"
 
-        lateral_where = [
-            "jrv.job_id = %s",
-            "jrv.template_id = rtv.template_id",
-            "jrv.variable_key = rtv.variable_key",
-        ]
-        lateral_params: list[object] = [int(job_id)]
-        if "version_id" in value_cols:
-            lateral_where.append("(%s::INT IS NULL OR jrv.version_id = %s::INT)")
-            lateral_params.extend([version_id, version_id])
-            version_priority_order = """
-                  CASE
-                    WHEN %s::INT IS NOT NULL AND jrv.version_id = %s::INT THEN 0
-                    ELSE 1
-                  END,
-            """
-            lateral_params.extend([version_id, version_id])
-        else:
-            version_priority_order = ""
+            lateral_where = [
+                "jrv.job_id = %s",
+                "jrv.template_id = rtv.template_id",
+                "jrv.variable_key = rtv.variable_key",
+            ]
+            lateral_params: list[object] = [int(job_id)]
+            if "version_id" in value_cols:
+                lateral_where.append("(%s::INT IS NULL OR jrv.version_id = %s::INT)")
+                lateral_params.extend([version_id, version_id])
+                version_priority_order = """
+                      CASE
+                        WHEN %s::INT IS NOT NULL AND jrv.version_id = %s::INT THEN 0
+                        ELSE 1
+                      END,
+                """
+                lateral_params.extend([version_id, version_id])
+            else:
+                version_priority_order = ""
 
-        updated_order_expr = "jrv.updated_at" if "updated_at" in value_cols else "jrv.variable_key"
+            updated_order_expr = "jrv.updated_at" if "updated_at" in value_cols else "jrv.variable_key"
 
-        df = con.execute(
-            f"""
-            SELECT
-                {variable_id_expr} AS variable_id,
-                rtv.variable_key,
-                {variable_label_expr} AS variable_label,
-                {variable_type_expr} AS variable_type,
-                {default_value_expr} AS default_value,
-                {placeholder_expr} AS placeholder,
-                {help_text_expr} AS help_text,
-                {is_required_expr} AS is_required,
-                {display_order_expr} AS display_order,
-                {section_expr} AS section,
-                jrv.variable_value,
-                {value_updated_expr} AS value_updated_at
-            FROM report_template_variables rtv
-            LEFT JOIN LATERAL (
+            df = con.execute(
+                f"""
                 SELECT
+                    {variable_id_expr} AS variable_id,
+                    rtv.variable_key,
+                    {variable_label_expr} AS variable_label,
+                    {variable_type_expr} AS variable_type,
+                    {default_value_expr} AS default_value,
+                    {placeholder_expr} AS placeholder,
+                    {help_text_expr} AS help_text,
+                    {is_required_expr} AS is_required,
+                    {display_order_expr} AS display_order,
+                    {section_expr} AS section,
                     jrv.variable_value,
-                    {"jrv.updated_at" if "updated_at" in value_cols else "NULL"} AS updated_at
-                FROM job_report_variable_values jrv
-                WHERE {" AND ".join(lateral_where)}
-                ORDER BY
-                  {version_priority_order}
-                  {updated_order_expr} DESC
-                LIMIT 1
-            ) jrv ON TRUE
-            WHERE rtv.template_id = %s
-            ORDER BY {"rtv.display_order, rtv.variable_key" if "display_order" in variable_cols else "rtv.variable_key"}
-            """,
-            lateral_params + [int(template_id)],
-        ).df()
+                    {value_updated_expr} AS value_updated_at
+                FROM report_template_variables rtv
+                LEFT JOIN LATERAL (
+                    SELECT
+                        jrv.variable_value,
+                        {"jrv.updated_at" if "updated_at" in value_cols else "NULL"} AS updated_at
+                    FROM job_report_variable_values jrv
+                    WHERE {" AND ".join(lateral_where)}
+                    ORDER BY
+                      {version_priority_order}
+                      {updated_order_expr} DESC
+                    LIMIT 1
+                ) jrv ON TRUE
+                WHERE rtv.template_id = %s
+                ORDER BY {"rtv.display_order, rtv.variable_key" if "display_order" in variable_cols else "rtv.variable_key"}
+                """,
+                lateral_params + [int(template_id)],
+            ).df()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load variables: {e}")
 
     if df is None or df.empty:
         return {"items": [], "version_id": version_id}

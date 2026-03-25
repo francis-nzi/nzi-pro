@@ -380,7 +380,12 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
           res = await fetch(`${baseUrl}/jobs/${jobId}/report-variables/${selectedTemplateId}`);
         }
         if (!res.ok) {
-          throw new Error(`Failed to load variables: ${res.status}`);
+          let detail = "";
+          try {
+            const body = await res.json();
+            detail = body?.detail ? String(body.detail) : "";
+          } catch {}
+          throw new Error(detail ? `Failed to load variables: ${detail}` : `Failed to load variables: ${res.status}`);
         }
         const data = await res.json();
         const vars = data.items || [];
