@@ -123,23 +123,6 @@ export default function EmployeeCommutingData({
     ].join("_") + ".xlsx";
   }
 
-  function filenameFromDisposition(disposition: string | null, fallback: string) {
-    if (!disposition) return fallback;
-    const filenameStar = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-    if (filenameStar?.[1]) {
-      try {
-        return decodeURIComponent(filenameStar[1].trim().replace(/^"(.*)"$/, "$1"));
-      } catch {
-        // fall through
-      }
-    }
-    const filenameMatch = disposition.match(/filename\s*=\s*("?)([^";]+)\1/i);
-    if (filenameMatch?.[2]) {
-      return filenameMatch[2].trim();
-    }
-    return fallback;
-  }
-
   useEffect(() => {
     void loadSummary();
     void loadSites();
@@ -188,15 +171,15 @@ export default function EmployeeCommutingData({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = filenameFromDisposition(
-        res.headers.get("content-disposition"),
-        fallbackTemplateFilename()
-      );
+      // Use the app's own naming convention directly so downloads remain stable
+      // even if a stale/proxied Content-Disposition header is returned.
+      const filename = fallbackTemplateFilename();
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      setStatus(`Template downloaded for ${selectedSiteLabel.replaceAll("_", " ")}.`);
+      setStatus(`Template downloaded for ${selectedSiteLabel.replaceAll("_", " ")} as ${filename}.`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Template download failed");
     } finally {
