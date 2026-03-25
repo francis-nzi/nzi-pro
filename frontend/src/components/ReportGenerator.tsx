@@ -380,12 +380,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
           res = await fetch(`${baseUrl}/jobs/${jobId}/report-variables/${selectedTemplateId}`);
         }
         if (!res.ok) {
-          let detail = "";
-          try {
-            const body = await res.json();
-            detail = body?.detail ? String(body.detail) : "";
-          } catch {}
-          throw new Error(detail ? `Failed to load variables: ${detail}` : `Failed to load variables: ${res.status}`);
+          const details = await readErrorDetails(res, `Failed to load variables (${res.status})`);
+          throw new Error(details.message);
         }
         const data = await res.json();
         const vars = data.items || [];
@@ -407,7 +403,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     }
 
     loadVariables();
-  }, [selectedTemplateId, selectedVersionId, versions, jobId, baseUrl, normalizeBooleanValue]);
+  }, [selectedTemplateId, selectedVersionId, versions, jobId, baseUrl, normalizeBooleanValue, readErrorDetails]);
 
   useEffect(() => {
     setError("");
