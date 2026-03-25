@@ -63,12 +63,7 @@ from openpyxl import load_workbook
 from core.database import db_backend, get_conn
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.job_folder_excel import build_excel_template_bytes
-from services.sites import (
-    ensure_client_sites_runtime_columns,
-    ensure_registered_office_site,
-    fetch_client_sites_payload,
-    list_sites,
-)
+from services import sites as sites_service
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
@@ -135,6 +130,54 @@ def _client_site_audit_snapshot(con, client_db_id: int, site_id: int) -> dict | 
         "SELECT * FROM client_sites WHERE client_db_id = ? AND site_id = ?",
         [int(client_db_id), int(site_id)],
     )
+
+
+def _ensure_client_sites_runtime_columns(con) -> None:
+    fn = getattr(sites_service, "ensure_client_sites_runtime_columns", None)
+    if callable(fn):
+        fn(con)
+
+
+def _ensure_registered_office_site(client_db_id: int, con=None) -> int | None:
+    fn = getattr(sites_service, "ensure_registered_office_site", None)
+    if callable(fn):
+        return fn(client_db_id, con=con)
+    return None
+
+
+def _list_sites(client_db_id: int):
+    fn = getattr(sites_service, "list_sites", None)
+    if callable(fn):
+        return fn(client_db_id)
+    return pd.DataFrame(columns=["site_id", "site_name", "location", "is_registered_office"])
+
+
+def _fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]:
+    fn = getattr(sites_service, "fetch_client_sites_payload", None)
+    if callable(fn):
+        return fn(client_db_id, con=con)
+
+    # Backward-compatible fallback if an older services.sites module is deployed.
+    df = _list_sites(client_db_id)
+    active_sites: list[dict[str, object]] = []
+    if df is not None and (not df.empty):
+        for _, r in df.iterrows():
+            active_sites.append(
+                {
+                    "site_id": int(r.get("site_id")) if r.get("site_id") is not None else None,
+                    "site_name": r.get("site_name"),
+                    "location": r.get("location"),
+                    "is_registered_office": bool(r.get("is_registered_office"))
+                    if r.get("is_registered_office") is not None
+                    else False,
+                    "vacated_date": None,
+                }
+            )
+    return {
+        "client_db_id": int(client_db_id),
+        "active_sites": active_sites,
+        "vacated_sites": [],
+    }
 
 
 def _client_contact_audit_snapshot(con, client_db_id: int, contact_id: int) -> dict | None:
@@ -1781,7 +1824,7 @@ def job_sites(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     client_db_id = int(row[0])
-    df = list_sites(client_db_id)
+    df = _list_sites(client_db_id)
 
     sites: list[dict[str, object]] = []
     if df is not None and (not df.empty):
@@ -3278,7 +3321,7 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
-            return fetch_client_sites_payload(int(client_db_id), con=con)
+            return _fetch_client_sites_payload(int(client_db_id), con=con)
     except HTTPException:
         raise
     except Exception as e:
@@ -3297,7 +3340,7 @@ def create_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
-            ensure_client_sites_runtime_columns(con)
+            _ensure_client_sites_runtime_columns(con)
             # If this site is marked as registered office, unset other registered offices
             if body.get("is_registered_office", False):
                 con.execute(
@@ -3351,7 +3394,7 @@ def update_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
-            ensure_client_sites_runtime_columns(con)
+            _ensure_client_sites_runtime_columns(con)
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
@@ -3423,7 +3466,7 @@ def vacate_client_site(
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
-            ensure_client_sites_runtime_columns(con)
+            _ensure_client_sites_runtime_columns(con)
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id))
             # Check site exists
             exists = con.execute(
