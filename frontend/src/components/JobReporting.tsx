@@ -16,11 +16,11 @@ export default function JobReporting({ jobId, baseUrl = process.env.NEXT_PUBLIC_
 
       <Card>
         <CardHeader>
-          <CardTitle>Report Generator</CardTitle>
+          <CardTitle>Legacy Report Generator</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-sm text-muted-foreground mb-4">
-            Assign template version, complete required variables, and generate report from one canonical flow.
+            This is the current template-based flow. The new profile-first workspace lives in the Report (New) tab.
           </div>
           <ReportGenerator jobId={jobId} baseUrl={baseUrl} />
         </CardContent>

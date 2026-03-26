@@ -28,6 +28,7 @@ import SpendDataCollection from "@/components/SpendDataCollection";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import JobActions from "@/components/JobActions";
+import JobReportNew from "@/components/JobReportNew";
 import JobReporting from "@/components/JobReporting";
 import JobLca from "@/components/JobLca";
 import JobTimeEntries from "@/components/JobTimeEntries";
@@ -1879,8 +1880,11 @@ export default function JobDetailPage() {
                 <TabsTrigger value="actions" className={navTriggerClassName}>
                   Actions
                 </TabsTrigger>
+                <TabsTrigger value="report-new" className={navTriggerClassName}>
+                  Report (New)
+                </TabsTrigger>
                 <TabsTrigger value="reporting" className={navTriggerClassName}>
-                  Reporting
+                  Reporting (Legacy)
                 </TabsTrigger>
               </div>
               <div className="space-y-1 pt-3">
@@ -2751,6 +2755,15 @@ export default function JobDetailPage() {
 
           <TabsContent value="actions" className="mt-0">
             <JobActions jobId={jobId} baseUrl={baseUrl} />
+          </TabsContent>
+
+          <TabsContent value="report-new" className="mt-0">
+            <JobReportNew
+              jobId={jobId}
+              baseUrl={baseUrl}
+              onOpenActions={() => setActiveTab("actions")}
+              onOpenLegacyReporting={() => setActiveTab("reporting")}
+            />
           </TabsContent>
 
           <TabsContent value="reporting" className="mt-0">
