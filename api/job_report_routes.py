@@ -713,27 +713,33 @@ def get_scope_totals(job_id: int):
 def get_emissions_by_category(job_id: int):
     """Get emissions breakdown by category."""
     with get_conn() as con:
-        df = con.execute("""
-            SELECT scope, category, report_label, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
-                   month_1, month_2, month_3, month_4, month_5, month_6,
-                   month_7, month_8, month_9, month_10, month_11, month_12
-            FROM job_scope_rows
-            WHERE job_id=%s AND enabled=TRUE
-            ORDER BY scope, category, report_label
-        """, [int(job_id)]).df()
-        resolver = JobMonthlyEmissionsResolver(con, int(job_id))
-        
+        try:
+            df = con.execute("""
+                SELECT scope, category, report_label, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
+                       month_1, month_2, month_3, month_4, month_5, month_6,
+                       month_7, month_8, month_9, month_10, month_11, month_12
+                FROM job_scope_rows
+                WHERE job_id=%s AND enabled=TRUE
+                ORDER BY scope, category, report_label
+            """, [int(job_id)]).df()
+            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+        except Exception:
+            return []
+
         if df is None or df.empty:
             return []
-        
+
         df = df.fillna({'category': 'Uncategorized'})
-        
+
         categories = []
         for _, row in df.iterrows():
-            metrics = resolver.row_metrics(row)
-            qty_val = float(metrics.get("display_qty") or 0.0)
-            emissions = float(metrics.get("calc_tco2e") or 0.0)
-            
+            try:
+                metrics = resolver.row_metrics(row)
+                qty_val = float(metrics.get("display_qty") or 0.0)
+                emissions = float(metrics.get("calc_tco2e") or 0.0)
+            except Exception:
+                continue
+
             categories.append({
                 'scope': row.get('scope', ''),
                 'category': row.get('category', 'Uncategorized'),
@@ -742,7 +748,7 @@ def get_emissions_by_category(job_id: int):
                 'uom': metrics.get('display_uom') or '',
                 'emissions': emissions
             })
-        
+
         return categories
 
 
@@ -1703,9 +1709,13 @@ def get_emissions_by_activity(job_id: int, _user: dict[str, str] = Depends(_curr
     Get detailed emissions breakdown by activity with category groupings.
     Returns data for donut chart, bar chart, and detailed table.
     """
-    categories = get_emissions_by_category(job_id)
-    activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
-    
+    try:
+        categories = get_emissions_by_category(job_id)
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+    except Exception:
+        categories = []
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+
     return {
         'activity_groups': activity_groups,
         'activity_totals': activity_totals,
