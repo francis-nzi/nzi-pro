@@ -60,6 +60,7 @@ type JobActionsResponse = {
 type JobActionsProps = {
   jobId: number;
   baseUrl?: string;
+  onOpenReportNew?: () => void;
 };
 
 function blankCustomAction(termOptions: TermOption[], sortOrder: number): JobActionItem {
@@ -84,7 +85,11 @@ function termBadgeVariant(term: string): string {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
-export default function JobActions({ jobId, baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "" }: JobActionsProps) {
+export default function JobActions({
+  jobId,
+  baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
+  onOpenReportNew,
+}: JobActionsProps) {
   const [items, setItems] = useState<JobActionItem[]>([]);
   const [suggestedOptions, setSuggestedOptions] = useState<SuggestedActionOption[]>([]);
   const [termOptions, setTermOptions] = useState<TermOption[]>([
@@ -307,6 +312,13 @@ export default function JobActions({ jobId, baseUrl = process.env.NEXT_PUBLIC_AP
 
           {status ? <div className="text-sm text-muted-foreground">{status}</div> : null}
           {error ? <div className="text-sm text-red-600">{error}</div> : null}
+          {onOpenReportNew ? (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={onOpenReportNew}>
+                Continue to Draft Content
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

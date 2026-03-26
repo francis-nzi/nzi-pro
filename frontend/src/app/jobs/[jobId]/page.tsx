@@ -2754,7 +2754,11 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="actions" className="mt-0">
-            <JobActions jobId={jobId} baseUrl={baseUrl} />
+            <JobActions
+              jobId={jobId}
+              baseUrl={baseUrl}
+              onOpenReportNew={() => setActiveTab("report-new")}
+            />
           </TabsContent>
 
           <TabsContent value="report-new" className="mt-0">
