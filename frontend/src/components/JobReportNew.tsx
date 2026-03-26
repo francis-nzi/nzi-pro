@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, CheckCircle2, FileText, LayoutGrid, LineChart, Sparkles, Target } from "lucide-react";
 
 type ReportTemplate = {
@@ -46,6 +47,8 @@ type ReportProfile = {
   statusLabel: string;
   statusTone: "ready" | "coming-soon" | "preview";
 };
+
+type DraftNotes = Record<string, string>;
 
 type JobReportNewProps = {
   jobId: number;
@@ -107,6 +110,36 @@ function toneClass(tone: ReportProfile["statusTone"]): string {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
+function buildInitialDraftNotes(profile: ReportProfile): DraftNotes {
+  const promptMap: Record<string, string> = {
+    "Executive Summary":
+      "Open with the key story, the reduction direction, and 2-3 dashboard-style headline points.",
+    "Emissions Footprint":
+      "Summarise the main emissions sources, any notable changes, and the biggest drivers to watch.",
+    "Key Emissions":
+      "Capture the highest-emitting activities and the quick interpretation the reader should take away.",
+    "Energy & Emissions":
+      "Lead with energy-led findings, any country-specific nuances, and the major operational drivers.",
+    "SECR Narrative":
+      "Draft the compliance language, energy context, and the key disclosures needed for SECR readers.",
+    "Methodology":
+      "Explain the calculation approach, boundary choices, and any assumptions that matter for trust.",
+    "Results":
+      "Translate the numbers into a plain-English result story with a focus on change and momentum.",
+    "Actions":
+      "Describe the selected actions, time horizon, and what the client can realistically do next.",
+    "Declaration":
+      "Capture the sign-off language and any final confirmation wording required for the issue version.",
+    "Sign-off":
+      "Add the final approver details and the statement that closes the draft cleanly.",
+  };
+
+  return profile.sections.reduce((acc, section) => {
+    acc[section] = promptMap[section] || `Draft the ${section.toLowerCase()} narrative here.`;
+    return acc;
+  }, {} as DraftNotes);
+}
+
 export default function JobReportNew({
   jobId,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
@@ -117,6 +150,7 @@ export default function JobReportNew({
   const [assignment, setAssignment] = useState<TemplateAssignment | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>("crp_standard");
   const [actionsSummary, setActionsSummary] = useState<JobActionsSummary | null>(null);
+  const [draftNotes, setDraftNotes] = useState<DraftNotes>(() => buildInitialDraftNotes(PROFILE_LIBRARY[0]));
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [status, setStatus] = useState("");
@@ -178,6 +212,39 @@ export default function JobReportNew({
     [selectedProfile.templateKey, templates]
   );
 
+  const draftStorageKey = useMemo(
+    () => `report-draft:${jobId}:${selectedProfile.templateKey}`,
+    [jobId, selectedProfile.templateKey]
+  );
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as DraftNotes;
+        setDraftNotes(() => {
+          const next = buildInitialDraftNotes(selectedProfile);
+          selectedProfile.sections.forEach((section) => {
+            next[section] = typeof parsed?.[section] === "string" ? parsed[section] : next[section];
+          });
+          return next;
+        });
+        return;
+      }
+    } catch {
+      // Fall back to the default prompts below.
+    }
+    setDraftNotes(buildInitialDraftNotes(selectedProfile));
+  }, [draftStorageKey, selectedProfile]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(draftStorageKey, JSON.stringify(draftNotes));
+    } catch {
+      // Ignore storage failures in private/incognito contexts.
+    }
+  }, [draftNotes, draftStorageKey]);
+
   const selectedActions = Array.isArray(actionsSummary?.items) ? actionsSummary.items.length : 0;
   const shortActions = actionsSummary?.term_counts?.short || 0;
   const mediumActions = actionsSummary?.term_counts?.medium || 0;
@@ -186,6 +253,8 @@ export default function JobReportNew({
     assignment?.template_name || availableTemplate?.template_name || selectedProfile.title;
 
   const draftReady = Boolean(assignment?.template_id) && selectedActions > 0;
+  const draftedSectionCount = selectedProfile.sections.filter((section) => String(draftNotes[section] || "").trim().length > 0).length;
+  const draftStarted = draftedSectionCount > 0;
 
   async function assignProfile(profile: ReportProfile) {
     const template = templates.find((item) => item.template_key === profile.templateKey);
@@ -232,6 +301,15 @@ export default function JobReportNew({
     } finally {
       setSavingTemplateId(null);
     }
+  }
+
+  function updateDraftNote(section: string, value: string) {
+    setDraftNotes((prev) => ({ ...prev, [section]: value }));
+  }
+
+  function clearDraftNotes() {
+    setDraftNotes(buildInitialDraftNotes(selectedProfile));
+    setStatus("Draft canvas reset to the starter prompts.");
   }
 
   return (
@@ -284,7 +362,7 @@ export default function JobReportNew({
 
       <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <Card>
           <CardHeader>
             <CardTitle>Choose report profile</CardTitle>
@@ -370,6 +448,62 @@ export default function JobReportNew({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader className="space-y-2">
+            <CardTitle>Stage 3 Draft Content</CardTitle>
+            <CardDescription>
+              Write the first pass of the report section by section. The notes below stay local to this browser for now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-white">
+                  {selectedProfile.subtitle}
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {draftedSectionCount}/{selectedProfile.sections.length} sections started
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {selectedActions} actions ready
+                </Badge>
+              </div>
+              <p className="mt-3 text-sm text-slate-600">
+                Use the canvas to capture the draft storyline, then move to preview/export when the section notes feel coherent.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {selectedProfile.sections.map((section) => (
+                <div key={section} className="space-y-2 rounded-2xl border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium">{section}</div>
+                    <Badge variant="outline" className="bg-slate-50">
+                      {String(draftNotes[section] || "").trim() ? "Drafted" : "Starter prompt"}
+                    </Badge>
+                  </div>
+                  <Textarea
+                    value={draftNotes[section] || ""}
+                    onChange={(event) => updateDraftNote(section, event.target.value)}
+                    rows={4}
+                    placeholder={`Draft the ${section.toLowerCase()} content for this report...`}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={clearDraftNotes}>
+                Reset draft canvas
+              </Button>
+              <Button onClick={onOpenLegacyReporting} className="gap-2">
+                <FileText className="h-4 w-4" />
+                Open preview and export
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -380,7 +514,7 @@ export default function JobReportNew({
               {[
                 { label: "1. Select profile", done: Boolean(assignment?.template_id), note: "Choose the report family before drafting." },
                 { label: "2. Add actions", done: selectedActions > 0, note: "Use suggested or custom actions from the job." },
-                { label: "3. Draft content", done: true, note: "Work section by section without hard required blockers." },
+                { label: "3. Draft content", done: draftStarted, note: "Work section by section without hard required blockers." },
                 { label: "4. Preview and export", done: draftReady, note: "Use the current renderer while the v2 path is built out." },
               ].map((step) => (
                 <div key={step.label} className="flex gap-3 rounded-lg border p-3">
