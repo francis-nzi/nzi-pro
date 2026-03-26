@@ -257,6 +257,9 @@ export default function JobReportNew({
   const draftReady = Boolean(assignment?.template_id) && selectedActions > 0;
   const draftedSectionCount = selectedProfile.sections.filter((section) => String(draftNotes[section] || "").trim().length > 0).length;
   const draftStarted = draftedSectionCount > 0;
+  const previewStatus = draftReady
+    ? "Ready for preview"
+    : "Preview is available, but the checklist is still incomplete";
   const previewChecklist = useMemo(
     () => [
       {
@@ -570,14 +573,14 @@ export default function JobReportNew({
               <div className="rounded-xl border bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="bg-white">
-                    {selectedProfile.subtitle}
+                    Stage 4 checkpoint
                   </Badge>
                   <Badge variant="outline" className="bg-white">
-                    {draftReady ? "Ready to preview" : "Still drafting"}
+                    {draftReady ? "Ready to review" : "Needs attention"}
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm text-slate-600">
-                  This is the point where the report gets reviewed in the live renderer, with charts, formatting, and export output.
+                  Review the current draft, confirm the checkpoint, and then open the live preview/export flow.
                 </p>
               </div>
 
@@ -635,9 +638,8 @@ export default function JobReportNew({
           </Card>
         </div>
       </div>
-
       <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
-        <DialogContent className="max-w-2xl border-slate-200 bg-white">
+        <DialogContent className="max-w-3xl border-slate-200 bg-white">
           <DialogHeader>
             <DialogTitle>Preview checklist</DialogTitle>
             <DialogDescription>
@@ -649,7 +651,7 @@ export default function JobReportNew({
             <div className="rounded-xl border bg-slate-50 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="bg-white">
-                  {selectedProfile.title} {selectedProfile.subtitle}
+                  {selectedProfile.title} - {selectedProfile.subtitle}
                 </Badge>
                 <Badge variant="outline" className="bg-white">
                   {selectedActions} actions selected
@@ -657,31 +659,53 @@ export default function JobReportNew({
                 <Badge variant="outline" className="bg-white">
                   {draftedSectionCount}/{selectedProfile.sections.length} sections drafted
                 </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {previewStatus}
+                </Badge>
               </div>
               <p className="mt-3 text-sm text-slate-600">
-                The preview/export flow will use the selected profile, current actions, and the draft notes already captured in Stage 3.
+                The renderer will use the selected profile, the saved actions, and the draft notes already captured in Stage 3.
               </p>
             </div>
 
-            <div className="space-y-3">
-              {previewChecklist.map((item) => (
-                <div key={item.label} className="flex gap-3 rounded-lg border p-3">
-                  <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
+            {!draftReady ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                The preview can still open, but the actions section is incomplete until at least one suggested or custom action is saved.
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-3">
+                {previewChecklist.map((item) => (
+                  <div key={item.label} className="flex gap-3 rounded-lg border p-3">
+                    <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? 'text-emerald-600' : 'text-slate-300'}`} />
+                    <div>
+                      <div className="font-medium text-slate-900">{item.label}</div>
+                      <div className="text-sm text-muted-foreground">{item.note}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border border-dashed bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
                   <div>
-                    <div className="font-medium text-slate-900">{item.label}</div>
-                    <div className="text-sm text-muted-foreground">{item.note}</div>
+                    <div className="font-medium text-slate-900">Preview focus</div>
+                    <div className="text-sm text-muted-foreground">
+                      Keep the executive summary, charts, and action visuals front and center so the report reads like a dashboard first.
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-dashed bg-white p-4">
-              <div className="flex items-start gap-3">
-                <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
-                <div>
-                  <div className="font-medium text-slate-900">Executive Summary first</div>
-                  <div className="text-sm text-muted-foreground">
-                    We’ll keep the dashboard-style summary, charts, and action visuals front and center in the output.
+                <div className="mt-4 grid gap-3 text-sm text-slate-700">
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    Executive summary with headline metrics and chart-led interpretation.
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    Graphics that support quick reading: pies, donuts, bars, and reduction trend visuals.
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-3 py-2">
+                    Actions carried through as the narrative bridge into the draft output.
                   </div>
                 </div>
               </div>
@@ -695,10 +719,14 @@ export default function JobReportNew({
             <Button variant="outline" onClick={() => onOpenActions?.()}>
               Review actions
             </Button>
-            <Button onClick={() => {
-              closePreviewModal();
-              onOpenLegacyReporting?.();
-            }} disabled={!onOpenLegacyReporting} className="gap-2">
+            <Button
+              onClick={() => {
+                closePreviewModal();
+                onOpenLegacyReporting?.();
+              }}
+              disabled={!onOpenLegacyReporting}
+              className="gap-2"
+            >
               <FileText className="h-4 w-4" />
               Open preview & export
             </Button>
@@ -708,3 +736,5 @@ export default function JobReportNew({
     </div>
   );
 }
+
+
