@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Textarea } from "@/components/ui/textarea";
@@ -155,6 +156,7 @@ export default function JobReportNew({
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -255,6 +257,31 @@ export default function JobReportNew({
   const draftReady = Boolean(assignment?.template_id) && selectedActions > 0;
   const draftedSectionCount = selectedProfile.sections.filter((section) => String(draftNotes[section] || "").trim().length > 0).length;
   const draftStarted = draftedSectionCount > 0;
+  const previewChecklist = useMemo(
+    () => [
+      {
+        label: "Profile assigned",
+        done: Boolean(assignment?.template_id),
+        note: "A report family is selected for this job.",
+      },
+      {
+        label: "Actions saved",
+        done: selectedActions > 0,
+        note: "The action plan will flow into the report section.",
+      },
+      {
+        label: "Draft content started",
+        done: draftStarted,
+        note: "At least one section has working draft text.",
+      },
+      {
+        label: "Ready to preview",
+        done: draftReady,
+        note: "You can now open the preview/export flow.",
+      },
+    ],
+    [assignment?.template_id, draftReady, draftStarted, selectedActions]
+  );
 
   async function assignProfile(profile: ReportProfile) {
     const template = templates.find((item) => item.template_key === profile.templateKey);
@@ -312,6 +339,14 @@ export default function JobReportNew({
     setStatus("Draft canvas reset to the starter prompts.");
   }
 
+  function openPreviewModal() {
+    setPreviewModalOpen(true);
+  }
+
+  function closePreviewModal() {
+    setPreviewModalOpen(false);
+  }
+
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
@@ -334,9 +369,9 @@ export default function JobReportNew({
                 <Target className="h-4 w-4" />
                 Open Actions
               </Button>
-              <Button variant="outline" onClick={onOpenLegacyReporting} className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Button variant="outline" onClick={openPreviewModal} className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
                 <FileText className="h-4 w-4" />
-                Open Legacy Reporting
+                Open Preview Checklist
               </Button>
             </div>
           </div>
@@ -588,11 +623,11 @@ export default function JobReportNew({
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <Button onClick={onOpenLegacyReporting} className="gap-2">
+                <Button onClick={openPreviewModal} className="gap-2">
                   <FileText className="h-4 w-4" />
                   Preview & Export
                 </Button>
-                <Button variant="outline" onClick={onOpenActions}>
+                <Button variant="outline" onClick={() => onOpenActions?.()}>
                   Review Actions
                 </Button>
               </div>
@@ -600,6 +635,76 @@ export default function JobReportNew({
           </Card>
         </div>
       </div>
+
+      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+        <DialogContent className="max-w-2xl border-slate-200 bg-white">
+          <DialogHeader>
+            <DialogTitle>Preview checklist</DialogTitle>
+            <DialogDescription>
+              Review the current draft state before jumping into the renderer. This keeps Stage 4 explicit without blocking drafting.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-white">
+                  {selectedProfile.title} {selectedProfile.subtitle}
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {selectedActions} actions selected
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {draftedSectionCount}/{selectedProfile.sections.length} sections drafted
+                </Badge>
+              </div>
+              <p className="mt-3 text-sm text-slate-600">
+                The preview/export flow will use the selected profile, current actions, and the draft notes already captured in Stage 3.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {previewChecklist.map((item) => (
+                <div key={item.label} className="flex gap-3 rounded-lg border p-3">
+                  <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
+                  <div>
+                    <div className="font-medium text-slate-900">{item.label}</div>
+                    <div className="text-sm text-muted-foreground">{item.note}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-dashed bg-white p-4">
+              <div className="flex items-start gap-3">
+                <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-900">Executive Summary first</div>
+                  <div className="text-sm text-muted-foreground">
+                    We’ll keep the dashboard-style summary, charts, and action visuals front and center in the output.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closePreviewModal}>
+              Back to draft
+            </Button>
+            <Button variant="outline" onClick={() => onOpenActions?.()}>
+              Review actions
+            </Button>
+            <Button onClick={() => {
+              closePreviewModal();
+              onOpenLegacyReporting?.();
+            }} disabled={!onOpenLegacyReporting} className="gap-2">
+              <FileText className="h-4 w-4" />
+              Open preview & export
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
