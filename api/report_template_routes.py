@@ -22,6 +22,7 @@ from services.dataset_selector import (
     get_scope_primary_datasets,
     resolve_dataset_resolution,
 )
+from services.report_actions import get_job_report_actions_payload
 
 router = APIRouter()
 
@@ -71,10 +72,10 @@ _DEFAULT_CRP_STANDARD_VARIABLES: list[tuple[str, str, str, str | None, str | Non
     ("scope1_description", "Scope 1 Emissions Description", "textarea", None, "Describe your Scope 1 emissions sources...", "Direct emissions from owned or controlled sources", False, 31, "Emissions Footprint"),
     ("scope2_description", "Scope 2 Emissions Description", "textarea", None, "Describe your Scope 2 emissions sources...", "Indirect emissions from purchased electricity, heat, and cooling", False, 32, "Emissions Footprint"),
     ("scope3_description", "Scope 3 Emissions Description", "textarea", None, "Describe your Scope 3 emissions sources...", "All other indirect emissions in your value chain", False, 33, "Emissions Footprint"),
-    ("reduction_targets", "Carbon Reduction Targets", "textarea", None, "Outline your specific reduction targets and milestones...", "Specific targets and timelines for emissions reduction", True, 40, "Reduction Targets"),
+    ("reduction_targets", "Carbon Reduction Targets", "textarea", None, "Outline your specific reduction targets and milestones...", "Specific targets and timelines for emissions reduction", False, 40, "Reduction Targets"),
     ("interim_target_year", "Interim Target Year", "number", "2030", None, "Interim milestone year (e.g., 2030)", False, 41, "Reduction Targets"),
     ("interim_reduction_pct", "Interim Reduction Target (%)", "number", "50", None, "Percentage reduction target for interim year", False, 42, "Reduction Targets"),
-    ("reduction_projects", "Carbon Reduction Projects", "textarea", None, "List and describe your carbon reduction initiatives...", "Specific projects and initiatives to reduce emissions", True, 50, "Reduction Projects"),
+    ("reduction_projects", "Carbon Reduction Projects", "textarea", None, "List and describe your carbon reduction initiatives...", "Specific projects and initiatives to reduce emissions", False, 50, "Reduction Projects"),
     ("completed_projects", "Completed Projects", "textarea", None, "List projects completed to date...", "Carbon reduction projects already completed", False, 51, "Reduction Projects"),
     ("planned_projects", "Planned Projects", "textarea", None, "List projects planned for the future...", "Future carbon reduction projects", False, 52, "Reduction Projects"),
     ("declaration_statement", "Declaration Statement", "textarea", "This Carbon Reduction Plan has been completed in accordance with PPN 06/21 and associated guidance and reporting standard for Carbon Reduction Plans.", None, "Formal declaration statement", True, 60, "Declaration"),
@@ -571,8 +572,8 @@ REPORT_JOB_PLACEHOLDER_ALIASES: dict[str, str] = {
     "Reporting Period End": "period_end",
 }
 
-# Optional template-specific required variable overrides.
-# When present, only these required keys are enforced for that template.
+# Optional template-specific final-issue variable overrides.
+# When present, only these keys are treated as final-issue fields for that template.
 _TEMPLATE_REQUIRED_KEY_OVERRIDES: dict[str, set[str]] = {
     "crp_standard": {
         "commitment_statement",
@@ -583,10 +584,20 @@ _TEMPLATE_REQUIRED_KEY_OVERRIDES: dict[str, set[str]] = {
         "signatory_position",
         "signature_date",
         "executive_summary",
-        "reduction_projects",
-        "reduction_targets",
     },
 }
+
+
+def _get_template_required_key_override(con, template_id: int) -> set[str] | None:
+    try:
+        template_row = con.execute(
+            "SELECT template_key FROM report_templates WHERE template_id = %s",
+            [int(template_id)],
+        ).fetchone()
+        template_key = str(template_row[0] or "").strip().lower() if template_row else ""
+    except Exception:
+        template_key = ""
+    return _TEMPLATE_REQUIRED_KEY_OVERRIDES.get(template_key)
 
 REPORT_SCOPE_PLACEHOLDER_ALIASES: dict[str, str] = {
     "Scope 1 Emissions": "Scope 1",
@@ -2687,16 +2698,7 @@ def _validate_required_template_variables(
     ).fetchall()
 
     # Apply template-specific required-key override when configured.
-    try:
-        template_row = con.execute(
-            "SELECT template_key FROM report_templates WHERE template_id = %s",
-            [int(template_id)],
-        ).fetchone()
-        template_key = str(template_row[0] or "").strip().lower() if template_row else ""
-    except Exception:
-        template_key = ""
-
-    override_keys = _TEMPLATE_REQUIRED_KEY_OVERRIDES.get(template_key)
+    override_keys = _get_template_required_key_override(con, int(template_id))
     if override_keys is not None:
         required_rows = [
             row for row in (required_rows or [])
@@ -2880,6 +2882,7 @@ def get_template_variables(
     _user: dict = Depends(_current_user),
 ):
     """Get variable schema for a template. Version is accepted for forward compatibility."""
+    effective_required_keys: set[str] | None = None
     with get_conn() as con:
         _ensure_report_template_schema(con)
         exists = con.execute(
@@ -2933,24 +2936,29 @@ def get_template_variables(
             """,
             [int(template_id)],
         ).df()
+        effective_required_keys = _get_template_required_key_override(con, int(template_id))
 
     if df is None or df.empty:
         return {"items": []}
 
     items = []
     for _, row in df.iterrows():
+        variable_key = str(_json_safe_value(row.get("variable_key")) or "")
+        is_required = _safe_bool(row.get("is_required"))
+        if effective_required_keys is not None:
+            is_required = variable_key in effective_required_keys
         items.append(
             {
                 "variable_id": int(row["variable_id"]),
                 "template_id": int(row["template_id"]),
                 "version_id": int(version_id) if version_id is not None else None,
-                "variable_key": str(_json_safe_value(row.get("variable_key")) or ""),
+                "variable_key": variable_key,
                 "variable_label": str(_json_safe_value(row.get("variable_label")) or ""),
                 "variable_type": str(_json_safe_value(row.get("variable_type")) or "text"),
                 "default_value": _json_safe_value(row.get("default_value")),
                 "placeholder": _json_safe_value(row.get("placeholder")),
                 "help_text": _json_safe_value(row.get("help_text")),
-                "is_required": _safe_bool(row.get("is_required")),
+                "is_required": is_required,
                 "display_order": int(row.get("display_order") or 0),
                 "section": _json_safe_value(row.get("section")),
             }
@@ -3207,6 +3215,7 @@ def get_job_report_variables(
     _user: dict = Depends(_current_user),
 ):
     """Get report variable values for a specific job/template (optionally version-bound)."""
+    effective_required_keys: set[str] | None = None
     try:
         with get_conn() as con:
             _ensure_report_template_schema(con)
@@ -3246,6 +3255,7 @@ def get_job_report_variables(
                 """,
                 [int(template_id)],
             ).fetchall()
+            effective_required_keys = _get_template_required_key_override(con, int(template_id))
 
             latest_values: dict[str, dict[str, Any]] = {}
             can_lookup_values = {"job_id", "template_id", "variable_key", "variable_value"}.issubset(value_cols)
@@ -3302,6 +3312,9 @@ def get_job_report_variables(
         saved = latest_values.get(variable_key, {})
         variable_id = _safe_int(row[0], 0)
         display_order = _safe_int(row[8], 0)
+        is_required = _safe_bool(row[7])
+        if effective_required_keys is not None:
+            is_required = variable_key in effective_required_keys
         items.append(
             {
                 "variable_id": variable_id,
@@ -3311,7 +3324,7 @@ def get_job_report_variables(
                 "default_value": _json_safe_value(row[4]),
                 "placeholder": _json_safe_value(row[5]),
                 "help_text": _json_safe_value(row[6]),
-                "is_required": _safe_bool(row[7]),
+                "is_required": is_required,
                 "display_order": display_order,
                 "section": _json_safe_value(row[9]),
                 "variable_value": saved.get("variable_value"),
@@ -3348,15 +3361,6 @@ def save_job_report_variables(
                     status_code=400,
                     detail="A template version is required. Assign a template version to the job first.",
                 )
-
-            incoming_map = {v.variable_key: v.variable_value for v in normalized_variables}
-            _validate_required_template_variables(
-                con=con,
-                job_id=int(job_id),
-                template_id=int(template_id),
-                version_id=int(version_id),
-                incoming_values=incoming_map,
-            )
 
             for var in normalized_variables:
                 con.execute(
@@ -3525,6 +3529,7 @@ def get_job_report_data(
                     updated_by=_current_actor_identifier(_user),
                 )
             )
+            job_actions = get_job_report_actions_payload(int(job_id), con=con)
 
             job_payload = {
                 "job_id": job_row[0],
@@ -3554,6 +3559,7 @@ def get_job_report_data(
                 "scope_totals": scope_totals,
                 "template_variables": template_variables,
                 "report_metadata": report_metadata,
+                "job_actions": job_actions,
                 "render_values": render_values,
                 "version_id": version_id,
             }

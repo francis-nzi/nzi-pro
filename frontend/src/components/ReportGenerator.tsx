@@ -144,7 +144,6 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   const [saveStatus, setSaveStatus] = useState("");
   const [metadataStatus, setMetadataStatus] = useState("");
   const [assignmentStatus, setAssignmentStatus] = useState("");
-  const [missingRequiredFields, setMissingRequiredFields] = useState<string[]>([]);
   const [activityPreview, setActivityPreview] = useState<ActivityPreview | null>(null);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
@@ -235,7 +234,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     };
   }, [toStringArray]);
 
-  const getMissingRequiredVariables = () => {
+  const getMissingPublishCheckVariables = useCallback(() => {
     return variables
       .filter((v) => v.is_required)
       .filter((v) => {
@@ -244,7 +243,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
         return String(value).trim() === "";
       })
       .map((v) => v.variable_label || v.variable_key);
-  };
+  }, [variables, variableValues]);
 
   useEffect(() => {
     async function loadReportMetadata() {
@@ -408,7 +407,6 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   useEffect(() => {
     setError("");
     setSaveStatus("");
-    setMissingRequiredFields([]);
   }, [selectedTemplateId, selectedVersionId]);
 
   // Load activity grouping preview so users can see the new reporting behaviour in-tab
@@ -461,7 +459,6 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   const handleVariableChange = (key: string, value: string, variableType?: string) => {
     const normalizedValue = variableType === "boolean" ? normalizeBooleanValue(value) : value;
     setVariableValues(prev => ({ ...prev, [key]: normalizedValue }));
-    setMissingRequiredFields([]);
   };
 
   const handleMetadataChange = (key: string, value: string, fieldType?: string) => {
@@ -488,6 +485,11 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
       metadataValues["renewable_energy_kwh"],
       energyEmissionFactors,
     ]
+  );
+
+  const missingPublishCheckFields = useMemo(
+    () => getMissingPublishCheckVariables(),
+    [getMissingPublishCheckVariables]
   );
 
   useEffect(() => {
@@ -618,20 +620,12 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
       throw new Error("Please select a template first");
     }
 
-    const missing = getMissingRequiredVariables();
-    if (missing.length > 0) {
-      setMissingRequiredFields(missing);
-      const message = "Please complete all required fields before saving.";
-      setError(message);
-      throw new Error(message);
-    }
-
     setSaving(true);
     setSaveStatus("");
     setError("");
-    setMissingRequiredFields([]);
 
     try {
+      const missing = getMissingPublishCheckVariables();
       await saveMetadata();
 
       const payload = variables.map((variable) => ({
@@ -660,13 +654,14 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
       if (!res.ok) {
         const details = await readErrorDetails(res, `Failed to save variables (${res.status})`);
-        if (details.missingFields.length > 0) {
-          setMissingRequiredFields(details.missingFields);
-        }
         throw new Error(details.message);
       }
 
-      setSaveStatus("Variables saved successfully!");
+      setSaveStatus(
+        missing.length > 0
+          ? "Draft variables saved. Final issue fields still remain below."
+          : "Variables saved successfully!"
+      );
       setActiveStep("generate");
       setTimeout(() => setSaveStatus(""), 3000);
       return effectiveVersionId;
@@ -687,16 +682,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
     setGenerating(true);
     setError("");
-    setMissingRequiredFields([]);
 
     try {
-      // Validate required variables before any server action
-      const missing = getMissingRequiredVariables();
-      if (missing.length > 0) {
-        setMissingRequiredFields(missing);
-        throw new Error("Please complete all required fields before generating the report.");
-      }
-
       // Ensure the template/version is assigned to this job and use the exact resolved version
       const effectiveVersionId = await assignTemplate();
       if (!effectiveVersionId) {
@@ -741,15 +728,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
     setGeneratingDocx(true);
     setError("");
-    setMissingRequiredFields([]);
 
     try {
-      const missing = getMissingRequiredVariables();
-      if (missing.length > 0) {
-        setMissingRequiredFields(missing);
-        throw new Error("Please complete all required fields before generating the DOCX report.");
-      }
-
       const effectiveVersionId = await assignTemplate();
       if (!effectiveVersionId) {
         throw new Error("A template version is required before DOCX report generation.");
@@ -801,15 +781,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
     setOpeningPreview(true);
     setError("");
-    setMissingRequiredFields([]);
 
     try {
-      const missing = getMissingRequiredVariables();
-      if (missing.length > 0) {
-        setMissingRequiredFields(missing);
-        throw new Error("Please complete all required fields before opening the interactive preview.");
-      }
-
       const effectiveVersionId = await assignTemplate();
       if (!effectiveVersionId) {
         throw new Error("A template version is required before opening preview.");
@@ -842,15 +815,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
     setDownloadingHtml(true);
     setError("");
-    setMissingRequiredFields([]);
 
     try {
-      const missing = getMissingRequiredVariables();
-      if (missing.length > 0) {
-        setMissingRequiredFields(missing);
-        throw new Error("Please complete all required fields before opening the HTML report.");
-      }
-
       const effectiveVersionId = await assignTemplate();
       if (!effectiveVersionId) {
         throw new Error("A template version is required before opening HTML.");
@@ -1220,11 +1186,14 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {missingRequiredFields.length > 0 && (
+            {missingPublishCheckFields.length > 0 && (
               <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
-                <div className="font-medium mb-1">Missing required fields:</div>
+                <div className="font-medium mb-1">Still needed for final issue:</div>
+                <div className="mb-2 text-xs text-amber-800">
+                  Draft save, preview, and export still work while these are incomplete.
+                </div>
                 <ul className="list-disc ml-5">
-                  {missingRequiredFields.map((field) => (
+                  {missingPublishCheckFields.map((field) => (
                     <li key={field}>{field}</li>
                   ))}
                 </ul>
@@ -1249,7 +1218,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                   checked={showOnlyRequired}
                   onChange={(e) => setShowOnlyRequired(e.target.checked)}
                 />
-                Show required only
+                Show final-issue fields only
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -1282,7 +1251,9 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                         <Label htmlFor={variable.variable_key} className="flex items-center gap-2">
                           {variable.variable_label}
                           {variable.is_required && (
-                            <span className="text-destructive text-xs">*</span>
+                            <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                              Final issue
+                            </span>
                           )}
                         </Label>
                         {renderVariableInput(variable)}
@@ -1420,7 +1391,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
           <CardContent className="space-y-4">
             <div className="text-sm text-muted-foreground">
               All emissions values will be displayed to 1 decimal place in the generated report.
-              Make sure all required variables are filled in before generating.
+              Draft outputs can be generated at any time. Final issue fields are highlighted in the Content tab.
             </div>
 
             <Button

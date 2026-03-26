@@ -26,7 +26,6 @@ from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from api.report_template_routes import (
-    _validate_required_template_variables,
     _get_job_report_metadata,
     _build_report_render_values,
 )
@@ -36,6 +35,7 @@ from api.chart_generation import (
     REQUIRED_ASSETS,
 )
 from services.playwright_browser import ensure_playwright_browser
+from services.report_actions import get_job_report_actions_payload
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
@@ -260,7 +260,7 @@ def _get_job_assigned_template_selection(job_id: int):
 
 
 def _get_job_assignment_template_and_version(job_id: int) -> tuple[int, int] | None:
-    """Return strictly assigned template_id/version_id for a job, or None if incomplete."""
+    """Return the assigned template_id/version_id for a job, or None if incomplete."""
     with get_conn() as con:
         row = con.execute(
             """
@@ -1605,7 +1605,7 @@ def _docx_add_variable_sections(
 
 
 def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | None):
-    """Resolve template/version selection with strict assignment validation."""
+    """Resolve template/version selection with assignment validation."""
     selected_template = None
     requested_template_id = payload.template_id if payload else None
     requested_version_id = payload.version_id if payload else None
@@ -1652,7 +1652,7 @@ def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | Non
             status_code=400,
             detail=(
                 "No report template/version is assigned to this job. "
-                "Please assign a report template version and save required variables before generating."
+                "Please assign a report template version before generating."
             ),
         )
 
@@ -1891,6 +1891,7 @@ def generate_report_with_assets(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
+        job_actions = get_job_report_actions_payload(int(job_id))
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -1933,6 +1934,7 @@ def generate_report_with_assets(
             generation_date=generation_date,
             template_variables=template_variables,
             report_metadata=report_metadata,
+            job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
             render_values=render_values,
             render_template=render_meta,
@@ -2056,7 +2058,7 @@ def generate_job_report(
             period_to=period_to
         )
         
-        # Resolve template selection priority (strict):
+        # Resolve template selection priority:
         # 1) Explicit payload template/version (both required)
         # 2) Job assignment template/version (both required)
         # 3) No fallback for this endpoint; fail fast with clear guidance
@@ -2107,7 +2109,7 @@ def generate_job_report(
                     status_code=400,
                     detail=(
                         "No report template/version is assigned to this job. "
-                        "Please assign a report template version and save required variables before generating."
+                        "Please assign a report template version before generating."
                     ),
                 )
             assigned_template_id, assigned_version_id = assigned_pair
@@ -2120,15 +2122,6 @@ def generate_job_report(
 
         template_variables = {}
         if selected_template:
-            with get_conn() as con:
-                _validate_required_template_variables(
-                    con=con,
-                    job_id=int(job_id),
-                    template_id=int(selected_template["template_id"]),
-                    version_id=int(selected_template["version_id"]),
-                    incoming_values=None,
-                )
-
             template_variables = _get_template_variable_values_for_render(
                 int(job_id),
                 int(selected_template["template_id"]),
@@ -2139,6 +2132,7 @@ def generate_job_report(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
+        job_actions = get_job_report_actions_payload(int(job_id))
 
         render_values = _build_report_render_values(
             job_data=job_data,
@@ -2207,6 +2201,7 @@ def generate_job_report(
             generation_date=generation_date,
             template_variables=template_variables,
             report_metadata=report_metadata,
+            job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
             render_values=render_values,
             render_template=render_meta,
@@ -2346,6 +2341,7 @@ def generate_html_report(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
+        job_actions = get_job_report_actions_payload(int(job_id))
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -2408,6 +2404,7 @@ def generate_html_report(
             generation_date=generation_date,
             template_variables=template_variables,
             report_metadata=report_metadata,
+            job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
             render_values=render_values,
             render_template=render_meta,
@@ -2498,6 +2495,7 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
+        job_actions = get_job_report_actions_payload(int(job_id))
         render_values = _build_report_render_values(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -2564,6 +2562,7 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
             generation_date=generation_date,
             template_variables=template_variables,
             report_metadata=report_metadata,
+            job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
             render_values=render_values,
             render_template=render_meta,
@@ -2631,7 +2630,7 @@ def generate_job_report_docx(
     payload: GenerateReportPayload | None = None,
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Generate a DOCX report export for a job using strict template/version validation."""
+    """Generate a DOCX report export for a job using the assigned template/version."""
     # Import python-docx inside function to avoid startup overhead
     try:
         from docx import Document as DocxDocument
@@ -2654,15 +2653,6 @@ def generate_job_report_docx(
 
         selected_template = _resolve_selected_template(int(job_id), payload)
 
-        with get_conn() as con:
-            _validate_required_template_variables(
-                con=con,
-                job_id=int(job_id),
-                template_id=int(selected_template["template_id"]),
-                version_id=int(selected_template["version_id"]),
-                incoming_values=None,
-            )
-
         template_variables = _get_template_variable_values_for_render(
             int(job_id),
             int(selected_template["template_id"]),
@@ -2672,6 +2662,7 @@ def generate_job_report_docx(
             int(job_id),
             updated_by=_user.get("email", "unknown"),
         )
+        job_actions = get_job_report_actions_payload(int(job_id))
         generation_date = datetime.now().strftime('%d %B %Y')
         render_values = _build_report_render_values(
             job_data=job_data,
@@ -2751,6 +2742,21 @@ def generate_job_report_docx(
                 p = doc.add_paragraph()
                 p.add_run(f"{label}: ").bold = True
                 p.add_run(value)
+
+        if job_actions.get("items"):
+            doc.add_heading("Planned Actions", level=1)
+            actions_table = doc.add_table(rows=1, cols=4)
+            actions_table.style = "Table Grid"
+            action_headers = ["Term", "Action", "Category", "Description"]
+            for col, header in enumerate(action_headers):
+                actions_table.cell(0, col).text = header
+
+            for item in job_actions.get("items", []):
+                row_cells = actions_table.add_row().cells
+                row_cells[0].text = str(item.get("action_term_label") or item.get("action_term") or "")
+                row_cells[1].text = str(item.get("action_name") or "")
+                row_cells[2].text = str(item.get("action_category") or "")
+                row_cells[3].text = str(item.get("description") or "")
 
         doc.add_heading("Summary", level=1)
         summary_table = doc.add_table(rows=4, cols=2)

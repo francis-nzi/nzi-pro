@@ -29,6 +29,7 @@ const ADMIN_QUICK_LINKS: Array<{
   { label: "Templates", href: "/admin/templates", domain: "Reporting & Delivery" },
   { label: "Milestone Templates", href: "/admin/milestone-templates", domain: "Reporting & Delivery" },
   { label: "Automation Rules", href: "/admin/automations", domain: "Reporting & Delivery" },
+  { label: "Action Options", href: "/admin/actions-options", domain: "Reporting & Delivery" },
   { label: "Missing Data", href: "/admin/missing-data", domain: "Reporting & Delivery" },
   { label: "Theme Settings", href: "/admin/theme", domain: "System & Governance" },
   { label: "Custom Fields", href: "/admin/custom-fields", domain: "System & Governance" },
@@ -50,7 +51,7 @@ export function MainNav() {
   const router = useRouter();
   const { theme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [logoErrored, setLogoErrored] = useState(false);
+  const [logoErrorUrl, setLogoErrorUrl] = useState<string | null>(null);
   const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string; adminAccess: boolean }>({
     ready: false,
     authed: false,
@@ -124,10 +125,6 @@ export function MainNav() {
     return raw;
   }, [theme?.logo_url]);
 
-  useEffect(() => {
-    setLogoErrored(false);
-  }, [logoUrl]);
-
   if (
     pathname === "/login" ||
     pathname === "/change-password" ||
@@ -142,12 +139,12 @@ export function MainNav() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
         <div className="flex items-center gap-8">
           <Link href="/" className="flex items-center gap-2">
-            {!logoErrored ? (
+            {logoErrorUrl !== logoUrl ? (
               <img
                 src={logoUrl}
                 alt="NZI Pro"
                 className="h-8 w-auto object-contain"
-                onError={() => setLogoErrored(true)}
+                onError={() => setLogoErrorUrl(logoUrl)}
               />
             ) : null}
             <span className="text-xl font-bold">NZI Pro</span>

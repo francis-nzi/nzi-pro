@@ -27,6 +27,7 @@ import JobCustomDataset from "@/components/JobCustomDataset";
 import SpendDataCollection from "@/components/SpendDataCollection";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import JobActions from "@/components/JobActions";
 import JobReporting from "@/components/JobReporting";
 import JobLca from "@/components/JobLca";
 import JobTimeEntries from "@/components/JobTimeEntries";
@@ -1875,6 +1876,9 @@ export default function JobDetailPage() {
                 <TabsTrigger value="data-output" className={navTriggerClassName}>
                   Data Output
                 </TabsTrigger>
+                <TabsTrigger value="actions" className={navTriggerClassName}>
+                  Actions
+                </TabsTrigger>
                 <TabsTrigger value="reporting" className={navTriggerClassName}>
                   Reporting
                 </TabsTrigger>
@@ -2743,6 +2747,10 @@ export default function JobDetailPage() {
 
           <TabsContent value="data-output" className="mt-0">
             <DataOutput jobId={jobId} baseUrl={baseUrl} />
+          </TabsContent>
+
+          <TabsContent value="actions" className="mt-0">
+            <JobActions jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
 
           <TabsContent value="reporting" className="mt-0">

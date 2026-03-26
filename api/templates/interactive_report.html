@@ -12,6 +12,7 @@
 {% set scope_comparison = scope_comparison if scope_comparison is defined else [] %}
 {% set activity_comparison = activity_comparison if activity_comparison is defined else [] %}
 {% set site_overall_comparison = site_overall_comparison if site_overall_comparison is defined else [] %}
+{% set job_actions = job_actions if job_actions is defined else {} %}
 
 {% block title %}{{ job_data.client_name }} - GHG Emissions Report {{ job_data.reporting_year }}{% endblock %}
 
@@ -599,6 +600,79 @@
             background: #f8f9fa;
             border-left: 3px solid #70AD47;
             page-break-inside: avoid;
+        }
+
+        .action-dashboard {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin: 18px 0 22px;
+        }
+
+        .action-stat {
+            border: 1px solid #d9e2ea;
+            border-radius: 10px;
+            padding: 14px 16px;
+            background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+            text-align: center;
+        }
+
+        .action-stat-label {
+            font-size: 9pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #5c6b78;
+        }
+
+        .action-stat-value {
+            font-size: 24pt;
+            font-weight: 700;
+            line-height: 1.1;
+            color: #0c5460;
+            margin: 8px 0 4px;
+        }
+
+        .action-stat-hint {
+            font-size: 9pt;
+            color: #6c757d;
+        }
+
+        .action-term-pill {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 8.5pt;
+            font-weight: 700;
+            line-height: 1.2;
+            white-space: nowrap;
+        }
+
+        .action-term-short {
+            background: #d4edda;
+            color: #1b5e20;
+        }
+
+        .action-term-medium {
+            background: #fff3cd;
+            color: #8a5a00;
+        }
+
+        .action-term-long {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .table-subnote {
+            font-size: 8.5pt;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+
+        @media screen and (max-width: 900px) {
+            .action-dashboard {
+                grid-template-columns: 1fr;
+            }
         }
 
         .exec-donut-summary {
@@ -1774,11 +1848,39 @@
             <h2>9. Carbon Reduction Actions</h2>
             {% set reduction_targets_tv = tv.get('reduction_targets') %}
             {% set reduction_projects_tv = tv.get('reduction_projects') %}
+            {% set selected_actions = job_actions.get('items', []) %}
+            {% set action_term_counts = job_actions.get('term_counts', {}) %}
             
             <p>
                 To achieve our net zero commitment, {{ job_data.client_name }} has identified the following key 
                 areas for emissions reduction. These actions will be implemented in phases over the coming years.
             </p>
+
+            {% if job_actions.get('summary_sentence') %}
+            <div class="info-box">
+                <strong>Action Plan Summary:</strong> {{ job_actions.get('summary_sentence') }}
+            </div>
+            {% endif %}
+
+            {% if selected_actions %}
+            <div class="action-dashboard no-break">
+                <div class="action-stat">
+                    <div class="action-stat-label">Short Term</div>
+                    <div class="action-stat-value">{{ action_term_counts.get('short', 0) }}</div>
+                    <div class="action-stat-hint">0-12 months</div>
+                </div>
+                <div class="action-stat">
+                    <div class="action-stat-label">Medium Term</div>
+                    <div class="action-stat-value">{{ action_term_counts.get('medium', 0) }}</div>
+                    <div class="action-stat-hint">1-3 years</div>
+                </div>
+                <div class="action-stat">
+                    <div class="action-stat-label">Long Term</div>
+                    <div class="action-stat-value">{{ action_term_counts.get('long', 0) }}</div>
+                    <div class="action-stat-hint">3+ years</div>
+                </div>
+            </div>
+            {% endif %}
 
             {% if reduction_targets_tv %}
             <h3>Carbon Reduction Targets</h3>
@@ -1794,37 +1896,39 @@
             <table class="data-table no-break">
                 <thead>
                     <tr>
-                        <th>Action Category</th>
+                        <th>Term</th>
+                        <th>Action</th>
+                        <th>Category</th>
                         <th>Description</th>
-                        <th>Target Year</th>
-                        <th>Est. Reduction</th>
                     </tr>
                 </thead>
                 <tbody>
+                    {% if selected_actions %}
+                    {% for action in selected_actions %}
                     <tr>
-                        <td><strong>Energy Efficiency</strong></td>
-                        <td>LED lighting, HVAC upgrades, smart building controls</td>
-                        <td class="text-center">2027</td>
-                        <td class="text-center">15%</td>
+                        <td>
+                            <span class="action-term-pill action-term-{{ action.get('action_term') or 'medium' }}">
+                                {{ action.get('action_term_label') or (action.get('action_term') or 'Medium term') }}
+                            </span>
+                        </td>
+                        <td>
+                            <strong>{{ action.get('action_name') or 'Action to be confirmed' }}</strong>
+                            {% if action.get('scope_focus') %}
+                            <div class="table-subnote">{{ action.get('scope_focus') }}</div>
+                            {% endif %}
+                        </td>
+                        <td>{{ action.get('action_category') or 'General' }}</td>
+                        <td>{{ action.get('description') or 'Details to be confirmed.' }}</td>
                     </tr>
+                    {% endfor %}
+                    {% else %}
                     <tr>
-                        <td><strong>Renewable Energy</strong></td>
-                        <td>Solar panels, green energy tariffs</td>
-                        <td class="text-center">2028</td>
-                        <td class="text-center">30%</td>
+                        <td><span class="action-term-pill action-term-short">Short term</span></td>
+                        <td><strong>Action plan in development</strong></td>
+                        <td>General</td>
+                        <td>Suggested and custom actions can be selected in the job Actions section before final issue.</td>
                     </tr>
-                    <tr>
-                        <td><strong>Fleet Electrification</strong></td>
-                        <td>Electric vehicle fleet transition</td>
-                        <td class="text-center">2030</td>
-                        <td class="text-center">25%</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Supply Chain</strong></td>
-                        <td>Supplier sustainability requirements</td>
-                        <td class="text-center">2030</td>
-                        <td class="text-center">20%</td>
-                    </tr>
+                    {% endif %}
                 </tbody>
             </table>
 

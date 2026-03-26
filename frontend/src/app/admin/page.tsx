@@ -83,6 +83,13 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "Reporting & Delivery",
   },
   {
+    title: "Action Options",
+    description: "Manage suggested carbon reduction actions used in job action plans and reports.",
+    href: "/admin/actions-options",
+    cta: "Manage Actions",
+    domain: "Reporting & Delivery",
+  },
+  {
     title: "Theme Settings",
     description: "Control branding and visual settings.",
     href: "/admin/theme",
