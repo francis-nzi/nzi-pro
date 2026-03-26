@@ -75,6 +75,8 @@ function NewJobPageContent() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
 
   // Form fields
   const [clientId, setClientId] = useState("");
@@ -139,6 +141,19 @@ function NewJobPageContent() {
 
   const validationCount = Object.keys(formErrors).length;
   const validationMessages = Object.values(formErrors);
+  const selectedClient = useMemo(
+    () => clients.find((c) => c.client_db_id === Number(clientId)) || null,
+    [clients, clientId]
+  );
+  const filteredClients = useMemo(() => {
+    const query = clientSearch.trim().toLowerCase();
+    const sortedClients = [...clients].sort((a, b) => a.client_name.localeCompare(b.client_name));
+    if (!query) return sortedClients.slice(0, 10);
+    return sortedClients.filter((client) => {
+      const haystack = `${client.client_name} ${client.client_db_id}`.toLowerCase();
+      return haystack.includes(query);
+    }).slice(0, 10);
+  }, [clients, clientSearch]);
 
   const requiredFieldLabels: Record<JobRequiredField, string> = {
     clientId: "Client",
@@ -277,6 +292,8 @@ function NewJobPageContent() {
 
       if (clientExists) {
         setClientId(preselectedClientId);
+        const client = clients.find((c) => c.client_db_id === Number(preselectedClientId));
+        setClientSearch(client?.client_name || "");
         clearFieldError("clientId");
       }
     }
@@ -317,6 +334,8 @@ function NewJobPageContent() {
     clearFieldError("clientId");
 
     if (newClientId) {
+      const matchedClient = clients.find((client) => client.client_db_id === Number(newClientId));
+      setClientSearch(matchedClient?.client_name || "");
       try {
         const res = await fetch(`${baseUrl}/clients/${newClientId}`);
         if (res.ok) {
@@ -335,6 +354,7 @@ function NewJobPageContent() {
         console.error("Error fetching client details:", e);
       }
     } else {
+      setClientSearch("");
       setCrmName("");
       setClientBenchmarkPeriod(null);
     }
@@ -576,29 +596,72 @@ function NewJobPageContent() {
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-3">
                     <div className="space-y-2">
-                      <Label htmlFor="client">Client *</Label>
-                      <Select
-                        value={clientId}
-                        onValueChange={(value) => {
-                          handleClientChange(value);
-                          clearFieldError("clientId");
-                        }}
-                      >
-                        <SelectTrigger
-                          id="client"
+                      <Label htmlFor="client-search">Client *</Label>
+                      <div className="relative">
+                        <Input
+                          id="client-search"
+                          value={clientSearch}
+                          onFocus={() => setClientPickerOpen(true)}
+                          onBlur={() => {
+                            window.setTimeout(() => setClientPickerOpen(false), 150);
+                          }}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setClientSearch(value);
+                            setClientPickerOpen(true);
+                            if (clientId && selectedClient?.client_name !== value) {
+                              setClientId("");
+                            }
+                            if (!value) {
+                              setClientId("");
+                            }
+                            clearFieldError("clientId");
+                          }}
+                          placeholder="Search clients by name or ID..."
                           aria-invalid={!!formErrors.clientId}
                           className={formErrors.clientId ? "border-destructive" : ""}
-                        >
-                          <SelectValue placeholder="Select client..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {clients.map((c) => (
-                            <SelectItem key={c.client_db_id} value={String(c.client_db_id)}>
-                              {c.client_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          autoComplete="off"
+                        />
+                        {clientPickerOpen && (
+                          <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-md border bg-background shadow-lg">
+                            <div className="max-h-64 overflow-y-auto py-1">
+                              {filteredClients.length > 0 ? (
+                                filteredClients.map((client) => {
+                                  const isSelected = client.client_db_id === Number(clientId);
+                                  return (
+                                    <button
+                                      key={client.client_db_id}
+                                      type="button"
+                                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-slate-100 ${
+                                        isSelected ? "bg-slate-100 font-medium" : ""
+                                      }`}
+                                      onMouseDown={(event) => {
+                                        event.preventDefault();
+                                        void handleClientChange(String(client.client_db_id));
+                                        setClientPickerOpen(false);
+                                      }}
+                                    >
+                                      <span className="truncate">{client.client_name}</span>
+                                      <span className="ml-3 shrink-0 text-xs text-muted-foreground">
+                                        #{client.client_db_id}
+                                      </span>
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="px-3 py-2 text-sm text-muted-foreground">
+                                  No matching clients. Try a different search.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {selectedClient && (
+                        <p className="text-xs text-muted-foreground">
+                          Selected: {selectedClient.client_name} (#{selectedClient.client_db_id})
+                        </p>
+                      )}
                       {formErrors.clientId && (
                         <p className="text-xs text-destructive">{formErrors.clientId}</p>
                       )}
