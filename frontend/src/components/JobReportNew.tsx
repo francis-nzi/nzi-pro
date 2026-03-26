@@ -496,10 +496,6 @@ export default function JobReportNew({
               <Button variant="outline" onClick={clearDraftNotes}>
                 Reset draft canvas
               </Button>
-              <Button onClick={onOpenLegacyReporting} className="gap-2">
-                <FileText className="h-4 w-4" />
-                Open preview and export
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -529,33 +525,76 @@ export default function JobReportNew({
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Visual pack</CardTitle>
+            <CardHeader className="space-y-2">
+              <CardTitle>Stage 4 Preview & Export</CardTitle>
               <CardDescription>
-                The new process still leans into dashboards, charts, and action-led storytelling.
+                Review the draft, confirm the checklist, and hand off into preview/export.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <div className="flex items-start gap-3">
-                <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
-                <div>
-                  <div className="font-medium text-slate-900">Executive Summary dashboard</div>
-                  <div>Use KPI cards, reduction highlights, and a concise visual narrative.</div>
+            <CardContent className="space-y-4">
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="bg-white">
+                    {selectedProfile.subtitle}
+                  </Badge>
+                  <Badge variant="outline" className="bg-white">
+                    {draftReady ? "Ready to preview" : "Still drafting"}
+                  </Badge>
+                </div>
+                <p className="mt-3 text-sm text-slate-600">
+                  This is the point where the report gets reviewed in the live renderer, with charts, formatting, and export output.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {[
+                  { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
+                  { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
+                  { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
+                  { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
+                ].map((item) => (
+                  <div key={item.label} className="flex gap-3 rounded-lg border p-3">
+                    <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
+                    <div>
+                      <div className="font-medium text-slate-900">{item.label}</div>
+                      <div className="text-sm text-muted-foreground">{item.note}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-xl border bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
+                  <div>
+                    <div className="font-medium text-slate-900">Executive Summary dashboard</div>
+                    <div className="text-sm text-muted-foreground">Use KPI cards, charts, and a quick visual story for the reader.</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-start gap-3">
+                  <LineChart className="mt-0.5 h-4 w-4 text-slate-600" />
+                  <div>
+                    <div className="font-medium text-slate-900">Charts and graphs</div>
+                    <div className="text-sm text-muted-foreground">Keep pies/donuts where they add quick interpretation and polish.</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-start gap-3">
+                  <Target className="mt-0.5 h-4 w-4 text-slate-600" />
+                  <div>
+                    <div className="font-medium text-slate-900">Actions-led narrative</div>
+                    <div className="text-sm text-muted-foreground">Carry the action plan into the final story so the report feels actionable.</div>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-start gap-3">
-                <LineChart className="mt-0.5 h-4 w-4 text-slate-600" />
-                <div>
-                  <div className="font-medium text-slate-900">Charts and graphs</div>
-                  <div>Keep pies/donuts where they help quick interpretation and presentation.</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <Target className="mt-0.5 h-4 w-4 text-slate-600" />
-                <div>
-                  <div className="font-medium text-slate-900">Actions-led narrative</div>
-                  <div>Show short, medium, and long term actions alongside the emissions story.</div>
-                </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={onOpenLegacyReporting} className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  Preview & Export
+                </Button>
+                <Button variant="outline" onClick={onOpenActions}>
+                  Review Actions
+                </Button>
               </div>
             </CardContent>
           </Card>
