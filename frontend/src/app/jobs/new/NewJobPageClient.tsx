@@ -127,6 +127,7 @@ function NewJobPageContent() {
   const hasDataset = ["Scope 1", "Scope 2", "Scope 3"].some(
     (scope) => scopeDatasetIds[scope] && scopeDatasetIds[scope] !== "__none__"
   );
+  const scopeDatasetsAvailable = datasets.length > 0;
 
   const reportingYearLocked = isBenchmark && !!clientBenchmarkPeriod;
 
@@ -136,7 +137,7 @@ function NewJobPageContent() {
       Boolean(dueDate) &&
       (reportingYearLocked || Boolean(reportingYear.trim())) &&
       (!startDate || !dueDate || new Date(dueDate) >= new Date(startDate)),
-    hasDataset,
+    !scopeDatasetsAvailable || hasDataset,
   ];
 
   const validationCount = Object.keys(formErrors).length;
@@ -211,7 +212,7 @@ function NewJobPageContent() {
       }
     }
 
-    if (!hasDataset) {
+    if (scopeDatasetsAvailable && !hasDataset) {
       nextErrors.scopeDatasets =
         "Select at least one scope dataset to continue.";
     }
@@ -896,11 +897,19 @@ function NewJobPageContent() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-medium mb-2">Scope Dataset Configuration *</h3>
+                    <h3 className="text-sm font-medium mb-2">
+                      Scope Dataset Configuration{scopeDatasetsAvailable ? " *" : ""}
+                    </h3>
                     <p className="text-xs text-muted-foreground mb-3">
-                      Assign conversion factor datasets to each scope. At least one scope must have a dataset.
+                      Assign conversion factor datasets to each scope. If no datasets are available yet, you can still
+                      create the job and add scope datasets later when the new year datasets are seeded.
                     </p>
-                    {formErrors.scopeDatasets && (
+                    {!scopeDatasetsAvailable && (
+                      <p className="text-xs text-amber-700 mb-3">
+                        No datasets are currently available for this job. Leave the scope fields as None for now.
+                      </p>
+                    )}
+                    {formErrors.scopeDatasets && scopeDatasetsAvailable && (
                       <p className="text-xs text-destructive">{formErrors.scopeDatasets}</p>
                     )}
                   </div>
