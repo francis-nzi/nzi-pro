@@ -443,7 +443,7 @@ def get_job_scope_data(
                     {source_qty_select}, {source_uom_select},
                     jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
                     jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
-                    jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.created_at, jsr.updated_at,
+                    jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
                     fl.level_1 AS lookup_level_1,
