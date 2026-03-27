@@ -66,6 +66,20 @@ def _ensure_job_scope_rows_schema(con) -> None:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_uom VARCHAR")
     except Exception:
         pass
+    try:
+        con.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS job_scope_rows_job_site_scope_active_uidx
+            ON job_scope_rows (job_id, site_id, scope, original_id)
+            WHERE COALESCE(enabled, TRUE) = TRUE
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute("DROP INDEX IF EXISTS job_scope_rows_job_site_scope_oid_uidx")
+    except Exception:
+        pass
 
 
 def _legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
@@ -986,6 +1000,7 @@ def update_scope_data_row(
                           AND site_id=%s
                           AND scope=%s
                           AND original_id=%s
+                          AND COALESCE(enabled, TRUE) = TRUE
                           AND row_id<>%s
                         LIMIT 1
                         """,
