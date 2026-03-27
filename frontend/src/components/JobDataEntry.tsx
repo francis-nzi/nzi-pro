@@ -941,7 +941,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     (visibleColumns.confidence ? 1 : 0);
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       {/* Emissions Summary Card */}
       <Card>
         <CardHeader>
@@ -984,20 +984,21 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex gap-4 flex-wrap">
-            <div className="flex-1">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_8rem]">
+            <div className="min-w-0">
               <Label htmlFor="search">Search</Label>
               <Input
                 id="search"
                 placeholder="Search by label, category, or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full min-w-0"
               />
             </div>
-            <div className="w-48">
+            <div className="min-w-0">
               <Label htmlFor="scopeFilter">Scope</Label>
               <Select value={selectedScope} onValueChange={setSelectedScope}>
-                <SelectTrigger id="scopeFilter">
+                <SelectTrigger id="scopeFilter" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1008,10 +1009,10 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-48">
+            <div className="min-w-0">
               <Label htmlFor="confidenceFilter">Data Confidence</Label>
               <Select value={confidenceFilter} onValueChange={setConfidenceFilter}>
-                <SelectTrigger id="confidenceFilter">
+                <SelectTrigger id="confidenceFilter" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1509,25 +1510,26 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
           <CardContent className="space-y-4">
             {/* Factor Search & Filter */}
             <div className="space-y-3">
-              <div className="flex gap-4">
-                <div className="flex-1">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
+                <div className="min-w-0">
                   <Label htmlFor="factorSearch">Search Factors</Label>
                   <Input
                     id="factorSearch"
                     placeholder="Search by label, category, or ID..."
                     value={factorSearchQuery}
+                    className="w-full min-w-0"
                     onChange={(e) => setFactorSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") loadTemplateFactors(true);
                     }}
                   />
                 </div>
-                <div className="w-48">
+                <div className="min-w-0">
                   <Label htmlFor="factorScopeFilter">Scope</Label>
                   <Select value={factorScopeFilter} onValueChange={(val) => {
                     setFactorScopeFilter(val);
                   }}>
-                    <SelectTrigger id="factorScopeFilter">
+                    <SelectTrigger id="factorScopeFilter" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1538,8 +1540,8 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-end">
-                  <Button onClick={() => loadTemplateFactors(true)} disabled={factorsLoading}>
+                <div className="flex items-end md:justify-self-end">
+                  <Button onClick={() => loadTemplateFactors(true)} disabled={factorsLoading} className="w-full md:w-auto">
                     {factorsLoading ? "Searching..." : "Search"}
                   </Button>
                 </div>
