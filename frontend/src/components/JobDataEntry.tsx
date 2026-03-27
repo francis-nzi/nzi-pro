@@ -535,7 +535,18 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
         await loadData();
       } else {
         const text = await res.text();
-        setError(`Update failed: ${text}`);
+        let message = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed?.detail === "string") {
+            message = parsed.detail;
+          } else if (parsed?.detail && typeof parsed.detail === "object" && typeof parsed.detail.message === "string") {
+            message = parsed.detail.message;
+          }
+        } catch {
+          // Fall back to raw response text.
+        }
+        setError(`Update failed: ${message}`);
       }
     } catch (e) {
       setError((e as Error).message);

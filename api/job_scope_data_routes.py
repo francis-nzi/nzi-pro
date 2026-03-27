@@ -960,6 +960,43 @@ def update_scope_data_row(
             
             if not row_exists:
                 raise HTTPException(status_code=404, detail="Row not found")
+
+            site_id = payload.get("site_id") if "site_id" in payload else None
+            if site_id is not None:
+                try:
+                    site_id = int(site_id)
+                except (ValueError, TypeError):
+                    site_id = None
+                if site_id is not None:
+                    conflict = con.execute(
+                        """
+                        SELECT row_id
+                        FROM job_scope_rows
+                        WHERE job_id=%s
+                          AND site_id=%s
+                          AND scope=%s
+                          AND original_id=%s
+                          AND row_id<>%s
+                        LIMIT 1
+                        """,
+                        [
+                            int(job_id),
+                            int(site_id),
+                            str(before.get("scope") or ""),
+                            str(before.get("original_id") or ""),
+                            int(row_id),
+                        ],
+                    ).fetchone()
+                    if conflict:
+                        conflict_row_id = int(conflict[0])
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Another row already exists for this site, scope, and reference ID "
+                                f"(conflicting row_id {conflict_row_id}). "
+                                "Please keep one row per site/reference or delete the existing duplicate first."
+                            ),
+                        )
             
             # Build update query dynamically based on provided fields
             update_fields = []
@@ -974,7 +1011,10 @@ def update_scope_data_row(
             for field in allowed_fields:
                 if field in payload:
                     update_fields.append(f"{field}=%s")
-                    params.append(payload[field])
+                    if field == "site_id":
+                        params.append(site_id)
+                    else:
+                        params.append(payload[field])
             
             if not update_fields:
                 raise HTTPException(status_code=400, detail="No valid fields to update")
