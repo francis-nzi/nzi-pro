@@ -134,7 +134,11 @@ def run_ddl():
           crm_owner VARCHAR, status VARCHAR DEFAULT 'Active',
           net_zero_year INTEGER DEFAULT 2050, interim_year INTEGER DEFAULT 2035,
           interim_s1_pct INTEGER DEFAULT 50, interim_s2_pct INTEGER DEFAULT 50, interim_s3_pct INTEGER DEFAULT 50,
-          benchmark_year INTEGER
+          benchmark_year INTEGER,
+          benchmark_scope_1_tco2e DOUBLE,
+          benchmark_scope_2_tco2e DOUBLE,
+          benchmark_scope_3_tco2e DOUBLE,
+          benchmark_total_tco2e DOUBLE
         );
 
         CREATE TABLE IF NOT EXISTS client_contacts (
@@ -276,6 +280,13 @@ def run_ddl():
             pass
         try:
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS portfolio VARCHAR")
+        except Exception:
+            pass
+        try:
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_1_tco2e DOUBLE")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_2_tco2e DOUBLE")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_3_tco2e DOUBLE")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_total_tco2e DOUBLE")
         except Exception:
             pass
 

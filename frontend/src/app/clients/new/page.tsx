@@ -98,6 +98,10 @@ export default function NewClientPage() {
   const [benchmarkYear, setBenchmarkYear] = useState("");
   const [benchmarkPeriodStart, setBenchmarkPeriodStart] = useState("");
   const [benchmarkPeriodEnd, setBenchmarkPeriodEnd] = useState("");
+  const [benchmarkScope1, setBenchmarkScope1] = useState("");
+  const [benchmarkScope2, setBenchmarkScope2] = useState("");
+  const [benchmarkScope3, setBenchmarkScope3] = useState("");
+  const [benchmarkTotal, setBenchmarkTotal] = useState("");
   const [targetS1Year, setTargetS1Year] = useState("2035");
   const [targetS1Pct, setTargetS1Pct] = useState("50");
   const [targetS2Year, setTargetS2Year] = useState("2035");
@@ -387,6 +391,10 @@ export default function NewClientPage() {
           create_site_from_address: createSiteFromAddress,
           net_zero_year: netZeroYear ? Number(netZeroYear) : null,
           benchmark_year: benchmarkYear ? Number(benchmarkYear) : null,
+          benchmark_scope_1_tco2e: benchmarkScope1 ? Number(benchmarkScope1) : null,
+          benchmark_scope_2_tco2e: benchmarkScope2 ? Number(benchmarkScope2) : null,
+          benchmark_scope_3_tco2e: benchmarkScope3 ? Number(benchmarkScope3) : null,
+          benchmark_total_tco2e: benchmarkTotal ? Number(benchmarkTotal) : null,
           benchmark_period_start: benchmarkPeriodStart || null,
           benchmark_period_end: benchmarkPeriodEnd || null,
           target_s1_year: targetS1Year ? Number(targetS1Year) : null,
@@ -1014,16 +1022,16 @@ export default function NewClientPage() {
                     <p className="text-xs text-muted-foreground">
                       Use benchmark period dates below for new clients
                     </p>
-                  </div>
                 </div>
+              </div>
 
-                <div className="rounded-md border border-orange-200 bg-orange-50 p-4">
-                  <h4 className="font-semibold text-sm mb-3">
+              <div className="rounded-md border border-orange-200 bg-orange-50 p-4">
+                <h4 className="font-semibold text-sm mb-3">
                     Benchmark Period (Financial Year)
                   </h4>
                   <p className="text-xs text-muted-foreground mb-3">
                     Define the benchmark reporting period. This should align with
-                    the client's financial year. All subsequent annual jobs will
+                    the client&apos;s financial year. All subsequent annual jobs will
                     automatically follow this period structure.
                   </p>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -1052,13 +1060,76 @@ export default function NewClientPage() {
                         placeholder="YYYY-MM-DD"
                       />
                       <p className="text-xs text-muted-foreground">e.g., 31/07/2023</p>
-                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-md border bg-slate-50 p-4 space-y-4">
+                <div>
+                  <h4 className="font-semibold text-sm mb-1">
+                    Historical Benchmark Emissions
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Capture the third-party benchmark as provided. We recommend
+                    filling the scope values and the total so report comparisons
+                    can use the client baseline directly.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="targetS1Year">Scope 1 Target Year</Label>
+                    <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
+                    <Input
+                      id="benchmarkScope1"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope1}
+                      onChange={(e) => setBenchmarkScope1(e.target.value)}
+                      placeholder="e.g., 123.4"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
+                    <Input
+                      id="benchmarkScope2"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope2}
+                      onChange={(e) => setBenchmarkScope2(e.target.value)}
+                      placeholder="e.g., 456.7"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
+                    <Input
+                      id="benchmarkScope3"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope3}
+                      onChange={(e) => setBenchmarkScope3(e.target.value)}
+                      placeholder="e.g., 789.0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
+                    <Input
+                      id="benchmarkTotal"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkTotal}
+                      onChange={(e) => setBenchmarkTotal(e.target.value)}
+                      placeholder="e.g., 1369.1"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="targetS1Year">Scope 1 Target Year</Label>
                     <Input
                       id="targetS1Year"
                       type="number"

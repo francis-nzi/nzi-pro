@@ -82,6 +82,10 @@ type Client = {
   currency: string | null;
   benchmark_period_start: string | null;
   benchmark_period_end: string | null;
+  benchmark_scope_1_tco2e: number | null;
+  benchmark_scope_2_tco2e: number | null;
+  benchmark_scope_3_tco2e: number | null;
+  benchmark_total_tco2e: number | null;
 };
 
 type Site = {
@@ -153,6 +157,10 @@ export default function EditClientPage() {
   const [currency, setCurrency] = useState<string>("GBP");
   const [benchmarkPeriodStart, setBenchmarkPeriodStart] = useState<string>("");
   const [benchmarkPeriodEnd, setBenchmarkPeriodEnd] = useState<string>("");
+  const [benchmarkScope1, setBenchmarkScope1] = useState<string>("");
+  const [benchmarkScope2, setBenchmarkScope2] = useState<string>("");
+  const [benchmarkScope3, setBenchmarkScope3] = useState<string>("");
+  const [benchmarkTotal, setBenchmarkTotal] = useState<string>("");
   const [createSiteFromAddress, setCreateSiteFromAddress] = useState<boolean>(true);
   
   // Site management state
@@ -309,6 +317,10 @@ export default function EditClientPage() {
         setCurrency(json.currency || "GBP");
         setBenchmarkPeriodStart(json.benchmark_period_start || "");
         setBenchmarkPeriodEnd(json.benchmark_period_end || "");
+        setBenchmarkScope1(json.benchmark_scope_1_tco2e != null ? String(json.benchmark_scope_1_tco2e) : "");
+        setBenchmarkScope2(json.benchmark_scope_2_tco2e != null ? String(json.benchmark_scope_2_tco2e) : "");
+        setBenchmarkScope3(json.benchmark_scope_3_tco2e != null ? String(json.benchmark_scope_3_tco2e) : "");
+        setBenchmarkTotal(json.benchmark_total_tco2e != null ? String(json.benchmark_total_tco2e) : "");
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
@@ -479,6 +491,10 @@ export default function EditClientPage() {
           target_s3_year: targetS3Year ? Number(targetS3Year) : null,
           target_s3_pct: targetS3Pct ? Number(targetS3Pct) : null,
           currency: currency || "GBP",
+          benchmark_scope_1_tco2e: benchmarkScope1 ? Number(benchmarkScope1) : null,
+          benchmark_scope_2_tco2e: benchmarkScope2 ? Number(benchmarkScope2) : null,
+          benchmark_scope_3_tco2e: benchmarkScope3 ? Number(benchmarkScope3) : null,
+          benchmark_total_tco2e: benchmarkTotal ? Number(benchmarkTotal) : null,
           benchmark_period_start: benchmarkPeriodStart || null,
           benchmark_period_end: benchmarkPeriodEnd || null,
           create_site_from_address: createSiteFromAddress,
@@ -742,7 +758,7 @@ export default function EditClientPage() {
               <div className="rounded-md border bg-orange-50 p-4 space-y-4">
                 <div>
                   <h3 className="font-semibold text-sm mb-1">Benchmark Period (Financial Year)</h3>
-                  <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client's financial year. All subsequent annual jobs will automatically follow this period structure.</p>
+                  <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client&apos;s financial year. All subsequent annual jobs will automatically follow this period structure.</p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -766,6 +782,63 @@ export default function EditClientPage() {
                       placeholder="dd/mm/yyyy"
                     />
                     <p className="text-xs text-muted-foreground">e.g. 31/07/2023</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-slate-50 p-4 space-y-4">
+                <div>
+                  <h3 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h3>
+                  <p className="text-xs text-muted-foreground">Capture third-party benchmark values for Scope 1, 2, 3 and total so reports can compare against the client&apos;s own baseline.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
+                    <Input
+                      id="benchmarkScope1"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope1}
+                      onChange={(e) => setBenchmarkScope1(e.target.value)}
+                      placeholder="e.g. 123.4"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
+                    <Input
+                      id="benchmarkScope2"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope2}
+                      onChange={(e) => setBenchmarkScope2(e.target.value)}
+                      placeholder="e.g. 456.7"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
+                    <Input
+                      id="benchmarkScope3"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkScope3}
+                      onChange={(e) => setBenchmarkScope3(e.target.value)}
+                      placeholder="e.g. 789.0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
+                    <Input
+                      id="benchmarkTotal"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={benchmarkTotal}
+                      onChange={(e) => setBenchmarkTotal(e.target.value)}
+                      placeholder="e.g. 1369.1"
+                    />
                   </div>
                 </div>
               </div>

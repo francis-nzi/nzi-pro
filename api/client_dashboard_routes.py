@@ -8,6 +8,7 @@ import os
 from core.database import get_conn
 from api.auth import _current_user
 from services import ai_insights
+from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 
 router = APIRouter()
 
@@ -27,6 +28,7 @@ def get_client_dashboard(
     """
     try:
         with get_conn() as con:
+            ensure_client_benchmark_columns(con)
             # Get all jobs for this client with their emissions data
             jobs_df = con.execute(
                 """
@@ -382,6 +384,7 @@ def get_client_dashboard(
             ).fetchone()
             
             currency = client_currency[0] if client_currency and client_currency[0] else 'GBP'
+            benchmark_metrics = get_client_benchmark_metrics(con, int(client_db_id))
             
             return {
                 'client_db_id': int(client_db_id),
@@ -393,6 +396,7 @@ def get_client_dashboard(
                 'top_categories': top_categories,
                 'intensity_metrics': intensity_metrics,
                 'currency': currency,
+                'benchmark_metrics': benchmark_metrics,
                 'industry_average_emissions': industry_average_emissions,
                 'net_zero_progress': net_zero_progress
             }

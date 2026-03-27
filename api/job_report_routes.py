@@ -36,6 +36,7 @@ from api.chart_generation import (
 )
 from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
+from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
@@ -834,6 +835,22 @@ def _resolve_benchmark_reference_job(job_id: int, benchmark_year: int | None) ->
 
 def get_benchmark_emissions(job_id: int, benchmark_year: int | None):
     """Get benchmark emissions for comparison using period-aware benchmark resolution."""
+    with get_conn() as con:
+        ensure_client_benchmark_columns(con)
+        job_row = con.execute(
+            "SELECT client_db_id FROM jobs WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+        if job_row and job_row[0] is not None:
+            client_benchmark = get_client_benchmark_metrics(con, int(job_row[0]))
+            if client_benchmark:
+                return {
+                    "Scope 1": float(client_benchmark.get("scope1") or 0),
+                    "Scope 2": float(client_benchmark.get("scope2") or 0),
+                    "Scope 3": float(client_benchmark.get("scope3") or 0),
+                    "Total": float(client_benchmark.get("total") or 0),
+                }
+
     benchmark_job_id = _resolve_benchmark_reference_job(int(job_id), benchmark_year)
     if benchmark_job_id is None:
         return {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}

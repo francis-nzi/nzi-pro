@@ -41,6 +41,10 @@ type Client = {
   benchmark_year: number | null;
   benchmark_period_start: string | null;
   benchmark_period_end: string | null;
+  benchmark_scope_1_tco2e?: number | null;
+  benchmark_scope_2_tco2e?: number | null;
+  benchmark_scope_3_tco2e?: number | null;
+  benchmark_total_tco2e?: number | null;
   currency: string | null;
 };
 
@@ -589,6 +593,20 @@ function ClientDetailPageContent() {
             <div><span className="font-medium">Benchmark Start:</span> <span className="text-muted-foreground">{client?.benchmark_period_start ? new Date(client.benchmark_period_start).toLocaleDateString("en-GB") : "Not set"}</span></div>
             <div><span className="font-medium">Benchmark End:</span> <span className="text-muted-foreground">{client?.benchmark_period_end ? new Date(client.benchmark_period_end).toLocaleDateString("en-GB") : "Not set"}</span></div>
             <div><span className="font-medium">Currency:</span> <span className="text-muted-foreground">{client?.currency ?? "Not set"}</span></div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Historical Benchmark Emissions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="grid gap-2 md:grid-cols-2">
+              <div><span className="font-medium">Scope 1:</span> <span className="text-muted-foreground">{client?.benchmark_scope_1_tco2e != null ? `${Number(client.benchmark_scope_1_tco2e).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e` : "Not set"}</span></div>
+              <div><span className="font-medium">Scope 2:</span> <span className="text-muted-foreground">{client?.benchmark_scope_2_tco2e != null ? `${Number(client.benchmark_scope_2_tco2e).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e` : "Not set"}</span></div>
+              <div><span className="font-medium">Scope 3:</span> <span className="text-muted-foreground">{client?.benchmark_scope_3_tco2e != null ? `${Number(client.benchmark_scope_3_tco2e).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e` : "Not set"}</span></div>
+              <div><span className="font-medium">Total:</span> <span className="text-muted-foreground">{client?.benchmark_total_tco2e != null ? `${Number(client.benchmark_total_tco2e).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e` : "Not set"}</span></div>
+            </div>
           </CardContent>
         </Card>
       </div>

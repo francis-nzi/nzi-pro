@@ -41,6 +41,14 @@ type DashboardData = {
     scope3: number;
     total: number;
   }>;
+  benchmark_metrics?: {
+    benchmark_year: number | null;
+    scope1: number | null;
+    scope2: number | null;
+    scope3: number | null;
+    total: number | null;
+    source?: string | null;
+  } | null;
   top_categories: Array<{
     category: string;
     emissions: number;
@@ -157,12 +165,27 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   }, [data]);
 
   const benchmarkPoint = useMemo(() => {
+    if (data?.benchmark_metrics && (
+      data.benchmark_metrics.scope1 != null ||
+      data.benchmark_metrics.scope2 != null ||
+      data.benchmark_metrics.scope3 != null ||
+      data.benchmark_metrics.total != null
+    )) {
+      return {
+        year: data.benchmark_metrics.benchmark_year,
+        scope1: Number(data.benchmark_metrics.scope1 || 0),
+        scope2: Number(data.benchmark_metrics.scope2 || 0),
+        scope3: Number(data.benchmark_metrics.scope3 || 0),
+        total: Number(data.benchmark_metrics.total || 0),
+        source: data.benchmark_metrics.source || "client",
+      };
+    }
     if (!data?.yearly_emissions || data.yearly_emissions.length === 0) return null;
     const ordered = [...data.yearly_emissions]
       .filter((x) => x.year !== null)
       .sort((a, b) => Number(a.year) - Number(b.year));
     if (ordered.length === 0) return null;
-    return ordered[0];
+    return { ...ordered[0], source: "job" };
   }, [data]);
 
   if (loading) return <div className="py-8 text-center">Loading dashboard...</div>;
@@ -171,6 +194,11 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
   const total = Number(data.current_metrics.total_emissions || 0);
   const displayYear = data.selected_year ?? data.current_metrics.year ?? "N/A";
+  const benchmarkCaption = benchmarkPoint
+    ? benchmarkPoint.source === "client"
+      ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
+      : `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e (${benchmarkPoint.year ?? "benchmark"})`
+    : "No benchmark data available";
 
   return (
     <div className="space-y-6">
@@ -212,7 +240,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
               {benchmarkPoint ? Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
             </div>
             <div className="text-xs text-muted-foreground">
-              {benchmarkPoint ? `tCO2e (${benchmarkPoint.year})` : "No benchmark year available"}
+              {benchmarkCaption}
             </div>
           </CardContent>
         </Card>

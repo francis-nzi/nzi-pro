@@ -67,6 +67,7 @@ from services import sites as sites_service
 from services.dataset_selector import (
     resolve_dataset_resolution,
 )
+from services.client_benchmark import ensure_client_benchmark_columns
 from services.kaleido_browser import ensure_kaleido_browser
 from services.playwright_browser import ensure_playwright_browser
 from api.admin_routes import router as admin_router
@@ -2697,6 +2698,7 @@ def create_client(
         
         with get_conn() as con:
             _ensure_client_billing_columns(con)
+            ensure_client_benchmark_columns(con)
             existing = con.execute(
                 """
                 SELECT db_id
@@ -2720,13 +2722,15 @@ def create_client(
                     company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
                     crm_owner, currency, status, net_zero_year, benchmark_year,
+                    benchmark_scope_1_tco2e, benchmark_scope_2_tco2e,
+                    benchmark_scope_3_tco2e, benchmark_total_tco2e,
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
                     target_s3_year, target_s3_pct, billing_same_as_main,
                     billing_addr_line1, billing_addr_line2, billing_addr_city,
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -2751,6 +2755,10 @@ def create_client(
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
                     body.get("benchmark_year"),
+                    body.get("benchmark_scope_1_tco2e"),
+                    body.get("benchmark_scope_2_tco2e"),
+                    body.get("benchmark_scope_3_tco2e"),
+                    body.get("benchmark_total_tco2e"),
                     body.get("target_s1_year"),
                     body.get("target_s1_pct"),
                     body.get("target_s2_year"),
@@ -3069,6 +3077,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
     assert_client_access(_user, int(client_db_id))
     with get_conn() as con:
         _ensure_client_billing_columns(con)
+        ensure_client_benchmark_columns(con)
         row = con.execute(
             """
             SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status, 
@@ -3081,7 +3090,9 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
                    c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
                    c.billing_addr_postcode, c.billing_addr_country,
-                   c.create_site_from_address
+                   c.create_site_from_address,
+                   c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
+                   c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
             FROM clients c
             WHERE c.db_id=?
             """,
@@ -3130,6 +3141,10 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "create_site_from_address": bool(row[35]) if row[35] is not None else bool(
             row[10] or row[11] or row[12] or row[13] or row[14] or row[15]
         ),
+        "benchmark_scope_1_tco2e": float(row[36]) if row[36] is not None else None,
+        "benchmark_scope_2_tco2e": float(row[37]) if row[37] is not None else None,
+        "benchmark_scope_3_tco2e": float(row[38]) if row[38] is not None else None,
+        "benchmark_total_tco2e": float(row[39]) if row[39] is not None else None,
     }
 
 
@@ -3146,6 +3161,7 @@ def update_client(
         assert_client_access(_user, int(client_db_id))
         with get_conn() as con:
             _ensure_client_billing_columns(con)
+            ensure_client_benchmark_columns(con)
             before = _client_audit_snapshot(con, int(client_db_id))
             # Check client exists
             exists = con.execute("SELECT 1 FROM clients WHERE db_id = ?", [int(client_db_id)]).fetchone()
@@ -3227,6 +3243,10 @@ def update_client(
                 "interim_s3_pct": "interim_s3_pct",
                 "portfolio": "portfolio",
                 "benchmark_year": "benchmark_year",
+                "benchmark_scope_1_tco2e": "benchmark_scope_1_tco2e",
+                "benchmark_scope_2_tco2e": "benchmark_scope_2_tco2e",
+                "benchmark_scope_3_tco2e": "benchmark_scope_3_tco2e",
+                "benchmark_total_tco2e": "benchmark_total_tco2e",
                 "benchmark_period_start": "benchmark_period_start",
                 "benchmark_period_end": "benchmark_period_end",
                 "currency": "currency",

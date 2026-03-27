@@ -78,6 +78,10 @@ def run_migrations():
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_period_end DATE")
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'GBP'")
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS sic_code VARCHAR")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_1_tco2e DOUBLE PRECISION")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_2_tco2e DOUBLE PRECISION")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_3_tco2e DOUBLE PRECISION")
+            con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_total_tco2e DOUBLE PRECISION")
             
             # Create system settings table for NZI logo and other global settings
             con.execute(
