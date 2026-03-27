@@ -56,6 +56,9 @@ type PreviewPayload = {
   ready_count: number;
   unresolved_count: number;
   total_tco2e: number;
+  employee_headcount?: number | null;
+  commuting_response_count?: number | null;
+  commuting_scale_factor?: number | null;
   ready_rows: PreviewRow[];
   unresolved_rows: UnresolvedRow[];
 };
@@ -228,8 +231,12 @@ export default function EmployeeCommutingData({
       }
       const data = (await res.json()) as PreviewPayload;
       setPreview(data);
+      const scalingNote =
+        data.employee_headcount && data.commuting_response_count && data.commuting_scale_factor
+          ? ` Scaled to ${data.employee_headcount} employees from ${data.commuting_response_count} responses (${data.commuting_scale_factor.toFixed(2)}x).`
+          : "";
       setStatus(
-        `Preview complete: ${data.ready_count} ready, ${data.unresolved_count} unresolved, ${data.total_tco2e.toFixed(4)} tCO2e.`
+        `Preview complete: ${data.ready_count} ready, ${data.unresolved_count} unresolved, ${data.total_tco2e.toFixed(4)} tCO2e.${scalingNote}`
       );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Preview failed");
@@ -433,6 +440,13 @@ export default function EmployeeCommutingData({
                 </div>
               </div>
             </div>
+
+            {preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} responses.
+                Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.
+              </div>
+            ) : null}
 
             {preview.unresolved_rows.length > 0 ? (
               <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">

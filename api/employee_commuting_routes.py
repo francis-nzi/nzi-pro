@@ -365,6 +365,38 @@ def _job_meta(con, job_id: int) -> dict[str, Any]:
     }
 
 
+def _job_employee_count(con, job_id: int) -> int | None:
+    """
+    Resolve the job headcount from intensity metrics first, then legacy CRP details.
+    """
+    try:
+        row = con.execute(
+            "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+        if row and isinstance(row[0], dict):
+            employees_metric = row[0].get("employees", {})
+            if isinstance(employees_metric, dict):
+                employee_value = _safe_int(employees_metric.get("value"))
+                if employee_value is not None and employee_value > 0:
+                    return int(employee_value)
+    except Exception:
+        pass
+
+    try:
+        row = con.execute(
+            "SELECT num_employees FROM crp_job_details WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+        employee_value = _safe_int(row[0]) if row else None
+        if employee_value is not None and employee_value > 0:
+            return int(employee_value)
+    except Exception:
+        pass
+
+    return None
+
+
 def _job_site_label(con, job_id: int, site_id: int | None) -> tuple[int | None, str]:
     if site_id is None:
         return None, "All_Staff"
@@ -798,6 +830,15 @@ def _build_wfh_notes(parsed_row: dict[str, Any]) -> str:
 def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: list[dict[str, Any]]) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
+    employee_headcount = _job_employee_count(con, int(job_id))
+    commuting_response_count = sum(
+        1
+        for row in parsed_rows
+        if row.get("row_type") == "commuting" and (_safe_float(row.get("annual_quantity")) or 0.0) > 0
+    )
+    commuting_scale_factor = 1.0
+    if employee_headcount and commuting_response_count and commuting_response_count < employee_headcount:
+        commuting_scale_factor = float(employee_headcount) / float(commuting_response_count)
 
     for parsed_row in parsed_rows:
         row_number = int(parsed_row["row_number"])
@@ -861,7 +902,14 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                 continue
 
             notes = _build_commuting_notes(parsed_row, mode, variant or "")
-            calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+            scaled_qty = float(converted_qty) * float(commuting_scale_factor)
+            calc_tco2e = scaled_qty * float(factor_record.get("factor") or 0.0)
+            if commuting_scale_factor > 1.0:
+                notes = (
+                    f"{notes} | Scaled to full workforce: "
+                    f"{commuting_response_count}/{employee_headcount} survey responses "
+                    f"({commuting_scale_factor:.2f}x)"
+                )
             ready_rows.append(
                 {
                     "sheet": parsed_row["sheet"],
@@ -880,7 +928,7 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                     "level_4": factor_record.get("level_4"),
                     "column_text": factor_record.get("column_text"),
                     "report_label": factor_record.get("report_label"),
-                    "qty": converted_qty,
+                    "qty": scaled_qty,
                     "uom": factor_uom,
                     "factor": factor_record.get("factor"),
                     "ghg_unit": factor_record.get("ghg_unit"),
@@ -971,6 +1019,9 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
         "ready_count": len(ready_rows),
         "unresolved_count": len(unresolved_rows),
         "total_tco2e": round(sum(float(row["calc_tco2e"] or 0.0) for row in ready_rows), 6),
+        "employee_headcount": employee_headcount,
+        "commuting_response_count": commuting_response_count,
+        "commuting_scale_factor": round(float(commuting_scale_factor), 6),
         "ready_rows": ready_rows,
         "unresolved_rows": unresolved_rows,
     }
@@ -1184,6 +1235,9 @@ async def commit_employee_commuting_upload(
                 "ready_count": int(preview.get("ready_count") or 0),
                 "unresolved_count": int(preview.get("unresolved_count") or 0),
                 "total_tco2e": float(preview.get("total_tco2e") or 0.0),
+                "employee_headcount": preview.get("employee_headcount"),
+                "commuting_response_count": preview.get("commuting_response_count"),
+                "commuting_scale_factor": preview.get("commuting_scale_factor"),
                 "data_source": COMMUTING_DATA_SOURCE,
             },
         )
@@ -1196,5 +1250,8 @@ async def commit_employee_commuting_upload(
         "inserted": int(inserted),
         "disabled": int(disabled),
         "total_tco2e": float(preview["total_tco2e"]),
+        "employee_headcount": preview.get("employee_headcount"),
+        "commuting_response_count": preview.get("commuting_response_count"),
+        "commuting_scale_factor": preview.get("commuting_scale_factor"),
         "data_source": COMMUTING_DATA_SOURCE,
     }
