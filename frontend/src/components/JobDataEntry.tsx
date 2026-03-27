@@ -1365,7 +1365,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
         <CardHeader>
           <CardTitle>Reuse Previous Year Rows</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 min-w-0">
           <div className="text-sm text-muted-foreground">
             Reuse rows from earlier jobs for this client to keep data entry fast and consistent. The factor and hierarchy fields are copied in, ready for this year&apos;s quantities.
           </div>
@@ -1380,13 +1380,13 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
               No reusable rows were found for the current filters.
             </div>
           ) : (
-            <div className="border rounded-md max-h-96 overflow-y-auto">
+            <div className="border rounded-md max-h-96 overflow-y-auto min-w-0">
               <div className="divide-y">
                 {filteredPreviousYearRows.map((row) => {
                   const isAdding = addingPreviousRowId === row.row_id;
                   return (
                     <div key={`previous-${row.row_id}`} className="p-3 hover:bg-muted/40 transition-colors">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex items-center gap-2">
                             <span
@@ -1428,13 +1428,16 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                             )}
                           </div>
                         </div>
-                        <Button
-                          onClick={() => addPreviousYearRowToJob(row)}
-                          disabled={isAdding}
-                          size="sm"
-                        >
-                          {isAdding ? "Adding..." : "Add to Job"}
-                        </Button>
+                        <div className="md:justify-self-end">
+                          <Button
+                            onClick={() => addPreviousYearRowToJob(row)}
+                            disabled={isAdding}
+                            size="sm"
+                            className="w-full md:w-auto"
+                          >
+                            {isAdding ? "Adding..." : "Add to Job"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1507,7 +1510,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
           <CardHeader>
             <CardTitle>Browse & Add Factors</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 min-w-0">
             {/* Factor Search & Filter */}
             <div className="space-y-3">
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
@@ -1552,7 +1555,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
             </div>
 
             {/* Factor List */}
-            <div className="border rounded-md max-h-96 overflow-y-auto">
+            <div className="border rounded-md max-h-96 overflow-y-auto min-w-0">
               {templateFactors.length === 0 && !factorsLoading ? (
                 <div className="p-4 text-center text-sm text-muted-foreground">
                   No factors found. Try adjusting your search or filters.
@@ -1571,7 +1574,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                           alreadyAdded ? "bg-muted/30" : ""
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`inline-block px-2 py-0.5 rounded text-xs ${
