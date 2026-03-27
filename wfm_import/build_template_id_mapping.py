@@ -116,7 +116,6 @@ def main() -> int:
     out_file.write_text(json.dumps(mapping, indent=2), encoding="utf-8")
 
     lookup: dict[str, list[str]] = {}
-    preferred_lookup: dict[str, str] = {}
     for rec in mapping.get("records", []):
         key = rec.get("key") or {}
         key_str = "|".join(
@@ -135,8 +134,19 @@ def main() -> int:
         factor_id = str(rec.get("factor_original_id") or "")
         if factor_id and factor_id not in lookup[key_str]:
             lookup[key_str].append(factor_id)
-        if factor_id:
-            preferred_lookup[key_str] = factor_id
+
+    preferred_lookup: dict[str, str] = {}
+    for key_str, ids in lookup.items():
+        if not ids:
+            continue
+        parts = key_str.split("|")
+        section = (parts[0] if parts else "").strip().lower()
+        chosen = ids[-1]
+        if section == "employee commuting":
+            commuting_ids = [item for item in ids if item.endswith("-c")]
+            if commuting_ids:
+                chosen = commuting_ids[-1]
+        preferred_lookup[key_str] = chosen
     out_lookup_file.write_text(
         json.dumps(
             {
@@ -146,7 +156,7 @@ def main() -> int:
                 "row_count": len(mapping.get("records", [])),
                 "unique_key_count": len(lookup),
                 "lookup_key_format": "section|activity|col_2|col_3|col_4|col_5|col_6|col_7",
-                "preferred_selection_rule": "last factor_original_id encountered in workbook order",
+                "preferred_selection_rule": "employee commuting prefers -c IDs when available; otherwise last factor_original_id encountered in workbook order",
                 "preferred_items": preferred_lookup,
                 "items": lookup,
             },

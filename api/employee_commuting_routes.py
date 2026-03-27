@@ -759,6 +759,27 @@ def _resolve_factor_record(con, job_id: int, original_id: str, scope: str) -> di
     }
 
 
+def _resolve_commuting_factor_record(con, job_id: int, original_id: str) -> dict[str, Any] | None:
+    """
+    Resolve a commuting factor record, preferring the dedicated employee commuting
+    identifier suffix when it exists.
+    """
+    candidates = []
+    base_id = str(original_id or "").strip()
+    if not base_id:
+        return None
+
+    if not base_id.endswith("-c"):
+        candidates.append(f"{base_id}-c")
+    candidates.append(base_id)
+
+    for candidate in candidates:
+        factor_record = _resolve_factor_record(con, int(job_id), candidate, "Scope 3")
+        if factor_record:
+            return factor_record
+    return None
+
+
 def _convert_quantity(quantity: float, from_unit: str, to_unit: str) -> float | None:
     src = _canonical_unit(from_unit) or _norm_text(from_unit)
     dst = _canonical_unit(to_unit) or _norm_text(to_unit)
@@ -873,7 +894,7 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                 )
                 continue
 
-            factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id)
             if not factor_record:
                 unresolved_rows.append(
                     {
@@ -886,6 +907,7 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                 )
                 continue
 
+            resolved_original_id = str(factor_record.get("original_id") or original_id)
             input_unit = _canonical_unit(parsed_row.get("unit_value")) or (_default_unit_for_mode(mode) or "")
             factor_uom = _safe_str(factor_record.get("uom")) or input_unit
             converted_qty = _convert_quantity(float(quantity), input_unit, factor_uom)
@@ -918,16 +940,19 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                     "employee_name": employee_name,
                     "site_id": site_id,
                     "scope": "Scope 3",
-                    "original_id": original_id,
+                    "original_id": resolved_original_id,
                     "dataset_id": factor_record.get("dataset_id"),
                     "factor_db_id": factor_record.get("factor_db_id"),
-                    "category": factor_record.get("category"),
-                    "level_1": factor_record.get("level_1"),
-                    "level_2": factor_record.get("level_2"),
-                    "level_3": factor_record.get("level_3"),
-                    "level_4": factor_record.get("level_4"),
+                    "category": "Employee Commuting",
+                    "level_1": "Employee Commuting",
+                    "level_2": mode.title(),
+                    "level_3": variant.title() if variant else None,
+                    "level_4": None,
                     "column_text": factor_record.get("column_text"),
-                    "report_label": factor_record.get("report_label"),
+                    "report_label": (
+                        f"Employee Commuting - {mode.title()}"
+                        + (f" - {variant.title()}" if variant else "")
+                    ),
                     "qty": scaled_qty,
                     "uom": factor_uom,
                     "factor": factor_record.get("factor"),
@@ -994,13 +1019,13 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
                 "original_id": original_id,
                 "dataset_id": factor_record.get("dataset_id"),
                 "factor_db_id": factor_record.get("factor_db_id"),
-                "category": factor_record.get("category"),
-                "level_1": factor_record.get("level_1"),
-                "level_2": factor_record.get("level_2"),
-                "level_3": factor_record.get("level_3"),
-                "level_4": factor_record.get("level_4"),
+                "category": "Employee Commuting",
+                "level_1": "Employee Commuting",
+                "level_2": "Working From Home",
+                "level_3": None,
+                "level_4": None,
                 "column_text": factor_record.get("column_text"),
-                "report_label": factor_record.get("report_label"),
+                "report_label": "Employee Commuting - Working From Home",
                 "qty": converted_qty,
                 "uom": factor_uom,
                 "factor": factor_record.get("factor"),
