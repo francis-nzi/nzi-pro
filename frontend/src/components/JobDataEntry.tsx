@@ -1388,7 +1388,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                     <div key={`previous-${row.row_id}`} className="p-3 hover:bg-muted/40 transition-colors">
                       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
                         <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-start gap-2 min-w-0">
                             <span
                               className={`inline-block px-2 py-0.5 rounded text-xs ${
                                 row.scope === "Scope 1"
@@ -1400,7 +1400,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                             >
                               {row.scope}
                             </span>
-                            <span className="truncate font-medium" title={rowDisplayTitle(row)}>
+                            <span className="min-w-0 flex-1 break-words font-medium leading-snug" title={rowDisplayTitle(row)}>
                               {rowDisplayTitle(row)}
                             </span>
                           </div>
@@ -1429,7 +1429,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                           </div>
                         </div>
                         <div className="md:justify-self-end">
-                          <Button
+                            <Button
                             onClick={() => addPreviousYearRowToJob(row)}
                             disabled={isAdding}
                             size="sm"
@@ -1576,7 +1576,7 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                       >
                         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
                               <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                                 factor.scope === "Scope 1" ? "bg-red-100 text-red-800" :
                                 factor.scope === "Scope 2" ? "bg-orange-100 text-orange-800" :
@@ -1589,14 +1589,14 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                                   CUSTOM
                                 </span>
                               )}
-                              <span className="text-sm font-medium truncate">
+                              <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
                                 {factorDisplayTitle(factor)}
                               </span>
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
+                            <div className="mt-1 text-xs text-muted-foreground break-words">
                               {factorDisplaySubtitle(factor) || factor.original_id}
                             </div>
-                            <div className="mt-1 flex items-center gap-3 text-xs">
+                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
                               <span className="font-mono">
                                 Factor: {factor.factor?.toFixed(5) || "N/A"}
                               </span>
@@ -1605,14 +1605,17 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
                               </span>
                             </div>
                           </div>
-                          <Button
+                          <div className="md:justify-self-end">
+                            <Button
                             size="sm"
                             onClick={() => addFactorToJob(factor)}
                             disabled={alreadyAdded || isAdding}
                             variant={alreadyAdded ? "outline" : "default"}
-                          >
+                              className="w-full md:w-auto"
+                            >
                             {isAdding ? "Adding..." : alreadyAdded ? "Added ✓" : "Add to Job"}
-                          </Button>
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     );
