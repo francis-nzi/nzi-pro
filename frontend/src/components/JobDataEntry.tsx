@@ -149,6 +149,13 @@ type PreviousYearRow = {
   source_reporting_period_end?: string | null;
 };
 
+type ScopeDataDebugRow = ScopeDataRow & {
+  enabled?: boolean;
+  site_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export default function JobDataEntry({ jobId }: { jobId: number }) {
   const confirmAction = useConfirmDialog();
   const baseUrl = apiBaseUrl();
@@ -163,6 +170,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
   const [previousYearRows, setPreviousYearRows] = useState<PreviousYearRow[]>([]);
   const [previousYearLoading, setPreviousYearLoading] = useState(false);
   const [previousYearError, setPreviousYearError] = useState("");
+  const [showDebugModal, setShowDebugModal] = useState(false);
+  const [debugRows, setDebugRows] = useState<ScopeDataDebugRow[]>([]);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugError, setDebugError] = useState("");
+  const [debugSearch, setDebugSearch] = useState("");
   const [selectedScope, setSelectedScope] = useState<string>("All");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -362,6 +374,33 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     } finally {
       setPreviousYearLoading(false);
     }
+  }
+
+  async function loadDebugRows() {
+    setDebugLoading(true);
+    setDebugError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to load debug rows (${res.status})${text ? `: ${text}` : ""}`);
+      }
+      const json = await res.json();
+      setDebugRows(Array.isArray(json?.rows) ? json.rows : []);
+    } catch (e) {
+      setDebugError((e as Error).message);
+      setDebugRows([]);
+    } finally {
+      setDebugLoading(false);
+    }
+  }
+
+  function openDebugModal() {
+    setShowDebugModal(true);
+    setDebugSearch("");
+    void loadDebugRows();
   }
 
   function normalizeDisplayValue(value?: string | null): string {
@@ -914,6 +953,38 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     return true;
   });
 
+  const filteredDebugRows = debugRows.filter((row) => {
+    if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (!debugSearch.trim()) return true;
+    return multiTokenMatch(debugSearch, [
+      row.scope,
+      row.site_name,
+      row.report_label,
+      row.original_id,
+      row.category,
+      row.level_1,
+      row.level_2,
+      row.level_3,
+      row.level_4,
+      row.column_text,
+      String(row.row_id),
+      row.enabled ? "enabled" : "disabled",
+    ]);
+  });
+
+  const debugDuplicateGroups = Object.values(
+    filteredDebugRows.reduce<Record<string, ScopeDataDebugRow[]>>((acc, row) => {
+      const key = [
+        row.site_id ?? "null",
+        row.scope ?? "",
+        row.original_id ?? "",
+      ].join("::");
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(row);
+      return acc;
+    }, {}),
+  ).filter((group) => group.length > 1);
+
   function factorDisplayParts(factor: TemplateFactor): string[] {
     return uniqueDisplayParts([
       factor.report_label,
@@ -1042,6 +1113,11 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
             <div className="flex items-end">
               <Button onClick={loadData} variant="outline">
                 Refresh
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button onClick={openDebugModal} variant="outline">
+                Review Rows
               </Button>
             </div>
           </div>
@@ -1493,6 +1569,142 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
               Close
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDebugModal} onOpenChange={setShowDebugModal}>
+        <DialogContent className="max-w-6xl">
+          <DialogHeader>
+            <DialogTitle>Review Rows</DialogTitle>
+            <DialogDescription>
+              Temporary debug view showing enabled and disabled scope rows so we can inspect uniqueness conflicts.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <div className="min-w-0">
+                <Label htmlFor="debugSearch">Search rows</Label>
+                <Input
+                  id="debugSearch"
+                  value={debugSearch}
+                  onChange={(e) => setDebugSearch(e.target.value)}
+                  placeholder="Search by site, scope, original ID, label..."
+                  className="w-full min-w-0"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button variant="outline" onClick={() => void loadDebugRows()} disabled={debugLoading}>
+                  {debugLoading ? "Loading..." : "Reload"}
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button variant="outline" onClick={() => setShowDebugModal(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+
+            {debugError && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{debugError}</div>}
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Rows loaded</div>
+                <div className="text-lg font-semibold">{filteredDebugRows.length}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Enabled</div>
+                <div className="text-lg font-semibold">{filteredDebugRows.filter((row) => row.enabled !== false).length}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Disabled</div>
+                <div className="text-lg font-semibold">{filteredDebugRows.filter((row) => row.enabled === false).length}</div>
+              </div>
+              <div className="rounded-md border p-3">
+                <div className="text-xs text-muted-foreground">Duplicate keys</div>
+                <div className="text-lg font-semibold">{debugDuplicateGroups.length}</div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-semibold">Duplicate key groups</div>
+              {debugDuplicateGroups.length === 0 ? (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                  No duplicate `(site, scope, original_id)` groups found in the loaded rows.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {debugDuplicateGroups.map((group) => {
+                    const key = group[0]
+                      ? [group[0].site_id ?? "null", group[0].scope ?? "", group[0].original_id ?? ""].join(" :: ")
+                      : "unknown";
+                    return (
+                      <div key={key} className="rounded-md border p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-mono text-sm">{key}</div>
+                          <div className="text-xs text-muted-foreground">{group.length} rows</div>
+                        </div>
+                        <div className="mt-2 grid gap-2 md:grid-cols-2">
+                          {group.map((row) => (
+                            <div key={row.row_id} className="rounded border bg-muted/20 p-2 text-xs">
+                              <div className="font-semibold">
+                                Row {row.row_id} {row.enabled === false ? "(disabled)" : "(enabled)"}
+                              </div>
+                              <div>Site: {row.site_name || row.site_id || "-"}</div>
+                              <div>Label: {row.report_label || "-"}</div>
+                              <div>Qty: {row.qty?.toFixed(2) || "0.00"}</div>
+                              <div>Updated: {row.updated_at || "-"}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="border rounded-md max-h-[60vh] overflow-auto">
+              {debugLoading ? (
+                <div className="p-4 text-sm text-muted-foreground">Loading debug rows...</div>
+              ) : filteredDebugRows.length === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">No rows found for the current debug filter.</div>
+              ) : (
+                <table className="w-full min-w-[1100px] text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b">
+                      <th className="p-2 text-left">Enabled</th>
+                      <th className="p-2 text-left">Site</th>
+                      <th className="p-2 text-left">Scope</th>
+                      <th className="p-2 text-left">Original ID</th>
+                      <th className="p-2 text-left">Report Label</th>
+                      <th className="p-2 text-right">Qty</th>
+                      <th className="p-2 text-right">Apply %</th>
+                      <th className="p-2 text-right">tCO2e</th>
+                      <th className="p-2 text-left">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDebugRows.map((row) => (
+                      <tr key={`debug-${row.row_id}`} className={`border-b ${row.enabled === false ? "bg-muted/40" : ""}`}>
+                        <td className="p-2">{row.enabled === false ? "No" : "Yes"}</td>
+                        <td className="p-2">{row.site_name || (row.site_id != null ? `Site ${row.site_id}` : "-")}</td>
+                        <td className="p-2">{row.scope}</td>
+                        <td className="p-2 font-mono">{row.original_id}</td>
+                        <td className="p-2 max-w-[320px]">
+                          <div className="truncate" title={row.report_label || ""}>{row.report_label || "-"}</div>
+                        </td>
+                        <td className="p-2 text-right font-mono">{row.qty?.toFixed(2) || "0.00"}</td>
+                        <td className="p-2 text-right font-mono">{row.apply_pct?.toFixed(0) || "100"}%</td>
+                        <td className="p-2 text-right font-mono">{row.calc_tco2e.toFixed(4)}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{row.updated_at || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

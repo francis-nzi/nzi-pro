@@ -396,7 +396,12 @@ def _load_custom_factor_year_values(con, factor_ids: list[int]) -> dict[int, dic
 
 
 @router.get("/jobs/{job_id}/scope-data")
-def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depends(_current_user)):
+def get_job_scope_data(
+    job_id,
+    scope: str = None,
+    include_disabled: bool = Query(False),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """
     Get all scope data entries for a job with calculated emissions.
     Optionally filter by scope.
@@ -421,8 +426,10 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
             resolver = JobMonthlyEmissionsResolver(con, job_id_int)
             
             # Build query
-            where_clause = "WHERE jsr.job_id=%s AND jsr.enabled=TRUE"
+            where_clause = "WHERE jsr.job_id=%s"
             params = [int(job_id)]
+            if not include_disabled:
+                where_clause += " AND jsr.enabled=TRUE"
             
             if scope:
                 where_clause += " AND jsr.scope=%s"
@@ -430,7 +437,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
             
             query = f"""
                 SELECT 
-                    jsr.row_id, jsr.job_id, jsr.scope, jsr.site_id, jsr.dataset_id, jsr.factor_db_id, jsr.original_id,
+                    jsr.row_id, jsr.job_id, jsr.scope, jsr.site_id, cs.site_name, jsr.dataset_id, jsr.factor_db_id, jsr.original_id,
                     jsr.category, jsr.level_1, jsr.level_2, jsr.level_3, jsr.level_4, jsr.column_text, jsr.report_label,
                     jsr.qty, jsr.uom, jsr.factor, jsr.ghg_unit, jsr.calc_tco2e, jsr.apply_pct,
                     {source_qty_select}, {source_uom_select},
@@ -447,6 +454,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                     fl.report_label AS lookup_report_label
                 FROM job_scope_rows jsr
                 LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
+                LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 {where_clause}
                 ORDER BY jsr.scope, jsr.category, jsr.report_label
             """
@@ -508,6 +516,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "job_id": safe_int(r.get("job_id")),
                         "scope": r.get("scope"),
                         "site_id": safe_int(r.get("site_id")),
+                        "site_name": r.get("site_name"),
                         "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
@@ -555,6 +564,7 @@ def get_job_scope_data(job_id, scope: str = None, _user: dict[str, str] = Depend
                         "data_confidence": r.get("data_confidence"),
                         "notes": r.get("notes"),
                         "is_custom_entry": safe_bool(r.get("is_custom_entry")),
+                        "enabled": safe_bool(r.get("enabled")),
                         "created_at": str(r.get("created_at")) if r.get("created_at") else None,
                         "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
                     })
