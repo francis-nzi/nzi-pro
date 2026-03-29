@@ -466,12 +466,128 @@ def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dic
                     'emissions': float(row.get('emissions', 0) or 0),
                     'qty': qty,
                     'uom': uom,
-                    'data_source': f"{uom} Data" if uom else 'Calculated',
-                    'data_confidence': 'High' if qty > 0 else 'Medium',
+                    'data_source': row.get('data_source') or (f"{uom} Data" if uom else 'Calculated'),
+                    'data_confidence': row.get('data_confidence') or ('High' if qty > 0 else 'Medium'),
                 }
             )
 
     return groups, totals, details
+
+
+def _records_from_df(df):
+    if df is None or getattr(df, "empty", True):
+        return []
+    try:
+        return df.where(df.notna(), None).to_dict("records")
+    except Exception:
+        return []
+
+
+def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
+    df = con.execute(
+        """
+        SELECT
+            'legacy' AS record_type,
+            COALESCE(s.site_name, 'Unassigned') AS site_name,
+            jsr.scope,
+            COALESCE(jsr.category, 'Uncategorized') AS category,
+            COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label,
+            jsr.dataset_id,
+            jsr.factor_db_id,
+            jsr.original_id,
+            jsr.qty,
+            jsr.uom,
+            jsr.factor,
+            jsr.ghg_unit,
+            jsr.apply_pct,
+            COALESCE(jsr.data_source, 'Company Data') AS data_source,
+            COALESCE(jsr.data_confidence, 'M') AS data_confidence,
+            jsr.notes,
+            jsr.source_qty,
+            jsr.source_uom,
+            jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
+            jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
+            jsr.enabled,
+            jsr.created_at,
+            jsr.updated_at,
+            NULL::INTEGER AS source_id,
+            NULL::INTEGER AS group_id,
+            NULL::VARCHAR AS source_type,
+            NULL::VARCHAR AS source_subtype,
+            NULL::VARCHAR AS asset_identifier,
+            NULL::VARCHAR AS employee_name,
+            NULL::VARCHAR AS group_name,
+            COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS source_name
+        FROM job_scope_rows jsr
+        LEFT JOIN client_sites s ON s.site_id = jsr.site_id
+        WHERE jsr.job_id = %s AND COALESCE(jsr.enabled, TRUE) = TRUE
+        ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, jsr.category, COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized'))
+        """,
+        [int(job_id)],
+    ).df()
+    return _records_from_df(df)
+
+
+def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
+    df = con.execute(
+        """
+        SELECT
+            'source_register' AS record_type,
+            COALESCE(cs.site_name, 'Unassigned') AS site_name,
+            js.scope,
+            COALESCE(js.category, 'Uncategorized') AS category,
+            COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS report_label,
+            js.dataset_id,
+            js.factor_db_id,
+            js.original_id,
+            js.qty,
+            js.uom,
+            js.factor,
+            js.ghg_unit,
+            js.apply_pct,
+            COALESCE(js.data_source, CASE WHEN js.source_type = 'business_travel' THEN 'Business Travel Register' ELSE 'Asset Register' END) AS data_source,
+            COALESCE(js.data_confidence, 'M') AS data_confidence,
+            js.notes,
+            NULL::NUMERIC AS source_qty,
+            NULL::VARCHAR AS source_uom,
+            NULL::NUMERIC AS month_1,
+            NULL::NUMERIC AS month_2,
+            NULL::NUMERIC AS month_3,
+            NULL::NUMERIC AS month_4,
+            NULL::NUMERIC AS month_5,
+            NULL::NUMERIC AS month_6,
+            NULL::NUMERIC AS month_7,
+            NULL::NUMERIC AS month_8,
+            NULL::NUMERIC AS month_9,
+            NULL::NUMERIC AS month_10,
+            NULL::NUMERIC AS month_11,
+            NULL::NUMERIC AS month_12,
+            js.enabled,
+            js.created_at,
+            js.updated_at,
+            js.source_id,
+            js.group_id,
+            js.source_type,
+            js.source_subtype,
+            js.asset_identifier,
+            js.employee_name,
+            g.group_name,
+            js.source_name
+        FROM job_emission_sources js
+        LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+        LEFT JOIN client_sites cs ON cs.site_id = js.site_id
+        WHERE js.job_id = %s AND COALESCE(js.enabled, TRUE) = TRUE
+        ORDER BY COALESCE(cs.site_name, 'Unassigned'), js.scope, COALESCE(js.category, 'Uncategorized'), COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized'))
+        """,
+        [int(job_id)],
+    ).df()
+    return _records_from_df(df)
+
+
+def _load_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
+    rows = _load_legacy_reporting_rows(con, job_id)
+    rows.extend(_load_source_register_rows(con, job_id))
+    return rows
 
 
 def create_donut_chart(data_dict, colors_dict, title, total_value, center_label="tCO2e"):
@@ -673,14 +789,8 @@ def get_job_data(job_id: int):
 def get_scope_totals(job_id: int):
     """Get emissions totals by scope."""
     with get_conn() as con:
-        df = con.execute("""
-            SELECT scope, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
-                   month_1, month_2, month_3, month_4, month_5, month_6,
-                   month_7, month_8, month_9, month_10, month_11, month_12
-            FROM job_scope_rows
-            WHERE job_id=%s AND enabled=TRUE
-        """, [int(job_id)]).df()
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+        rows = _load_reporting_rows(con, int(job_id))
         
         # Use raw totals first, round only at the end to ensure Scope 1 + Scope 2 + Scope 3 = Total
         raw_totals = {
@@ -689,12 +799,11 @@ def get_scope_totals(job_id: int):
             "Scope 3": 0.0,
         }
         
-        if df is not None and not df.empty:
-            for _, row in df.iterrows():
-                emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
-                scope = row.get('scope', '')
-                if scope in raw_totals:
-                    raw_totals[scope] += emissions
+        for row in rows:
+            emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
+            scope = row.get('scope', '')
+            if scope in raw_totals:
+                raw_totals[scope] += emissions
         
         # Round scope values to 2 decimal places, then sum them for total to ensure consistency
         scope_1_rounded = round(raw_totals["Scope 1"], 2)
@@ -715,25 +824,16 @@ def get_emissions_by_category(job_id: int):
     """Get emissions breakdown by category."""
     with get_conn() as con:
         try:
-            df = con.execute("""
-                SELECT scope, category, report_label, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
-                       month_1, month_2, month_3, month_4, month_5, month_6,
-                       month_7, month_8, month_9, month_10, month_11, month_12
-                FROM job_scope_rows
-                WHERE job_id=%s AND enabled=TRUE
-                ORDER BY scope, category, report_label
-            """, [int(job_id)]).df()
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            rows = _load_reporting_rows(con, int(job_id))
         except Exception:
             return []
 
-        if df is None or df.empty:
+        if not rows:
             return []
 
-        df = df.fillna({'category': 'Uncategorized'})
-
         categories = []
-        for _, row in df.iterrows():
+        for row in rows:
             try:
                 metrics = resolver.row_metrics(row)
                 qty_val = float(metrics.get("display_qty") or 0.0)
@@ -747,7 +847,16 @@ def get_emissions_by_category(job_id: int):
                 'report_label': row.get('report_label', ''),
                 'qty': qty_val,
                 'uom': metrics.get('display_uom') or '',
-                'emissions': emissions
+                'emissions': emissions,
+                'data_source': row.get('data_source') or '',
+                'data_confidence': row.get('data_confidence') or '',
+                'record_type': row.get('record_type') or 'legacy',
+                'source_type': row.get('source_type'),
+                'group_name': row.get('group_name'),
+                'source_name': row.get('source_name'),
+                'asset_identifier': row.get('asset_identifier'),
+                'employee_name': row.get('employee_name'),
+                'original_id': row.get('original_id'),
             })
 
         return categories
@@ -999,25 +1108,14 @@ def get_emissions_by_site(job_id: int):
     """Get emissions breakdown by site."""
     try:
         with get_conn() as con:
-            df = con.execute("""
-                SELECT s.site_name, jsr.scope, jsr.dataset_id, jsr.factor_db_id, jsr.original_id,
-                       jsr.qty, jsr.uom, jsr.factor, jsr.ghg_unit, jsr.apply_pct, jsr.notes, jsr.source_qty, jsr.source_uom,
-                       jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
-                       jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-                FROM job_scope_rows jsr
-                LEFT JOIN client_sites s ON s.site_id = jsr.site_id
-                WHERE jsr.job_id = %s AND jsr.enabled = TRUE
-            """, [int(job_id)]).df()
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            rows = _load_reporting_rows(con, int(job_id))
 
-            
-            if df is None or df.empty:
+            if not rows:
                 return {}
             
-            df = df.fillna({'site_name': 'Unassigned'})
-            
             sites = {}
-            for _, row in df.iterrows():
+            for row in rows:
                 site_name = row.get('site_name', 'Unassigned')
                 scope = row.get('scope', '')
                 emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
@@ -1061,37 +1159,12 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 [int(client_db_id)],
             ).df()
 
-        df = con.execute(
-            """
-            SELECT
-                COALESCE(s.site_name, 'Unassigned') AS site_name,
-                jsr.scope,
-                COALESCE(jsr.category, 'Uncategorized') AS category,
-                COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label,
-                jsr.dataset_id,
-                jsr.factor_db_id,
-                jsr.original_id,
-                jsr.qty,
-                jsr.uom,
-                jsr.factor,
-                jsr.ghg_unit,
-                jsr.apply_pct,
-                jsr.notes,
-                jsr.source_qty,
-                jsr.source_uom,
-                jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4, jsr.month_5, jsr.month_6,
-                jsr.month_7, jsr.month_8, jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-            FROM job_scope_rows jsr
-            LEFT JOIN client_sites s ON s.site_id = jsr.site_id
-            WHERE jsr.job_id = %s AND jsr.enabled = TRUE
-            ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, jsr.category, jsr.report_label
-            """,
-            [int(job_id)],
-        ).df()
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+        rows = _load_reporting_rows(con, int(job_id))
 
         empty_result = {
             "show_site_tables": False,
+            "show_appendix": False,
             "site_count": 0,
             "overall": [],
             "scope": [],
@@ -1106,7 +1179,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 if str(r.get("site_name") or "").strip()
             ]
 
-        if df is None or df.empty:
+        if not rows:
             # No emissions rows yet, but if client has multiple sites configured
             # still show empty site tables to support the reporting structure.
             if len(configured_site_names) > 1:
@@ -1122,6 +1195,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 ]
                 return {
                     "show_site_tables": True,
+                    "show_appendix": False,
                     "site_count": len(configured_site_names),
                     "overall": [{"site_name": s, "total": 0.0, "pct_total": 0.0} for s in configured_site_names],
                     "scope": zero_scope_rows,
@@ -1141,17 +1215,6 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 }
             return empty_result
 
-        df = df.fillna(
-            {
-                "site_name": "Unassigned",
-                "scope": "",
-                "category": "Uncategorized",
-                "report_label": "Uncategorized",
-                "uom": "",
-                "ghg_unit": "kgCO2e",
-            }
-        )
-
         site_scope_totals: dict[str, dict[str, float]] = {}
         site_activity_totals: dict[str, dict[str, float]] = {}
         appendix_rows: list[dict[str, Any]] = []
@@ -1164,7 +1227,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                 site_activity_totals[s] = {k: 0.0 for k in ACTIVITY_GROUP_ORDER}
                 site_activity_totals[s]["Total"] = 0.0
 
-        for _, row in df.iterrows():
+        for row in rows:
             site_name = str(row.get("site_name") or "Unassigned")
             scope = str(row.get("scope") or "")
             category = str(row.get("category") or "Uncategorized")
@@ -1195,6 +1258,14 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "activity_group": group,
                     "emission_type": report_label,
                     "category": category,
+                    "record_type": row.get("record_type") or "legacy",
+                    "data_source": row.get("data_source") or "",
+                    "data_confidence": row.get("data_confidence") or "",
+                    "source_name": row.get("source_name") or report_label,
+                    "group_name": row.get("group_name"),
+                    "asset_identifier": row.get("asset_identifier"),
+                    "employee_name": row.get("employee_name"),
+                    "original_id": row.get("original_id"),
                     "qty": qty_val,
                     "uom": uom,
                     "emissions": emissions,
@@ -1213,10 +1284,6 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             for site, vals in site_scope_totals.items()
         ]
         scope_rows.sort(key=lambda r: (-float(r["total"]), str(r["site_name"]).lower()))
-
-        site_count = len(scope_rows)
-        if site_count <= 1:
-            return empty_result
 
         grand_total = sum(float(r["total"]) for r in scope_rows)
         overall_rows = [
@@ -1254,8 +1321,21 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             ),
         )
 
+        site_count = len(scope_rows)
+        if site_count <= 1:
+            return {
+                "show_site_tables": False,
+                "show_appendix": bool(appendix_rows),
+                "site_count": site_count,
+                "overall": overall_rows,
+                "scope": scope_rows,
+                "activity": activity_rows,
+                "appendix_rows": appendix_rows,
+            }
+
         return {
             "show_site_tables": True,
+            "show_appendix": bool(appendix_rows),
             "site_count": site_count,
             "overall": overall_rows,
             "scope": scope_rows,

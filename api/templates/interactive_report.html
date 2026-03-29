@@ -2212,12 +2212,12 @@
             
             <h3>Detailed Emissions Data</h3>
             <p>
-                This appendix contains the complete breakdown of emissions by emission source, 
-                including all data used in the calculations.
+                This appendix contains the complete breakdown of emissions by source, including
+                the new asset and travel register detail together with the rows used in the calculations.
             </p>
 
-            {% if site_breakdowns and site_breakdowns.show_site_tables %}
-            <h3>Detailed Emissions by Site</h3>
+            {% if site_breakdowns and (site_breakdowns.show_site_tables or site_breakdowns.show_appendix) %}
+            <h3>Detailed Emissions by Site and Source Register</h3>
             <table class="data-table">
                 <thead>
                     <tr>
