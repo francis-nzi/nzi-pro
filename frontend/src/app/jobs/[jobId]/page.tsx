@@ -24,6 +24,7 @@ import JobDataEntry from "@/components/JobDataEntry";
 import IntensityMetrics from "@/components/IntensityMetrics";
 import DataOutput from "@/components/DataOutput";
 import JobCustomDataset from "@/components/JobCustomDataset";
+import JobSourceRegister from "@/components/JobSourceRegister";
 import SpendDataCollection from "@/components/SpendDataCollection";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
 import EmissionsSummary from "@/components/EmissionsSummary";
@@ -1860,6 +1861,12 @@ export default function JobDetailPage() {
                 <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
                   Employee Commuting
                 </TabsTrigger>
+                <TabsTrigger value="asset-register" className={navTriggerClassName}>
+                  Asset Register
+                </TabsTrigger>
+                <TabsTrigger value="business-travel" className={navTriggerClassName}>
+                  Business Travel
+                </TabsTrigger>
                 <TabsTrigger value="upload" className={navTriggerClassName}>
                   Data Upload
                 </TabsTrigger>
@@ -2578,6 +2585,28 @@ export default function JobDetailPage() {
               clientName={job?.client_name}
               reportingPeriodStart={job?.reporting_period_start}
               reportingPeriodEnd={job?.reporting_period_end}
+            />
+          </TabsContent>
+
+          <TabsContent value="asset-register" className="mt-0">
+            <JobSourceRegister
+              jobId={jobId}
+              baseUrl={baseUrl}
+              sourceType="asset"
+              title="Asset Register"
+              description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
+              identityLabel="Asset identity"
+            />
+          </TabsContent>
+
+          <TabsContent value="business-travel" className="mt-0">
+            <JobSourceRegister
+              jobId={jobId}
+              baseUrl={baseUrl}
+              sourceType="business_travel"
+              title="Business Travel Register"
+              description="Capture employee travel sources individually, then group them for Scope 3 reporting and inspection."
+              identityLabel="Travel / employee identity"
             />
           </TabsContent>
 

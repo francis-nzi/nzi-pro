@@ -72,6 +72,7 @@ from services.kaleido_browser import ensure_kaleido_browser
 from services.playwright_browser import ensure_playwright_browser
 from api.admin_routes import router as admin_router
 from api.job_scope_data_routes import router as job_scope_data_router
+from api.job_emission_register_routes import router as job_emission_register_router
 from api.custom_factors_routes import router as custom_factors_router
 from api.client_dashboard_routes import router as client_dashboard_router
 from api.client_reporting_routes import router as client_reporting_router
@@ -266,6 +267,9 @@ app.include_router(admin_router)
 
 # Include job scope data routes
 app.include_router(job_scope_data_router)
+
+# Include emission register routes
+app.include_router(job_emission_register_router)
 
 # Include dataset import routes
 
