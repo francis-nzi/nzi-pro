@@ -63,6 +63,37 @@ type PreviewPayload = {
   unresolved_rows: UnresolvedRow[];
 };
 
+type DirectEntryDraft = {
+  row_id: number;
+  row_type: "commuting" | "wfh";
+  employee_name: string;
+  mode_value: string;
+  service_value: string;
+  unit_value: string;
+  one_way_distance: string;
+  office_days: string;
+  weeks_per_year: string;
+  annual_distance: string;
+  annual_days: string;
+  hours_per_day: string;
+  notes: string;
+};
+
+type DirectEntryRow = {
+  source_id: number;
+  source_name: string;
+  source_subtype: string | null;
+  employee_name: string | null;
+  original_id: string | null;
+  qty: number | null;
+  uom: string | null;
+  calc_tco2e: number;
+  site_name: string | null;
+  enabled: boolean;
+  data_source: string | null;
+  updated_at: string | null;
+};
+
 export default function EmployeeCommutingData({
   jobId,
   baseUrl,
@@ -87,6 +118,21 @@ export default function EmployeeCommutingData({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(true);
+  const [manualEntries, setManualEntries] = useState<DirectEntryDraft[]>([]);
+  const [directEntries, setDirectEntries] = useState<DirectEntryRow[]>([]);
+  const [manualRowType, setManualRowType] = useState<"commuting" | "wfh">("commuting");
+  const [manualEmployeeName, setManualEmployeeName] = useState("");
+  const [manualModeValue, setManualModeValue] = useState("Car - Petrol");
+  const [manualServiceValue, setManualServiceValue] = useState("Average");
+  const [manualUnitValue, setManualUnitValue] = useState("miles");
+  const [manualOneWayDistance, setManualOneWayDistance] = useState("");
+  const [manualOfficeDays, setManualOfficeDays] = useState("");
+  const [manualWeeksPerYear, setManualWeeksPerYear] = useState("");
+  const [manualAnnualDistance, setManualAnnualDistance] = useState("");
+  const [manualAnnualDays, setManualAnnualDays] = useState("");
+  const [manualHoursPerDay, setManualHoursPerDay] = useState("");
+  const [manualNotes, setManualNotes] = useState("");
+  const [manualReplaceExisting, setManualReplaceExisting] = useState(false);
 
   const selectedSiteLabel = useMemo(() => {
     if (selectedSiteId === "__none__") return "All_Staff";
@@ -129,6 +175,7 @@ export default function EmployeeCommutingData({
   useEffect(() => {
     void loadSummary();
     void loadSites();
+    void loadDirectEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, baseUrl]);
 
@@ -151,6 +198,33 @@ export default function EmployeeCommutingData({
       if (!res.ok) return;
       const data = await res.json();
       setSites(Array.isArray(data?.sites) ? data.sites : []);
+    } catch {
+      // non-fatal
+    }
+  }
+
+  async function loadDirectEntries() {
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/emission-registers?source_type=employee_commuting`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rows = Array.isArray(data?.sources) ? data.sources : [];
+      setDirectEntries(
+        rows.map((row: Record<string, unknown>) => ({
+          source_id: Number(row.source_id ?? 0),
+          source_name: String(row.source_name ?? ""),
+          source_subtype: row.source_subtype ? String(row.source_subtype) : null,
+          employee_name: row.employee_name ? String(row.employee_name) : null,
+          original_id: row.original_id ? String(row.original_id) : null,
+          qty: row.qty === null || row.qty === undefined ? null : Number(row.qty),
+          uom: row.uom ? String(row.uom) : null,
+          calc_tco2e: Number(row.calc_tco2e ?? 0),
+          site_name: row.site_name ? String(row.site_name) : null,
+          enabled: Boolean(row.enabled),
+          data_source: row.data_source ? String(row.data_source) : null,
+          updated_at: row.updated_at ? String(row.updated_at) : null,
+        }))
+      );
     } catch {
       // non-fatal
     }
@@ -294,6 +368,123 @@ export default function EmployeeCommutingData({
     }
   }
 
+  function addManualEntryDraft() {
+    const employeeName = manualEmployeeName.trim();
+    if (!employeeName) {
+      setError("Employee / team name is required for a direct entry.");
+      return;
+    }
+
+    setManualEntries((current) => [
+      ...current,
+      {
+        row_id: Date.now() + Math.floor(Math.random() * 1000),
+        row_type: manualRowType,
+        employee_name: employeeName,
+        mode_value: manualModeValue.trim(),
+        service_value: manualServiceValue.trim(),
+        unit_value: manualUnitValue.trim(),
+        one_way_distance: manualOneWayDistance.trim(),
+        office_days: manualOfficeDays.trim(),
+        weeks_per_year: manualWeeksPerYear.trim(),
+        annual_distance: manualAnnualDistance.trim(),
+        annual_days: manualAnnualDays.trim(),
+        hours_per_day: manualHoursPerDay.trim(),
+        notes: manualNotes.trim(),
+      },
+    ]);
+
+    setManualEmployeeName("");
+    setManualNotes("");
+    setManualOneWayDistance("");
+    setManualOfficeDays("");
+    setManualWeeksPerYear("");
+    setManualAnnualDistance("");
+    setManualAnnualDays("");
+    setManualHoursPerDay("");
+    setError("");
+    setStatus("Draft direct entry added.");
+  }
+
+  async function saveManualEntries() {
+    if (!manualEntries.length) {
+      setError("Add at least one direct entry before saving.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry-commit?${selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`}replace_existing=${manualReplaceExisting ? "true" : "false"}`,
+        {
+          method: "POST",
+          headers: withAuditHeaders(
+            {
+              "Content-Type": "application/json",
+            },
+            {
+              page: "Jobs",
+              section: "Employee Commuting",
+              container: "Direct Entry",
+            }
+          ),
+          body: JSON.stringify({ entries: manualEntries }),
+        }
+      );
+      if (!res.ok) {
+        const apiError = await readError(res);
+        if (apiError.preview) {
+          setPreview(apiError.preview);
+        }
+        throw new Error(apiError.message);
+      }
+      const data = await res.json();
+      setStatus(
+        `Saved ${data?.inserted ?? 0} direct commuting rows${
+          manualReplaceExisting ? `, replaced ${data?.disabled ?? 0}` : ""
+        }.`
+      );
+      setManualEntries([]);
+      await loadSummary();
+      await loadDirectEntries();
+      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Saving direct entries failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeDirectEntry(sourceId: number, label: string) {
+    const confirmed = window.confirm(`Delete direct entry "${label}"? It will be hidden from the active register.`);
+    if (!confirmed) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/emission-registers/sources/${sourceId}`, {
+        method: "DELETE",
+        headers: withAuditHeaders(undefined, {
+          page: "Jobs",
+          section: "Employee Commuting",
+          container: "Direct Entry",
+        }),
+      });
+      if (!res.ok) {
+        const apiError = await readError(res);
+        throw new Error(apiError.message);
+      }
+      setStatus("Direct entry archived.");
+      await loadSummary();
+      await loadDirectEntries();
+      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to delete direct entry");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -301,8 +492,8 @@ export default function EmployeeCommutingData({
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="text-sm text-muted-foreground">
-          Download the new commuting workbook, complete the commuting and WFH tabs, then upload it here.
-          Imported rows are written into Job Data below with the source <span className="font-medium">Employee Commuting Template</span>.
+          Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
+          Imported rows are written into Job Data below with the appropriate employee commuting source.
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -405,6 +596,282 @@ export default function EmployeeCommutingData({
         {status ? (
           <div className="rounded-md border bg-muted/40 p-3 text-sm">{status}</div>
         ) : null}
+
+        <div className="space-y-4 rounded-md border p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-medium">Direct Employee Data Entry</div>
+              <div className="text-sm text-muted-foreground">
+                Add commuting or working-from-home rows directly here when a survey workbook is not available.
+              </div>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              Saved entries flow into reporting alongside the workbook import.
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="manual-row-type">Row type</Label>
+              <Select value={manualRowType} onValueChange={(value) => setManualRowType(value as "commuting" | "wfh")}>
+                <SelectTrigger id="manual-row-type">
+                  <SelectValue placeholder="Choose row type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="commuting">Commuting</SelectItem>
+                  <SelectItem value="wfh">Working from home</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="manual-employee">Employee / Team</Label>
+              <Input
+                id="manual-employee"
+                value={manualEmployeeName}
+                onChange={(e) => setManualEmployeeName(e.target.value)}
+                placeholder="e.g. Jane Smith or Sales team"
+              />
+            </div>
+          </div>
+
+          {manualRowType === "commuting" ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="manual-mode">Commute Mode</Label>
+                <Select value={manualModeValue} onValueChange={setManualModeValue}>
+                  <SelectTrigger id="manual-mode">
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Car - Petrol">Car - Petrol</SelectItem>
+                    <SelectItem value="Car - Diesel">Car - Diesel</SelectItem>
+                    <SelectItem value="Car - Hybrid">Car - Hybrid</SelectItem>
+                    <SelectItem value="Car - Electric">Car - Electric</SelectItem>
+                    <SelectItem value="Motorbike">Motorbike</SelectItem>
+                    <SelectItem value="Taxi">Taxi</SelectItem>
+                    <SelectItem value="Bus">Bus</SelectItem>
+                    <SelectItem value="Rail">Rail</SelectItem>
+                    <SelectItem value="Ferry">Ferry</SelectItem>
+                    <SelectItem value="Walking">Walking</SelectItem>
+                    <SelectItem value="Cycling">Cycling</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-service">Vehicle / Service Type</Label>
+                <Input
+                  id="manual-service"
+                  value={manualServiceValue}
+                  onChange={(e) => setManualServiceValue(e.target.value)}
+                  placeholder="Average, Small, Regular, etc"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-unit">Distance Unit</Label>
+                <Select value={manualUnitValue} onValueChange={setManualUnitValue}>
+                  <SelectTrigger id="manual-unit">
+                    <SelectValue placeholder="Select unit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="miles">miles</SelectItem>
+                    <SelectItem value="km">km</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="manual-annual-days">Annual WFH Days</Label>
+                <Input
+                  id="manual-annual-days"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualAnnualDays}
+                  onChange={(e) => setManualAnnualDays(e.target.value)}
+                  placeholder="e.g. 120"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-hours-per-day">Hours Per Day</Label>
+                <Input
+                  id="manual-hours-per-day"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualHoursPerDay}
+                  onChange={(e) => setManualHoursPerDay(e.target.value)}
+                  placeholder="e.g. 7.5"
+                />
+              </div>
+            </div>
+          )}
+
+          {manualRowType === "commuting" ? (
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-2">
+                <Label htmlFor="manual-one-way-distance">One-Way Distance</Label>
+                <Input
+                  id="manual-one-way-distance"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualOneWayDistance}
+                  onChange={(e) => setManualOneWayDistance(e.target.value)}
+                  placeholder="e.g. 18"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-office-days">Office Days / Week</Label>
+                <Input
+                  id="manual-office-days"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualOfficeDays}
+                  onChange={(e) => setManualOfficeDays(e.target.value)}
+                  placeholder="e.g. 3"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-weeks-per-year">Weeks / Year</Label>
+                <Input
+                  id="manual-weeks-per-year"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualWeeksPerYear}
+                  onChange={(e) => setManualWeeksPerYear(e.target.value)}
+                  placeholder="e.g. 46"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="manual-annual-distance">Annual Distance</Label>
+                <Input
+                  id="manual-annual-distance"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={manualAnnualDistance}
+                  onChange={(e) => setManualAnnualDistance(e.target.value)}
+                  placeholder="Optional override"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
+            <div className="space-y-2">
+              <Label htmlFor="manual-notes">Notes</Label>
+              <Input
+                id="manual-notes"
+                value={manualNotes}
+                onChange={(e) => setManualNotes(e.target.value)}
+                placeholder="Optional context for the audit trail"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button variant="outline" onClick={addManualEntryDraft} disabled={loading}>
+                Add Draft Row
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button onClick={saveManualEntries} disabled={loading || manualEntries.length === 0}>
+                Save Direct Entries
+              </Button>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={manualReplaceExisting}
+              onChange={(e) => setManualReplaceExisting(e.target.checked)}
+            />
+            Replace previous direct commuting entries for this site selection
+          </label>
+
+          {manualEntries.length > 0 ? (
+            <div className="rounded-md border">
+              <div className="border-b px-3 py-2 text-sm font-medium">Draft Direct Rows ({manualEntries.length})</div>
+              <div className="max-h-64 overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left">
+                      <th className="px-3 py-2">Type</th>
+                      <th className="px-3 py-2">Employee / Team</th>
+                      <th className="px-3 py-2">Details</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manualEntries.map((row) => (
+                      <tr key={row.row_id} className="border-b">
+                        <td className="px-3 py-2 capitalize">{row.row_type}</td>
+                        <td className="px-3 py-2">{row.employee_name}</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          {row.row_type === "commuting"
+                            ? `${row.mode_value || "Commute"}${row.service_value ? ` • ${row.service_value}` : ""}${row.unit_value ? ` • ${row.unit_value}` : ""}`
+                            : `WFH ${row.annual_days || "?"} days, ${row.hours_per_day || "?"} hrs/day`}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setManualEntries((current) => current.filter((item) => item.row_id !== row.row_id))}
+                          >
+                            Remove
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="space-y-2">
+            <div className="font-medium">Saved Direct Entries</div>
+            {directEntries.length > 0 ? (
+              <div className="rounded-md border">
+                <div className="max-h-64 overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-background">
+                      <tr className="border-b text-left">
+                        <th className="px-3 py-2">Employee / Team</th>
+                        <th className="px-3 py-2">Source</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2">Unit</th>
+                        <th className="px-3 py-2 text-right">tCO2e</th>
+                        <th className="px-3 py-2 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {directEntries.map((row) => (
+                        <tr key={row.source_id} className="border-b">
+                          <td className="px-3 py-2">{row.employee_name || row.source_name}</td>
+                          <td className="px-3 py-2">{row.source_subtype || "direct"}</td>
+                          <td className="px-3 py-2 text-right">{row.qty?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "-"}</td>
+                          <td className="px-3 py-2">{row.uom || ""}</td>
+                          <td className="px-3 py-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="px-3 py-2 text-right">
+                            <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
+                              Delete
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No direct entries saved yet.</div>
+            )}
+          </div>
+        </div>
 
         {preview ? (
           <div className="space-y-4 rounded-md border p-4">

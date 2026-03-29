@@ -4,7 +4,7 @@ Employee commuting and working-from-home template workflow.
 This route set provides:
 - a downloadable workbook template
 - upload preview/validation
-- commit into job_scope_rows
+- commit into job_scope_rows for workbook uploads and into the source register for direct entries
 - a lightweight summary for the Jobs -> Data screen
 """
 
@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
@@ -30,6 +30,7 @@ from api.job_scope_data_routes import (
     _ensure_job_scope_rows_schema,
     _legacy_scope_dataset_map,
 )
+from api.job_emission_register_routes import _ensure_schema as _ensure_emission_register_schema
 from core.database import get_conn
 from services.audit_log import record_audit_event
 from services.dataset_selector import get_applicable_datasets, get_scope_primary_datasets
@@ -38,6 +39,7 @@ router = APIRouter()
 
 
 COMMUTING_DATA_SOURCE = "Employee Commuting Template"
+DIRECT_COMMUTING_DATA_SOURCE = "Employee Commuting Direct Entry"
 TEMPLATE_VERSION = "Employee Commuting Template v2"
 COMMUTING_SHEET = "Employee Commuting"
 WFH_SHEET = "Working From Home"
@@ -1119,6 +1121,335 @@ def _insert_ready_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> in
     return inserted
 
 
+def _manual_entry_to_parsed_row(entry: dict[str, Any]) -> dict[str, Any] | None:
+    row_type = _safe_str(entry.get("row_type")).lower()
+    employee_name = _safe_str(entry.get("employee_name"))
+    notes = _safe_str(entry.get("notes"))
+
+    if row_type == "commuting":
+        one_way_distance = _safe_float(entry.get("one_way_distance"))
+        office_days = _safe_float(entry.get("office_days"))
+        weeks_per_year = _safe_float(entry.get("weeks_per_year"))
+        annual_quantity = _safe_float(entry.get("annual_quantity"))
+        if annual_quantity is None and None not in (one_way_distance, office_days, weeks_per_year):
+            annual_quantity = float(one_way_distance) * 2.0 * float(office_days) * float(weeks_per_year)
+        return {
+            "sheet": "Direct Entry",
+            "row_number": _safe_int(entry.get("row_number")) or 0,
+            "row_type": "commuting",
+            "employee_name": employee_name,
+            "mode_value": _safe_str(entry.get("mode_value")),
+            "service_value": _safe_str(entry.get("service_value")),
+            "unit_value": _safe_str(entry.get("unit_value")),
+            "annual_quantity": annual_quantity,
+            "notes": notes,
+            "one_way_distance": one_way_distance,
+            "office_days": office_days,
+            "weeks_per_year": weeks_per_year,
+        }
+
+    if row_type == "wfh":
+        annual_days = _safe_float(entry.get("annual_days"))
+        hours_per_day = _safe_float(entry.get("hours_per_day"))
+        annual_quantity = _safe_float(entry.get("annual_quantity"))
+        if annual_quantity is None and annual_days is not None and hours_per_day is not None:
+            annual_quantity = float(annual_days) * float(hours_per_day)
+        return {
+            "sheet": "Direct Entry",
+            "row_number": _safe_int(entry.get("row_number")) or 0,
+            "row_type": "wfh",
+            "employee_name": employee_name,
+            "annual_quantity": annual_quantity,
+            "annual_days": annual_days,
+            "hours_per_day": hours_per_day,
+            "notes": notes,
+        }
+
+    return None
+
+
+def _resolve_manual_commuting_rows(
+    con,
+    job_id: int,
+    site_id: int | None,
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ready_rows: list[dict[str, Any]] = []
+    unresolved_rows: list[dict[str, Any]] = []
+
+    for idx, entry in enumerate(entries, start=1):
+        parsed_row = _manual_entry_to_parsed_row({**entry, "row_number": idx})
+        if not parsed_row:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": _safe_str(entry.get("employee_name")),
+                    "reason": "Row type must be commuting or wfh",
+                }
+            )
+            continue
+
+        row_type = str(parsed_row.get("row_type") or "").lower()
+        employee_name = _safe_str(parsed_row.get("employee_name"))
+        if not employee_name:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": "",
+                    "reason": "Employee / team name is required",
+                }
+            )
+            continue
+        quantity = _safe_float(parsed_row.get("annual_quantity"))
+        if quantity is None or quantity <= 0:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": employee_name,
+                    "reason": "Annual quantity is missing or zero",
+                }
+            )
+            continue
+
+        if row_type == "commuting":
+            original_id, mode, variant, error = _resolve_commuting_original_id(
+                parsed_row.get("mode_value"),
+                parsed_row.get("service_value"),
+                parsed_row.get("unit_value"),
+            )
+            if error or not original_id or not mode:
+                unresolved_rows.append(
+                    {
+                        "sheet": "Direct Entry",
+                        "row_number": idx,
+                        "employee_name": employee_name,
+                        "reason": error or "Could not resolve commute factor",
+                    }
+                )
+                continue
+
+            factor_record = _resolve_commuting_factor_record(con, int(job_id), original_id)
+            if not factor_record:
+                unresolved_rows.append(
+                    {
+                        "sheet": "Direct Entry",
+                        "row_number": idx,
+                        "employee_name": employee_name,
+                        "reason": f"Original ID {original_id} was not found in factor_lookup",
+                        "original_id": original_id,
+                    }
+                )
+                continue
+
+            resolved_original_id = str(factor_record.get("original_id") or original_id)
+            input_unit = _canonical_unit(parsed_row.get("unit_value")) or (_default_unit_for_mode(mode) or "")
+            factor_uom = _safe_str(factor_record.get("uom")) or input_unit
+            converted_qty = _convert_quantity(float(quantity), input_unit, factor_uom)
+            if converted_qty is None:
+                unresolved_rows.append(
+                    {
+                        "sheet": "Direct Entry",
+                        "row_number": idx,
+                        "employee_name": employee_name,
+                        "reason": f"Could not convert quantity from {input_unit or 'blank'} to {factor_uom or 'blank'}",
+                        "original_id": original_id,
+                    }
+                )
+                continue
+
+            notes = _build_commuting_notes(parsed_row, mode, variant or "")
+            calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+            ready_rows.append(
+                {
+                    "scope": "Scope 3",
+                    "site_id": site_id,
+                    "source_type": "employee_commuting",
+                    "source_subtype": "commuting",
+                    "source_name": (
+                        f"{employee_name} - Employee Commuting - {mode.title()}"
+                        + (f" - {variant.title()}" if variant else "")
+                    ).strip(" -"),
+                    "asset_identifier": None,
+                    "employee_name": employee_name or None,
+                    "dataset_id": factor_record.get("dataset_id"),
+                    "factor_db_id": factor_record.get("factor_db_id"),
+                    "original_id": resolved_original_id,
+                    "category": "Employee Commuting",
+                    "qty": float(converted_qty),
+                    "uom": factor_uom,
+                    "factor": factor_record.get("factor"),
+                    "ghg_unit": factor_record.get("ghg_unit"),
+                    "calc_tco2e": calc_tco2e,
+                    "apply_pct": 100,
+                    "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+                    "data_confidence": "M",
+                    "notes": notes,
+                    "detail_json": {
+                        "entry_type": "commuting",
+                        "mode_value": parsed_row.get("mode_value"),
+                        "service_value": parsed_row.get("service_value"),
+                        "unit_value": parsed_row.get("unit_value"),
+                        "one_way_distance": parsed_row.get("one_way_distance"),
+                        "office_days": parsed_row.get("office_days"),
+                        "weeks_per_year": parsed_row.get("weeks_per_year"),
+                        "manual_entry": True,
+                    },
+                }
+            )
+            continue
+
+        original_id = WFH_ORIGINAL_ID
+        if not original_id:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": employee_name,
+                    "reason": "Working from home factor ID is not configured",
+                }
+            )
+            continue
+
+        factor_record = _resolve_factor_record(con, int(job_id), original_id, "Scope 3")
+        if not factor_record:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": employee_name,
+                    "reason": f"Original ID {original_id} was not found in factor_lookup",
+                    "original_id": original_id,
+                }
+            )
+            continue
+
+        factor_uom = _safe_str(factor_record.get("uom")) or "hours"
+        converted_qty = _convert_quantity(float(quantity), "hours", factor_uom)
+        if converted_qty is None:
+            unresolved_rows.append(
+                {
+                    "sheet": "Direct Entry",
+                    "row_number": idx,
+                    "employee_name": employee_name,
+                    "reason": f"Could not convert WFH hours to {factor_uom}",
+                    "original_id": original_id,
+                }
+            )
+            continue
+
+        notes = _build_wfh_notes(parsed_row)
+        calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+        ready_rows.append(
+            {
+                "scope": "Scope 3",
+                "site_id": site_id,
+                "source_type": "employee_commuting",
+                "source_subtype": "wfh",
+                "source_name": f"{employee_name} - Employee Commuting - Working From Home".strip(" -"),
+                "asset_identifier": None,
+                "employee_name": employee_name or None,
+                "dataset_id": factor_record.get("dataset_id"),
+                "factor_db_id": factor_record.get("factor_db_id"),
+                "original_id": original_id,
+                "category": "Employee Commuting",
+                "qty": float(converted_qty),
+                "uom": factor_uom,
+                "factor": factor_record.get("factor"),
+                "ghg_unit": factor_record.get("ghg_unit"),
+                "calc_tco2e": calc_tco2e,
+                "apply_pct": 100,
+                "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+                "data_confidence": "M",
+                "notes": notes,
+                "detail_json": {
+                    "entry_type": "wfh",
+                    "annual_days": parsed_row.get("annual_days"),
+                    "hours_per_day": parsed_row.get("hours_per_day"),
+                    "manual_entry": True,
+                },
+            }
+        )
+
+    return {
+        "parsed_count": len(entries),
+        "ready_count": len(ready_rows),
+        "unresolved_count": len(unresolved_rows),
+        "total_tco2e": round(sum(float(row["calc_tco2e"] or 0.0) for row in ready_rows), 6),
+        "ready_rows": ready_rows,
+        "unresolved_rows": unresolved_rows,
+    }
+
+
+def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> int:
+    inserted = 0
+    for row in ready_rows:
+        con.execute(
+            """
+            INSERT INTO job_emission_sources (
+              job_id, group_id, scope, category, source_type, source_subtype, site_id,
+              source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
+              qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
+              detail_json, calc_tco2e
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s, %s, %s, %s,
+              %s, %s
+            )
+            """,
+            [
+                int(job_id),
+                None,
+                row.get("scope"),
+                row.get("category"),
+                row.get("source_type"),
+                row.get("source_subtype"),
+                row.get("site_id"),
+                row.get("source_name"),
+                row.get("asset_identifier"),
+                row.get("employee_name"),
+                row.get("dataset_id"),
+                row.get("factor_db_id"),
+                row.get("original_id"),
+                row.get("qty"),
+                row.get("uom"),
+                row.get("factor"),
+                row.get("ghg_unit"),
+                row.get("apply_pct", 100),
+                row.get("data_source", DIRECT_COMMUTING_DATA_SOURCE),
+                row.get("data_confidence", "M"),
+                row.get("notes"),
+                row.get("detail_json") or {},
+                row.get("calc_tco2e"),
+            ],
+        )
+        inserted += 1
+    return inserted
+
+
+def _disable_existing_manual_commuting_rows(con, job_id: int, site_id: int | None) -> int:
+    rows = con.execute(
+        """
+        UPDATE job_emission_sources
+        SET enabled = FALSE, updated_at = NOW()
+        WHERE job_id = %s
+          AND source_type = %s
+          AND (
+                (%s IS NULL AND site_id IS NULL)
+             OR (%s IS NOT NULL AND site_id = %s)
+          )
+          AND enabled = TRUE
+        RETURNING source_id
+        """,
+        [int(job_id), "employee_commuting", site_id, site_id, site_id],
+    ).fetchall()
+    return len(rows or [])
+
+
 @router.get("/jobs/{job_id}/employee-commuting/template")
 def download_employee_commuting_template(
     job_id: int,
@@ -1146,19 +1477,37 @@ def employee_commuting_summary(
 ):
     with get_conn() as con:
         _ensure_job_scope_rows_schema(con)
+        _ensure_emission_register_schema(con)
         _job_meta(con, int(job_id))
         row = con.execute(
             """
             SELECT
-              COUNT(*) AS row_count,
-              COALESCE(SUM(calc_tco2e), 0) AS total_tco2e,
-              COUNT(DISTINCT COALESCE(site_id, -1)) AS site_count
-            FROM job_scope_rows
-            WHERE job_id = %s
-              AND COALESCE(data_source, '') = %s
-              AND enabled = TRUE
+              COALESCE(SUM(row_count), 0) AS row_count,
+              COALESCE(SUM(total_tco2e), 0) AS total_tco2e,
+              COUNT(DISTINCT site_key) AS site_count
+            FROM (
+              SELECT
+                COUNT(*) AS row_count,
+                COALESCE(SUM(calc_tco2e), 0) AS total_tco2e,
+                COALESCE(site_id, -1) AS site_key
+              FROM job_scope_rows
+              WHERE job_id = %s
+                AND COALESCE(data_source, '') IN (%s, %s)
+                AND enabled = TRUE
+              GROUP BY COALESCE(site_id, -1)
+              UNION ALL
+              SELECT
+                COUNT(*) AS row_count,
+                COALESCE(SUM(calc_tco2e), 0) AS total_tco2e,
+                COALESCE(site_id, -1) AS site_key
+              FROM job_emission_sources
+              WHERE job_id = %s
+                AND source_type = %s
+                AND enabled = TRUE
+              GROUP BY COALESCE(site_id, -1)
+            ) x
             """,
-            [int(job_id), COMMUTING_DATA_SOURCE],
+            [int(job_id), COMMUTING_DATA_SOURCE, DIRECT_COMMUTING_DATA_SOURCE, int(job_id), "employee_commuting"],
         ).fetchone()
 
     return {
@@ -1279,4 +1628,83 @@ async def commit_employee_commuting_upload(
         "commuting_response_count": preview.get("commuting_response_count"),
         "commuting_scale_factor": preview.get("commuting_scale_factor"),
         "data_source": COMMUTING_DATA_SOURCE,
+    }
+
+
+@router.post("/jobs/{job_id}/employee-commuting/direct-entry-commit")
+def commit_employee_commuting_direct_entries(
+    request: Request,
+    job_id: int,
+    payload: dict = Body(...),
+    site_id: int | None = Query(None),
+    replace_existing: bool = Query(False),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    entries = payload.get("entries") or []
+    if not isinstance(entries, list) or not entries:
+        raise HTTPException(status_code=400, detail="No direct employee commuting entries were provided")
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _ensure_emission_register_schema(con)
+        meta = _job_meta(con, int(job_id))
+        validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
+        preview = _resolve_manual_commuting_rows(con, int(job_id), validated_site_id, entries)
+
+        if preview["unresolved_count"] > 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Direct entries contain unresolved rows. Please correct them before saving.",
+                    "preview": {
+                        "job_id": int(job_id),
+                        "site_id": validated_site_id,
+                        "site_label": site_label,
+                        "template_version": "Direct Entry",
+                        **preview,
+                    },
+                },
+            )
+
+        if preview["ready_count"] <= 0:
+            raise HTTPException(status_code=400, detail="No importable direct employee commuting rows were found")
+
+        disabled = 0
+        if replace_existing:
+            disabled = _disable_existing_manual_commuting_rows(con, int(job_id), validated_site_id)
+
+        inserted = _insert_manual_commuting_rows(con, int(job_id), preview["ready_rows"])
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="import",
+            entity_type="employee_commuting_direct_entry",
+            entity_id=f"{int(job_id)}:{validated_site_id if validated_site_id is not None else 'all'}",
+            client_id=meta.get("client_db_id"),
+            job_id=int(job_id),
+            metadata={
+                "site_id": validated_site_id,
+                "site_label": site_label,
+                "replace_existing": bool(replace_existing),
+                "inserted": int(inserted),
+                "disabled": int(disabled),
+                "parsed_count": int(preview.get("parsed_count") or 0),
+                "ready_count": int(preview.get("ready_count") or 0),
+                "unresolved_count": int(preview.get("unresolved_count") or 0),
+                "total_tco2e": float(preview.get("total_tco2e") or 0.0),
+                "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+            },
+        )
+
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "site_id": validated_site_id,
+        "site_label": site_label,
+        "inserted": int(inserted),
+        "disabled": int(disabled),
+        "total_tco2e": float(preview["total_tco2e"]),
+        "data_source": DIRECT_COMMUTING_DATA_SOURCE,
     }
