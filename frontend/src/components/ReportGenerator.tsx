@@ -62,6 +62,18 @@ type TemplateVersion = {
   status?: string | null;
 };
 
+type ReportVersion = {
+  report_version_id: number;
+  version_number: number;
+  version_label?: string | null;
+  status?: string | null;
+  generated_at?: string | null;
+  generated_by?: string | null;
+  file_id?: number | null;
+  file_name?: string | null;
+  download_url?: string | null;
+};
+
 type TemplateAssignment = {
   job_id: number;
   template_id: number;
@@ -139,9 +151,12 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   const [openingPreview, setOpeningPreview] = useState(false);
   const [downloadingHtml, setDownloadingHtml] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState("");
+  const [reportVersions, setReportVersions] = useState<ReportVersion[]>([]);
+  const [savingReportVersion, setSavingReportVersion] = useState(false);
 
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
+  const [reportVersionMessage, setReportVersionMessage] = useState("");
   const [metadataStatus, setMetadataStatus] = useState("");
   const [assignmentStatus, setAssignmentStatus] = useState("");
   const [activityPreview, setActivityPreview] = useState<ActivityPreview | null>(null);
@@ -245,6 +260,21 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
       .map((v) => v.variable_label || v.variable_key);
   }, [variables, variableValues]);
 
+  const loadReportVersions = useCallback(async () => {
+    setReportVersions([]);
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-versions`);
+      if (!res.ok) {
+        return;
+      }
+      const data = await res.json();
+      const versions: ReportVersion[] = Array.isArray(data?.versions) ? data.versions : [];
+      setReportVersions(versions);
+    } catch {
+      setReportVersions([]);
+    }
+  }, [baseUrl, jobId]);
+
   useEffect(() => {
     async function loadReportMetadata() {
       setLoadingMetadata(true);
@@ -320,6 +350,10 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
 
     loadAssignmentContext();
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    loadReportVersions();
+  }, [loadReportVersions]);
 
   // Load versions when template changes
   useEffect(() => {
@@ -490,6 +524,17 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
   const missingPublishCheckFields = useMemo(
     () => getMissingPublishCheckVariables(),
     [getMissingPublishCheckVariables]
+  );
+
+  const sortedReportVersions = useMemo(
+    () =>
+      [...reportVersions].sort((left, right) => {
+        if ((right.version_number ?? 0) !== (left.version_number ?? 0)) {
+          return (right.version_number ?? 0) - (left.version_number ?? 0);
+        }
+        return String(right.generated_at ?? "").localeCompare(String(left.generated_at ?? ""));
+      }),
+    [reportVersions]
   );
 
   useEffect(() => {
@@ -674,13 +719,20 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
     }
   };
 
-  const generateReport = async () => {
+  const generateReport = async (options?: { saveVersion?: boolean }) => {
+    const saveVersion = Boolean(options?.saveVersion);
     if (!selectedTemplateId) {
       setError("Please select a template first");
       return;
     }
 
-    setGenerating(true);
+    if (saveVersion) {
+      setSavingReportVersion(true);
+      setReportVersionMessage("");
+    } else {
+      setGenerating(true);
+      setReportVersionMessage("");
+    }
     setError("");
 
     try {
@@ -699,6 +751,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
         body: JSON.stringify({
           template_id: selectedTemplateId,
           version_id: effectiveVersionId,
+          save_version: saveVersion,
+          report_version_status: saveVersion ? "review" : undefined,
         })
       });
 
@@ -713,10 +767,48 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
         URL.revokeObjectURL(pdfPreviewUrl);
       }
       setPdfPreviewUrl(url);
+
+      if (saveVersion) {
+        const versionNumber = res.headers.get("X-Report-Version-Number") || "";
+        const versionLabel = res.headers.get("X-Report-Version-Label") || `v${versionNumber || "?"}`;
+        setReportVersionMessage(`Saved review PDF as ${versionLabel}.`);
+        await loadReportVersions();
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setGenerating(false);
+      if (saveVersion) {
+        setSavingReportVersion(false);
+      } else {
+        setGenerating(false);
+      }
+    }
+  };
+
+  const saveReviewPdf = async () => {
+    await generateReport({ saveVersion: true });
+  };
+
+  const markReportVersionFinal = async (reportVersionId: number) => {
+    setSavingReportVersion(true);
+    setReportVersionMessage("");
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-versions/${reportVersionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "final" }),
+      });
+      if (!res.ok) {
+        const details = await readErrorDetails(res, `Failed to mark version final (${res.status})`);
+        throw new Error(details.message);
+      }
+      setReportVersionMessage("Report version marked final.");
+      await loadReportVersions();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSavingReportVersion(false);
     }
   };
 
@@ -1395,8 +1487,8 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             </div>
 
             <Button
-              onClick={generateReport}
-              disabled={generating || generatingDocx || saving || openingPreview}
+              onClick={() => generateReport()}
+              disabled={generating || generatingDocx || saving || openingPreview || savingReportVersion}
               className="gap-2"
             >
               <FileText className="h-4 w-4" />
@@ -1404,9 +1496,19 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             </Button>
 
             <Button
+              variant="secondary"
+              onClick={saveReviewPdf}
+              disabled={generating || generatingDocx || saving || openingPreview || savingReportVersion}
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              {savingReportVersion ? "Saving review PDF..." : "Save Review PDF"}
+            </Button>
+
+            <Button
               variant="outline"
               onClick={generateDocxReport}
-              disabled={generatingDocx || generating || openingPreview || saving}
+              disabled={generatingDocx || generating || openingPreview || saving || savingReportVersion}
               className="gap-2"
             >
               <FileText className="h-4 w-4" />
@@ -1416,7 +1518,7 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             <Button
               variant="outline"
               onClick={openInteractivePreview}
-              disabled={openingPreview || generating || generatingDocx || saving}
+              disabled={openingPreview || generating || generatingDocx || saving || savingReportVersion}
               className="gap-2"
             >
               <FileText className="h-4 w-4" />
@@ -1426,12 +1528,74 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
             <Button
               variant="outline"
               onClick={downloadHtmlReport}
-              disabled={downloadingHtml || generating || generatingDocx || saving || openingPreview}
+              disabled={downloadingHtml || generating || generatingDocx || saving || openingPreview || savingReportVersion}
               className="gap-2"
             >
               <FileText className="h-4 w-4" />
               {downloadingHtml ? "Downloading..." : "Download HTML (Raw)"}
             </Button>
+
+            {(reportVersionMessage || sortedReportVersions.length > 0) && (
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-medium">Report version history</div>
+                    <p className="text-sm text-muted-foreground">
+                      Saved PDFs are archived in the client folder and can be marked final once approved.
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {sortedReportVersions.length} saved
+                  </span>
+                </div>
+
+                {reportVersionMessage && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    {reportVersionMessage}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {sortedReportVersions.slice(0, 4).map((version) => (
+                    <div
+                      key={version.report_version_id}
+                      className="rounded-lg border bg-white px-3 py-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">
+                          {version.version_label || `v${version.version_number}`}{" "}
+                          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                            {version.status || "review"}
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {version.generated_by || "unknown"} · {version.generated_at || "just now"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {version.download_url && (
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={`${baseUrl}${version.download_url}`} target="_blank" rel="noreferrer">
+                              Download
+                            </a>
+                          </Button>
+                        )}
+                        {(version.status || "review").toLowerCase() !== "final" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => markReportVersionFinal(version.report_version_id)}
+                            disabled={savingReportVersion}
+                          >
+                            Mark final
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         {pdfPreviewUrl && (

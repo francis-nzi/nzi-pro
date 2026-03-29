@@ -94,6 +94,10 @@ router = APIRouter()
 class GenerateReportPayload(BaseModel):
     template_id: Optional[int] = None
     version_id: Optional[int] = None
+    save_version: bool = False
+    report_version_status: Optional[str] = None
+    report_version_label: Optional[str] = None
+    report_version_notes: Optional[str] = None
 
 
 class ReportVersionUpdatePayload(BaseModel):
@@ -2550,6 +2554,7 @@ def generate_report_with_assets(
 @router.post("/jobs/{job_id}/generate-report")
 def generate_job_report(
     job_id: int,
+    request: Request,
     payload: GenerateReportPayload | None = None,
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -2777,6 +2782,31 @@ def generate_job_report(
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
+
+        report_snapshot_payload, report_snapshot_hash = _build_report_version_snapshot(
+            job_data=job_data,
+            selected_template=render_meta,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            job_actions=job_actions,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            site_breakdowns=site_breakdowns,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            render_values=render_values,
+            target_data=target_data,
+            scope_comparison=scope_comparison,
+            activity_comparison=activity_comparison,
+            site_overall_comparison=site_overall_comparison,
+            assets=assets,
+            generation_date=generation_date,
+        )
+        report_snapshot_json = json.dumps(report_snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
+        normalized_version_status = _normalize_report_version_status(
+            getattr(payload, "report_version_status", None) if payload else None
+        )
         
         # Import Playwright inside function to avoid startup overhead
         from playwright.sync_api import sync_playwright
@@ -2799,14 +2829,77 @@ def generate_job_report(
                 print_background=True
             )
             browser.close()
-        
+
+        saved_report_version: dict[str, Any] | None = None
+        should_save_version = bool(payload.save_version) if payload else False
+        if should_save_version:
+            with get_conn(autocommit=False) as con:
+                _ensure_job_files_table(con)
+                _ensure_report_versions_schema(con)
+                version_row = con.execute(
+                    "SELECT COALESCE(MAX(version_number), 0) + 1 FROM job_report_versions WHERE job_id = %s",
+                    [int(job_id)],
+                ).fetchone()
+                next_version_number = int(version_row[0]) if version_row and version_row[0] is not None else 1
+                saved_report_version = _store_report_version_artifact(
+                    con=con,
+                    job_data=job_data,
+                    version_number=next_version_number,
+                    pdf_bytes=pdf_bytes,
+                    generated_by=_user.get("email", "unknown"),
+                    status=normalized_version_status,
+                    template_id=int(selected_template["template_id"]) if selected_template and selected_template.get("template_id") is not None else None,
+                    template_version_id=int(selected_template["version_id"]) if selected_template and selected_template.get("version_id") is not None else None,
+                    data_hash=report_snapshot_hash,
+                    snapshot_json=report_snapshot_json,
+                    version_label=getattr(payload, "report_version_label", None) if payload else None,
+                    notes=getattr(payload, "report_version_notes", None) if payload else None,
+                )
+                record_audit_event(
+                    con,
+                    request=request,
+                    actor=_user,
+                    action="create",
+                    entity_type="job_report_version",
+                    entity_id=saved_report_version.get("report_version_id"),
+                    client_id=int(job_data.get("client_db_id") or 0) if job_data.get("client_db_id") is not None else None,
+                    job_id=int(job_id),
+                    after={
+                        "report_version_id": saved_report_version.get("report_version_id"),
+                        "version_number": saved_report_version.get("version_number"),
+                        "version_label": saved_report_version.get("version_label"),
+                        "status": saved_report_version.get("status"),
+                        "file_id": saved_report_version.get("file_id"),
+                        "data_hash": report_snapshot_hash,
+                    },
+                    metadata={
+                        "report_snapshot_hash": report_snapshot_hash,
+                        "report_version_status": normalized_version_status,
+                        "save_version": True,
+                    },
+                )
+
         # Return PDF
+        headers = {
+            "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+            "X-Report-Version-Saved": "true" if saved_report_version else "false",
+            "X-Report-Snapshot-Hash": report_snapshot_hash,
+        }
+        if saved_report_version:
+            headers.update(
+                {
+                    "X-Report-Version-Id": str(saved_report_version.get("report_version_id") or ""),
+                    "X-Report-Version-Number": str(saved_report_version.get("version_number") or ""),
+                    "X-Report-Version-Label": str(saved_report_version.get("version_label") or ""),
+                    "X-Report-Version-Status": str(saved_report_version.get("status") or ""),
+                    "X-Report-File-Id": str(saved_report_version.get("file_id") or ""),
+                }
+            )
+
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf"
-            }
+            headers=headers,
         )
         
     except HTTPException:
@@ -3158,7 +3251,15 @@ def update_report_version(
 
 
 @router.post("/jobs/{job_id}/generate-professional-pdf")
-def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_current_user)):
+def generate_professional_pdf(
+    job_id: int,
+    request: Request,
+    save_version: bool = Query(False),
+    report_version_status: str = Query("review"),
+    report_version_label: str | None = Query(None),
+    report_version_notes: str | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """
     Generate a professional PDF report using DocRaptor service.
     This produces high-quality, audit-ready PDFs from HTML templates.
@@ -3175,6 +3276,23 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
         site_breakdowns = get_site_emissions_breakdowns(job_id)
         
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+        benchmark_job_id = _get_benchmark_job_id(job_id, job_data.get("benchmark_year"))
+        benchmark_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+        _bg, benchmark_activity_totals, _bd = _build_activity_grouping(benchmark_categories) if benchmark_categories else ({}, {}, {})
+        benchmark_site_breakdowns = get_site_emissions_breakdowns(benchmark_job_id) if benchmark_job_id else {
+            "show_site_tables": False,
+            "site_count": 0,
+            "overall": [],
+            "scope": [],
+            "activity": [],
+            "appendix_rows": [],
+        }
+        period_from = job_data.get("period_start")
+        period_to = job_data.get("period_end")
+        is_yoy_template = False
+        scope_comparison = _build_scope_comparison(scope_totals, benchmark_totals)
+        activity_comparison = _build_activity_comparison(activity_totals, benchmark_activity_totals)
+        site_overall_comparison = _build_site_overall_comparison(site_breakdowns, benchmark_site_breakdowns)
 
         # Prepare data for charts
         activity_labels = [g for g in ACTIVITY_GROUP_ORDER if float(activity_totals.get(g, 0) or 0) > 0]
@@ -3291,7 +3409,30 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
-        
+
+        report_snapshot_payload, report_snapshot_hash = _build_report_version_snapshot(
+            job_data=job_data,
+            selected_template=render_meta,
+            template_variables=template_variables,
+            report_metadata=report_metadata,
+            job_actions=job_actions,
+            scope_totals=scope_totals,
+            benchmark_totals=benchmark_totals,
+            categories=categories,
+            activity_totals=activity_totals,
+            site_breakdowns=site_breakdowns,
+            benchmark_site_breakdowns=benchmark_site_breakdowns,
+            render_values=render_values,
+            target_data=target_data,
+            scope_comparison=scope_comparison,
+            activity_comparison=activity_comparison,
+            site_overall_comparison=site_overall_comparison,
+            assets=assets,
+            generation_date=generation_date,
+        )
+        report_snapshot_json = json.dumps(report_snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
+        normalized_version_status = _normalize_report_version_status(report_version_status)
+
         # Import DocRaptor inside function to avoid startup overhead
         import docraptor
         
@@ -3304,7 +3445,7 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
         
         # Create PDF using DocRaptor
         try:
-            response = doc_api.create_doc(
+            pdf_bytes = doc_api.create_doc(
                 {
                     "test": True,  # test mode (watermarked)
                     "document_content": html_content,
@@ -3318,12 +3459,74 @@ def generate_professional_pdf(job_id: int, _user: dict[str, str] = Depends(_curr
                 }
             )
 
+            saved_report_version: dict[str, Any] | None = None
+            if save_version:
+                with get_conn(autocommit=False) as con:
+                    _ensure_job_files_table(con)
+                    _ensure_report_versions_schema(con)
+                    version_row = con.execute(
+                        "SELECT COALESCE(MAX(version_number), 0) + 1 FROM job_report_versions WHERE job_id = %s",
+                        [int(job_id)],
+                    ).fetchone()
+                    next_version_number = int(version_row[0]) if version_row and version_row[0] is not None else 1
+                    saved_report_version = _store_report_version_artifact(
+                        con=con,
+                        job_data=job_data,
+                        version_number=next_version_number,
+                        pdf_bytes=pdf_bytes,
+                        generated_by=_user.get("email", "unknown"),
+                        status=normalized_version_status,
+                        template_id=int(selected_template["template_id"]) if selected_template and selected_template.get("template_id") is not None else None,
+                        template_version_id=int(selected_template["version_id"]) if selected_template and selected_template.get("version_id") is not None else None,
+                        data_hash=report_snapshot_hash,
+                        snapshot_json=report_snapshot_json,
+                        version_label=report_version_label,
+                        notes=report_version_notes,
+                    )
+                    record_audit_event(
+                        con,
+                        request=request,
+                        actor=_user,
+                        action="create",
+                        entity_type="job_report_version",
+                        entity_id=saved_report_version.get("report_version_id"),
+                        client_id=int(job_data.get("client_db_id") or 0) if job_data.get("client_db_id") is not None else None,
+                        job_id=int(job_id),
+                        after={
+                            "report_version_id": saved_report_version.get("report_version_id"),
+                            "version_number": saved_report_version.get("version_number"),
+                            "version_label": saved_report_version.get("version_label"),
+                            "status": saved_report_version.get("status"),
+                            "file_id": saved_report_version.get("file_id"),
+                            "data_hash": report_snapshot_hash,
+                        },
+                        metadata={
+                            "report_snapshot_hash": report_snapshot_hash,
+                            "report_version_status": normalized_version_status,
+                            "save_version": True,
+                        },
+                    )
+
+            headers = {
+                "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+                "X-Report-Version-Saved": "true" if saved_report_version else "false",
+                "X-Report-Snapshot-Hash": report_snapshot_hash,
+            }
+            if saved_report_version:
+                headers.update(
+                    {
+                        "X-Report-Version-Id": str(saved_report_version.get("report_version_id") or ""),
+                        "X-Report-Version-Number": str(saved_report_version.get("version_number") or ""),
+                        "X-Report-Version-Label": str(saved_report_version.get("version_label") or ""),
+                        "X-Report-Version-Status": str(saved_report_version.get("status") or ""),
+                        "X-Report-File-Id": str(saved_report_version.get("file_id") or ""),
+                    }
+                )
+
             return Response(
-                content=response,
+                content=pdf_bytes,
                 media_type="application/pdf",
-                headers={
-                    "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf"
-                },
+                headers=headers,
             )
 
         except docraptor.rest.ApiException as error:
