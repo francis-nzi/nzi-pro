@@ -37,6 +37,17 @@ type JobActionsSummary = {
   term_counts?: TermCountMap;
 };
 
+type ReportVersion = {
+  report_version_id: number;
+  version_number: number;
+  version_label?: string | null;
+  status?: string | null;
+  generated_at?: string | null;
+  generated_by?: string | null;
+  file_id?: number | null;
+  download_url?: string | null;
+};
+
 type ReportProfile = {
   key: string;
   title: string;
@@ -151,9 +162,11 @@ export default function JobReportNew({
   const [assignment, setAssignment] = useState<TemplateAssignment | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>("crp_standard");
   const [actionsSummary, setActionsSummary] = useState<JobActionsSummary | null>(null);
+  const [reportVersions, setReportVersions] = useState<ReportVersion[]>([]);
   const [draftNotes, setDraftNotes] = useState<DraftNotes>(() => buildInitialDraftNotes(PROFILE_LIBRARY[0]));
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
+  const [savingReportVersion, setSavingReportVersion] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -162,9 +175,10 @@ export default function JobReportNew({
     setLoading(true);
     setError("");
     try {
-      const [assignmentRes, actionsRes] = await Promise.all([
+      const [assignmentRes, actionsRes, versionsRes] = await Promise.all([
         fetch(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }),
         fetch(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }),
+        fetch(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }),
       ]);
 
       if (!assignmentRes.ok) {
@@ -173,9 +187,13 @@ export default function JobReportNew({
       if (!actionsRes.ok) {
         throw new Error(`Failed to load report actions (${actionsRes.status})`);
       }
+      if (!versionsRes.ok) {
+        throw new Error(`Failed to load report versions (${versionsRes.status})`);
+      }
 
       const assignmentPayload = await assignmentRes.json();
       const actionsPayload = await actionsRes.json();
+      const versionsPayload = await versionsRes.json();
 
       const availableTemplates: ReportTemplate[] = Array.isArray(assignmentPayload?.available_templates)
         ? assignmentPayload.available_templates
@@ -185,6 +203,7 @@ export default function JobReportNew({
       setTemplates(availableTemplates);
       setAssignment(currentAssignment);
       setActionsSummary(actionsPayload || null);
+      setReportVersions(Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : []);
 
       const preferredKey =
         currentAssignment?.template_key ||
@@ -260,6 +279,7 @@ export default function JobReportNew({
   const previewStatus = draftReady
     ? "Ready for preview"
     : "Preview is available, but the checklist is still incomplete";
+  const latestReportVersion = reportVersions[0] || null;
   const previewChecklist = useMemo(
     () => [
       {
@@ -284,6 +304,93 @@ export default function JobReportNew({
       },
     ],
     [assignment?.template_id, draftReady, draftStarted, selectedActions]
+  );
+
+  const saveReviewPdf = useCallback(async () => {
+    setSavingReportVersion(true);
+    setStatus("");
+    setError("");
+    try {
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/generate-report-with-assets?save_version=true&report_version_status=review`,
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      );
+      if (!res.ok) {
+        let message = `Failed to save review PDF (${res.status})`;
+        try {
+          const payload = await res.json();
+          if (payload?.detail) {
+            message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+          }
+        } catch {
+          // Keep fallback message.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] || `job-${jobId}-emissions-report.pdf`;
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+
+      const versionNumber = res.headers.get("X-Report-Version-Number") || "";
+      const versionLabel = res.headers.get("X-Report-Version-Label") || `v${versionNumber || "?"}`;
+      setStatus(`Saved review PDF as ${versionLabel}.`);
+      await loadWorkspace();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save review PDF");
+    } finally {
+      setSavingReportVersion(false);
+    }
+  }, [baseUrl, jobId, loadWorkspace]);
+
+  const markVersionFinal = useCallback(
+    async (reportVersionId: number) => {
+      setSavingReportVersion(true);
+      setStatus("");
+      setError("");
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/report-versions/${reportVersionId}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "final" }),
+        });
+        if (!res.ok) {
+          let message = `Failed to mark version final (${res.status})`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) {
+              message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+            }
+          } catch {
+            // Keep fallback message.
+          }
+          throw new Error(message);
+        }
+
+        setStatus("Saved report version marked final.");
+        await loadWorkspace();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to mark version final");
+      } finally {
+        setSavingReportVersion(false);
+      }
+    },
+    [baseUrl, jobId, loadWorkspace]
   );
 
   async function assignProfile(profile: ReportProfile) {
@@ -625,10 +732,84 @@ export default function JobReportNew({
                 </div>
               </div>
 
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-slate-900">Version history</div>
+                    <div className="text-sm text-muted-foreground">
+                      Save a reviewed PDF version to the client folder, then mark it final once the client agrees.
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="bg-white">
+                    {reportVersions.length} saved
+                  </Badge>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {latestReportVersion ? (
+                    <div className="rounded-lg border bg-white px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-900">
+                          {latestReportVersion.version_label || `v${latestReportVersion.version_number}`}
+                        </span>
+                        <Badge variant="outline" className="bg-slate-50">
+                          {latestReportVersion.status || "review"}
+                        </Badge>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {latestReportVersion.generated_at ? `Generated ${latestReportVersion.generated_at}` : "Recently generated"}
+                      </div>
+                      {latestReportVersion.status !== "final" ? (
+                        <div className="mt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => markVersionFinal(latestReportVersion.report_version_id)}
+                            disabled={savingReportVersion}
+                          >
+                            Mark final
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-sm text-muted-foreground">
+                      No saved versions yet. Save the first review PDF when you are ready.
+                    </div>
+                  )}
+                  {reportVersions.slice(1, 4).map((version) => (
+                    <div key={version.report_version_id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900">
+                          {version.version_label || `v${version.version_number}`}
+                        </span>
+                        <Badge variant="outline" className="bg-slate-50">
+                          {version.status || "review"}
+                        </Badge>
+                      </div>
+                      {version.download_url ? (
+                        <a
+                          href={`${baseUrl}${version.download_url}`}
+                          className="text-slate-600 underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Download
+                        </a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-3">
                 <Button onClick={openPreviewModal} className="gap-2">
                   <FileText className="h-4 w-4" />
                   Preview & Export
+                </Button>
+                <Button onClick={saveReviewPdf} disabled={savingReportVersion} variant="secondary" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  {savingReportVersion ? "Saving review PDF..." : "Save review PDF"}
                 </Button>
                 <Button variant="outline" onClick={() => onOpenActions?.()}>
                   Review Actions
@@ -718,6 +899,15 @@ export default function JobReportNew({
             </Button>
             <Button variant="outline" onClick={() => onOpenActions?.()}>
               Review actions
+            </Button>
+            <Button
+              onClick={saveReviewPdf}
+              disabled={savingReportVersion}
+              variant="secondary"
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              {savingReportVersion ? "Saving review PDF..." : "Save review PDF"}
             </Button>
             <Button
               onClick={() => {
