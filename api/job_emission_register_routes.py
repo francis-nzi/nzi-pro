@@ -627,7 +627,7 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
                     "uom": effective_uom,
                     "factor": effective_factor,
                     "ghg_unit": effective_ghg_unit,
-                    "apply_pct": _safe_float(row.get("apply_pct"), 100) or 100,
+                    "apply_pct": _safe_float(row.get("apply_pct")) or 100,
                     "data_source": row.get("data_source"),
                     "data_confidence": row.get("data_confidence"),
                     "notes": row.get("notes"),
@@ -1348,7 +1348,7 @@ def rollforward_emission_register(
                 uom = str(row[14] or "").strip() or None
                 factor = _safe_float(row[15])
                 ghg_unit = str(row[16] or "").strip() or None
-                apply_pct = _safe_float(row[17], 100) or 100
+                apply_pct = _safe_float(row[17]) or 100
                 data_source = "Previous Year Import"
                 data_confidence = str(row[19] or "M").strip() or "M"
                 notes = str(row[20] or "").strip() or None
