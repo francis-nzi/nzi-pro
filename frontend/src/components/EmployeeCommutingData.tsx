@@ -206,7 +206,12 @@ export default function EmployeeCommutingData({
   async function loadDirectEntries() {
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/emission-registers?source_type=employee_commuting`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        const apiError = await readError(res);
+        setError(apiError.message);
+        setDirectEntries([]);
+        return;
+      }
       const data = await res.json();
       const rows = Array.isArray(data?.sources) ? data.sources : [];
       setDirectEntries(
@@ -841,7 +846,9 @@ export default function EmployeeCommutingData({
                     <thead className="sticky top-0 bg-background">
                       <tr className="border-b text-left">
                         <th className="px-3 py-2">Employee / Team</th>
+                        <th className="px-3 py-2">Site</th>
                         <th className="px-3 py-2">Source</th>
+                        <th className="px-3 py-2">Factor ID</th>
                         <th className="px-3 py-2 text-right">Qty</th>
                         <th className="px-3 py-2">Unit</th>
                         <th className="px-3 py-2 text-right">tCO2e</th>
@@ -852,7 +859,14 @@ export default function EmployeeCommutingData({
                       {directEntries.map((row) => (
                         <tr key={row.source_id} className="border-b">
                           <td className="px-3 py-2">{row.employee_name || row.source_name}</td>
-                          <td className="px-3 py-2">{row.source_subtype || "direct"}</td>
+                          <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{row.source_subtype || "direct"}</div>
+                            <div className="text-xs text-muted-foreground">{row.source_name}</div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="font-mono text-xs">{row.original_id || "-"}</div>
+                          </td>
                           <td className="px-3 py-2 text-right">{row.qty?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "-"}</td>
                           <td className="px-3 py-2">{row.uom || ""}</td>
                           <td className="px-3 py-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>

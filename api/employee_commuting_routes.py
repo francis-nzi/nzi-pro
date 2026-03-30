@@ -850,6 +850,13 @@ def _build_wfh_notes(parsed_row: dict[str, Any]) -> str:
     return " | ".join(details)
 
 
+def _calc_commuting_tco2e(quantity: Any, factor: Any, apply_pct: Any, ghg_unit: Any) -> float:
+    value = float(quantity or 0.0) * float(factor or 0.0) * (float(apply_pct or 100.0) / 100.0)
+    if "kg" in str(ghg_unit or "kgCO2e").lower():
+        value /= 1000.0
+    return float(value)
+
+
 def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: list[dict[str, Any]]) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
@@ -927,7 +934,12 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
 
             notes = _build_commuting_notes(parsed_row, mode, variant or "")
             scaled_qty = float(converted_qty) * float(commuting_scale_factor)
-            calc_tco2e = scaled_qty * float(factor_record.get("factor") or 0.0)
+            calc_tco2e = _calc_commuting_tco2e(
+                scaled_qty,
+                factor_record.get("factor"),
+                100,
+                factor_record.get("ghg_unit"),
+            )
             if commuting_scale_factor > 1.0:
                 notes = (
                     f"{notes} | Scaled to full workforce: "
@@ -1009,7 +1021,12 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
             continue
 
         notes = _build_wfh_notes(parsed_row)
-        calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+        calc_tco2e = _calc_commuting_tco2e(
+            converted_qty,
+            factor_record.get("factor"),
+            100,
+            factor_record.get("ghg_unit"),
+        )
         ready_rows.append(
             {
                 "sheet": parsed_row["sheet"],
@@ -1261,7 +1278,12 @@ def _resolve_manual_commuting_rows(
                 continue
 
             notes = _build_commuting_notes(parsed_row, mode, variant or "")
-            calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+            calc_tco2e = _calc_commuting_tco2e(
+                converted_qty,
+                factor_record.get("factor"),
+                100,
+                factor_record.get("ghg_unit"),
+            )
             ready_rows.append(
                 {
                     "scope": "Scope 3",
@@ -1341,7 +1363,12 @@ def _resolve_manual_commuting_rows(
             continue
 
         notes = _build_wfh_notes(parsed_row)
-        calc_tco2e = float(converted_qty) * float(factor_record.get("factor") or 0.0)
+        calc_tco2e = _calc_commuting_tco2e(
+            converted_qty,
+            factor_record.get("factor"),
+            100,
+            factor_record.get("ghg_unit"),
+        )
         ready_rows.append(
             {
                 "scope": "Scope 3",
