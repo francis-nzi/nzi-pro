@@ -103,6 +103,9 @@ export default function JobSourceRegister({
   title,
   description,
   identityLabel,
+  jobNumber,
+  clientName,
+  reportingYear,
 }: {
   jobId: number;
   baseUrl: string;
@@ -110,6 +113,9 @@ export default function JobSourceRegister({
   title: string;
   description: string;
   identityLabel: string;
+  jobNumber?: string | number | null;
+  clientName?: string | null;
+  reportingYear?: string | number | null;
 }) {
   const confirmAction = useConfirmDialog();
   const apiBases = useMemo(() => apiBaseCandidates(baseUrl), [baseUrl]);
@@ -221,7 +227,7 @@ export default function JobSourceRegister({
   async function loadFactors() {
     try {
       const queryParts = new URLSearchParams();
-      queryParts.set("limit", "500");
+      queryParts.set("limit", "2000");
       queryParts.set("offset", "0");
       if (factorScopeFilter !== "All") queryParts.set("scope", factorScopeFilter);
       if (factorSearch.trim()) queryParts.set("search", factorSearch.trim());
@@ -252,6 +258,40 @@ export default function JobSourceRegister({
     setSelectedScope(factor.scope || blankScope(sourceType));
     setSelectedCategory(factor.category || "");
     setUom(factor.uom || "");
+  }
+
+  function safeFilenamePart(value: string | number | null | undefined): string {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    return text
+      .replace(/[<>:"/\\|?*]+/g, "_")
+      .replace(/\s+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function registerFilename(kind: "template" | "example"): string {
+    const yearValue =
+      reportingYear != null && String(reportingYear).trim()
+        ? String(reportingYear).trim()
+        : String(new Date().getFullYear());
+    const parts = [
+      safeFilenamePart(jobNumber || `job_${jobId}`),
+      safeFilenamePart(clientName || "client"),
+      safeFilenamePart(sourceType === "business_travel" ? "business_travel_register" : "asset_register"),
+      safeFilenamePart(yearValue),
+    ].filter(Boolean);
+    const suffix = kind === "example" ? "_example" : "";
+    return `${parts.join("_")}${suffix}.xlsx`;
+  }
+
+  function registerDownloadHref(kind: "template" | "example"): string {
+    const base = baseUrl.replace(/\/$/, "");
+    const params = new URLSearchParams({
+      source_type: sourceType,
+      kind,
+    });
+    return `${base}/jobs/${jobId}/emission-registers/template?${params.toString()}`;
   }
 
   async function createGroup() {
@@ -472,12 +512,12 @@ export default function JobSourceRegister({
 
           <div className="flex flex-wrap gap-2">
             <Button asChild variant="outline">
-              <a href="/downloads/asset-register-template.xlsx" download>
+              <a href={registerDownloadHref("template")} download={registerFilename("template")}>
                 Download template
               </a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/downloads/asset-register-example.xlsx" download>
+              <a href={registerDownloadHref("example")} download={registerFilename("example")}>
                 Download example
               </a>
             </Button>
@@ -486,9 +526,20 @@ export default function JobSourceRegister({
             </Button>
           </div>
 
-          <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
-            Use matching <span className="font-medium text-foreground">group_name</span> values to link sources to
-            shared roll-up groups. Imported workbook rows keep the same structure for inspection and reporting.
+          <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
+            <p>
+              Use matching <span className="font-medium text-foreground">group_name</span> values to link sources to
+              shared roll-up groups. The group name is a business label, while the factor ID lives in{" "}
+              <span className="font-medium text-foreground">Original ID</span> or{" "}
+              <span className="font-medium text-foreground">Factor DB ID</span>.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
+              usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register or{" "}
+              <span className="font-medium text-foreground">business_travel</span> for Business Travel.
+            </p>
+            <p>Suggested pattern: <span className="font-medium text-foreground">[Category] - [Asset or Mode] - [Site or Team]</span>.</p>
+            <p>Search is live on the factor picker, and the template download uses this job&apos;s current site list.</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
@@ -650,6 +701,9 @@ export default function JobSourceRegister({
               <div className="space-y-2">
                 <Label>Search factors</Label>
                 <Input value={factorSearch} onChange={(e) => setFactorSearch(e.target.value)} placeholder="Search by label, category, or ID" />
+                <div className="text-xs text-muted-foreground">
+                  Search filters the factor list before you choose the row to attach to the source.
+                </div>
               </div>
             </div>
             <div className="space-y-2">

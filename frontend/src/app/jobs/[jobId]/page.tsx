@@ -2589,25 +2589,31 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="asset-register" className="mt-0">
-            <JobSourceRegister
-              jobId={jobId}
-              baseUrl={baseUrl}
-              sourceType="asset"
-              title="Asset Register"
-              description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
-              identityLabel="Asset identity"
-            />
+          <JobSourceRegister
+            jobId={jobId}
+            baseUrl={baseUrl}
+            sourceType="asset"
+            title="Asset Register"
+            description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
+            identityLabel="Asset identity"
+            jobNumber={job?.job_number}
+            clientName={job?.client_name}
+            reportingYear={job?.reporting_year}
+          />
           </TabsContent>
 
           <TabsContent value="business-travel" className="mt-0">
-            <JobSourceRegister
-              jobId={jobId}
-              baseUrl={baseUrl}
-              sourceType="business_travel"
-              title="Business Travel Register"
-              description="Capture employee travel sources individually, then group them for Scope 3 reporting and inspection."
-              identityLabel="Travel / employee identity"
-            />
+          <JobSourceRegister
+            jobId={jobId}
+            baseUrl={baseUrl}
+            sourceType="business_travel"
+            title="Business Travel Register"
+            description="Capture employee travel sources individually, then group them for Scope 3 reporting and inspection."
+            identityLabel="Travel / employee identity"
+            jobNumber={job?.job_number}
+            clientName={job?.client_name}
+            reportingYear={job?.reporting_year}
+          />
           </TabsContent>
 
           <TabsContent value="upload" className="mt-0">

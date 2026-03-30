@@ -1139,7 +1139,7 @@ def get_template_factors_test(job_id: int):
 @router.get("/jobs/{job_id}/template-factors")
 def get_template_factors(
     job_id: int,
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=5000),
     offset: int = Query(0, ge=0),
     search: str = Query(""),
     scope: str = Query(""),

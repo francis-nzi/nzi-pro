@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Response, UploadFile
 
 from api.auth import _current_user
 from api.job_scope_data_routes import _lookup_factor_from_reference, _safe_float, _safe_int
 from core.database import get_conn
 from openpyxl import load_workbook
+from services.emission_register_template import build_emission_register_workbook
 from services.audit_log import record_audit_event
 
 router = APIRouter()
@@ -524,6 +526,35 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
         "groups": groups,
         "sources": sources,
     }
+
+
+@router.get("/jobs/{job_id}/emission-registers/template")
+def download_emission_register_template(
+    job_id: int,
+    source_type: str = Query("asset"),
+    kind: str = Query("template"),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_schema(con)
+            if not _job_exists(con, int(job_id)):
+                raise HTTPException(status_code=404, detail="Job not found")
+            payload, file_name = build_emission_register_workbook(
+                con,
+                job_id=int(job_id),
+                source_type=str(source_type or "asset").strip() or "asset",
+                kind=str(kind or "template").strip() or "template",
+            )
+        return Response(
+            content=payload,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build emission register workbook: {e}")
 
 
 @router.get("/jobs/{job_id}/emission-registers")
