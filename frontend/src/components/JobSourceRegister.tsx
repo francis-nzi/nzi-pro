@@ -289,13 +289,34 @@ export default function JobSourceRegister({
     return `${parts.join("_")}${suffix}.xlsx`;
   }
 
-  function registerDownloadHref(kind: "template" | "example"): string {
-    const base = baseUrl.replace(/\/$/, "");
-    const params = new URLSearchParams({
-      source_type: sourceType,
-      kind,
-    });
-    return `${base}/jobs/${jobId}/emission-registers/template?${params.toString()}`;
+  async function downloadRegisterWorkbook(kind: "template" | "example") {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        source_type: sourceType,
+        kind,
+      });
+      const res = await apiFetch(`/jobs/${jobId}/emission-registers/template?${params.toString()}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to download workbook (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = registerFilename(kind);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus(`${kind === "example" ? "Example" : "Template"} workbook downloaded.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to download workbook");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function createGroup() {
@@ -515,15 +536,11 @@ export default function JobSourceRegister({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline">
-              <a href={registerDownloadHref("template")} download={registerFilename("template")}>
-                Download template
-              </a>
+            <Button variant="outline" onClick={() => void downloadRegisterWorkbook("template")} disabled={loading || importing}>
+              Download template
             </Button>
-            <Button asChild variant="outline">
-              <a href={registerDownloadHref("example")} download={registerFilename("example")}>
-                Download example
-              </a>
+            <Button variant="outline" onClick={() => void downloadRegisterWorkbook("example")} disabled={loading || importing}>
+              Download example
             </Button>
             <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
               {importing ? "Importing previous year..." : "Import previous year"}
