@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import EmissionsSummary from "@/components/EmissionsSummary";
 import {
   Select,
   SelectContent,
@@ -596,9 +597,11 @@ export default function EmployeeCommutingData({
 
   return (
     <div className="space-y-5">
+      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+
       <Card>
         <CardHeader>
-          <CardTitle>Emissions Summary</CardTitle>
+          <CardTitle>Commuting Import Summary</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="rounded-md border p-3">

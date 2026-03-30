@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import EmissionsSummary from "@/components/EmissionsSummary";
 import {
   Select,
   SelectContent,
@@ -546,6 +547,8 @@ export default function JobSourceRegister({
 
   return (
     <div className="space-y-6">
+      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+
       <Card>
         <CardHeader>
           <CardTitle>{title}</CardTitle>
