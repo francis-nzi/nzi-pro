@@ -54,6 +54,12 @@ def _ensure_schema(con) -> None:
         ON job_emission_groups (job_id, group_type, factor_db_id, enabled)
         """
     )
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS dataset_id INTEGER REFERENCES datasets(dataset_id)")
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS factor_db_id INTEGER REFERENCES factor_lookup(db_id)")
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS original_id VARCHAR")
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS factor NUMERIC")
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS ghg_unit VARCHAR")
+    con.execute("ALTER TABLE job_emission_groups ADD COLUMN IF NOT EXISTS uom VARCHAR")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_emission_sources (
