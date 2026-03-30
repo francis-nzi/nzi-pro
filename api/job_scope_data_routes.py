@@ -804,7 +804,7 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
             
             # Get all rows
-            df = con.execute(
+            scope_df = con.execute(
                 """
                 SELECT scope, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
                        month_1, month_2, month_3, month_4, month_5, month_6,
@@ -814,6 +814,14 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                 """,
                 [int(job_id)]
             ).df()
+            source_df = con.execute(
+                """
+                SELECT scope, calc_tco2e
+                FROM job_emission_sources
+                WHERE job_id=%s AND COALESCE(enabled, TRUE)=TRUE
+                """,
+                [int(job_id)],
+            ).df()
             
             totals = {
                 "Scope 1": 0.0,
@@ -822,11 +830,19 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
                 "Total": 0.0
             }
             
-            if df is not None and not df.empty:
-                for _, r in df.iterrows():
+            if scope_df is not None and not scope_df.empty:
+                for _, r in scope_df.iterrows():
                     metrics = resolver.row_metrics(r)
                     emissions = float(metrics.get("calc_tco2e") or 0.0)
                     scope = r.get('scope')
+                    if scope in totals:
+                        totals[scope] += emissions
+                        totals["Total"] += emissions
+
+            if source_df is not None and not source_df.empty:
+                for _, r in source_df.iterrows():
+                    scope = r.get("scope")
+                    emissions = float(r.get("calc_tco2e") or 0.0)
                     if scope in totals:
                         totals[scope] += emissions
                         totals["Total"] += emissions

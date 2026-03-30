@@ -234,6 +234,11 @@ export default function JobSourceRegister({
     }
   }
 
+  async function reloadRegisterAndSummary() {
+    await loadRegister();
+    window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+  }
+
   async function loadFactors() {
     try {
       const queryParts = new URLSearchParams();
@@ -378,7 +383,7 @@ export default function JobSourceRegister({
       if (data?.group_id != null) {
         setSelectedGroupId(String(data.group_id));
       }
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create group");
     } finally {
@@ -425,7 +430,7 @@ export default function JobSourceRegister({
       setApplyPct("100");
       setNotes("");
       setStatus(`${recordLabel} added.`);
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to create ${recordLabel.toLowerCase()}`);
     } finally {
@@ -459,7 +464,7 @@ export default function JobSourceRegister({
       setStatus(
         `Workbook imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups.`
       );
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import workbook");
     } finally {
@@ -483,7 +488,7 @@ export default function JobSourceRegister({
       setStatus(
         `Previous year imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups. Qty was reset to 0.`
       );
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import previous year");
     } finally {
@@ -510,7 +515,7 @@ export default function JobSourceRegister({
         throw new Error(text || `Delete failed (${res.status})`);
       }
       setStatus(`${recordLabel} archived.`);
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to delete ${recordLabel.toLowerCase()}`);
     } finally {
@@ -537,7 +542,7 @@ export default function JobSourceRegister({
         throw new Error(text || `Delete failed (${res.status})`);
       }
       setStatus("Group archived.");
-      await loadRegister();
+      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete group");
     } finally {

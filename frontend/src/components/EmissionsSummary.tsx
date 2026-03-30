@@ -63,6 +63,14 @@ export default function EmissionsSummary({ jobId, baseUrl = process.env.NEXT_PUB
     void loadScopeTotals();
   }, [loadScopeTotals]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadScopeTotals();
+    };
+    window.addEventListener("nzi-job-scope-refresh", handleRefresh);
+    return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
+  }, [loadScopeTotals]);
+
   const formatNumber = (num: number) => {
     return num.toLocaleString('en-GB', { 
       minimumFractionDigits: 2, 
