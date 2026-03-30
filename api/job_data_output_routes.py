@@ -49,6 +49,102 @@ def _calc_emissions_tco2e(
     return float(emissions)
 
 
+def _load_data_output_rows(con, job_id: int):
+    df = con.execute(
+        """
+        WITH legacy_rows AS (
+            SELECT
+                jsr.row_id AS row_id,
+                jsr.scope,
+                COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) AS category,
+                COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
+                jsr.level_3,
+                jsr.level_4,
+                COALESCE(jsr.column_text, jsr.report_label) AS activity_name,
+                jsr.dataset_id,
+                jsr.factor_db_id,
+                jsr.original_id,
+                jsr.qty,
+                jsr.uom,
+                jsr.factor,
+                jsr.ghg_unit,
+                jsr.apply_pct,
+                jsr.notes,
+                jsr.source_qty,
+                jsr.source_uom,
+                jsr.is_custom_entry,
+                jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
+                jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
+                jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12,
+                'legacy'::text AS record_type,
+                COALESCE(jsr.data_source, 'Company Data') AS data_source,
+                COALESCE(jsr.data_confidence, 'M') AS data_confidence,
+                d.name AS dataset_name,
+                d.version AS dataset_version,
+                NULL::text AS source_type,
+                NULL::text AS source_subtype,
+                NULL::text AS group_name,
+                NULL::text AS asset_identifier,
+                NULL::text AS employee_name,
+                COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label
+            FROM job_scope_rows jsr
+            LEFT JOIN client_sites s ON jsr.site_id = s.site_id
+            LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
+            WHERE jsr.job_id = %s
+              AND jsr.enabled = TRUE
+        ),
+        source_rows AS (
+            SELECT
+                js.source_id AS row_id,
+                js.scope,
+                COALESCE(js.category, 'Uncategorized'::text) AS category,
+                COALESCE(cs.site_name, 'No Site Assigned'::text) AS site_name,
+                NULL::text AS level_3,
+                NULL::text AS level_4,
+                COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS activity_name,
+                COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
+                COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
+                COALESCE(g.original_id, js.original_id) AS original_id,
+                js.qty,
+                COALESCE(g.uom, js.uom) AS uom,
+                COALESCE(g.factor, js.factor) AS factor,
+                COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
+                js.apply_pct,
+                js.notes,
+                NULL::numeric AS source_qty,
+                NULL::text AS source_uom,
+                FALSE AS is_custom_entry,
+                NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
+                NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
+                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12,
+                'source_register'::text AS record_type,
+                COALESCE(js.data_source, CASE WHEN js.source_type = 'business_travel' THEN 'Business Travel Register' ELSE 'Asset Register' END) AS data_source,
+                COALESCE(js.data_confidence, 'M') AS data_confidence,
+                d.name AS dataset_name,
+                d.version AS dataset_version,
+                js.source_type AS source_type,
+                js.source_subtype AS source_subtype,
+                g.group_name,
+                js.asset_identifier,
+                js.employee_name,
+                COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS report_label
+            FROM job_emission_sources js
+            LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+            LEFT JOIN client_sites cs ON cs.site_id = js.site_id
+            LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
+            WHERE js.job_id = %s
+              AND COALESCE(js.enabled, TRUE) = TRUE
+        )
+        SELECT * FROM legacy_rows
+        UNION ALL
+        SELECT * FROM source_rows
+        ORDER BY COALESCE(site_name, 'No Site Assigned'::text), scope, category, report_label
+        """,
+        [int(job_id), int(job_id)],
+    ).df()
+    return df
+
+
 @router.get("/jobs/{job_id}/data-output")
 def get_job_data_output(
     job_id: int,
@@ -75,52 +171,27 @@ def get_job_data_output(
 
             reporting_year = job_check[1]
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            data_df = _load_data_output_rows(con, int(job_id))
 
-            if scope:
-                # Detailed breakdown for specific scope
-                data_df = con.execute(
-                    """
-                    SELECT 
-                        jsr.row_id,
-                        jsr.scope,
-                        COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) as category,
-                        COALESCE(s.site_name, 'No Site Assigned'::text) as site_name,
-                        jsr.level_3,
-                        jsr.level_4,
-                        COALESCE(jsr.column_text, jsr.report_label) as activity_name,
-                        jsr.dataset_id,
-                        jsr.factor_db_id,
-                        jsr.original_id,
-                        jsr.qty,
-                        jsr.uom,
-                        jsr.factor,
-                        jsr.ghg_unit,
-                        jsr.apply_pct,
-                        jsr.notes,
-                        jsr.source_qty,
-                        jsr.source_uom,
-                        jsr.is_custom_entry,
-                        jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
-                        jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-                    FROM job_scope_rows jsr
-                    LEFT JOIN client_sites s ON jsr.site_id = s.site_id
-                    WHERE jsr.job_id = %s 
-                    AND jsr.scope = %s
-                    AND jsr.enabled = TRUE
-                    ORDER BY COALESCE(s.site_name, 'No Site Assigned'), jsr.category, jsr.level_2, jsr.level_3, jsr.level_4
-                    """,
-                    [int(job_id), scope]
-                ).df()
-
-                if data_df is None or data_df.empty:
+            if data_df is None or data_df.empty:
+                if scope:
                     return {
                         "job_id": int(job_id),
                         "reporting_year": reporting_year,
                         "scope": scope,
                         "categories": []
                     }
+                return {
+                    "job_id": int(job_id),
+                    "reporting_year": reporting_year,
+                    "scopes": []
+                }
 
+            if scope:
+                data_df = data_df[data_df["scope"] == scope].copy()
+
+            if scope:
+                # Detailed breakdown for specific scope
                 # Group by category and site
                 categories = {}
                 for _, row in data_df.iterrows():
@@ -184,47 +255,9 @@ def get_job_data_output(
 
             else:
                 # Summary view - all scopes
-                summary_df = con.execute(
-                    """
-                    SELECT 
-                        jsr.row_id,
-                        jsr.scope,
-                        COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) as category,
-                        COALESCE(s.site_name, 'No Site Assigned'::text) as site_name,
-                        jsr.dataset_id,
-                        jsr.factor_db_id,
-                        jsr.original_id,
-                        jsr.qty,
-                        jsr.uom,
-                        jsr.factor,
-                        jsr.ghg_unit,
-                        jsr.apply_pct,
-                        jsr.notes,
-                        jsr.source_qty,
-                        jsr.source_uom,
-                        jsr.is_custom_entry,
-                        jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
-                        jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-                    FROM job_scope_rows jsr
-                    LEFT JOIN client_sites s ON jsr.site_id = s.site_id
-                    WHERE jsr.job_id = %s
-                    AND jsr.enabled = TRUE
-                    ORDER BY jsr.scope, category, COALESCE(s.site_name, 'No Site Assigned')
-                    """,
-                    [int(job_id)]
-                ).df()
-                
-                if summary_df is None or summary_df.empty:
-                    return {
-                        "job_id": int(job_id),
-                        "reporting_year": reporting_year,
-                        "scopes": []
-                    }
-                
                 # Group by scope and calculate emissions
                 scopes = {}
-                for _, row in summary_df.iterrows():
+                for _, row in data_df.iterrows():
                     scope_name = row['scope'] or 'Unknown'
                     category = row['category'] or 'Uncategorized'
                     site = row['site_name'] or 'No Site Assigned'
@@ -311,39 +344,7 @@ def get_job_data_output_audit(
 
             reporting_year = job_check[1]
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
-            df = con.execute(
-                """
-                SELECT
-                    COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
-                    jsr.row_id,
-                    jsr.scope,
-                    jsr.dataset_id,
-                    jsr.factor_db_id,
-                    jsr.original_id,
-                    COALESCE(jsr.report_label, jsr.column_text, '-'::text) AS report_label,
-                    jsr.source_qty,
-                    jsr.source_uom,
-                    jsr.uom,
-                    jsr.qty,
-                    jsr.factor,
-                    jsr.ghg_unit,
-                    jsr.apply_pct,
-                    jsr.notes,
-                    jsr.data_confidence,
-                    d.name AS dataset_name,
-                    d.version AS dataset_version,
-                    jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
-                    jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                    jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-                FROM job_scope_rows jsr
-                LEFT JOIN client_sites s ON jsr.site_id = s.site_id
-                LEFT JOIN datasets d ON jsr.dataset_id = d.dataset_id
-                WHERE jsr.job_id = %s
-                AND jsr.enabled = TRUE
-                ORDER BY COALESCE(s.site_name, 'No Site Assigned'::text), jsr.scope, COALESCE(jsr.report_label, jsr.column_text, '-'::text), jsr.original_id
-                """,
-                [int(job_id)],
-            ).df()
+            df = _load_data_output_rows(con, int(job_id))
 
             if df is None or df.empty:
                 return {

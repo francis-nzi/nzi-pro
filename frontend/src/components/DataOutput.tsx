@@ -233,6 +233,14 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
     void loadSummary();
   }, [loadSummary]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      void loadSummary();
+    };
+    window.addEventListener("nzi-job-scope-refresh", handleRefresh);
+    return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
+  }, [loadSummary]);
+
   async function loadScopeDetails(scope: string) {
     setSelectedScope(scope);
     setError("");
