@@ -5,12 +5,15 @@ Provides overview metrics for the main dashboard
 
 import csv
 import io
+import math
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
+from services.monthly_emissions import JobMonthlyEmissionsResolver
+from services.emissions_reporting import load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -117,6 +120,86 @@ def _normalize_to_date(value):
             return date.fromisoformat(txt[:10])
         except Exception:
             return None
+
+
+def _normalize_int_value(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    try:
+        return int(value)
+    except Exception:
+        try:
+            return int(float(value))
+        except Exception:
+            return None
+
+
+def _load_dashboard_emissions_jobs(
+    con,
+    *,
+    year: int | None,
+    industry: str | None,
+    crm_owner: str | None,
+):
+    where_parts = ["j.is_crp = TRUE"]
+    params: list[object] = []
+    _apply_client_filters(
+        where_parts,
+        params,
+        client_alias="c",
+        industry=industry,
+        crm_owner=crm_owner,
+    )
+    if year is not None:
+        where_parts.append("j.reporting_year = ?")
+        params.append(int(year))
+    where_sql = "WHERE " + " AND ".join(where_parts)
+    return con.execute(
+        f"""
+        SELECT
+            j.job_id,
+            c.db_id AS client_id,
+            c.client_name,
+            j.reporting_year,
+            COALESCE(
+                EXTRACT(YEAR FROM j.reporting_period_end),
+                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                j.reporting_year
+            ) AS dashboard_year
+        FROM jobs j
+        LEFT JOIN clients c ON c.db_id = j.client_db_id
+        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+        {where_sql}
+        ORDER BY dashboard_year ASC NULLS LAST, j.job_id ASC
+        """,
+        params,
+    ).df()
+
+
+def _attach_dashboard_emissions(con, scope_df):
+    if scope_df is None or scope_df.empty:
+        return scope_df
+
+    resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
+    emissions_vals: list[float] = []
+    for _, row in scope_df.iterrows():
+        row_job_id = _normalize_int_value(row.get("job_id"))
+        if row_job_id is None:
+            emissions_vals.append(0.0)
+            continue
+        resolver = resolver_by_job.get(row_job_id)
+        if resolver is None:
+            resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+            resolver_by_job[row_job_id] = resolver
+        metrics = resolver.row_metrics(row)
+        emissions_vals.append(float(metrics.get("calc_tco2e") or 0.0))
+
+    scope_df = scope_df.copy()
+    scope_df["emissions"] = emissions_vals
+    scope_df["dashboard_year_norm"] = scope_df["dashboard_year"].apply(_normalize_int_value)
+    return scope_df
     if isinstance(value, date):
         return value
     return None
@@ -270,62 +353,68 @@ def get_dashboard_overview(
             clients_count_sql = f"SELECT COUNT(*) FROM clients c {client_where}"
             clients_count = con.execute(clients_count_sql, client_params).fetchone()[0]
             
-            has_scope_rows = _table_exists(con, "job_scope_rows")
-            has_jobs_is_crp = _column_exists(con, "jobs", "is_crp")
-            has_jsr_enabled = has_scope_rows and _column_exists(con, "job_scope_rows", "enabled")
+            # Combined emissions rows for all CRP jobs matching the portfolio filters.
+            emissions_jobs_df = _load_dashboard_emissions_jobs(
+                con,
+                year=None,
+                industry=industry,
+                crm_owner=crm_owner,
+            )
+            emissions_scope_df = None
+            if emissions_jobs_df is not None and not emissions_jobs_df.empty:
+                emissions_job_ids = [int(job_id) for job_id in emissions_jobs_df["job_id"].tolist() if job_id is not None]
+                emissions_scope_df = load_combined_reporting_rows(con, emissions_job_ids)
+                if emissions_scope_df is not None and not emissions_scope_df.empty:
+                    emissions_scope_df = emissions_scope_df.merge(
+                        emissions_jobs_df[["job_id", "client_id", "client_name"]],
+                        on="job_id",
+                        how="left",
+                    )
+                    emissions_scope_df = _attach_dashboard_emissions(con, emissions_scope_df)
 
-            # Total CO2 emissions for selected year (graceful fallback on legacy schemas)
+            # Total CO2 emissions for selected year.
             total_emissions = 0.0
             prev_year_emissions = 0.0
-            if has_scope_rows:
-                emissions_filters = ["j.reporting_year = ?"]
-                if has_jsr_enabled:
-                    emissions_filters.append("jsr.enabled = TRUE")
-                if has_jobs_is_crp:
-                    emissions_filters.append("j.is_crp = TRUE")
-                # apply job/client filters
-                if job_filters:
-                    emissions_filters.extend(job_filters)
+            year_trend = []
+            top_emitting_clients = []
+            if emissions_scope_df is not None and not emissions_scope_df.empty:
+                selected_year_df = emissions_scope_df[emissions_scope_df["dashboard_year_norm"] == int(year)].copy()
+                if not selected_year_df.empty:
+                    total_emissions = float(selected_year_df["emissions"].sum())
 
-                emissions_sql = f"""
-                    SELECT COALESCE(SUM(
-                        CASE
-                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                            THEN (COALESCE(jsr.qty,
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                            ELSE (COALESCE(jsr.qty, 
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                        END
-                    ), 0) as total_emissions
-                    FROM job_scope_rows jsr
-                    JOIN jobs j ON jsr.job_id = j.job_id
-                    LEFT JOIN clients c ON c.db_id = j.client_db_id
-                    WHERE {' AND '.join(emissions_filters)}
-                    """
-                try:
-                    emissions_result = con.execute(emissions_sql, [int(year), *job_params]).fetchone()
-                    total_emissions = float(emissions_result[0]) if emissions_result else 0.0
-                except Exception:
-                    total_emissions = 0.0
+                    client_groups = (
+                        selected_year_df
+                        .groupby(["client_id", "client_name"], dropna=False)["emissions"]
+                        .sum()
+                        .reset_index()
+                        .sort_values("emissions", ascending=False)
+                        .head(5)
+                    )
+                    for _, row in client_groups.iterrows():
+                        client_id = _normalize_int_value(row.get("client_id"))
+                        client_name = str(row.get("client_name") or "Unspecified").strip() or "Unspecified"
+                        top_emitting_clients.append({
+                            "client_name": client_name,
+                            "client_id": client_id,
+                            "emissions": float(row["emissions"]),
+                        })
 
-                if year > 1900:
-                    try:
-                        prev_result = con.execute(emissions_sql, [int(year) - 1, *job_params]).fetchone()
-                        prev_year_emissions = float(prev_result[0]) if prev_result else 0.0
-                    except Exception:
-                        prev_year_emissions = 0.0
+                prev_year_df = emissions_scope_df[emissions_scope_df["dashboard_year_norm"] == int(year) - 1].copy()
+                if not prev_year_df.empty:
+                    prev_year_emissions = float(prev_year_df["emissions"].sum())
+
+                trend_groups = (
+                    emissions_scope_df.dropna(subset=["dashboard_year_norm"])
+                    .groupby("dashboard_year_norm")["emissions"]
+                    .sum()
+                    .reset_index()
+                    .sort_values("dashboard_year_norm")
+                )
+                for _, row in trend_groups.iterrows():
+                    year_trend.append({
+                        "year": int(row["dashboard_year_norm"]),
+                        "total_emissions": float(row["emissions"]),
+                    })
             # Job status breakdown (apply job filters if any)
             job_statuses_query = f"""
                 SELECT 
@@ -369,86 +458,6 @@ def get_dashboard_overview(
             else:
                 total_datasets = 0
             
-            # Top 5 emitting clients for selected year (respecting filters)
-            top_clients_sql = """
-                SELECT
-                    c.client_name,
-                    c.db_id,
-                    COALESCE(SUM(
-                        CASE
-                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                            THEN (COALESCE(jsr.qty,
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                            ELSE (COALESCE(jsr.qty,
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                        END
-                    ), 0) as total_emissions
-                FROM clients c
-                LEFT JOIN jobs j ON c.db_id = j.client_db_id
-                LEFT JOIN job_scope_rows jsr ON j.job_id = jsr.job_id AND jsr.enabled = TRUE
-                WHERE (j.reporting_year = ? OR j.reporting_year IS NULL) AND (j.is_crp = TRUE OR j.is_crp IS NULL){job_where}
-                GROUP BY c.client_name, c.db_id
-                HAVING COALESCE(SUM(
-                    CASE
-                        WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                        THEN (COALESCE(jsr.qty,
-                                COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                            ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                        ELSE (COALESCE(jsr.qty,
-                                COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                            ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                    END
-                ), 0) > 0
-                ORDER BY total_emissions DESC
-                LIMIT 5
-                """
-            top_emitting_clients = []
-            if has_scope_rows:
-                join_enabled = " AND jsr.enabled = TRUE" if has_jsr_enabled else ""
-                is_crp_clause = " AND (j.is_crp = TRUE OR j.is_crp IS NULL)" if has_jobs_is_crp else ""
-                top_clients_sql = top_clients_sql.replace(
-                    "LEFT JOIN job_scope_rows jsr ON j.job_id = jsr.job_id AND jsr.enabled = TRUE",
-                    f"LEFT JOIN job_scope_rows jsr ON j.job_id = jsr.job_id{join_enabled}",
-                ).replace(
-                    " AND (j.is_crp = TRUE OR j.is_crp IS NULL)",
-                    is_crp_clause,
-                )
-
-                try:
-                    top_clients_df = con.execute(top_clients_sql, [int(year), *job_params]).df()
-                except Exception:
-                    top_clients_df = None
-
-                if top_clients_df is not None and not top_clients_df.empty:
-                    for _, row in top_clients_df.iterrows():
-                        top_emitting_clients.append({
-                            "client_name": row['client_name'],
-                            "client_id": int(row['db_id']),
-                            "emissions": float(row['total_emissions'])
-                        })
-            
             # Available years for year selector
             available_years_df = con.execute(
                 """
@@ -474,60 +483,6 @@ def get_dashboard_overview(
                 "SELECT DISTINCT COALESCE(crm_owner, 'Unassigned') AS crm_owner FROM clients ORDER BY crm_owner"
             ).df()
             available_crm = [row['crm_owner'] for _, row in crm_list_df.iterrows()] if crm_list_df is not None else []
-
-            # Year trend of emissions (ignoring year filter to show full history)
-            year_trend = []
-            if has_scope_rows:
-                trend_filters = []
-                if has_jsr_enabled:
-                    trend_filters.append("jsr.enabled = TRUE")
-                if has_jobs_is_crp:
-                    trend_filters.append("j.is_crp = TRUE")
-                if job_filters:
-                    trend_filters.extend(job_filters)
-                trend_where = "WHERE " + " AND ".join(trend_filters) if trend_filters else ""
-
-                trend_sql = f"""
-                    SELECT j.reporting_year,
-                           COALESCE(SUM(
-                               CASE
-                                   WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' THEN
-                                       (COALESCE(jsr.qty,
-                                           COALESCE(jsr.month_1,0)+COALESCE(jsr.month_2,0)+
-                                           COALESCE(jsr.month_3,0)+COALESCE(jsr.month_4,0)+
-                                           COALESCE(jsr.month_5,0)+COALESCE(jsr.month_6,0)+
-                                           COALESCE(jsr.month_7,0)+COALESCE(jsr.month_8,0)+
-                                           COALESCE(jsr.month_9,0)+COALESCE(jsr.month_10,0)+
-                                           COALESCE(jsr.month_11,0)+COALESCE(jsr.month_12,0),0)
-                                       * COALESCE(jsr.factor,0) * COALESCE(jsr.apply_pct,100)/100.0)/1000.0
-                                   ELSE
-                                       (COALESCE(jsr.qty,
-                                           COALESCE(jsr.month_1,0)+COALESCE(jsr.month_2,0)+
-                                           COALESCE(jsr.month_3,0)+COALESCE(jsr.month_4,0)+
-                                           COALESCE(jsr.month_5,0)+COALESCE(jsr.month_6,0)+
-                                           COALESCE(jsr.month_7,0)+COALESCE(jsr.month_8,0)+
-                                           COALESCE(jsr.month_9,0)+COALESCE(jsr.month_10,0)+
-                                           COALESCE(jsr.month_11,0)+COALESCE(jsr.month_12,0),0)
-                                       * COALESCE(jsr.factor,0) * COALESCE(jsr.apply_pct,100)/100.0)
-                               END
-                           ),0) as total_emissions
-                    FROM job_scope_rows jsr
-                    JOIN jobs j ON jsr.job_id = j.job_id
-                    LEFT JOIN clients c ON c.db_id = j.client_db_id
-                    {trend_where}
-                    GROUP BY j.reporting_year
-                    ORDER BY j.reporting_year
-                """
-                try:
-                    trend_df = con.execute(trend_sql, job_params).df()
-                except Exception:
-                    trend_df = None
-                if trend_df is not None and not trend_df.empty:
-                    for _, r in trend_df.iterrows():
-                        year_trend.append({
-                            "year": int(r['reporting_year']) if r['reporting_year'] is not None else None,
-                            "total_emissions": float(r['total_emissions'])
-                        })
 
             # Industry breakdown (count of active clients by industry)
             industry_breakdown = []
@@ -2113,9 +2068,6 @@ def _build_insights_report(
         }
 
     if view == "emissions_portfolio":
-        has_scope_rows = _table_exists(con, "job_scope_rows")
-        has_jobs_is_crp = _column_exists(con, "jobs", "is_crp")
-        has_jsr_enabled = has_scope_rows and _column_exists(con, "job_scope_rows", "enabled")
         where_parts = []
         params = []
         _apply_client_filters(
@@ -2129,70 +2081,71 @@ def _build_insights_report(
             where_parts.append("j.reporting_year = ?")
             params.append(int(year))
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        if has_scope_rows:
-            enabled_guard = "AND COALESCE(jsr.enabled, FALSE) = TRUE" if has_jsr_enabled else ""
-            crp_guard = "AND COALESCE(j.is_crp, FALSE) = TRUE" if has_jobs_is_crp else ""
-            rows_df = con.execute(
-                f"""
-                SELECT
-                    c.db_id AS client_id,
-                    c.client_name,
-                    COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
-                    COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
-                    COUNT(DISTINCT j.job_id) AS total_jobs,
-                    COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN j.job_id END) AS active_jobs,
-                    COALESCE(SUM(
-                        CASE
-                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                            THEN (COALESCE(jsr.qty,
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                            ELSE (COALESCE(jsr.qty,
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                        END
-                    ), 0) AS total_emissions
-                FROM clients c
-                LEFT JOIN jobs j ON j.client_db_id = c.db_id
-                LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id {enabled_guard}
-                {where_sql}
-                {"AND 1=1 " + crp_guard if where_sql else ("WHERE 1=1 " + crp_guard if crp_guard else "")}
-                GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
-                ORDER BY total_emissions DESC, active_jobs DESC, c.client_name
-                LIMIT ?
-                """,
-                [*params, int(limit)],
-            ).df()
-        else:
-            rows_df = con.execute(
-                f"""
-                SELECT
-                    c.db_id AS client_id,
-                    c.client_name,
-                    COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
-                    COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
-                    COUNT(DISTINCT j.job_id) AS total_jobs,
-                    COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN j.job_id END) AS active_jobs,
-                    0::double precision AS total_emissions
-                FROM clients c
-                LEFT JOIN jobs j ON j.client_db_id = c.db_id
-                {where_sql}
-                GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
-                ORDER BY active_jobs DESC, total_jobs DESC, c.client_name
-                LIMIT ?
-                """,
-                [*params, int(limit)],
-            ).df()
+        counts_df = con.execute(
+            f"""
+            SELECT
+                c.db_id AS client_id,
+                c.client_name,
+                COALESCE(NULLIF(TRIM(c.industry), ''), 'Unspecified') AS industry,
+                COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_owner,
+                COUNT(DISTINCT j.job_id) AS total_jobs,
+                COUNT(DISTINCT CASE WHEN COALESCE(NULLIF(TRIM(j.status), ''), 'Open') NOT IN ('Completed', 'Archived', 'Cancelled') THEN j.job_id END) AS active_jobs
+            FROM clients c
+            LEFT JOIN jobs j ON j.client_db_id = c.db_id
+            {where_sql}
+            GROUP BY c.db_id, c.client_name, c.industry, c.crm_owner
+            ORDER BY active_jobs DESC, total_jobs DESC, c.client_name
+            """,
+            params,
+        ).df()
+
+        emissions_jobs_df = _load_dashboard_emissions_jobs(
+            con,
+            year=year,
+            industry=industry,
+            crm_owner=crm_owner,
+        )
+        emissions_rows_df = None
+        if emissions_jobs_df is not None and not emissions_jobs_df.empty:
+            emissions_job_ids = [int(job_id) for job_id in emissions_jobs_df["job_id"].tolist() if job_id is not None]
+            emissions_rows_df = load_combined_reporting_rows(con, emissions_job_ids)
+            if emissions_rows_df is not None and not emissions_rows_df.empty:
+                emissions_rows_df = emissions_rows_df.merge(
+                    emissions_jobs_df[["job_id", "client_id", "client_name"]],
+                    on="job_id",
+                    how="left",
+                )
+                emissions_rows_df = _attach_dashboard_emissions(con, emissions_rows_df)
+                if year is not None:
+                    emissions_rows_df = emissions_rows_df[emissions_rows_df["dashboard_year_norm"] == int(year)].copy()
+
+        emissions_by_client = {}
+        if emissions_rows_df is not None and not emissions_rows_df.empty:
+            grouped = (
+                emissions_rows_df
+                .groupby(["client_id", "client_name"], dropna=False)["emissions"]
+                .sum()
+                .reset_index()
+            )
+            for _, row in grouped.iterrows():
+                client_id = _normalize_int_value(row.get("client_id"))
+                client_name = str(row.get("client_name") or "Unspecified").strip() or "Unspecified"
+                if client_id is None:
+                    continue
+                emissions_by_client[client_id] = {
+                    "client_id": client_id,
+                    "client_name": client_name,
+                    "total_emissions": float(row["emissions"]),
+                }
+
+        rows_df = counts_df.copy()
+        if rows_df is not None and not rows_df.empty:
+            emissions_values = []
+            for _, row in rows_df.iterrows():
+                client_id = _normalize_int_value(row.get("client_id"))
+                emission_entry = emissions_by_client.get(client_id or -1)
+                emissions_values.append(float(emission_entry["total_emissions"]) if emission_entry else 0.0)
+            rows_df["total_emissions"] = emissions_values
         rows = []
         if rows_df is not None and not rows_df.empty:
             for _, row in rows_df.iterrows():
@@ -2205,6 +2158,8 @@ def _build_insights_report(
                     "total_jobs": int(row["total_jobs"] or 0),
                     "total_emissions": round(float(row["total_emissions"] or 0.0), 1),
                 })
+            rows.sort(key=lambda item: (-float(item["total_emissions"] or 0.0), -int(item["active_jobs"]), str(item["client_name"])))
+            rows = rows[:limit]
         return {
             "view": view,
             "title": "Emissions Portfolio",
