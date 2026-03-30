@@ -70,8 +70,8 @@ def _load_data_output_rows(con, job_id: int):
                 jsr.ghg_unit,
                 jsr.apply_pct,
                 jsr.notes,
-                jsr.source_qty,
-                jsr.source_uom,
+                NULL::numeric AS source_qty,
+                NULL::text AS source_uom,
                 jsr.is_custom_entry,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                 jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
@@ -135,9 +135,12 @@ def _load_data_output_rows(con, job_id: int):
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
         )
-        SELECT * FROM legacy_rows
-        UNION ALL
-        SELECT * FROM source_rows
+        SELECT *
+        FROM (
+            SELECT * FROM legacy_rows
+            UNION ALL
+            SELECT * FROM source_rows
+        ) combined_rows
         ORDER BY COALESCE(site_name, 'No Site Assigned'::text), scope, category, report_label
         """,
         [int(job_id), int(job_id)],
