@@ -439,25 +439,18 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     return tokens.every((token) => haystack.includes(token));
   }
 
-  function rowDisplayParts(row: ScopeDataRow | PreviousYearRow): string[] {
-    return uniqueDisplayParts([
-      row.report_label,
-      row.column_text,
-      row.level_3,
-      row.level_4,
-      row.level_2,
-      row.level_1,
-    ]);
-  }
-
   function rowDisplayTitle(row: ScopeDataRow | PreviousYearRow): string {
-    const parts = rowDisplayParts(row);
-    return parts.length ? parts.join(" | ") : row.original_id;
+    return normalizeDisplayValue(row.report_label) || normalizeDisplayValue(row.column_text) || normalizeDisplayValue(row.original_id) || "Row";
   }
 
   function rowDisplaySubtitle(row: ScopeDataRow | PreviousYearRow): string {
     return uniqueDisplayParts([
       row.category,
+      row.column_text,
+      row.level_4,
+      row.level_3,
+      row.level_2,
+      row.level_1,
       row.original_id,
     ]).join(" • ");
   }
@@ -985,25 +978,18 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
     }, {}),
   ).filter((group) => group.length > 1);
 
-  function factorDisplayParts(factor: TemplateFactor): string[] {
-    return uniqueDisplayParts([
-      factor.report_label,
-      factor.column_text,
-      factor.level_3,
-      factor.level_4,
-      factor.level_2,
-      factor.level_1,
-    ]);
-  }
-
   function factorDisplayTitle(factor: TemplateFactor): string {
-    const parts = factorDisplayParts(factor);
-    return parts.length ? parts.join(" | ") : factor.original_id;
+    return normalizeDisplayValue(factor.report_label) || normalizeDisplayValue(factor.column_text) || normalizeDisplayValue(factor.original_id) || "Factor";
   }
 
   function factorDisplaySubtitle(factor: TemplateFactor): string {
     return uniqueDisplayParts([
       factor.category,
+      factor.column_text,
+      factor.level_4,
+      factor.level_3,
+      factor.level_2,
+      factor.level_1,
       factor.original_id,
       factor.source,
     ]).join(" • ");
