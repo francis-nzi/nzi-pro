@@ -600,11 +600,6 @@ export default function EmployeeCommutingData({
         <CardTitle>Employee Commuting &amp; Working From Home</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="text-sm text-muted-foreground">
-          Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
-          Imported rows are written into Job Data below with the appropriate employee commuting source.
-        </div>
-
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-md border p-3">
             <div className="text-xs uppercase text-muted-foreground">Imported Rows</div>
@@ -620,6 +615,11 @@ export default function EmployeeCommutingData({
             <div className="text-xs uppercase text-muted-foreground">Sites Covered</div>
             <div className="mt-1 text-2xl font-semibold">{summary?.site_count ?? 0}</div>
           </div>
+        </div>
+
+        <div className="text-sm text-muted-foreground">
+          Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
+          Imported rows are written into Job Data below with the appropriate employee commuting source.
         </div>
 
         <div className="grid gap-4 md:grid-cols-[1fr_auto]">

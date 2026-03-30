@@ -551,14 +551,16 @@ export default function JobSourceRegister({
           <CardTitle>{title}</CardTitle>
           <p className="text-sm text-muted-foreground">{description}</p>
         </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-4">
-            <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
-            <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
-            <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
-            <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
-          </div>
+        <CardContent className="grid gap-4 md:grid-cols-4">
+          <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
+          <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
+          <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
+          <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardContent className="space-y-5">
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-2 min-w-[220px]">
               <Label>Workbook site</Label>
