@@ -28,6 +28,12 @@ def _ensure_schema(con) -> None:
           group_name VARCHAR NOT NULL,
           site_id INTEGER REFERENCES client_sites(site_id),
           rollup_method VARCHAR NOT NULL DEFAULT 'sum',
+          dataset_id INTEGER REFERENCES datasets(dataset_id),
+          factor_db_id INTEGER REFERENCES factor_lookup(db_id),
+          original_id VARCHAR,
+          factor NUMERIC,
+          ghg_unit VARCHAR,
+          uom VARCHAR,
           notes TEXT,
           enabled BOOLEAN NOT NULL DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT NOW(),
@@ -40,6 +46,12 @@ def _ensure_schema(con) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS job_emission_groups_job_type_name_uidx
         ON job_emission_groups (job_id, group_type, group_name)
         WHERE COALESCE(enabled, TRUE) = TRUE
+        """
+    )
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS job_emission_groups_factor_idx
+        ON job_emission_groups (job_id, group_type, factor_db_id, enabled)
         """
     )
     con.execute(
@@ -85,6 +97,36 @@ def _ensure_schema(con) -> None:
         """
         CREATE INDEX IF NOT EXISTS job_emission_sources_group_idx
         ON job_emission_sources (group_id, enabled)
+        """
+    )
+    con.execute(
+        """
+        UPDATE job_emission_groups g
+        SET dataset_id = COALESCE(g.dataset_id, s.dataset_id),
+            factor_db_id = COALESCE(g.factor_db_id, s.factor_db_id),
+            original_id = COALESCE(g.original_id, s.original_id),
+            factor = COALESCE(g.factor, s.factor),
+            ghg_unit = COALESCE(g.ghg_unit, s.ghg_unit),
+            uom = COALESCE(g.uom, s.uom),
+            updated_at = NOW()
+        FROM (
+            SELECT DISTINCT ON (job_id, group_id)
+              job_id, group_id, dataset_id, factor_db_id, original_id, factor, ghg_unit, uom
+            FROM job_emission_sources
+            WHERE group_id IS NOT NULL
+              AND COALESCE(enabled, TRUE) = TRUE
+              AND (
+                dataset_id IS NOT NULL OR factor_db_id IS NOT NULL OR original_id IS NOT NULL
+                OR factor IS NOT NULL OR ghg_unit IS NOT NULL OR uom IS NOT NULL
+              )
+            ORDER BY job_id, group_id, source_id
+        ) s
+        WHERE g.group_id = s.group_id
+          AND g.job_id = s.job_id
+          AND (
+            g.dataset_id IS NULL OR g.factor_db_id IS NULL OR g.original_id IS NULL
+            OR g.factor IS NULL OR g.ghg_unit IS NULL OR g.uom IS NULL
+          )
         """
     )
 
@@ -180,6 +222,14 @@ _GROUP_HEADER_ALIASES = {
     "site id": "site_id",
     "rollup": "rollup_method",
     "rollup method": "rollup_method",
+    "dataset id": "dataset_id",
+    "factor db id": "factor_db_id",
+    "factor db": "factor_db_id",
+    "original id": "original_id",
+    "factor": "factor",
+    "ghg unit": "ghg_unit",
+    "uom": "uom",
+    "unit": "uom",
     "notes": "notes",
 }
 
@@ -250,6 +300,12 @@ def _ensure_register_group(
     category: str | None = None,
     site_id: int | None = None,
     rollup_method: str = "sum",
+    dataset_id: int | None = None,
+    factor_db_id: int | None = None,
+    original_id: str | None = None,
+    factor: Any | None = None,
+    ghg_unit: str | None = None,
+    uom: str | None = None,
     notes: str | None = None,
 ) -> tuple[int | None, bool]:
     normalized_name = str(group_name or "").strip()
@@ -270,14 +326,33 @@ def _ensure_register_group(
         [int(job_id), normalized_name, str(group_type or "asset").strip() or "asset"],
     ).fetchone()
     if existing:
-        return _safe_int(existing[0]), False
+        group_id = _safe_int(existing[0])
+        if group_id is not None and any(
+            value is not None for value in (dataset_id, factor_db_id, original_id, factor, ghg_unit, uom)
+        ):
+            con.execute(
+                """
+                UPDATE job_emission_groups
+                SET dataset_id = COALESCE(dataset_id, %s),
+                    factor_db_id = COALESCE(factor_db_id, %s),
+                    original_id = COALESCE(original_id, %s),
+                    factor = COALESCE(factor, %s),
+                    ghg_unit = COALESCE(ghg_unit, %s),
+                    uom = COALESCE(uom, %s),
+                    updated_at = NOW()
+                WHERE group_id = %s
+                """,
+                [dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, group_id],
+            )
+        return group_id, False
 
     row = con.execute(
         """
         INSERT INTO job_emission_groups (
-            job_id, scope, category, group_type, group_name, site_id, rollup_method, notes
+            job_id, scope, category, group_type, group_name, site_id, rollup_method,
+            dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, notes
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING group_id
         """,
         [
@@ -288,6 +363,12 @@ def _ensure_register_group(
             normalized_name,
             site_id,
             str(rollup_method or "sum").strip() or "sum",
+            dataset_id,
+            factor_db_id,
+            original_id,
+            factor,
+            ghg_unit,
+            uom,
             notes,
         ],
     ).fetchone()
@@ -411,10 +492,16 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
 
     groups_df = con.execute(
         f"""
-        SELECT group_id, job_id, scope, category, group_type, group_name, site_id, rollup_method, notes, enabled, created_at, updated_at
-        FROM job_emission_groups
+        SELECT
+          g.group_id, g.job_id, g.scope, g.category, g.group_type, g.group_name, g.site_id, cs.site_name,
+          g.rollup_method, g.dataset_id, g.factor_db_id, g.original_id, g.factor, g.ghg_unit, g.uom,
+          fl.report_label AS factor_report_label,
+          g.notes, g.enabled, g.created_at, g.updated_at
+        FROM job_emission_groups g
+        LEFT JOIN client_sites cs ON cs.site_id = g.site_id
+        LEFT JOIN factor_lookup fl ON fl.db_id = g.factor_db_id
         WHERE {" AND ".join(group_where)}
-        ORDER BY group_name
+        ORDER BY g.group_name
         """,
         group_params,
     ).df()
@@ -425,7 +512,13 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
           js.source_id, js.job_id, js.group_id, g.group_name, js.scope, js.category,
           js.source_type, js.source_subtype, js.site_id, cs.site_name,
           js.source_name, js.asset_identifier, js.employee_name,
-          js.dataset_id, js.factor_db_id, js.original_id, js.qty, js.uom, js.factor, js.ghg_unit,
+          g.dataset_id AS group_dataset_id, g.factor_db_id AS group_factor_db_id,
+          g.original_id AS group_original_id, g.factor AS group_factor, g.ghg_unit AS group_ghg_unit, g.uom AS group_uom,
+          COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
+          COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
+          COALESCE(g.original_id, js.original_id) AS original_id,
+          js.qty, COALESCE(g.uom, js.uom) AS uom, COALESCE(g.factor, js.factor) AS factor,
+          COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
           js.apply_pct, js.data_source, js.data_confidence, js.notes, js.detail_json, js.calc_tco2e,
           js.enabled, js.created_at, js.updated_at
         FROM job_emission_sources js
@@ -462,7 +555,15 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
                     "group_type": row.get("group_type"),
                     "group_name": row.get("group_name"),
                     "site_id": _safe_int(row.get("site_id")),
+                    "site_name": row.get("site_name"),
                     "rollup_method": row.get("rollup_method"),
+                    "dataset_id": _safe_int(row.get("dataset_id")),
+                    "factor_db_id": _safe_int(row.get("factor_db_id")),
+                    "original_id": row.get("original_id"),
+                    "factor": _safe_float(row.get("factor")),
+                    "ghg_unit": row.get("ghg_unit"),
+                    "uom": row.get("uom"),
+                    "factor_report_label": row.get("factor_report_label"),
                     "notes": row.get("notes"),
                     "enabled": bool(row.get("enabled")) if row.get("enabled") is not None else True,
                     "created_at": row.get("created_at"),
@@ -477,9 +578,18 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
     total_tco2e = 0.0
     if source_rows:
         for row in source_rows:
+            group_factor = _safe_float(row.get("group_factor"))
+            factor = _safe_float(row.get("factor"))
+            effective_factor = group_factor if group_factor is not None else factor
+            group_ghg_unit = row.get("group_ghg_unit")
+            ghg_unit = row.get("ghg_unit")
+            effective_ghg_unit = group_ghg_unit if group_ghg_unit is not None else ghg_unit
+            group_uom = row.get("group_uom")
+            uom = row.get("uom")
+            effective_uom = group_uom if group_uom is not None else uom
             calc_tco2e = _safe_float(row.get("calc_tco2e"))
             if calc_tco2e is None:
-                calc_tco2e = _calc_tco2e(row.get("qty"), row.get("factor"), row.get("apply_pct"), row.get("ghg_unit"))
+                calc_tco2e = _calc_tco2e(row.get("qty"), effective_factor, row.get("apply_pct"), effective_ghg_unit)
             total_tco2e += float(calc_tco2e or 0)
             sources.append(
                 {
@@ -487,6 +597,12 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
                     "job_id": _safe_int(row.get("job_id")),
                     "group_id": _safe_int(row.get("group_id")),
                     "group_name": row.get("group_name"),
+                    "group_dataset_id": _safe_int(row.get("group_dataset_id")),
+                    "group_factor_db_id": _safe_int(row.get("group_factor_db_id")),
+                    "group_original_id": row.get("group_original_id"),
+                    "group_factor": group_factor,
+                    "group_ghg_unit": group_ghg_unit,
+                    "group_uom": group_uom,
                     "scope": row.get("scope"),
                     "category": row.get("category"),
                     "source_type": row.get("source_type"),
@@ -500,9 +616,9 @@ def _list_register(con, job_id: int, source_type: str | None, include_disabled: 
                     "factor_db_id": _safe_int(row.get("factor_db_id")),
                     "original_id": row.get("original_id"),
                     "qty": _safe_float(row.get("qty")),
-                    "uom": row.get("uom"),
-                    "factor": _safe_float(row.get("factor")),
-                    "ghg_unit": row.get("ghg_unit"),
+                    "uom": effective_uom,
+                    "factor": effective_factor,
+                    "ghg_unit": effective_ghg_unit,
                     "apply_pct": _safe_float(row.get("apply_pct"), 100) or 100,
                     "data_source": row.get("data_source"),
                     "data_confidence": row.get("data_confidence"),
@@ -595,11 +711,17 @@ def create_emission_group(
             if not scope or not group_name:
                 raise HTTPException(status_code=400, detail="scope and group_name are required")
             group_type = str(payload.get("group_type") or "asset").strip() or "asset"
+            factor_db_id = _safe_int(payload.get("factor_db_id"))
+            original_id = str(payload.get("original_id") or "").strip() or None
+            resolved = _resolve_factor(con, scope, original_id, factor_db_id)
+            if resolved.get("factor_db_id") is None and resolved.get("original_id") is None:
+                raise HTTPException(status_code=400, detail="factor_db_id or original_id is required for the group")
             row = con.execute(
                 """
                 INSERT INTO job_emission_groups (
-                    job_id, scope, category, group_type, group_name, site_id, rollup_method, notes
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    job_id, scope, category, group_type, group_name, site_id, rollup_method,
+                    dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, notes
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING group_id
                 """,
                 [
@@ -610,6 +732,12 @@ def create_emission_group(
                     group_name,
                     _safe_int(payload.get("site_id")),
                     str(payload.get("rollup_method") or "sum"),
+                    _safe_int(resolved.get("dataset_id")),
+                    _safe_int(resolved.get("factor_db_id")),
+                    resolved.get("original_id"),
+                    resolved.get("factor"),
+                    resolved.get("ghg_unit"),
+                    resolved.get("uom"),
                     payload.get("notes"),
                 ],
             ).fetchone()
@@ -653,28 +781,41 @@ def create_emission_source(
             _ensure_schema(con)
             if not _job_exists(con, int(job_id)):
                 raise HTTPException(status_code=404, detail="Job not found")
-            scope = str(payload.get("scope") or "").strip()
-            source_name = str(payload.get("source_name") or "").strip()
-            if not scope or not source_name:
-                raise HTTPException(status_code=400, detail="scope and source_name are required")
-            source_type = str(payload.get("source_type") or "asset").strip() or "asset"
             group_id = _safe_int(payload.get("group_id"))
-            if group_id is not None:
-                group_exists = con.execute(
-                    "SELECT 1 FROM job_emission_groups WHERE group_id=%s AND job_id=%s",
-                    [int(group_id), int(job_id)],
-                ).fetchone()
-                if not group_exists:
-                    raise HTTPException(status_code=400, detail="Selected group does not belong to this job")
-
-            factor_db_id = _safe_int(payload.get("factor_db_id"))
-            original_id = str(payload.get("original_id") or "").strip() or None
-            resolved = _resolve_factor(con, scope, original_id, factor_db_id)
+            source_name = str(payload.get("source_name") or "").strip()
+            if group_id is None or not source_name:
+                raise HTTPException(status_code=400, detail="group_id and source_name are required")
+            source_type = str(payload.get("source_type") or "asset").strip() or "asset"
+            group_row = con.execute(
+                """
+                SELECT
+                  g.group_id, g.scope, g.category, g.site_id, g.group_type,
+                  g.dataset_id, g.factor_db_id, g.original_id, g.factor, g.ghg_unit, g.uom
+                FROM job_emission_groups g
+                WHERE g.group_id=%s AND g.job_id=%s AND COALESCE(g.enabled, TRUE) = TRUE
+                """,
+                [int(group_id), int(job_id)],
+            ).fetchone()
+            if not group_row:
+                raise HTTPException(status_code=400, detail="Selected group does not belong to this job")
+            scope = str(group_row[1] or "").strip()
+            if not scope:
+                raise HTTPException(status_code=400, detail="Selected group is missing scope")
+            category = str(group_row[2]).strip() if group_row[2] is not None else None
+            site_id = _safe_int(group_row[3])
+            group_type = str(group_row[4] or source_type).strip() or source_type
+            dataset_id = _safe_int(group_row[5])
+            factor_db_id = _safe_int(group_row[6])
+            original_id = str(group_row[7]).strip() if group_row[7] is not None else None
+            factor = _safe_float(group_row[8])
+            ghg_unit = str(group_row[9]).strip() if group_row[9] is not None else None
+            uom = str(group_row[10]).strip() if group_row[10] is not None else None
+            if factor_db_id is None and original_id is None:
+                raise HTTPException(status_code=400, detail="Selected group needs a factor before assets can be added")
             qty = _safe_float(payload.get("qty"))
-            factor = _safe_float(payload.get("factor"), resolved.get("factor"))
             apply_pct = _safe_float(payload.get("apply_pct"), 100) or 100
-            ghg_unit = payload.get("ghg_unit") or resolved.get("ghg_unit")
             calc_tco2e = _calc_tco2e(qty, factor, apply_pct, ghg_unit)
+            detail_json = payload.get("detail_json") or payload.get("details") or {}
 
             row = con.execute(
                 """
@@ -693,25 +834,25 @@ def create_emission_source(
                     int(job_id),
                     group_id,
                     scope,
-                    payload.get("category") or resolved.get("category"),
-                    source_type,
-                    payload.get("source_subtype"),
-                    _safe_int(payload.get("site_id")),
+                    category,
+                    group_type,
+                    str(payload.get("source_subtype") or "").strip() or None,
+                    site_id,
                     source_name,
-                    payload.get("asset_identifier"),
-                    payload.get("employee_name"),
-                    _safe_int(resolved.get("dataset_id")),
-                    _safe_int(resolved.get("factor_db_id")),
-                    resolved.get("original_id"),
+                    str(payload.get("asset_identifier") or "").strip() or None,
+                    str(payload.get("employee_name") or "").strip() or None,
+                    dataset_id,
+                    factor_db_id,
+                    original_id,
                     qty,
-                    payload.get("uom") or resolved.get("uom"),
+                    uom,
                     factor,
                     ghg_unit,
                     apply_pct,
                     payload.get("data_source") or "Source Register",
                     payload.get("data_confidence") or "M",
                     payload.get("notes"),
-                    payload.get("detail_json") or payload.get("details") or {},
+                    detail_json,
                     calc_tco2e,
                 ],
             ).fetchone()
@@ -787,6 +928,9 @@ async def import_emission_register_workbook(
                 site_id = _safe_int(row.get("site_id")) or _resolve_site_id(con, row.get("site_name"))
                 rollup_method = str(row.get("rollup_method") or "sum").strip() or "sum"
                 notes = str(row.get("notes") or "").strip() or None
+                group_factor_db_id = _safe_int(row.get("factor_db_id"))
+                group_original_id = str(row.get("original_id") or "").strip() or None
+                resolved = _resolve_factor(con, scope, group_original_id, group_factor_db_id)
                 group_id, created = _ensure_register_group(
                     con,
                     job_id=int(job_id),
@@ -796,6 +940,12 @@ async def import_emission_register_workbook(
                     category=category,
                     site_id=site_id,
                     rollup_method=rollup_method,
+                    dataset_id=_safe_int(row.get("dataset_id")) or _safe_int(resolved.get("dataset_id")),
+                    factor_db_id=group_factor_db_id or _safe_int(resolved.get("factor_db_id")),
+                    original_id=group_original_id or resolved.get("original_id"),
+                    factor=_safe_float(row.get("factor"), resolved.get("factor")),
+                    ghg_unit=str(row.get("ghg_unit") or resolved.get("ghg_unit") or "").strip() or None,
+                    uom=str(row.get("uom") or resolved.get("uom") or "").strip() or None,
                     notes=notes,
                 )
                 if group_id is not None:
@@ -853,6 +1003,84 @@ async def import_emission_register_workbook(
                         if created:
                             auto_groups_created += 1
 
+                group_factor = {
+                    "dataset_id": None,
+                    "factor_db_id": None,
+                    "original_id": None,
+                    "factor": None,
+                    "ghg_unit": None,
+                    "uom": None,
+                    "scope": scope,
+                    "category": category,
+                    "site_id": site_id,
+                }
+                if group_id is not None:
+                    group_row = con.execute(
+                        """
+                        SELECT dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, scope, category, site_id
+                        FROM job_emission_groups
+                        WHERE group_id=%s
+                        """,
+                        [int(group_id)],
+                    ).fetchone()
+                    if group_row:
+                        group_factor = {
+                            "dataset_id": _safe_int(group_row[0]),
+                            "factor_db_id": _safe_int(group_row[1]),
+                            "original_id": str(group_row[2]).strip() if group_row[2] is not None else None,
+                            "factor": _safe_float(group_row[3]),
+                            "ghg_unit": str(group_row[4]).strip() if group_row[4] is not None else None,
+                            "uom": str(group_row[5]).strip() if group_row[5] is not None else None,
+                            "scope": str(group_row[6] or scope).strip() or scope,
+                            "category": str(group_row[7]).strip() if group_row[7] is not None else category,
+                            "site_id": _safe_int(group_row[8]) if group_row[8] is not None else site_id,
+                        }
+                        if (
+                            group_factor["factor_db_id"] is None
+                            and group_factor["original_id"] is None
+                            and (resolved.get("factor_db_id") is not None or resolved.get("original_id") is not None)
+                        ):
+                            _ensure_register_group(
+                                con,
+                                job_id=int(job_id),
+                                group_name=group_name,
+                                scope=group_factor["scope"],
+                                group_type=group_type,
+                                category=group_factor["category"],
+                                site_id=group_factor["site_id"],
+                                rollup_method="sum",
+                                dataset_id=_safe_int(resolved.get("dataset_id")),
+                                factor_db_id=_safe_int(resolved.get("factor_db_id")),
+                                original_id=resolved.get("original_id"),
+                                factor=resolved.get("factor"),
+                                ghg_unit=resolved.get("ghg_unit"),
+                                uom=resolved.get("uom"),
+                                notes=None,
+                            )
+                            group_row = con.execute(
+                                """
+                                SELECT dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, scope, category, site_id
+                                FROM job_emission_groups
+                                WHERE group_id=%s
+                                """,
+                                [int(group_id)],
+                            ).fetchone()
+                            if group_row:
+                                group_factor = {
+                                    "dataset_id": _safe_int(group_row[0]),
+                                    "factor_db_id": _safe_int(group_row[1]),
+                                    "original_id": str(group_row[2]).strip() if group_row[2] is not None else None,
+                                    "factor": _safe_float(group_row[3]),
+                                    "ghg_unit": str(group_row[4]).strip() if group_row[4] is not None else None,
+                                    "uom": str(group_row[5]).strip() if group_row[5] is not None else None,
+                                    "scope": str(group_row[6] or scope).strip() or scope,
+                                    "category": str(group_row[7]).strip() if group_row[7] is not None else category,
+                                    "site_id": _safe_int(group_row[8]) if group_row[8] is not None else site_id,
+                                }
+                        scope = group_factor["scope"]
+                        category = group_factor["category"]
+                        site_id = group_factor["site_id"]
+
                 if _register_source_exists(
                     con,
                     job_id=int(job_id),
@@ -869,6 +1097,15 @@ async def import_emission_register_workbook(
                 ):
                     skipped_sources += 1
                     continue
+
+                factor = group_factor["factor"] if group_factor["factor"] is not None else _safe_float(resolved.get("factor"))
+                ghg_unit = group_factor["ghg_unit"] or ghg_unit or resolved.get("ghg_unit")
+                uom = group_factor["uom"] or uom or str(resolved.get("uom") or "").strip() or None
+                dataset_id = group_factor["dataset_id"] if group_factor["dataset_id"] is not None else _safe_int(resolved.get("dataset_id"))
+                factor_db_id = group_factor["factor_db_id"] if group_factor["factor_db_id"] is not None else _safe_int(resolved.get("factor_db_id"))
+                original_id = group_factor["original_id"] or resolved.get("original_id") or original_id
+                if factor_db_id is None and original_id is None:
+                    raise HTTPException(status_code=400, detail=f"Row {idx} needs a factor for its group")
 
                 calc_tco2e = _calc_tco2e(qty, factor, apply_pct, ghg_unit)
                 detail_json = {
@@ -901,9 +1138,9 @@ async def import_emission_register_workbook(
                         source_name,
                         asset_identifier,
                         employee_name,
-                        _safe_int(resolved.get("dataset_id")),
-                        _safe_int(resolved.get("factor_db_id")),
-                        resolved.get("original_id") or original_id,
+                        dataset_id,
+                        factor_db_id,
+                        original_id,
                         qty,
                         uom or resolved.get("uom"),
                         factor,
@@ -981,7 +1218,8 @@ def rollforward_emission_register(
 
             group_rows = con.execute(
                 """
-                SELECT group_id, scope, category, group_type, group_name, site_id, rollup_method, notes
+                SELECT group_id, scope, category, group_type, group_name, site_id, rollup_method,
+                       dataset_id, factor_db_id, original_id, factor, ghg_unit, uom, notes
                 FROM job_emission_groups
                 WHERE job_id=%s
                   AND lower(COALESCE(group_type, '')) = lower(%s)
@@ -1021,7 +1259,13 @@ def rollforward_emission_register(
                 group_name = group_name or f"{source_type_value} group {old_group_id}"
                 site_id = _safe_int(row[5])
                 rollup_method = str(row[6] or "sum").strip() or "sum"
-                notes = str(row[7] or "").strip() or None
+                dataset_id = _safe_int(row[7])
+                factor_db_id = _safe_int(row[8])
+                original_id = str(row[9] or "").strip() or None
+                factor = _safe_float(row[10])
+                ghg_unit = str(row[11] or "").strip() or None
+                uom = str(row[12] or "").strip() or None
+                notes = str(row[13] or "").strip() or None
                 group_id, created = _ensure_register_group(
                     con,
                     job_id=int(job_id),
@@ -1031,6 +1275,12 @@ def rollforward_emission_register(
                     category=category,
                     site_id=site_id,
                     rollup_method=rollup_method,
+                    dataset_id=dataset_id,
+                    factor_db_id=factor_db_id,
+                    original_id=original_id,
+                    factor=factor,
+                    ghg_unit=ghg_unit,
+                    uom=uom,
                     notes=notes,
                 )
                 if old_group_id is not None:
@@ -1040,6 +1290,12 @@ def rollforward_emission_register(
                         "category": category,
                         "site_id": site_id,
                         "rollup_method": rollup_method,
+                        "dataset_id": dataset_id,
+                        "factor_db_id": factor_db_id,
+                        "original_id": original_id,
+                        "factor": factor,
+                        "ghg_unit": ghg_unit,
+                        "uom": uom,
                     }
                 if group_id is not None:
                     new_group_map[int(old_group_id)] = int(group_id)
@@ -1091,6 +1347,25 @@ def rollforward_emission_register(
                     skipped_sources += 1
                     continue
 
+                effective_dataset_id = _safe_int((group_meta or {}).get("dataset_id")) if group_meta else None
+                effective_factor_db_id = _safe_int((group_meta or {}).get("factor_db_id")) if group_meta else None
+                effective_original_id = (group_meta or {}).get("original_id") or original_id
+                effective_factor = _safe_float((group_meta or {}).get("factor")) if group_meta else None
+                effective_ghg_unit = (group_meta or {}).get("ghg_unit") or ghg_unit
+                effective_uom = (group_meta or {}).get("uom") or uom
+                if effective_dataset_id is None:
+                    effective_dataset_id = dataset_id
+                if effective_factor_db_id is None:
+                    effective_factor_db_id = factor_db_id
+                if effective_original_id is None:
+                    effective_original_id = original_id
+                if effective_factor is None:
+                    effective_factor = factor
+                if effective_ghg_unit is None:
+                    effective_ghg_unit = ghg_unit
+                if effective_uom is None:
+                    effective_uom = uom
+
                 calc_tco2e = 0.0
                 merged_detail_json = {
                     **(detail_json if isinstance(detail_json, dict) else {}),
@@ -1123,13 +1398,13 @@ def rollforward_emission_register(
                         source_name,
                         asset_identifier,
                         employee_name,
-                        dataset_id,
-                        factor_db_id,
-                        original_id,
+                        effective_dataset_id,
+                        effective_factor_db_id,
+                        effective_original_id,
                         qty,
-                        uom,
-                        factor,
-                        ghg_unit,
+                        effective_uom,
+                        effective_factor,
+                        effective_ghg_unit,
                         apply_pct,
                         data_source,
                         data_confidence,

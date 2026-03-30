@@ -35,7 +35,15 @@ type RegisterGroup = {
   group_type: string;
   group_name: string;
   site_id: number | null;
+  site_name: string | null;
   rollup_method: string;
+  dataset_id: number | null;
+  factor_db_id: number | null;
+  original_id: string | null;
+  factor: number | null;
+  ghg_unit: string | null;
+  uom: string | null;
+  factor_report_label: string | null;
   notes: string | null;
   enabled: boolean;
   source_count?: number;
@@ -132,16 +140,12 @@ export default function JobSourceRegister({
   const [sources, setSources] = useState<RegisterSource[]>([]);
   const [summary, setSummary] = useState<RegisterPayload["summary"] | null>(null);
 
-  const [selectedSiteId, setSelectedSiteId] = useState<string>("__none__");
   const [selectedGroupId, setSelectedGroupId] = useState<string>("__none__");
-  const [selectedScope, setSelectedScope] = useState<string>(blankScope(sourceType));
-  const [selectedCategory, setSelectedCategory] = useState("");
   const [sourceName, setSourceName] = useState("");
   const [assetIdentifier, setAssetIdentifier] = useState("");
   const [employeeName, setEmployeeName] = useState("");
   const [sourceSubtype, setSourceSubtype] = useState("");
   const [qty, setQty] = useState("1");
-  const [uom, setUom] = useState("");
   const [applyPct, setApplyPct] = useState("100");
   const [notes, setNotes] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -257,11 +261,15 @@ export default function JobSourceRegister({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [factorScopeFilter, factorSearch]);
 
+  const selectedGroup = useMemo(
+    () => groups.find((group) => String(group.group_id) === selectedGroupId) ?? null,
+    [groups, selectedGroupId],
+  );
+
   function chooseFactor(factor: FactorOption) {
     setSelectedFactor(factor);
-    setSelectedScope(factor.scope || blankScope(sourceType));
-    setSelectedCategory(factor.category || "");
-    setUom(factor.uom || "");
+    setGroupScope(factor.scope || blankScope(sourceType));
+    setGroupCategory(factor.category || "");
   }
 
   function safeFilenamePart(value: string | number | null | undefined): string {
@@ -330,8 +338,16 @@ export default function JobSourceRegister({
         category: groupCategory.trim() || null,
         site_id: groupSiteId !== "__none__" ? Number(groupSiteId) : null,
         rollup_method: groupRollupMethod,
+        factor_db_id: selectedFactor?.factor_db_id ?? null,
+        original_id: selectedFactor?.original_id ?? null,
+        factor: selectedFactor?.factor ?? null,
+        ghg_unit: selectedFactor?.ghg_unit ?? null,
+        uom: selectedFactor?.uom ?? null,
         notes: groupNotes.trim() || null,
       };
+      if (!payload.factor_db_id && !payload.original_id) {
+        throw new Error("Choose a factor for the group before creating it.");
+      }
       const res = await apiFetch(`/jobs/${jobId}/emission-registers/groups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -345,7 +361,13 @@ export default function JobSourceRegister({
       setGroupCategory("");
       setGroupNotes("");
       setGroupSiteId("__none__");
+      setSelectedFactor(null);
+      setFactorSearch("");
       setStatus("Group created.");
+      const data = await res.json().catch(() => null);
+      if (data?.group_id != null) {
+        setSelectedGroupId(String(data.group_id));
+      }
       await loadRegister();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create group");
@@ -358,22 +380,17 @@ export default function JobSourceRegister({
     setLoading(true);
     setError("");
     try {
+      if (!selectedGroup) {
+        throw new Error("Choose a group before adding an asset.");
+      }
       const payload = {
-        scope: selectedScope,
-        category: selectedCategory.trim() || selectedFactor?.category || null,
         source_type: sourceType,
         source_subtype: sourceSubtype.trim() || null,
-        site_id: selectedSiteId !== "__none__" ? Number(selectedSiteId) : null,
         group_id: selectedGroupId !== "__none__" ? Number(selectedGroupId) : null,
         source_name: sourceName.trim(),
         asset_identifier: assetIdentifier.trim() || null,
         employee_name: employeeName.trim() || null,
-        original_id: selectedFactor?.original_id || null,
-        factor_db_id: selectedFactor?.factor_db_id ?? null,
         qty: qty.trim() ? Number(qty) : null,
-        uom: uom.trim() || selectedFactor?.uom || null,
-        factor: selectedFactor?.factor ?? null,
-        ghg_unit: selectedFactor?.ghg_unit ?? null,
         apply_pct: applyPct.trim() ? Number(applyPct) : 100,
         data_source: sourceType === "business_travel" ? "Business Travel Register" : "Asset Register",
         data_confidence: "M",
@@ -381,7 +398,6 @@ export default function JobSourceRegister({
         detail_json: {},
       };
       if (!payload.source_name) throw new Error(`${recordLabel} name is required.`);
-      if (!payload.original_id) throw new Error("Select a factor before adding the source.");
       const res = await apiFetch(`/jobs/${jobId}/emission-registers/sources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -398,7 +414,6 @@ export default function JobSourceRegister({
       setQty("1");
       setApplyPct("100");
       setNotes("");
-      setSelectedFactor(null);
       setStatus(`${recordLabel} added.`);
       await loadRegister();
     } catch (e) {
@@ -644,6 +659,60 @@ export default function JobSourceRegister({
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-3 rounded-md border bg-muted/10 p-4">
+              <div className="space-y-2">
+                <Label>Factor search</Label>
+                <Input
+                  value={factorSearch}
+                  onChange={(e) => setFactorSearch(e.target.value)}
+                  placeholder="Search by label, category, UOM, or ID"
+                />
+                <div className="text-xs text-muted-foreground">
+                  Pick the factor family this group will own. All assets added underneath inherit it.
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Factor scope filter</Label>
+                <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All</SelectItem>
+                    <SelectItem value="Scope 1">Scope 1</SelectItem>
+                    <SelectItem value="Scope 2">Scope 2</SelectItem>
+                    <SelectItem value="Scope 3">Scope 3</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="max-h-56 overflow-auto rounded-md border bg-background">
+                <div className="grid grid-cols-[1fr_auto] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <div>Factor</div>
+                  <div>Select</div>
+                </div>
+                {factorOptions.length ? factorOptions.map((factor) => (
+                  <div key={`${factor.original_id}-${factor.report_label}`} className="grid grid-cols-[1fr_auto] gap-2 border-b px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{factor.report_label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {factor.scope} · {factor.category} · UOM {factor.uom || "-"} · {factor.original_id}
+                      </div>
+                    </div>
+                    <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
+                      {selectedFactor?.original_id === factor.original_id ? "Chosen" : "Use"}
+                    </Button>
+                  </div>
+                )) : (
+                  <div className="p-3 text-sm text-muted-foreground">Search to find a factor, then choose it for this group.</div>
+                )}
+              </div>
+              {selectedFactor ? (
+                <div className="rounded-md border bg-background p-3 text-sm">
+                  <div className="font-medium">Selected factor</div>
+                  <div className="text-muted-foreground">
+                    {selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} · UOM {selectedFactor.uom || "-"}
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
               Group the similar assets that share the same emissions factor family. Each asset remains a separate row,
               but the group controls the roll-up bucket.
@@ -653,7 +722,7 @@ export default function JobSourceRegister({
               <Input value={groupNotes} onChange={(e) => setGroupNotes(e.target.value)} placeholder="Optional roll-up notes" />
             </div>
             <div className="flex justify-end">
-              <Button onClick={createGroup} disabled={loading || !groupName.trim()}>Create group</Button>
+              <Button onClick={createGroup} disabled={loading || !groupName.trim() || !selectedFactor}>Create group</Button>
             </div>
           </CardContent>
         </Card>
@@ -681,36 +750,9 @@ export default function JobSourceRegister({
                 <Input value={sourceSubtype} onChange={(e) => setSourceSubtype(e.target.value)} placeholder="Optional subtype" />
               </div>
               <div className="space-y-2">
-                <Label>Scope</Label>
-                <Select value={selectedScope} onValueChange={setSelectedScope}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Scope 1">Scope 1</SelectItem>
-                    <SelectItem value="Scope 2">Scope 2</SelectItem>
-                    <SelectItem value="Scope 3">Scope 3</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Category</Label>
-                <Input value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} placeholder="Optional if factor fills it" />
-              </div>
-              <div className="space-y-2">
-                <Label>Site</Label>
-                <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-                  <SelectTrigger><SelectValue placeholder="Optional site..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No site</SelectItem>
-                    {sites.filter((s) => s.site_id != null).map((s) => (
-                      <SelectItem key={String(s.site_id)} value={String(s.site_id)}>{s.site_name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
                 <Label>Group</Label>
                 <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-                  <SelectTrigger><SelectValue placeholder="Optional group..." /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Choose a group..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">No group</SelectItem>
                     {groups.map((g) => (
@@ -727,61 +769,31 @@ export default function JobSourceRegister({
                 <Label>Apply %</Label>
                 <Input type="number" step="any" value={applyPct} onChange={(e) => setApplyPct(e.target.value)} />
               </div>
-              <div className="space-y-2">
-                <Label>Unit</Label>
-                <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="e.g. km, miles, kWh" />
-              </div>
-              <div className="space-y-2">
-                <Label>Search factors</Label>
-                <Input value={factorSearch} onChange={(e) => setFactorSearch(e.target.value)} placeholder="Search by label, category, or ID" />
-                <div className="text-xs text-muted-foreground">
-                  Search filters the factor list before you choose the row to attach to the source.
-                </div>
-              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Factor scope filter</Label>
-              <Select value={factorScopeFilter} onValueChange={setFactorScopeFilter}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All</SelectItem>
-                  <SelectItem value="Scope 1">Scope 1</SelectItem>
-                  <SelectItem value="Scope 2">Scope 2</SelectItem>
-                  <SelectItem value="Scope 3">Scope 3</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="max-h-56 overflow-auto rounded-md border">
-              <div className="grid grid-cols-[1fr_auto] gap-2 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
-                <div>Factor</div>
-                <div>Select</div>
-              </div>
-              {factorOptions.length ? factorOptions.map((factor) => (
-                <div key={`${factor.original_id}-${factor.report_label}`} className="grid grid-cols-[1fr_auto] gap-2 border-b px-3 py-2 text-sm">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{factor.report_label}</div>
-                    <div className="text-xs text-muted-foreground">{factor.scope} · {factor.category} · {factor.original_id}</div>
-                  </div>
-                  <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
-                    {selectedFactor?.original_id === factor.original_id ? "Chosen" : "Use"}
-                  </Button>
-                </div>
-              )) : (
-                <div className="p-3 text-sm text-muted-foreground">Search to find a factor, then choose it to attach to the source.</div>
+            <div className="rounded-md border bg-muted/10 p-4 text-sm text-muted-foreground space-y-2">
+              <p>
+                Assets inherit scope, site, category, and factor from the selected group. Pick the group that
+                represents the roll-up bucket, then add each individual asset underneath it.
+              </p>
+              {selectedGroup ? (
+                <p className="text-foreground">
+                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> · {selectedGroup.scope}
+                  {selectedGroup.site_name ? ` · ${selectedGroup.site_name}` : ""}
+                  {selectedGroup.factor_report_label ? ` · ${selectedGroup.factor_report_label}` : ""}
+                  {selectedGroup.uom ? ` · UOM ${selectedGroup.uom}` : ""}
+                </p>
+              ) : (
+                <p className="text-amber-700">
+                  Choose or create a group first so the asset can inherit its factor and reporting details.
+                </p>
               )}
             </div>
-            {selectedFactor ? (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <div className="font-medium">Selected factor</div>
-                <div className="text-muted-foreground">{selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""}</div>
-              </div>
-            ) : null}
             <div className="space-y-2">
               <Label>Notes</Label>
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
             </div>
             <div className="flex justify-end">
-              <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedFactor}>{`Add ${recordLabel.toLowerCase()}`}</Button>
+              <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedGroup || !selectedGroup.factor_db_id}>{`Add ${recordLabel.toLowerCase()}`}</Button>
             </div>
           </CardContent>
         </Card>
@@ -797,7 +809,9 @@ export default function JobSourceRegister({
               <tr className="border-b text-left">
                 <th className="p-2">Name</th>
                 <th className="p-2">Scope</th>
-                <th className="p-2">Type</th>
+                <th className="p-2">Site</th>
+                <th className="p-2">Factor</th>
+                <th className="p-2">UOM</th>
                 <th className="p-2">Sources</th>
                 <th className="p-2 text-right">tCO2e</th>
                 <th className="p-2"></th>
@@ -808,7 +822,12 @@ export default function JobSourceRegister({
                 <tr key={g.group_id} className="border-b">
                   <td className="p-2">{g.group_name}</td>
                   <td className="p-2">{g.scope}</td>
-                  <td className="p-2">{g.group_type}</td>
+                  <td className="p-2">{g.site_name || "-"}</td>
+                  <td className="p-2">
+                    <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
+                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
+                  </td>
+                  <td className="p-2">{g.uom || "-"}</td>
                   <td className="p-2">{g.source_count ?? 0}</td>
                   <td className="p-2 text-right">{(g.source_total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                   <td className="p-2 text-right">
@@ -816,7 +835,7 @@ export default function JobSourceRegister({
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={6} className="p-4 text-muted-foreground">No groups yet.</td></tr>
+                <tr><td colSpan={8} className="p-4 text-muted-foreground">No groups yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -833,7 +852,6 @@ export default function JobSourceRegister({
               <tr className="border-b text-left">
                 <th className="p-2">Name</th>
                 <th className="p-2">Identity</th>
-                <th className="p-2">Scope</th>
                 <th className="p-2">Group</th>
                 <th className="p-2 text-right">Qty</th>
                 <th className="p-2 text-right">tCO2e</th>
@@ -846,7 +864,6 @@ export default function JobSourceRegister({
                 <tr key={s.source_id} className="border-b">
                   <td className="p-2">{s.source_name}</td>
                   <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
-                  <td className="p-2">{s.scope}</td>
                   <td className="p-2">{s.group_name || "-"}</td>
                   <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
                   <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
@@ -856,7 +873,7 @@ export default function JobSourceRegister({
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={8} className="p-4 text-muted-foreground">No records yet.</td></tr>
+                <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
               )}
             </tbody>
           </table>

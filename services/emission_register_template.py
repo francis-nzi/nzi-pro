@@ -107,23 +107,23 @@ def _populate_template_examples(source_type: str, site_name: str) -> tuple[list[
     site_label = site_name or "No site"
     if str(source_type or "").strip() == "business_travel":
         groups = [
-            ["Business Travel - Grey Fleet - Example", "Scope 3", "Travel", site_label, "sum", "One group can hold many employee travel records."],
-            ["Business Travel - Rail - Example", "Scope 3", "Travel", site_label, "sum", "Keep the group label stable from year to year."],
+            ["Business Travel - Grey Fleet - Example", "Scope 3", "Travel", site_label, "sum", "4_301_3070_9_1", "4_301_3070_9_1", 0.1987, "kgCO2e", "mile", "One group can hold many employee travel records."],
+            ["Business Travel - Rail - Example", "Scope 3", "Travel", site_label, "sum", "4_301_3071_4_1", "4_301_3071_4_1", 0.0632, "kgCO2e", "mile", "Keep the group label stable from year to year."],
         ]
         sources = [
-            ["Business Travel - Grey Fleet - Example", "Employee 001 - Grey Fleet", "", "Employee 001", "Scope 3", "Travel", site_label, "Grey fleet mileage", "4_301_3070_9_1", "", 1, "mile", 100, "Example Workbook", "H", "One of several employees in the same travel group."],
-            ["Business Travel - Grey Fleet - Example", "Employee 002 - Grey Fleet", "", "Employee 002", "Scope 3", "Travel", site_label, "Grey fleet mileage", "4_301_3070_9_1", "", 1, "mile", 100, "Example Workbook", "H", "Same factor, separate source identity."],
-            ["Business Travel - Rail - Example", "Employee 003 - Rail", "", "Employee 003", "Scope 3", "Travel", site_label, "Rail travel", "4_301_3071_4_1", "", 250, "mile", 100, "Example Workbook", "H", "A second group with a different travel mode."],
+            ["Business Travel - Grey Fleet - Example", "Employee 001 - Grey Fleet", "", "Employee 001", "Grey fleet mileage", 1, 100, "Example Workbook", "H", "One of several employees in the same travel group."],
+            ["Business Travel - Grey Fleet - Example", "Employee 002 - Grey Fleet", "", "Employee 002", "Grey fleet mileage", 1, 100, "Example Workbook", "H", "Same factor, separate source identity."],
+            ["Business Travel - Rail - Example", "Employee 003 - Rail", "", "Employee 003", "Rail travel", 250, 100, "Example Workbook", "H", "A second group with a different travel mode."],
         ]
     else:
         groups = [
-            ["Fleet - Medium Diesel - Example", "Scope 1", "Fleet", site_label, "sum", "Use one group for a natural roll-up bucket such as a vehicle fleet."],
-            ["Equipment - Refrigeration - Example", "Scope 1", "Equipment", site_label, "sum", "Use the group to roll multiple similar assets into one report line."],
+            ["Fleet - Medium Diesel - Example", "Scope 1", "Fleet", site_label, "sum", "4_301_3070_9_1", "4_301_3070_9_1", 0.1623, "kgCO2e", "vehicle", "Use one group for a natural roll-up bucket such as a vehicle fleet."],
+            ["Equipment - Refrigeration - Example", "Scope 1", "Equipment", site_label, "sum", "4_301_3061_4_1", "4_301_3061_4_1", 0.2084, "kgCO2e", "unit", "Use the group to roll multiple similar assets into one report line."],
         ]
         sources = [
-            ["Fleet - Medium Diesel - Example", "Vehicle 1", "REG-001", "", "Scope 1", "Fleet", site_label, "Medium diesel vehicle", "4_301_3070_9_1", "", 1, "vehicle", 100, "Example Workbook", "H", "Two vehicles can share the same factor while keeping unique identities."],
-            ["Fleet - Medium Diesel - Example", "Vehicle 2", "REG-002", "", "Scope 1", "Fleet", site_label, "Medium diesel vehicle", "4_301_3070_9_1", "", 1, "vehicle", 100, "Example Workbook", "H", "This is the row-level source record."],
-            ["Equipment - Refrigeration - Example", "Refrigeration Unit", "REF-01", "", "Scope 1", "Equipment", site_label, "Refrigeration", "4_301_3061_4_1", "", 1, "unit", 100, "Example Workbook", "H", "A different asset family in a separate group."],
+            ["Fleet - Medium Diesel - Example", "Vehicle 1", "REG-001", "", "Medium diesel vehicle", 1, 100, "Example Workbook", "H", "Two vehicles can share the same factor while keeping unique identities."],
+            ["Fleet - Medium Diesel - Example", "Vehicle 2", "REG-002", "", "Medium diesel vehicle", 1, 100, "Example Workbook", "H", "This is the row-level asset record."],
+            ["Equipment - Refrigeration - Example", "Refrigeration Unit", "REF-01", "", "Refrigeration", 1, 100, "Example Workbook", "H", "A different asset family in a separate group."],
         ]
     return groups, sources
 
@@ -169,8 +169,8 @@ def build_emission_register_workbook(
     instructions["A1"] = "Asset Register Workbook"
     instructions["A1"].font = Font(bold=True, size=14)
     instructions["A2"] = (
-        "Add groups and source rows here, then import the workbook back into the job. "
-        "The dropdowns are linked to this job's current scope, category, site, and roll-up options."
+        "Add groups and asset rows here, then import the workbook back into the job. "
+        "Groups own the scope, site, and factor family; asset rows inherit that configuration."
     )
     instructions["A4"] = "Job Number"
     instructions["B4"] = job_number
@@ -189,9 +189,9 @@ def build_emission_register_workbook(
         instructions[ref].fill = title_fill
     for row_idx, text in enumerate(
         [
-            "Group name is a human-readable roll-up label, such as Fleet - Medium Diesel - Head Office.",
-            "A group can contain many source rows. Use the group to roll similar source records together for reporting.",
-            "Asset Name and Asset Identity describe the real-world item; Factor DB ID / Original ID describe the emissions factor used.",
+            "Group name is the roll-up label and the place where Scope, Site, and factor metadata live.",
+            "A group can contain many asset rows. Use it to roll similar assets together for reporting.",
+            "Asset Name and Asset Identity describe the real-world item; Group rows carry Factor DB ID / Original ID / Factor / UOM.",
             "group_type is an internal family label. It usually stays as asset for the Asset Register or business_travel for Business Travel.",
             "Keep group names stable year to year so rollforward imports stay clean.",
         ],
@@ -208,20 +208,26 @@ def build_emission_register_workbook(
     instructions["B19"] = "Equipment - Refrigeration - Head Office"
     instructions["B20"] = "Business Travel - Grey Fleet - Field Team"
 
-    groups_headers = ["Group Name", "Scope", "Category", "Site Name", "Rollup Method", "Notes"]
+    groups_headers = [
+        "Group Name",
+        "Scope",
+        "Category",
+        "Site Name",
+        "Rollup Method",
+        "Factor DB ID",
+        "Original ID",
+        "Factor",
+        "GHG Unit",
+        "UOM",
+        "Notes",
+    ]
     sources_headers = [
         "Group Name",
         "Asset Name",
         "Asset Identity",
         "Employee Name",
-        "Scope",
-        "Category",
-        "Site Name",
         "Asset Subtype",
-        "Original ID",
-        "Factor DB ID",
         "Qty",
-        "UOM",
         "Apply %",
         "Data Source",
         "Data Confidence",
@@ -246,7 +252,12 @@ def build_emission_register_workbook(
             "C": 16,
             "D": 24,
             "E": 18,
-            "F": 44,
+            "F": 14,
+            "G": 14,
+            "H": 14,
+            "I": 14,
+            "J": 12,
+            "K": 44,
         },
     )
     _set_column_widths(
@@ -256,18 +267,12 @@ def build_emission_register_workbook(
             "B": 28,
             "C": 20,
             "D": 20,
-            "E": 14,
-            "F": 16,
-            "G": 24,
-            "H": 22,
-            "I": 18,
-            "J": 12,
-            "K": 12,
-            "L": 14,
-            "M": 12,
-            "N": 18,
-            "O": 14,
-            "P": 36,
+            "E": 24,
+            "F": 12,
+            "G": 12,
+            "H": 18,
+            "I": 14,
+            "J": 36,
         },
     )
 
@@ -298,10 +303,6 @@ def build_emission_register_workbook(
     _add_column_validation(groups_ws, f"C2:C{end_row}", "Lists", "B", 2, 1 + len(CATEGORY_OPTIONS))
     _add_column_validation(groups_ws, f"D2:D{end_row}", "Lists", "D", 2, 1 + len(site_choices))
     _add_column_validation(groups_ws, f"E2:E{end_row}", "Lists", "C", 2, 1 + len(ROLLUP_METHOD_OPTIONS))
-
-    _add_column_validation(sources_ws, f"E2:E{end_row}", "Lists", "A", 2, 1 + len(SCOPE_OPTIONS))
-    _add_column_validation(sources_ws, f"F2:F{end_row}", "Lists", "B", 2, 1 + len(CATEGORY_OPTIONS))
-    _add_column_validation(sources_ws, f"G2:G{end_row}", "Lists", "D", 2, 1 + len(site_choices))
 
     instructions.sheet_view.showGridLines = False
     groups_ws.freeze_panes = "A2"

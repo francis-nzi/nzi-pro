@@ -1063,18 +1063,30 @@ def run_migrations():
               group_name VARCHAR NOT NULL,
               site_id INTEGER REFERENCES client_sites(site_id),
               rollup_method VARCHAR NOT NULL DEFAULT 'sum',
+              dataset_id INTEGER REFERENCES datasets(dataset_id),
+              factor_db_id INTEGER REFERENCES factor_lookup(db_id),
+              original_id VARCHAR,
+              factor NUMERIC,
+              ghg_unit VARCHAR,
+              uom VARCHAR,
               notes TEXT,
               enabled BOOLEAN NOT NULL DEFAULT TRUE,
               created_at TIMESTAMP DEFAULT NOW(),
               updated_at TIMESTAMP DEFAULT NOW()
             )
-            """
+        """
         )
         con.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS job_emission_groups_job_type_name_uidx
             ON job_emission_groups (job_id, group_type, group_name)
             WHERE COALESCE(enabled, TRUE) = TRUE
+            """
+        )
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS job_emission_groups_factor_idx
+            ON job_emission_groups (job_id, group_type, factor_db_id, enabled)
             """
         )
         con.execute(
@@ -1120,6 +1132,36 @@ def run_migrations():
             """
             CREATE INDEX IF NOT EXISTS job_emission_sources_group_idx
             ON job_emission_sources (group_id, enabled)
+            """
+        )
+        con.execute(
+            """
+            UPDATE job_emission_groups g
+            SET dataset_id = COALESCE(g.dataset_id, s.dataset_id),
+                factor_db_id = COALESCE(g.factor_db_id, s.factor_db_id),
+                original_id = COALESCE(g.original_id, s.original_id),
+                factor = COALESCE(g.factor, s.factor),
+                ghg_unit = COALESCE(g.ghg_unit, s.ghg_unit),
+                uom = COALESCE(g.uom, s.uom),
+                updated_at = NOW()
+            FROM (
+                SELECT DISTINCT ON (job_id, group_id)
+                  job_id, group_id, dataset_id, factor_db_id, original_id, factor, ghg_unit, uom
+                FROM job_emission_sources
+                WHERE group_id IS NOT NULL
+                  AND COALESCE(enabled, TRUE) = TRUE
+                  AND (
+                    dataset_id IS NOT NULL OR factor_db_id IS NOT NULL OR original_id IS NOT NULL
+                    OR factor IS NOT NULL OR ghg_unit IS NOT NULL OR uom IS NOT NULL
+                  )
+                ORDER BY job_id, group_id, source_id
+            ) s
+            WHERE g.group_id = s.group_id
+              AND g.job_id = s.job_id
+              AND (
+                g.dataset_id IS NULL OR g.factor_db_id IS NULL OR g.original_id IS NULL
+                OR g.factor IS NULL OR g.ghg_unit IS NULL OR g.uom IS NULL
+              )
             """
         )
         
