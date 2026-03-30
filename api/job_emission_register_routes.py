@@ -234,6 +234,8 @@ _GROUP_HEADER_ALIASES = {
 }
 
 _SOURCE_HEADER_ALIASES = {
+    "asset group": "group_name",
+    "assets": "group_name",
     "group name": "group_name",
     "group": "group_name",
     "source name": "source_name",
@@ -652,18 +654,36 @@ def download_emission_register_template(
     job_id: int,
     source_type: str = Query("asset"),
     kind: str = Query("template"),
+    site_id: int | None = Query(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
         with get_conn() as con:
             _ensure_schema(con)
-            if not _job_exists(con, int(job_id)):
+            job_row = con.execute(
+                "SELECT client_db_id FROM jobs WHERE job_id=%s",
+                [int(job_id)],
+            ).fetchone()
+            if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
+            if site_id is not None:
+                site_row = con.execute(
+                    """
+                    SELECT 1
+                    FROM client_sites
+                    WHERE site_id=%s AND client_db_id=%s
+                    LIMIT 1
+                    """,
+                    [int(site_id), _safe_int(job_row[0])],
+                ).fetchone()
+                if not site_row:
+                    raise HTTPException(status_code=400, detail="Selected site does not belong to this job")
             payload, file_name = build_emission_register_workbook(
                 con,
                 job_id=int(job_id),
                 source_type=str(source_type or "asset").strip() or "asset",
                 kind=str(kind or "template").strip() or "template",
+                site_id=_safe_int(site_id),
             )
         return Response(
             content=payload,

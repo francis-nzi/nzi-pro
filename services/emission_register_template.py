@@ -77,6 +77,24 @@ def _job_sites(con, client_db_id: int | None) -> list[str]:
     return [str(row[0]).strip() for row in rows if str(row[0] or "").strip()]
 
 
+def _resolve_selected_site(con, client_db_id: int | None, site_id: int | None) -> dict[str, Any] | None:
+    if client_db_id is None or site_id is None:
+        return None
+    row = con.execute(
+        """
+        SELECT site_id, site_name
+        FROM client_sites
+        WHERE client_db_id=%s
+          AND site_id=%s
+        LIMIT 1
+        """,
+        [int(client_db_id), int(site_id)],
+    ).fetchone()
+    if not row:
+        return None
+    return {"site_id": int(row[0]), "site_name": str(row[1]).strip() if row[1] is not None else None}
+
+
 def _add_column_validation(ws, cell_range: str, sheet_name: str, col_letter: str, start_row: int, end_row: int) -> None:
     if end_row < start_row:
         return
@@ -134,6 +152,7 @@ def build_emission_register_workbook(
     job_id: int,
     source_type: str,
     kind: str = "template",
+    site_id: int | None = None,
 ) -> tuple[bytes, str]:
     kind_value = "example" if str(kind or "").strip().lower() == "example" else "template"
     source_type_value = "business_travel" if str(source_type or "").strip() == "business_travel" else "asset"
@@ -153,9 +172,11 @@ def build_emission_register_workbook(
     base_name = "_".join(part for part in filename_parts if part)
     file_name = f"{base_name}{'_example' if kind_value == 'example' else ''}.xlsx"
 
-    sites = _job_sites(con, context.get("client_db_id"))
+    selected_site = _resolve_selected_site(con, context.get("client_db_id"), _safe_int(site_id))
+    selected_site_name = selected_site.get("site_name") if selected_site else None
+    sites = [selected_site_name] if selected_site_name else _job_sites(con, context.get("client_db_id"))
     site_choices = ["No site", *sites] if sites else ["No site"]
-    example_site = sites[0] if sites else "No site"
+    example_site = selected_site_name or (sites[0] if sites else "No site")
 
     wb = Workbook()
     instructions = wb.active
@@ -180,11 +201,17 @@ def build_emission_register_workbook(
     instructions["B6"] = "Asset Register" if source_type_value == "asset" else "Business Travel Register"
     instructions["A7"] = "Reporting Year"
     instructions["B7"] = reporting_year
-    instructions["A8"] = "Filename convention"
-    instructions["B8"] = f"[job_no]_[client]_[data_register]_[reporting_year]{'_example' if kind_value == 'example' else ''}.xlsx"
-    instructions["A10"] = "Naming guidance"
-    instructions["A10"].font = Font(bold=True)
-    for ref in ("A4", "A5", "A6", "A7", "A8"):
+    instructions["A8"] = "Site selection"
+    instructions["B8"] = selected_site_name or "All sites"
+    instructions["A9"] = "Filename convention"
+    filename_pattern = "[job_no]_[client]"
+    if selected_site_name:
+        filename_pattern += "_[site]"
+    filename_pattern += "_[data_register]_[reporting_year]"
+    instructions["B9"] = f"{filename_pattern}{'_example' if kind_value == 'example' else ''}.xlsx"
+    instructions["A11"] = "Naming guidance"
+    instructions["A11"].font = Font(bold=True)
+    for ref in ("A4", "A5", "A6", "A7", "A8", "A9"):
         instructions[ref].font = Font(bold=True)
         instructions[ref].fill = title_fill
     for row_idx, text in enumerate(
@@ -194,19 +221,20 @@ def build_emission_register_workbook(
             "Asset Name and Asset Identity describe the real-world item; Group rows carry Factor DB ID / Original ID / Factor / UOM.",
             "group_type is an internal family label. It usually stays as asset for the Asset Register or business_travel for Business Travel.",
             "Keep group names stable year to year so rollforward imports stay clean.",
+            "If you choose a site for the download, the workbook only includes that site in the site dropdowns.",
         ],
-        start=11,
+        start=12,
     ):
         instructions[f"A{row_idx}"] = text
         instructions[f"A{row_idx}"].alignment = Alignment(wrap_text=True, vertical="top")
-    instructions["A17"] = "Suggested naming pattern"
-    instructions["A17"].font = Font(bold=True)
-    instructions["B17"] = "[Category] - [Asset or Mode] - [Site or Team]"
-    instructions["A18"] = "Example group names"
+    instructions["A18"] = "Suggested naming pattern"
     instructions["A18"].font = Font(bold=True)
-    instructions["B18"] = "Fleet - Medium Diesel - London Office"
-    instructions["B19"] = "Equipment - Refrigeration - Head Office"
-    instructions["B20"] = "Business Travel - Grey Fleet - Field Team"
+    instructions["B18"] = "[Category] - [Asset or Mode] - [Site or Team]"
+    instructions["A19"] = "Example group names"
+    instructions["A19"].font = Font(bold=True)
+    instructions["B19"] = "Fleet - Medium Diesel - London Office"
+    instructions["B20"] = "Equipment - Refrigeration - Head Office"
+    instructions["B21"] = "Business Travel - Grey Fleet - Field Team"
 
     groups_headers = [
         "Group Name",
@@ -222,7 +250,7 @@ def build_emission_register_workbook(
         "Notes",
     ]
     sources_headers = [
-        "Group Name",
+        "Asset Group",
         "Asset Name",
         "Asset Identity",
         "Employee Name",
@@ -303,6 +331,7 @@ def build_emission_register_workbook(
     _add_column_validation(groups_ws, f"C2:C{end_row}", "Lists", "B", 2, 1 + len(CATEGORY_OPTIONS))
     _add_column_validation(groups_ws, f"D2:D{end_row}", "Lists", "D", 2, 1 + len(site_choices))
     _add_column_validation(groups_ws, f"E2:E{end_row}", "Lists", "C", 2, 1 + len(ROLLUP_METHOD_OPTIONS))
+    _add_column_validation(sources_ws, f"A2:A{end_row}", "Groups", "A", 2, 1 + max(end_row, 2))
 
     instructions.sheet_view.showGridLines = False
     groups_ws.freeze_panes = "A2"
