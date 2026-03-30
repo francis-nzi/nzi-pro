@@ -145,6 +145,8 @@ export default function JobSourceRegister({
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>(blankScope(sourceType));
   const [factorOptions, setFactorOptions] = useState<FactorOption[]>([]);
   const [selectedFactor, setSelectedFactor] = useState<FactorOption | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();
@@ -219,7 +221,7 @@ export default function JobSourceRegister({
   async function loadFactors() {
     try {
       const queryParts = new URLSearchParams();
-      queryParts.set("limit", "50");
+      queryParts.set("limit", "500");
       queryParts.set("offset", "0");
       if (factorScopeFilter !== "All") queryParts.set("scope", factorScopeFilter);
       if (factorSearch.trim()) queryParts.set("search", factorSearch.trim());
@@ -341,6 +343,64 @@ export default function JobSourceRegister({
     }
   }
 
+  async function importWorkbook() {
+    if (!uploadFile) {
+      setError("Choose an Excel workbook first.");
+      return;
+    }
+    setImporting(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", uploadFile);
+      const res = await apiFetch(
+        `/jobs/${jobId}/emission-registers/import-workbook?source_type=${encodeURIComponent(sourceType)}`,
+        {
+          method: "POST",
+          body: fd,
+        }
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Workbook import failed (${res.status})`);
+      }
+      const data = await res.json();
+      setUploadFile(null);
+      setStatus(
+        `Workbook imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups.`
+      );
+      await loadRegister();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to import workbook");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function importPreviousYear() {
+    setImporting(true);
+    setError("");
+    try {
+      const res = await apiFetch(
+        `/jobs/${jobId}/emission-registers/rollforward?source_type=${encodeURIComponent(sourceType)}`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Previous-year import failed (${res.status})`);
+      }
+      const data = await res.json();
+      setStatus(
+        `Previous year imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups. Qty was reset to 0.`
+      );
+      await loadRegister();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to import previous year");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function removeSource(sourceId: number, label: string) {
     const confirmed = await confirmAction({
       title: "Delete source",
@@ -402,11 +462,51 @@ export default function JobSourceRegister({
           <CardTitle>{title}</CardTitle>
           <p className="text-sm text-muted-foreground">{description}</p>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-4">
-          <div><div className="text-xs text-muted-foreground">Sources</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+        <CardContent className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-4">
+            <div><div className="text-xs text-muted-foreground">Sources</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <a href="/downloads/asset-register-template.xlsx" download>
+                Download template
+              </a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href="/downloads/asset-register-example.xlsx" download>
+                Download example
+              </a>
+            </Button>
+            <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
+              {importing ? "Importing previous year..." : "Import previous year"}
+            </Button>
+          </div>
+
+          <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+            Use matching <span className="font-medium text-foreground">group_name</span> values to link sources to
+            shared roll-up groups. Imported workbook rows keep the same structure for inspection and reporting.
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
+            <div className="space-y-2">
+              <Label htmlFor="asset-register-upload">Import workbook (.xlsx)</Label>
+              <Input
+                id="asset-register-upload"
+                type="file"
+                accept=".xlsx"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button onClick={importWorkbook} disabled={loading || importing || !uploadFile} className="w-full">
+                {importing ? "Importing workbook..." : "Import workbook"}
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -548,8 +648,8 @@ export default function JobSourceRegister({
                 <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="e.g. km, miles, kWh" />
               </div>
               <div className="space-y-2">
-                <Label>Factor search</Label>
-                <Input value={factorSearch} onChange={(e) => setFactorSearch(e.target.value)} placeholder="Search factor IDs or labels" />
+                <Label>Search factors</Label>
+                <Input value={factorSearch} onChange={(e) => setFactorSearch(e.target.value)} placeholder="Search by label, category, or ID" />
               </div>
             </div>
             <div className="space-y-2">

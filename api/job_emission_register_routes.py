@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import io
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 
 from api.auth import _current_user
 from api.job_scope_data_routes import _lookup_factor_from_reference, _safe_float, _safe_int
 from core.database import get_conn
+from openpyxl import load_workbook
+from services.audit_log import record_audit_event
 
 router = APIRouter()
 
@@ -96,6 +99,244 @@ def _calc_tco2e(qty: Any, factor: Any, apply_pct: Any, ghg_unit: Any) -> float:
 
 def _job_exists(con, job_id: int) -> bool:
     return bool(con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone())
+
+
+def _resolve_site_id(con, site_name: str | None) -> int | None:
+    name = str(site_name or "").strip()
+    if not name:
+        return None
+    row = con.execute(
+        """
+        SELECT site_id
+        FROM client_sites
+        WHERE lower(site_name) = lower(%s)
+        ORDER BY site_id
+        LIMIT 1
+        """,
+        [name],
+    ).fetchone()
+    return _safe_int(row[0]) if row else None
+
+
+def _resolve_previous_register_job_id(con, job_id: int) -> dict[str, Any] | None:
+    current_job = con.execute(
+        """
+        SELECT client_db_id, reporting_period_start, reporting_period_end, reporting_year
+        FROM jobs
+        WHERE job_id=%s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not current_job:
+        return None
+
+    client_db_id = _safe_int(current_job[0])
+    if client_db_id is None:
+        return None
+
+    current_start = current_job[1]
+    current_end = current_job[2]
+    current_year = _safe_int(current_job[3])
+
+    prior = con.execute(
+        """
+        SELECT job_id, job_number, title, reporting_period_start, reporting_period_end, reporting_year
+        FROM jobs
+        WHERE client_db_id=%s
+          AND job_id <> %s
+          AND (
+            (%s IS NOT NULL AND reporting_period_end IS NOT NULL AND reporting_period_end < %s)
+            OR (%s IS NOT NULL AND reporting_period_start IS NOT NULL AND reporting_period_start < %s)
+            OR (%s IS NOT NULL AND reporting_year IS NOT NULL AND reporting_year < %s)
+          )
+        ORDER BY COALESCE(reporting_period_end, DATE '1900-01-01') DESC, COALESCE(reporting_year, 0) DESC, job_id DESC
+        LIMIT 1
+        """,
+        [client_db_id, int(job_id), current_start, current_start, current_start, current_end, current_year, current_year],
+    ).fetchone()
+    if not prior:
+        return None
+    return {
+        "job_id": _safe_int(prior[0]),
+        "job_number": prior[1],
+        "title": prior[2],
+        "reporting_period_start": prior[3],
+        "reporting_period_end": prior[4],
+        "reporting_year": _safe_int(prior[5]),
+    }
+
+
+_GROUP_HEADER_ALIASES = {
+    "group name": "group_name",
+    "group": "group_name",
+    "scope": "scope",
+    "category": "category",
+    "group type": "group_type",
+    "type": "group_type",
+    "site": "site_name",
+    "site name": "site_name",
+    "site id": "site_id",
+    "rollup": "rollup_method",
+    "rollup method": "rollup_method",
+    "notes": "notes",
+}
+
+_SOURCE_HEADER_ALIASES = {
+    "group name": "group_name",
+    "group": "group_name",
+    "source name": "source_name",
+    "source": "source_name",
+    "source type": "source_type",
+    "type": "source_type",
+    "source subtype": "source_subtype",
+    "site": "site_name",
+    "site name": "site_name",
+    "site id": "site_id",
+    "asset identifier": "asset_identifier",
+    "employee name": "employee_name",
+    "scope": "scope",
+    "category": "category",
+    "original id": "original_id",
+    "factor db id": "factor_db_id",
+    "factor": "factor",
+    "qty": "qty",
+    "quantity": "qty",
+    "uom": "uom",
+    "unit": "uom",
+    "apply": "apply_pct",
+    "apply pct": "apply_pct",
+    "apply percent": "apply_pct",
+    "data source": "data_source",
+    "data confidence": "data_confidence",
+    "notes": "notes",
+}
+
+
+def _sheet_rows(ws, alias_map: dict[str, str]) -> list[dict[str, Any]]:
+    headers: list[str | None] = []
+    for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True), []):
+        headers.append(alias_map.get(_norm_text(cell), _norm_text(cell) or None))
+
+    rows: list[dict[str, Any]] = []
+    for raw_row in ws.iter_rows(min_row=2, values_only=True):
+        record: dict[str, Any] = {}
+        has_value = False
+        for idx, value in enumerate(raw_row):
+            if idx >= len(headers):
+                break
+            key = headers[idx]
+            if not key:
+                continue
+            record[key] = value
+            if value is not None and str(value).strip() != "":
+                has_value = True
+        if has_value:
+            rows.append(record)
+    return rows
+
+
+def _ensure_register_group(
+    con,
+    *,
+    job_id: int,
+    group_name: str,
+    scope: str,
+    group_type: str,
+    category: str | None = None,
+    site_id: int | None = None,
+    rollup_method: str = "sum",
+    notes: str | None = None,
+) -> tuple[int | None, bool]:
+    normalized_name = str(group_name or "").strip()
+    if not normalized_name:
+        return None, False
+
+    existing = con.execute(
+        """
+        SELECT group_id
+        FROM job_emission_groups
+        WHERE job_id=%s
+          AND lower(group_name) = lower(%s)
+          AND lower(group_type) = lower(%s)
+          AND COALESCE(enabled, TRUE) = TRUE
+        ORDER BY group_id
+        LIMIT 1
+        """,
+        [int(job_id), normalized_name, str(group_type or "asset").strip() or "asset"],
+    ).fetchone()
+    if existing:
+        return _safe_int(existing[0]), False
+
+    row = con.execute(
+        """
+        INSERT INTO job_emission_groups (
+            job_id, scope, category, group_type, group_name, site_id, rollup_method, notes
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING group_id
+        """,
+        [
+            int(job_id),
+            scope,
+            category,
+            str(group_type or "asset").strip() or "asset",
+            normalized_name,
+            site_id,
+            str(rollup_method or "sum").strip() or "sum",
+            notes,
+        ],
+    ).fetchone()
+    return (_safe_int(row[0]) if row else None, True)
+
+
+def _register_source_exists(
+    con,
+    *,
+    job_id: int,
+    source_type: str,
+    group_id: int | None,
+    source_name: str,
+    site_id: int | None,
+    scope: str,
+    category: str | None,
+    source_subtype: str | None,
+    original_id: str | None,
+    asset_identifier: str | None,
+    employee_name: str | None,
+) -> bool:
+    return bool(
+        con.execute(
+            """
+            SELECT 1
+            FROM job_emission_sources
+            WHERE job_id=%s
+              AND lower(COALESCE(source_type, '')) = lower(%s)
+              AND COALESCE(group_id, -1) = COALESCE(%s, -1)
+              AND lower(COALESCE(source_name, '')) = lower(%s)
+              AND COALESCE(site_id, -1) = COALESCE(%s, -1)
+              AND lower(COALESCE(scope, '')) = lower(%s)
+              AND lower(COALESCE(category, '')) = lower(COALESCE(%s, ''))
+              AND lower(COALESCE(source_subtype, '')) = lower(COALESCE(%s, ''))
+              AND lower(COALESCE(original_id, '')) = lower(COALESCE(%s, ''))
+              AND lower(COALESCE(asset_identifier, '')) = lower(COALESCE(%s, ''))
+              AND lower(COALESCE(employee_name, '')) = lower(COALESCE(%s, ''))
+            LIMIT 1
+            """,
+            [
+                int(job_id),
+                source_type,
+                group_id,
+                source_name,
+                site_id,
+                scope,
+                category,
+                source_subtype,
+                original_id,
+                asset_identifier,
+                employee_name,
+            ],
+        ).fetchone()
+    )
 
 
 def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int | None) -> dict[str, Any]:
@@ -467,3 +708,440 @@ def delete_emission_source(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete emission source: {e}")
+
+
+@router.post("/jobs/{job_id}/emission-registers/import-workbook")
+async def import_emission_register_workbook(
+    job_id: int,
+    file: UploadFile = File(...),
+    source_type: str = Query("asset"),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Empty workbook upload")
+
+        workbook = load_workbook(io.BytesIO(content), data_only=True)
+        if "Groups" not in workbook.sheetnames or "Sources" not in workbook.sheetnames:
+            raise HTTPException(status_code=400, detail="Workbook must contain Groups and Sources sheets")
+
+        groups_sheet = workbook["Groups"]
+        sources_sheet = workbook["Sources"]
+        group_rows = _sheet_rows(groups_sheet, _GROUP_HEADER_ALIASES)
+        source_rows = _sheet_rows(sources_sheet, _SOURCE_HEADER_ALIASES)
+        source_type_value = str(source_type or "asset").strip() or "asset"
+        default_scope = "Scope 3" if source_type_value == "business_travel" else "Scope 1"
+        actor = str(_user.get("email", "unknown"))
+
+        with get_conn(autocommit=False) as con:
+            _ensure_schema(con)
+            if not _job_exists(con, int(job_id)):
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            group_map: dict[str, int] = {}
+            inserted_groups = 0
+            reused_groups = 0
+
+            for row in group_rows:
+                group_name = str(row.get("group_name") or "").strip()
+                if not group_name:
+                    continue
+                scope = str(row.get("scope") or default_scope).strip() or default_scope
+                group_type = str(row.get("group_type") or source_type_value).strip() or source_type_value
+                category = str(row.get("category") or "").strip() or None
+                site_id = _safe_int(row.get("site_id")) or _resolve_site_id(con, row.get("site_name"))
+                rollup_method = str(row.get("rollup_method") or "sum").strip() or "sum"
+                notes = str(row.get("notes") or "").strip() or None
+                group_id, created = _ensure_register_group(
+                    con,
+                    job_id=int(job_id),
+                    group_name=group_name,
+                    scope=scope,
+                    group_type=group_type,
+                    category=category,
+                    site_id=site_id,
+                    rollup_method=rollup_method,
+                    notes=notes,
+                )
+                if group_id is not None:
+                    group_map[group_name.lower()] = int(group_id)
+                if created:
+                    inserted_groups += 1
+                else:
+                    reused_groups += 1
+
+            inserted_sources = 0
+            skipped_sources = 0
+            auto_groups_created = 0
+
+            for idx, row in enumerate(source_rows, start=2):
+                source_name = str(row.get("source_name") or "").strip()
+                if not source_name:
+                    continue
+                group_name = str(row.get("group_name") or "").strip()
+                scope = str(row.get("scope") or default_scope).strip() or default_scope
+                category = str(row.get("category") or "").strip() or None
+                group_type = str(row.get("source_type") or source_type_value).strip() or source_type_value
+                source_subtype = str(row.get("source_subtype") or "").strip() or None
+                site_id = _safe_int(row.get("site_id")) or _resolve_site_id(con, row.get("site_name"))
+                asset_identifier = str(row.get("asset_identifier") or "").strip() or None
+                employee_name = str(row.get("employee_name") or "").strip() or None
+                original_id = str(row.get("original_id") or "").strip() or None
+                factor_db_id = _safe_int(row.get("factor_db_id"))
+                resolved = _resolve_factor(con, scope, original_id, factor_db_id)
+                qty = _safe_float(row.get("qty"), 0) or 0
+                factor = _safe_float(row.get("factor"), resolved.get("factor"))
+                apply_pct = _safe_float(row.get("apply_pct"), 100) or 100
+                ghg_unit = row.get("ghg_unit") or resolved.get("ghg_unit")
+                uom = str(row.get("uom") or resolved.get("uom") or "").strip() or None
+                data_source = str(row.get("data_source") or "Asset Register Import").strip() or "Asset Register Import"
+                data_confidence = str(row.get("data_confidence") or "M").strip() or "M"
+                notes = str(row.get("notes") or "").strip() or None
+
+                group_id = None
+                if group_name:
+                    group_id = group_map.get(group_name.lower())
+                    if group_id is None:
+                        group_id, created = _ensure_register_group(
+                            con,
+                            job_id=int(job_id),
+                            group_name=group_name,
+                            scope=scope,
+                            group_type=group_type,
+                            category=category,
+                            site_id=site_id,
+                            rollup_method="sum",
+                            notes=None,
+                        )
+                        if group_id is not None:
+                            group_map[group_name.lower()] = int(group_id)
+                        if created:
+                            auto_groups_created += 1
+
+                if _register_source_exists(
+                    con,
+                    job_id=int(job_id),
+                    source_type=group_type,
+                    group_id=group_id,
+                    source_name=source_name,
+                    site_id=site_id,
+                    scope=scope,
+                    category=category,
+                    source_subtype=source_subtype,
+                    original_id=original_id,
+                    asset_identifier=asset_identifier,
+                    employee_name=employee_name,
+                ):
+                    skipped_sources += 1
+                    continue
+
+                calc_tco2e = _calc_tco2e(qty, factor, apply_pct, ghg_unit)
+                detail_json = {
+                    "import_source": "workbook",
+                    "workbook_name": file.filename,
+                    "source_row": idx,
+                    "group_name": group_name or None,
+                }
+                row = con.execute(
+                    """
+                    INSERT INTO job_emission_sources (
+                        job_id, group_id, scope, category, source_type, source_subtype, site_id,
+                        source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
+                        qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
+                        detail_json, calc_tco2e
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    RETURNING source_id
+                    """,
+                    [
+                        int(job_id),
+                        group_id,
+                        scope,
+                        category or resolved.get("category"),
+                        group_type,
+                        source_subtype,
+                        site_id,
+                        source_name,
+                        asset_identifier,
+                        employee_name,
+                        _safe_int(resolved.get("dataset_id")),
+                        _safe_int(resolved.get("factor_db_id")),
+                        resolved.get("original_id") or original_id,
+                        qty,
+                        uom or resolved.get("uom"),
+                        factor,
+                        ghg_unit,
+                        apply_pct,
+                        data_source,
+                        data_confidence,
+                        notes,
+                        detail_json,
+                        calc_tco2e,
+                    ],
+                ).fetchone()
+                if row:
+                    inserted_sources += 1
+
+            record_audit_event(
+                con,
+                request=None,
+                actor={"email": actor},
+                action="create",
+                entity_type="job_emission_register_import",
+                entity_id=None,
+                job_id=int(job_id),
+                after={
+                    "source_type": source_type_value,
+                    "inserted_groups": inserted_groups,
+                    "reused_groups": reused_groups,
+                    "auto_groups_created": auto_groups_created,
+                    "inserted_sources": inserted_sources,
+                    "skipped_sources": skipped_sources,
+                    "filename": file.filename,
+                },
+            )
+
+            summary = _list_register(con, int(job_id), source_type_value, False).get("summary", {})
+
+        return {
+            "ok": True,
+            "job_id": int(job_id),
+            "source_type": source_type_value,
+            "inserted_groups": inserted_groups,
+            "reused_groups": reused_groups,
+            "auto_groups_created": auto_groups_created,
+            "inserted_sources": inserted_sources,
+            "skipped_sources": skipped_sources,
+            "summary": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import emission register workbook: {e}")
+
+
+@router.post("/jobs/{job_id}/emission-registers/rollforward")
+def rollforward_emission_register(
+    job_id: int,
+    source_type: str = Query("asset"),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        source_type_value = str(source_type or "asset").strip() or "asset"
+        default_scope = "Scope 3" if source_type_value == "business_travel" else "Scope 1"
+        actor = str(_user.get("email", "unknown"))
+
+        with get_conn(autocommit=False) as con:
+            _ensure_schema(con)
+            if not _job_exists(con, int(job_id)):
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            previous_job = _resolve_previous_register_job_id(con, int(job_id))
+            if not previous_job or previous_job.get("job_id") is None:
+                raise HTTPException(status_code=400, detail="No previous job found for roll-forward")
+
+            previous_job_id = int(previous_job["job_id"])
+
+            group_rows = con.execute(
+                """
+                SELECT group_id, scope, category, group_type, group_name, site_id, rollup_method, notes
+                FROM job_emission_groups
+                WHERE job_id=%s
+                  AND lower(COALESCE(group_type, '')) = lower(%s)
+                  AND COALESCE(enabled, TRUE) = TRUE
+                ORDER BY group_name, group_id
+                """,
+                [previous_job_id, source_type_value],
+            ).fetchall()
+
+            source_rows = con.execute(
+                """
+                SELECT
+                  source_id, group_id, scope, category, source_type, source_subtype, site_id,
+                  source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
+                  qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes, detail_json
+                FROM job_emission_sources
+                WHERE job_id=%s
+                  AND lower(COALESCE(source_type, '')) = lower(%s)
+                  AND COALESCE(enabled, TRUE) = TRUE
+                ORDER BY COALESCE(group_id, 0), source_name, source_id
+                """,
+                [previous_job_id, source_type_value],
+            ).fetchall()
+
+            previous_group_map: dict[int, dict[str, Any]] = {}
+            new_group_map: dict[int, int] = {}
+            inserted_groups = 0
+            reused_groups = 0
+            inserted_sources = 0
+            skipped_sources = 0
+
+            for row in group_rows or []:
+                old_group_id = _safe_int(row[0])
+                group_name = str(row[4] or "").strip()
+                scope = str(row[1] or default_scope).strip() or default_scope
+                category = str(row[2] or "").strip() or None
+                group_name = group_name or f"{source_type_value} group {old_group_id}"
+                site_id = _safe_int(row[5])
+                rollup_method = str(row[6] or "sum").strip() or "sum"
+                notes = str(row[7] or "").strip() or None
+                group_id, created = _ensure_register_group(
+                    con,
+                    job_id=int(job_id),
+                    group_name=group_name,
+                    scope=scope,
+                    group_type=source_type_value,
+                    category=category,
+                    site_id=site_id,
+                    rollup_method=rollup_method,
+                    notes=notes,
+                )
+                if old_group_id is not None:
+                    previous_group_map[int(old_group_id)] = {
+                        "group_name": group_name,
+                        "scope": scope,
+                        "category": category,
+                        "site_id": site_id,
+                        "rollup_method": rollup_method,
+                    }
+                if group_id is not None:
+                    new_group_map[int(old_group_id)] = int(group_id)
+                if created:
+                    inserted_groups += 1
+                else:
+                    reused_groups += 1
+
+            for row in source_rows or []:
+                old_group_id = _safe_int(row[1])
+                group_id = new_group_map.get(int(old_group_id)) if old_group_id is not None else None
+                group_meta = previous_group_map.get(int(old_group_id)) if old_group_id is not None else None
+                scope = str(row[2] or default_scope).strip() or default_scope
+                category = str(row[3] or "").strip() or None
+                source_subtype = str(row[5] or "").strip() or None
+                site_id = _safe_int(row[6])
+                source_name = str(row[7] or "").strip()
+                asset_identifier = str(row[8] or "").strip() or None
+                employee_name = str(row[9] or "").strip() or None
+                dataset_id = _safe_int(row[10])
+                factor_db_id = _safe_int(row[11])
+                original_id = str(row[12] or "").strip() or None
+                qty = 0.0
+                uom = str(row[14] or "").strip() or None
+                factor = _safe_float(row[15])
+                ghg_unit = str(row[16] or "").strip() or None
+                apply_pct = _safe_float(row[17], 100) or 100
+                data_source = "Previous Year Import"
+                data_confidence = str(row[19] or "M").strip() or "M"
+                notes = str(row[20] or "").strip() or None
+                detail_json = row[21] if isinstance(row[21], dict) else {}
+                if not source_name:
+                    continue
+
+                if _register_source_exists(
+                    con,
+                    job_id=int(job_id),
+                    source_type=source_type_value,
+                    group_id=group_id,
+                    source_name=source_name,
+                    site_id=site_id,
+                    scope=scope,
+                    category=category,
+                    source_subtype=source_subtype,
+                    original_id=original_id,
+                    asset_identifier=asset_identifier,
+                    employee_name=employee_name,
+                ):
+                    skipped_sources += 1
+                    continue
+
+                calc_tco2e = 0.0
+                merged_detail_json = {
+                    **(detail_json if isinstance(detail_json, dict) else {}),
+                    "rollforward_from_job_id": previous_job_id,
+                    "rollforward_from_source_id": _safe_int(row[0]),
+                    "rollforward_source_type": source_type_value,
+                    "rollforward_imported_at": datetime.now().isoformat(),
+                }
+                inserted = con.execute(
+                    """
+                    INSERT INTO job_emission_sources (
+                        job_id, group_id, scope, category, source_type, source_subtype, site_id,
+                        source_name, asset_identifier, employee_name, dataset_id, factor_db_id, original_id,
+                        qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes,
+                        detail_json, calc_tco2e
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    RETURNING source_id
+                    """,
+                    [
+                        int(job_id),
+                        group_id,
+                        scope,
+                        category or (group_meta or {}).get("category"),
+                        source_type_value,
+                        source_subtype,
+                        site_id,
+                        source_name,
+                        asset_identifier,
+                        employee_name,
+                        dataset_id,
+                        factor_db_id,
+                        original_id,
+                        qty,
+                        uom,
+                        factor,
+                        ghg_unit,
+                        apply_pct,
+                        data_source,
+                        data_confidence,
+                        notes,
+                        merged_detail_json,
+                        calc_tco2e,
+                    ],
+                ).fetchone()
+                if inserted:
+                    inserted_sources += 1
+
+            record_audit_event(
+                con,
+                request=None,
+                actor={"email": actor},
+                action="create",
+                entity_type="job_emission_register_rollforward",
+                entity_id=None,
+                job_id=int(job_id),
+                before={
+                    "source_job_id": previous_job_id,
+                    "source_job_number": previous_job.get("job_number"),
+                },
+                after={
+                    "source_type": source_type_value,
+                    "inserted_groups": inserted_groups,
+                    "reused_groups": reused_groups,
+                    "inserted_sources": inserted_sources,
+                    "skipped_sources": skipped_sources,
+                },
+            )
+
+            summary = _list_register(con, int(job_id), source_type_value, False).get("summary", {})
+
+        return {
+            "ok": True,
+            "job_id": int(job_id),
+            "source_type": source_type_value,
+            "previous_job": previous_job,
+            "inserted_groups": inserted_groups,
+            "reused_groups": reused_groups,
+            "inserted_sources": inserted_sources,
+            "skipped_sources": skipped_sources,
+            "summary": summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to roll forward emission register: {e}")
