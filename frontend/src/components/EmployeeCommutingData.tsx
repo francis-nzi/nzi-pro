@@ -88,7 +88,10 @@ type DirectEntryRow = {
   qty: number | null;
   uom: string | null;
   calc_tco2e: number;
+  site_id: number | null;
   site_name: string | null;
+  notes: string | null;
+  detail_json: Record<string, unknown> | null;
   enabled: boolean;
   data_source: string | null;
   updated_at: string | null;
@@ -133,6 +136,7 @@ export default function EmployeeCommutingData({
   const [manualHoursPerDay, setManualHoursPerDay] = useState("");
   const [manualNotes, setManualNotes] = useState("");
   const [manualReplaceExisting, setManualReplaceExisting] = useState(false);
+  const [editingDirectSourceId, setEditingDirectSourceId] = useState<number | null>(null);
 
   const selectedSiteLabel = useMemo(() => {
     if (selectedSiteId === "__none__") return "All_Staff";
@@ -170,6 +174,66 @@ export default function EmployeeCommutingData({
       safeNamePart(periodPart),
       "employee_commuting",
     ].join("_") + ".xlsx";
+  }
+
+  function buildManualEntryPayload() {
+    return {
+      row_type: manualRowType,
+      employee_name: manualEmployeeName.trim(),
+      mode_value: manualModeValue.trim(),
+      service_value: manualServiceValue.trim(),
+      unit_value: manualUnitValue.trim(),
+      one_way_distance: manualOneWayDistance.trim(),
+      office_days: manualOfficeDays.trim(),
+      weeks_per_year: manualWeeksPerYear.trim(),
+      annual_distance: manualAnnualDistance.trim(),
+      annual_days: manualAnnualDays.trim(),
+      hours_per_day: manualHoursPerDay.trim(),
+      notes: manualNotes.trim(),
+    };
+  }
+
+  function clearManualForm() {
+    setManualRowType("commuting");
+    setManualEmployeeName("");
+    setManualModeValue("Car - Petrol");
+    setManualServiceValue("Average");
+    setManualUnitValue("miles");
+    setManualOneWayDistance("");
+    setManualOfficeDays("");
+    setManualWeeksPerYear("");
+    setManualAnnualDistance("");
+    setManualAnnualDays("");
+    setManualHoursPerDay("");
+    setManualNotes("");
+  }
+
+  function startEditDirectEntry(row: DirectEntryRow) {
+    const detail = row.detail_json && typeof row.detail_json === "object" ? row.detail_json : null;
+    const rowType = row.source_subtype === "wfh" ? "wfh" : "commuting";
+
+    setEditingDirectSourceId(row.source_id);
+    setManualRowType(rowType);
+    setManualEmployeeName(row.employee_name || row.source_name || "");
+    setManualModeValue(String(detail?.["mode_value"] || "Car - Petrol"));
+    setManualServiceValue(String(detail?.["service_value"] || "Average"));
+    setManualUnitValue(String(detail?.["unit_value"] || row.uom || "miles"));
+    setManualOneWayDistance(String(detail?.["one_way_distance"] ?? ""));
+    setManualOfficeDays(String(detail?.["office_days"] ?? ""));
+    setManualWeeksPerYear(String(detail?.["weeks_per_year"] ?? ""));
+    setManualAnnualDistance(String(detail?.["annual_distance"] ?? row.qty ?? ""));
+    setManualAnnualDays(String(detail?.["annual_days"] ?? ""));
+    setManualHoursPerDay(String(detail?.["hours_per_day"] ?? ""));
+    setManualNotes(row.notes || "");
+    setSelectedSiteId(row.site_id == null ? "__none__" : String(row.site_id));
+    setError("");
+    setStatus(`Editing saved entry for ${row.employee_name || row.source_name}.`);
+  }
+
+  function cancelEditDirectEntry() {
+    setEditingDirectSourceId(null);
+    clearManualForm();
+    setStatus("Edit cancelled.");
   }
 
   useEffect(() => {
@@ -224,7 +288,10 @@ export default function EmployeeCommutingData({
           qty: row.qty === null || row.qty === undefined ? null : Number(row.qty),
           uom: row.uom ? String(row.uom) : null,
           calc_tco2e: Number(row.calc_tco2e ?? 0),
+          site_id: row.site_id === null || row.site_id === undefined ? null : Number(row.site_id),
           site_name: row.site_name ? String(row.site_name) : null,
+          notes: row.notes ? String(row.notes) : null,
+          detail_json: row.detail_json && typeof row.detail_json === "object" ? (row.detail_json as Record<string, unknown>) : null,
           enabled: Boolean(row.enabled),
           data_source: row.data_source ? String(row.data_source) : null,
           updated_at: row.updated_at ? String(row.updated_at) : null,
@@ -380,35 +447,69 @@ export default function EmployeeCommutingData({
       return;
     }
 
+    const payload = buildManualEntryPayload();
     setManualEntries((current) => [
       ...current,
       {
         row_id: Date.now() + Math.floor(Math.random() * 1000),
-        row_type: manualRowType,
+        ...payload,
         employee_name: employeeName,
-        mode_value: manualModeValue.trim(),
-        service_value: manualServiceValue.trim(),
-        unit_value: manualUnitValue.trim(),
-        one_way_distance: manualOneWayDistance.trim(),
-        office_days: manualOfficeDays.trim(),
-        weeks_per_year: manualWeeksPerYear.trim(),
-        annual_distance: manualAnnualDistance.trim(),
-        annual_days: manualAnnualDays.trim(),
-        hours_per_day: manualHoursPerDay.trim(),
-        notes: manualNotes.trim(),
       },
     ]);
 
-    setManualEmployeeName("");
-    setManualNotes("");
-    setManualOneWayDistance("");
-    setManualOfficeDays("");
-    setManualWeeksPerYear("");
-    setManualAnnualDistance("");
-    setManualAnnualDays("");
-    setManualHoursPerDay("");
+    clearManualForm();
     setError("");
     setStatus("Draft direct entry added.");
+  }
+
+  async function saveEditedDirectEntry() {
+    if (editingDirectSourceId == null) return;
+    const employeeName = manualEmployeeName.trim();
+    if (!employeeName) {
+      setError("Employee / team name is required for a direct entry.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/employee-commuting/direct-entry/${editingDirectSourceId}?${selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`}`,
+        {
+          method: "PATCH",
+          headers: withAuditHeaders(
+            {
+              "Content-Type": "application/json",
+            },
+            {
+              page: "Jobs",
+              section: "Employee Commuting",
+              container: "Direct Entry",
+            }
+          ),
+          body: JSON.stringify({ entry: buildManualEntryPayload() }),
+        }
+      );
+      if (!res.ok) {
+        const apiError = await readError(res);
+        if (apiError.preview) {
+          setPreview(apiError.preview);
+        }
+        throw new Error(apiError.message);
+      }
+      const data = await res.json();
+      setStatus(`Updated direct commuting row${data?.site_label ? ` for ${data.site_label}` : ""}.`);
+      setEditingDirectSourceId(null);
+      clearManualForm();
+      await loadSummary();
+      await loadDirectEntries();
+      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Updating direct entry failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function saveManualEntries() {
@@ -478,6 +579,9 @@ export default function EmployeeCommutingData({
       if (!res.ok) {
         const apiError = await readError(res);
         throw new Error(apiError.message);
+      }
+      if (editingDirectSourceId === sourceId) {
+        cancelEditDirectEntry();
       }
       setStatus("Direct entry archived.");
       await loadSummary();
@@ -766,6 +870,12 @@ export default function EmployeeCommutingData({
             </div>
           ) : null}
 
+          {editingDirectSourceId !== null ? (
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              Editing saved direct entry #{editingDirectSourceId}. Update the fields below, then save the changes back into the register.
+            </div>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
             <div className="space-y-2">
               <Label htmlFor="manual-notes">Notes</Label>
@@ -777,13 +887,20 @@ export default function EmployeeCommutingData({
               />
             </div>
             <div className="flex items-end">
-              <Button variant="outline" onClick={addManualEntryDraft} disabled={loading}>
-                Add Draft Row
+              <Button
+                variant="outline"
+                onClick={editingDirectSourceId !== null ? cancelEditDirectEntry : addManualEntryDraft}
+                disabled={loading}
+              >
+                {editingDirectSourceId !== null ? "Cancel Edit" : "Add Draft Row"}
               </Button>
             </div>
             <div className="flex items-end">
-              <Button onClick={saveManualEntries} disabled={loading || manualEntries.length === 0}>
-                Save Direct Entries
+              <Button
+                onClick={editingDirectSourceId !== null ? saveEditedDirectEntry : saveManualEntries}
+                disabled={loading || (!editingDirectSourceId && manualEntries.length === 0)}
+              >
+                {editingDirectSourceId !== null ? "Update Saved Entry" : "Save Direct Entries"}
               </Button>
             </div>
           </div>
@@ -871,9 +988,14 @@ export default function EmployeeCommutingData({
                           <td className="px-3 py-2">{row.uom || ""}</td>
                           <td className="px-3 py-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
                           <td className="px-3 py-2 text-right">
-                            <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
-                              Delete
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => startEditDirectEntry(row)}>
+                                Edit
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => removeDirectEntry(row.source_id, row.employee_name || row.source_name)}>
+                                Delete
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}

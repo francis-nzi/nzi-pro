@@ -1458,6 +1458,67 @@ def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, A
     return inserted
 
 
+def _update_manual_commuting_row(con, job_id: int, source_id: int, row: dict[str, Any]) -> None:
+    con.execute(
+        """
+        UPDATE job_emission_sources
+        SET
+          group_id = %s,
+          scope = %s,
+          category = %s,
+          source_type = %s,
+          source_subtype = %s,
+          site_id = %s,
+          source_name = %s,
+          asset_identifier = %s,
+          employee_name = %s,
+          dataset_id = %s,
+          factor_db_id = %s,
+          original_id = %s,
+          qty = %s,
+          uom = %s,
+          factor = %s,
+          ghg_unit = %s,
+          apply_pct = %s,
+          data_source = %s,
+          data_confidence = %s,
+          notes = %s,
+          detail_json = %s,
+          calc_tco2e = %s,
+          enabled = TRUE,
+          updated_at = NOW()
+        WHERE source_id = %s
+          AND job_id = %s
+        """,
+        [
+            None,
+            row.get("scope"),
+            row.get("category"),
+            row.get("source_type"),
+            row.get("source_subtype"),
+            row.get("site_id"),
+            row.get("source_name"),
+            row.get("asset_identifier"),
+            row.get("employee_name"),
+            row.get("dataset_id"),
+            row.get("factor_db_id"),
+            row.get("original_id"),
+            row.get("qty"),
+            row.get("uom"),
+            row.get("factor"),
+            row.get("ghg_unit"),
+            row.get("apply_pct", 100),
+            row.get("data_source", DIRECT_COMMUTING_DATA_SOURCE),
+            row.get("data_confidence", "M"),
+            row.get("notes"),
+            row.get("detail_json") or {},
+            row.get("calc_tco2e"),
+            int(source_id),
+            int(job_id),
+        ],
+    )
+
+
 def _disable_existing_manual_commuting_rows(con, job_id: int, site_id: int | None) -> int:
     rows = con.execute(
         """
@@ -1732,6 +1793,93 @@ def commit_employee_commuting_direct_entries(
         "site_label": site_label,
         "inserted": int(inserted),
         "disabled": int(disabled),
+        "total_tco2e": float(preview["total_tco2e"]),
+        "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+    }
+
+
+@router.patch("/jobs/{job_id}/employee-commuting/direct-entry/{source_id}")
+def update_employee_commuting_direct_entry(
+    request: Request,
+    job_id: int,
+    source_id: int,
+    payload: dict = Body(...),
+    site_id: int | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    entry = payload.get("entry") if isinstance(payload, dict) else None
+    if not isinstance(entry, dict):
+        raise HTTPException(status_code=400, detail="A direct entry payload is required")
+
+    with get_conn() as con:
+        _ensure_job_scope_rows_schema(con)
+        _ensure_emission_register_schema(con)
+        meta = _job_meta(con, int(job_id))
+        validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
+        existing = con.execute(
+            """
+            SELECT source_id
+            FROM job_emission_sources
+            WHERE source_id = %s
+              AND job_id = %s
+              AND source_type = %s
+              AND COALESCE(enabled, TRUE) = TRUE
+            """,
+            [int(source_id), int(job_id), "employee_commuting"],
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Saved direct entry not found")
+
+        preview = _resolve_manual_commuting_rows(con, int(job_id), validated_site_id, [entry])
+
+        if preview["unresolved_count"] > 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Updated direct entry contains unresolved rows. Please correct it before saving.",
+                    "preview": {
+                        "job_id": int(job_id),
+                        "site_id": validated_site_id,
+                        "site_label": site_label,
+                        "template_version": "Direct Entry",
+                        **preview,
+                    },
+                },
+            )
+
+        if preview["ready_count"] <= 0:
+            raise HTTPException(status_code=400, detail="No importable direct employee commuting rows were found")
+
+        row = preview["ready_rows"][0]
+        _update_manual_commuting_row(con, int(job_id), int(source_id), row)
+
+        record_audit_event(
+            con,
+            request=request,
+            actor=_user,
+            action="update",
+            entity_type="employee_commuting_direct_entry",
+            entity_id=f"{int(job_id)}:{int(source_id)}",
+            client_id=meta.get("client_db_id"),
+            job_id=int(job_id),
+            metadata={
+                "source_id": int(source_id),
+                "site_id": validated_site_id,
+                "site_label": site_label,
+                "parsed_count": int(preview.get("parsed_count") or 0),
+                "ready_count": int(preview.get("ready_count") or 0),
+                "unresolved_count": int(preview.get("unresolved_count") or 0),
+                "total_tco2e": float(preview.get("total_tco2e") or 0.0),
+                "data_source": DIRECT_COMMUTING_DATA_SOURCE,
+            },
+        )
+
+    return {
+        "ok": True,
+        "job_id": int(job_id),
+        "source_id": int(source_id),
+        "site_id": validated_site_id,
+        "site_label": site_label,
         "total_tco2e": float(preview["total_tco2e"]),
         "data_source": DIRECT_COMMUTING_DATA_SOURCE,
     }
