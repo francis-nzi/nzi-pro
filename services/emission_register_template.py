@@ -191,7 +191,7 @@ def build_emission_register_workbook(
         [
             "Group name is a human-readable roll-up label, such as Fleet - Medium Diesel - Head Office.",
             "A group can contain many source rows. Use the group to roll similar source records together for reporting.",
-            "Source Name and Asset Identity describe the real-world item; Factor DB ID / Original ID describe the emissions factor used.",
+            "Asset Name and Asset Identity describe the real-world item; Factor DB ID / Original ID describe the emissions factor used.",
             "group_type is an internal family label. It usually stays as asset for the Asset Register or business_travel for Business Travel.",
             "Keep group names stable year to year so rollforward imports stay clean.",
         ],
@@ -211,13 +211,13 @@ def build_emission_register_workbook(
     groups_headers = ["Group Name", "Scope", "Category", "Site Name", "Rollup Method", "Notes"]
     sources_headers = [
         "Group Name",
-        "Source Name",
+        "Asset Name",
         "Asset Identity",
         "Employee Name",
         "Scope",
         "Category",
         "Site Name",
-        "Source Subtype",
+        "Asset Subtype",
         "Original ID",
         "Factor DB ID",
         "Qty",

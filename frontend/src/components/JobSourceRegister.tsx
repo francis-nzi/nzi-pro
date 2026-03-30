@@ -102,7 +102,6 @@ export default function JobSourceRegister({
   sourceType,
   title,
   description,
-  identityLabel,
   jobNumber,
   clientName,
   reportingYear,
@@ -112,11 +111,16 @@ export default function JobSourceRegister({
   sourceType: "asset" | "business_travel";
   title: string;
   description: string;
-  identityLabel: string;
   jobNumber?: string | number | null;
   clientName?: string | null;
   reportingYear?: string | number | null;
 }) {
+  const isBusinessTravel = sourceType === "business_travel";
+  const recordLabel = isBusinessTravel ? "Travel Source" : "Asset";
+  const recordPlural = isBusinessTravel ? "Travel Sources" : "Assets";
+  const recordIdentityLabel = isBusinessTravel ? "Travel identity" : "Asset identity";
+  const recordIdentityPlaceholder = isBusinessTravel ? "Employee ref / trip ref" : "Registration / asset tag";
+  const recordNamePlaceholder = isBusinessTravel ? "Employee travel pattern" : "Vehicle / Asset name";
   const confirmAction = useConfirmDialog();
   const apiBases = useMemo(() => apiBaseCandidates(baseUrl), [baseUrl]);
   const [activeApiBase, setActiveApiBase] = useState<string | null>(null);
@@ -355,7 +359,7 @@ export default function JobSourceRegister({
         notes: notes.trim() || null,
         detail_json: {},
       };
-      if (!payload.source_name) throw new Error("Source name is required.");
+      if (!payload.source_name) throw new Error(`${recordLabel} name is required.`);
       if (!payload.original_id) throw new Error("Select a factor before adding the source.");
       const res = await apiFetch(`/jobs/${jobId}/emission-registers/sources`, {
         method: "POST",
@@ -364,7 +368,7 @@ export default function JobSourceRegister({
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(text || `Failed to create source (${res.status})`);
+        throw new Error(text || `Failed to create ${recordLabel.toLowerCase()} (${res.status})`);
       }
       setSourceName("");
       setAssetIdentifier("");
@@ -374,10 +378,10 @@ export default function JobSourceRegister({
       setApplyPct("100");
       setNotes("");
       setSelectedFactor(null);
-      setStatus("Source added.");
+      setStatus(`${recordLabel} added.`);
       await loadRegister();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create source");
+      setError(e instanceof Error ? e.message : `Failed to create ${recordLabel.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -443,8 +447,8 @@ export default function JobSourceRegister({
 
   async function removeSource(sourceId: number, label: string) {
     const confirmed = await confirmAction({
-      title: "Delete source",
-      description: `Delete source "${label}"? It will be hidden from the active register but kept in history.`,
+      title: `Delete ${recordLabel.toLowerCase()}`,
+      description: `Delete ${recordLabel.toLowerCase()} "${label}"? It will be hidden from the active register but kept in history.`,
       confirmLabel: "Delete",
       destructive: true,
     });
@@ -459,10 +463,10 @@ export default function JobSourceRegister({
         const text = await res.text().catch(() => "");
         throw new Error(text || `Delete failed (${res.status})`);
       }
-      setStatus("Source archived.");
+      setStatus(`${recordLabel} archived.`);
       await loadRegister();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete source");
+      setError(e instanceof Error ? e.message : `Failed to delete ${recordLabel.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -471,7 +475,7 @@ export default function JobSourceRegister({
   async function removeGroup(groupId: number, label: string) {
     const confirmed = await confirmAction({
       title: "Delete group",
-      description: `Delete group "${label}"? Sources will remain and the group will be hidden.`,
+      description: `Delete group "${label}"? ${recordPlural} will remain and the group will be hidden.`,
       confirmLabel: "Delete",
       destructive: true,
     });
@@ -504,7 +508,7 @@ export default function JobSourceRegister({
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-4 md:grid-cols-4">
-            <div><div className="text-xs text-muted-foreground">Sources</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
+            <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
             <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
             <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
             <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
@@ -528,17 +532,25 @@ export default function JobSourceRegister({
 
           <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
             <p>
-              Use matching <span className="font-medium text-foreground">group_name</span> values to link sources to
-              shared roll-up groups. The group name is a business label, while the factor ID lives in{" "}
-              <span className="font-medium text-foreground">Original ID</span> or{" "}
-              <span className="font-medium text-foreground">Factor DB ID</span>.
+              Use matching <span className="font-medium text-foreground">group_name</span> values to link{" "}
+              {recordPlural.toLowerCase()} to shared roll-up groups. The group name is the business roll-up label, while
+              the factor ID lives in <span className="font-medium text-foreground">Original ID</span> or{" "}
+              <span className="font-medium text-foreground">Factor DB ID</span> on each {recordLabel.toLowerCase()} row.
             </p>
             <p>
               <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
               usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register or{" "}
               <span className="font-medium text-foreground">business_travel</span> for Business Travel.
             </p>
-            <p>Suggested pattern: <span className="font-medium text-foreground">[Category] - [Asset or Mode] - [Site or Team]</span>.</p>
+            <p>
+              Suggested pattern:{" "}
+              <span className="font-medium text-foreground">[Category] - [Asset or Mode] - [Site or Team]</span>.
+            </p>
+            <p>
+              For fleet-style reporting, use the group as the factor family bucket, for example{" "}
+              <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
+              {recordLabel.toLowerCase()} as the individual asset record underneath it.
+            </p>
             <p>Search is live on the factor picker, and the template download uses this job&apos;s current site list.</p>
           </div>
 
@@ -564,7 +576,7 @@ export default function JobSourceRegister({
       {error ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div> : null}
       {status ? <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{status}</div> : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>Create Group</CardTitle>
@@ -573,7 +585,7 @@ export default function JobSourceRegister({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Group name</Label>
-                <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Fleet - Medium Diesel" />
+                <Input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Diesel Vans Class 1 - Head Office" />
               </div>
               <div className="space-y-2">
                 <Label>Scope</Label>
@@ -615,6 +627,10 @@ export default function JobSourceRegister({
                 </SelectContent>
               </Select>
             </div>
+            <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+              Group the similar assets that share the same emissions factor family. Each asset remains a separate row,
+              but the group controls the roll-up bucket.
+            </div>
             <div className="space-y-2">
               <Label>Notes</Label>
               <Input value={groupNotes} onChange={(e) => setGroupNotes(e.target.value)} placeholder="Optional roll-up notes" />
@@ -627,24 +643,24 @@ export default function JobSourceRegister({
 
         <Card>
           <CardHeader>
-            <CardTitle>Add Source</CardTitle>
+            <CardTitle>{`Add ${recordLabel}`}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Source name</Label>
-                <Input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder={sourceType === "business_travel" ? "Employee travel pattern" : "Vehicle / Asset name"} />
+                <Label>{`${recordLabel} name`}</Label>
+                <Input value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder={recordNamePlaceholder} />
               </div>
               <div className="space-y-2">
-                <Label>{identityLabel}</Label>
-                <Input value={assetIdentifier} onChange={(e) => setAssetIdentifier(e.target.value)} placeholder={sourceType === "business_travel" ? "Employee ref / trip ref" : "Registration / asset tag"} />
+                <Label>{recordIdentityLabel}</Label>
+                <Input value={assetIdentifier} onChange={(e) => setAssetIdentifier(e.target.value)} placeholder={recordIdentityPlaceholder} />
               </div>
               <div className="space-y-2">
-                <Label>Employee name</Label>
+                <Label>{isBusinessTravel ? "Employee name" : "Owner / operator"}</Label>
                 <Input value={employeeName} onChange={(e) => setEmployeeName(e.target.value)} placeholder="Optional" />
               </div>
               <div className="space-y-2">
-                <Label>Source subtype</Label>
+                <Label>{isBusinessTravel ? "Travel subtype" : "Asset subtype"}</Label>
                 <Input value={sourceSubtype} onChange={(e) => setSourceSubtype(e.target.value)} placeholder="Optional subtype" />
               </div>
               <div className="space-y-2">
@@ -748,7 +764,7 @@ export default function JobSourceRegister({
               <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
             </div>
             <div className="flex justify-end">
-              <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedFactor}>Add source</Button>
+              <Button onClick={createSource} disabled={loading || !sourceName.trim() || !selectedFactor}>{`Add ${recordLabel.toLowerCase()}`}</Button>
             </div>
           </CardContent>
         </Card>
@@ -792,7 +808,7 @@ export default function JobSourceRegister({
 
       <Card>
         <CardHeader>
-          <CardTitle>Sources</CardTitle>
+          <CardTitle>{recordPlural}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -823,7 +839,7 @@ export default function JobSourceRegister({
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={8} className="p-4 text-muted-foreground">No sources yet.</td></tr>
+                <tr><td colSpan={8} className="p-4 text-muted-foreground">No records yet.</td></tr>
               )}
             </tbody>
           </table>

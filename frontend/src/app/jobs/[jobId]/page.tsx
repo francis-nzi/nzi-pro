@@ -2595,7 +2595,6 @@ export default function JobDetailPage() {
             sourceType="asset"
             title="Asset Register"
             description="Capture individual vehicles, equipment, and other Scope 1 sources, then group them for roll-up and reporting."
-            identityLabel="Asset identity"
             jobNumber={job?.job_number}
             clientName={job?.client_name}
             reportingYear={job?.reporting_year}
@@ -2609,7 +2608,6 @@ export default function JobDetailPage() {
             sourceType="business_travel"
             title="Business Travel Register"
             description="Capture employee travel sources individually, then group them for Scope 3 reporting and inspection."
-            identityLabel="Travel / employee identity"
             jobNumber={job?.job_number}
             clientName={job?.client_name}
             reportingYear={job?.reporting_year}
