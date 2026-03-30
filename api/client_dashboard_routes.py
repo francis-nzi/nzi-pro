@@ -9,8 +9,95 @@ from core.database import get_conn
 from api.auth import _current_user
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
+from services.monthly_emissions import JobMonthlyEmissionsResolver
 
 router = APIRouter()
+
+
+def _load_client_reporting_rows(con, job_ids: list[int]):
+    if not job_ids:
+        return con.execute("SELECT NULL WHERE FALSE").df()
+
+    placeholders = ",".join(["%s"] * len(job_ids))
+    return con.execute(
+        f"""
+        WITH job_context AS (
+            SELECT
+                j.job_id,
+                COALESCE(
+                    EXTRACT(YEAR FROM j.reporting_period_end),
+                    EXTRACT(YEAR FROM cjd.reporting_period_to),
+                    j.reporting_year
+                ) AS dashboard_year
+            FROM jobs j
+            LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+            WHERE j.job_id IN ({placeholders})
+        ),
+        legacy_rows AS (
+            SELECT
+                jsr.job_id,
+                jsr.row_id,
+                jc.dashboard_year,
+                jsr.scope,
+                COALESCE(jsr.category, jsr.level_2, 'Uncategorized') AS category,
+                COALESCE(s.site_name, 'No Site Assigned') AS site_name,
+                jsr.dataset_id,
+                jsr.factor_db_id,
+                jsr.original_id,
+                NULL::numeric AS source_qty,
+                NULL::text AS source_uom,
+                jsr.qty,
+                jsr.uom,
+                jsr.factor,
+                jsr.ghg_unit,
+                jsr.apply_pct,
+                jsr.notes,
+                jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
+                jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
+                jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+            FROM job_scope_rows jsr
+            JOIN job_context jc ON jc.job_id = jsr.job_id
+            LEFT JOIN client_sites s ON jsr.site_id = s.site_id
+            WHERE jsr.enabled = TRUE
+        ),
+        source_rows AS (
+            SELECT
+                js.job_id,
+                js.source_id AS row_id,
+                jc.dashboard_year,
+                js.scope,
+                COALESCE(js.category, 'Uncategorized') AS category,
+                COALESCE(cs.site_name, 'No Site Assigned') AS site_name,
+                COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
+                COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
+                COALESCE(g.original_id, js.original_id) AS original_id,
+                NULL::numeric AS source_qty,
+                NULL::text AS source_uom,
+                js.qty,
+                COALESCE(g.uom, js.uom) AS uom,
+                COALESCE(g.factor, js.factor) AS factor,
+                COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
+                js.apply_pct,
+                js.notes,
+                NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
+                NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
+                NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
+            FROM job_emission_sources js
+            JOIN job_context jc ON jc.job_id = js.job_id
+            LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+            LEFT JOIN client_sites cs ON cs.site_id = js.site_id
+            WHERE COALESCE(js.enabled, TRUE) = TRUE
+        )
+        SELECT *
+        FROM (
+            SELECT * FROM legacy_rows
+            UNION ALL
+            SELECT * FROM source_rows
+        ) combined_rows
+        ORDER BY dashboard_year, scope, category, site_name
+        """,
+        job_ids,
+    ).df()
 
 
 @router.get("/clients/{client_db_id}/dashboard")
@@ -29,151 +116,106 @@ def get_client_dashboard(
     try:
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
-            # Get all jobs for this client with their emissions data
+            # Get all jobs for this client with their reporting years.
             jobs_df = con.execute(
                 """
                 SELECT 
                     j.job_id,
                     j.reporting_year,
-                    j.reporting_period_end,
                     COALESCE(
                         EXTRACT(YEAR FROM j.reporting_period_end),
                         EXTRACT(YEAR FROM cjd.reporting_period_to),
                         j.reporting_year
                     ) as dashboard_year,
-                    j.title,
-                    COALESCE(SUM(
-                        CASE WHEN jsr.scope = 'Scope 1' THEN
-                            CASE 
-                                WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
-                                THEN (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                                ELSE (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                            END
-                        ELSE 0 END
-                    ), 0) as scope1_total,
-                    COALESCE(SUM(
-                        CASE WHEN jsr.scope = 'Scope 2' THEN
-                            CASE 
-                                WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
-                                THEN (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                                ELSE (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                            END
-                        ELSE 0 END
-                    ), 0) as scope2_total,
-                    COALESCE(SUM(
-                        CASE WHEN jsr.scope = 'Scope 3' THEN
-                            CASE 
-                                WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
-                                THEN (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                                ELSE (COALESCE(jsr.qty, 
-                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                            END
-                        ELSE 0 END
-                    ), 0) as scope3_total,
-                    COALESCE(SUM(
-                        CASE 
-                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
-                            THEN (COALESCE(jsr.qty, 
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                            ELSE (COALESCE(jsr.qty, 
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                        END
-                    ), 0) as total_emissions
+                    j.title
                 FROM jobs j
-                LEFT JOIN job_scope_rows jsr ON j.job_id = jsr.job_id AND jsr.enabled = TRUE
                 LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
                 WHERE j.client_db_id = %s AND j.is_crp = TRUE
-                GROUP BY j.job_id, j.reporting_year, j.reporting_period_end, cjd.reporting_period_to, j.title
                 ORDER BY dashboard_year ASC NULLS LAST
                 """,
                 [int(client_db_id)]
             ).df()
-            
-            # Aggregate by dashboard year (reporting_period_end year, fallback reporting_year)
-            yearly_emissions = []
-            if jobs_df is not None and not jobs_df.empty:
-                year_groups = jobs_df.groupby('dashboard_year').agg({
-                    'scope1_total': 'sum',
-                    'scope2_total': 'sum',
-                    'scope3_total': 'sum',
-                    'total_emissions': 'sum'
-                }).reset_index()
-                
-                for _, row in year_groups.iterrows():
-                    year_val = row['dashboard_year']
-                    yearly_emissions.append({
-                        'year': int(year_val) if year_val is not None and year_val == year_val else None,
-                        'scope1': float(row['scope1_total']),
-                        'scope2': float(row['scope2_total']),
-                        'scope3': float(row['scope3_total']),
-                        'total': float(row['total_emissions'])
-                    })
-            
-            yearly_emissions = sorted(
-                [x for x in yearly_emissions if x.get('year') is not None],
-                key=lambda x: int(x['year']),
+            job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
+            scope_df = _load_client_reporting_rows(con, job_ids)
+            if scope_df is None or scope_df.empty:
+                available_years = sorted(
+                    [
+                        int(y)
+                        for y in jobs_df['dashboard_year'].dropna().unique().tolist()
+                        if y is not None and str(y) != 'nan'
+                    ]
+                ) if jobs_df is not None and not jobs_df.empty else []
+                selected_year = (
+                    int(year)
+                    if year is not None and int(year) in available_years
+                    else (available_years[-1] if available_years else None)
+                )
+                return {
+                    'client_db_id': int(client_db_id),
+                    'selected_year': selected_year,
+                    'available_years': available_years,
+                    'current_metrics': {
+                        'total_emissions': 0,
+                        'scope1': 0,
+                        'scope2': 0,
+                        'scope3': 0,
+                        'year': selected_year
+                    },
+                    'yoy_change': None,
+                    'yearly_emissions': [],
+                    'top_categories': [],
+                    'intensity_metrics': [],
+                    'currency': 'GBP',
+                    'benchmark_metrics': get_client_benchmark_metrics(con, int(client_db_id)),
+                    'industry_average_emissions': None,
+                    'net_zero_progress': None
+                }
+
+            resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
+            emissions_vals: list[float] = []
+            quantity_vals: list[float] = []
+            for _, row in scope_df.iterrows():
+                row_job_id = int(row.get('job_id'))
+                resolver = resolver_by_job.get(row_job_id)
+                if resolver is None:
+                    resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                    resolver_by_job[row_job_id] = resolver
+                metrics = resolver.row_metrics(row)
+                emissions_vals.append(float(metrics.get('calc_tco2e') or 0.0))
+                quantity_vals.append(float(metrics.get('display_qty') or 0.0))
+
+            scope_df['emissions'] = emissions_vals
+            scope_df['quantity'] = quantity_vals
+
+            years = sorted(
+                [
+                    int(y)
+                    for y in scope_df['dashboard_year'].dropna().unique().tolist()
+                    if y is not None and str(y) != 'nan'
+                ]
             )
-            available_years = [int(x['year']) for x in yearly_emissions]
+            available_years = years
             selected_year = (
                 int(year)
                 if year is not None and int(year) in available_years
                 else (available_years[-1] if available_years else None)
             )
 
-            # Calculate current year metrics (selected year, default latest year)
+            scope_groups = scope_df.groupby(['dashboard_year', 'scope'])['emissions'].sum().reset_index()
+            yearly_emissions = []
+            for yr in available_years:
+                year_rows = scope_groups[scope_groups['dashboard_year'] == yr]
+                scope1_total = float(year_rows[year_rows['scope'] == 'Scope 1']['emissions'].sum())
+                scope2_total = float(year_rows[year_rows['scope'] == 'Scope 2']['emissions'].sum())
+                scope3_total = float(year_rows[year_rows['scope'] == 'Scope 3']['emissions'].sum())
+                yearly_emissions.append({
+                    'year': int(yr),
+                    'scope1': scope1_total,
+                    'scope2': scope2_total,
+                    'scope3': scope3_total,
+                    'total': float(year_rows['emissions'].sum()),
+                })
+
             current_metrics = {
                 'total_emissions': 0,
                 'scope1': 0,
@@ -193,63 +235,24 @@ def get_client_dashboard(
                         'year': selected_data['year']
                     }
 
-            # Get top emission categories for selected year
-            year_filter_sql = ""
-            year_filter_params: list[int] = []
-            if selected_year is not None:
-                year_filter_sql = """
-                    AND COALESCE(
-                        EXTRACT(YEAR FROM j.reporting_period_end),
-                        EXTRACT(YEAR FROM cjd.reporting_period_to),
-                        j.reporting_year
-                    ) = %s
-                """
-                year_filter_params = [int(selected_year)]
-
-            categories_df = con.execute(
-                f"""
-                SELECT 
-                    jsr.level_2 as category,
-                    SUM(
-                        CASE 
-                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' 
-                            THEN (COALESCE(jsr.qty, 
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                            ELSE (COALESCE(jsr.qty, 
-                                    COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) + 
-                                    COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) + 
-                                    COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) + 
-                                    COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) + 
-                                    COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) + 
-                                    COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                        END
-                    ) as total_emissions
-                FROM job_scope_rows jsr
-                JOIN jobs j ON jsr.job_id = j.job_id
-                LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                WHERE j.client_db_id = %s 
-                    AND jsr.enabled = TRUE
-                    AND j.is_crp = TRUE
-                    {year_filter_sql}
-                    AND jsr.level_2 IS NOT NULL 
-                    AND LOWER(jsr.level_2) != 'nan'
-                    AND TRIM(jsr.level_2) != ''
-                GROUP BY jsr.level_2
-                ORDER BY total_emissions DESC
-                LIMIT 10
-                """,
-                [int(client_db_id), *year_filter_params]
-            ).df()
-            
             top_categories = []
             total_selected_emissions = float(current_metrics['total_emissions'] or 0)
+            if selected_year is not None:
+                selected_rows = scope_df[scope_df['dashboard_year'] == selected_year].copy()
+                if not selected_rows.empty:
+                    category_groups = selected_rows.groupby('category')['emissions'].sum().reset_index()
+                    category_groups = category_groups.sort_values('emissions', ascending=False).head(10)
+                    for _, row in category_groups.iterrows():
+                        category = str(row['category']).strip()
+                        if not category or category.lower() in ['nan', 'none', 'null']:
+                            continue
+                        emissions = float(row['emissions'])
+                        percentage = (emissions / total_selected_emissions * 100) if total_selected_emissions > 0 else 0
+                        top_categories.append({
+                            'category': category,
+                            'emissions': emissions,
+                            'percentage': round(percentage, 1)
+                        })
 
             # Additional summary: industry average and net-zero progress
             industry_average_emissions = None
@@ -267,34 +270,74 @@ def get_client_dashboard(
                         avg_df = con.execute(
                             """
                             SELECT AVG(total_emissions) FROM (
-                                SELECT j.client_db_id,
-                                       COALESCE(SUM(
-                                           CASE
-                                               WHEN LOWER(COALESCE(jsr.ghg_unit,'kgCO2e')) LIKE '%%kg%%' THEN
-                                                   (COALESCE(jsr.qty,
-                                                           COALESCE(jsr.month_1,0)+COALESCE(jsr.month_2,0)+
-                                                           COALESCE(jsr.month_3,0)+COALESCE(jsr.month_4,0)+
-                                                           COALESCE(jsr.month_5,0)+COALESCE(jsr.month_6,0)+
-                                                           COALESCE(jsr.month_7,0)+COALESCE(jsr.month_8,0)+
-                                                           COALESCE(jsr.month_9,0)+COALESCE(jsr.month_10,0)+
-                                                           COALESCE(jsr.month_11,0)+COALESCE(jsr.month_12,0),0)
-                                                       * COALESCE(jsr.factor,0) * COALESCE(jsr.apply_pct,100)/100.0)/1000.0
-                                               ELSE
-                                                   (COALESCE(jsr.qty,
-                                                           COALESCE(jsr.month_1,0)+COALESCE(jsr.month_2,0)+
-                                                           COALESCE(jsr.month_3,0)+COALESCE(jsr.month_4,0)+
-                                                           COALESCE(jsr.month_5,0)+COALESCE(jsr.month_6,0)+
-                                                           COALESCE(jsr.month_7,0)+COALESCE(jsr.month_8,0)+
-                                                           COALESCE(jsr.month_9,0)+COALESCE(jsr.month_10,0)+
-                                                           COALESCE(jsr.month_11,0)+COALESCE(jsr.month_12,0),0)
-                                                       * COALESCE(jsr.factor,0) * COALESCE(jsr.apply_pct,100)/100.0)
-                                           END
-                                       ),0) AS total_emissions
-                                FROM jobs j
-                                LEFT JOIN job_scope_rows jsr ON j.job_id = jsr.job_id AND jsr.enabled = TRUE
-                                LEFT JOIN clients c ON c.db_id = j.client_db_id
-                                WHERE c.industry = %s AND j.is_crp = TRUE
-                                GROUP BY j.client_db_id
+                                WITH job_context AS (
+                                    SELECT
+                                        j.job_id,
+                                        j.client_db_id
+                                    FROM jobs j
+                                    JOIN clients c ON c.db_id = j.client_db_id
+                                    WHERE c.industry = %s AND j.is_crp = TRUE
+                                ),
+                                legacy_rows AS (
+                                    SELECT
+                                        jc.client_db_id,
+                                        jsr.qty,
+                                        jsr.factor,
+                                        jsr.ghg_unit,
+                                        jsr.apply_pct,
+                                        jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
+                                        jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
+                                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                                    FROM job_scope_rows jsr
+                                    JOIN job_context jc ON jc.job_id = jsr.job_id
+                                    WHERE jsr.enabled = TRUE
+                                ),
+                                source_rows AS (
+                                    SELECT
+                                        jc.client_db_id,
+                                        js.qty,
+                                        COALESCE(g.factor, js.factor) AS factor,
+                                        COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
+                                        js.apply_pct,
+                                        NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
+                                        NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
+                                        NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
+                                    FROM job_emission_sources js
+                                    JOIN job_context jc ON jc.job_id = js.job_id
+                                    LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+                                    WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                ),
+                                combined_rows AS (
+                                    SELECT * FROM legacy_rows
+                                    UNION ALL
+                                    SELECT * FROM source_rows
+                                )
+                                SELECT
+                                    client_db_id,
+                                    COALESCE(SUM(
+                                        CASE
+                                            WHEN LOWER(COALESCE(ghg_unit,'kgCO2e')) LIKE '%%kg%%' THEN
+                                                (COALESCE(qty,
+                                                        COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                        COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                        COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                        COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                        COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                        COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                    * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)/1000.0
+                                            ELSE
+                                                (COALESCE(qty,
+                                                        COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                        COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                        COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                        COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                        COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                        COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                    * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)
+                                        END
+                                    ),0) AS total_emissions
+                                FROM combined_rows
+                                GROUP BY client_db_id
                             ) sub
                             """,
                             [industry],
@@ -312,29 +355,6 @@ def get_client_dashboard(
                             "years_to_target": int(net_year) - int(cur_year)
                         }
             
-            if categories_df is not None and not categories_df.empty:
-                for _, row in categories_df.iterrows():
-                    # Get the raw category value
-                    raw_category = row['category']
-                    
-                    # Convert to string and clean
-                    if raw_category is None or (isinstance(raw_category, float) and (raw_category != raw_category)):  # Check for NaN
-                        continue
-                    
-                    category = str(raw_category).strip()
-                    
-                    # Skip invalid categories
-                    if not category or category.lower() in ['nan', 'none', 'null']:
-                        continue
-                        
-                    emissions = float(row['total_emissions'])
-                    percentage = (emissions / total_selected_emissions * 100) if total_selected_emissions > 0 else 0
-                    top_categories.append({
-                        'category': category,
-                        'emissions': emissions,
-                        'percentage': round(percentage, 1)
-                    })
-
             # Calculate year-over-year change for selected year
             yoy_change = None
             if selected_year is not None:
