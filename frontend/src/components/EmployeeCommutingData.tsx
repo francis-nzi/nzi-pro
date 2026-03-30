@@ -595,12 +595,12 @@ export default function EmployeeCommutingData({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Employee Commuting &amp; Working From Home</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-3">
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle>Emissions Summary</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
           <div className="rounded-md border p-3">
             <div className="text-xs uppercase text-muted-foreground">Imported Rows</div>
             <div className="mt-1 text-2xl font-semibold">{summary?.row_count ?? 0}</div>
@@ -615,98 +615,104 @@ export default function EmployeeCommutingData({
             <div className="text-xs uppercase text-muted-foreground">Sites Covered</div>
             <div className="mt-1 text-2xl font-semibold">{summary?.site_count ?? 0}</div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        <div className="text-sm text-muted-foreground">
-          Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
-          Imported rows are written into Job Data below with the appropriate employee commuting source.
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Employee Commuting &amp; Working From Home</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="text-sm text-muted-foreground">
+            Download the commuting workbook, add direct employee rows here, or complete the commuting and WFH tabs and upload it here.
+            Imported rows are written into Job Data below with the appropriate employee commuting source.
+          </div>
 
-        <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-          <div className="space-y-2">
-            <Label htmlFor="employee-commuting-site">Site</Label>
-            <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
-              <SelectTrigger id="employee-commuting-site">
-                <SelectValue placeholder="Organisation-wide / no site" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
-                {sites
-                  .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
-                  .map((site) => (
-                    <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
-                      {site.site_name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <div className="text-xs text-muted-foreground">
-              The selected site is used in the downloaded file name and applied to imported rows.
+          <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+            <div className="space-y-2">
+              <Label htmlFor="employee-commuting-site">Site</Label>
+              <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                <SelectTrigger id="employee-commuting-site">
+                  <SelectValue placeholder="Organisation-wide / no site" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Organisation-wide / No site</SelectItem>
+                  {sites
+                    .filter((site) => site.site_id != null && (site.site_name ?? "").trim().length > 0)
+                    .map((site) => (
+                      <SelectItem key={site.site_id ?? ""} value={String(site.site_id)}>
+                        {site.site_name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground">
+                The selected site is used in the downloaded file name and applied to imported rows.
+              </div>
+            </div>
+            <div className="flex items-end">
+              <Button variant="outline" onClick={downloadTemplate} disabled={loading}>
+                Download Template
+              </Button>
             </div>
           </div>
-          <div className="flex items-end">
-            <Button variant="outline" onClick={downloadTemplate} disabled={loading}>
-              Download Template
-            </Button>
-          </div>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
-          <div className="space-y-2">
-            <Label htmlFor="employee-commuting-upload">Completed Workbook (.xlsx)</Label>
-            <Input
-              id="employee-commuting-upload"
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => {
-                setUploadFile(e.target.files?.[0] ?? null);
-                setPreview(null);
-                setError("");
-                setStatus("");
-              }}
+          <div className="grid gap-4 md:grid-cols-[1fr_auto_auto]">
+            <div className="space-y-2">
+              <Label htmlFor="employee-commuting-upload">Completed Workbook (.xlsx)</Label>
+              <Input
+                id="employee-commuting-upload"
+                type="file"
+                accept=".xlsx"
+                onChange={(e) => {
+                  setUploadFile(e.target.files?.[0] ?? null);
+                  setPreview(null);
+                  setError("");
+                  setStatus("");
+                }}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button variant="outline" onClick={previewUpload} disabled={loading || !uploadFile}>
+                Preview Upload
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button
+                onClick={commitUpload}
+                disabled={
+                  loading ||
+                  !uploadFile ||
+                  !preview ||
+                  preview.ready_count === 0 ||
+                  preview.unresolved_count > 0
+                }
+              >
+                Import to Job Data
+              </Button>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={replaceExisting}
+              onChange={(e) => setReplaceExisting(e.target.checked)}
             />
-          </div>
-          <div className="flex items-end">
-            <Button variant="outline" onClick={previewUpload} disabled={loading || !uploadFile}>
-              Preview Upload
-            </Button>
-          </div>
-          <div className="flex items-end">
-            <Button
-              onClick={commitUpload}
-              disabled={
-                loading ||
-                !uploadFile ||
-                !preview ||
-                preview.ready_count === 0 ||
-                preview.unresolved_count > 0
-              }
-            >
-              Import to Job Data
-            </Button>
-          </div>
-        </div>
+            Replace previous commuting import for this site selection
+          </label>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={replaceExisting}
-            onChange={(e) => setReplaceExisting(e.target.checked)}
-          />
-          Replace previous commuting import for this site selection
-        </label>
+          {error ? (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
 
-        {error ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
+          {status ? (
+            <div className="rounded-md border bg-muted/40 p-3 text-sm">{status}</div>
+          ) : null}
 
-        {status ? (
-          <div className="rounded-md border bg-muted/40 p-3 text-sm">{status}</div>
-        ) : null}
-
-        <div className="space-y-4 rounded-md border p-4">
+          <div className="space-y-4 rounded-md border p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="font-medium">Direct Employee Data Entry</div>
@@ -1007,7 +1013,9 @@ export default function EmployeeCommutingData({
               <div className="text-sm text-muted-foreground">No direct entries saved yet.</div>
             )}
           </div>
-        </div>
+          </div>
+        </CardContent>
+      </Card>
 
         {preview ? (
           <div className="space-y-4 rounded-md border p-4">
@@ -1110,7 +1118,6 @@ export default function EmployeeCommutingData({
             ) : null}
           </div>
         ) : null}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
