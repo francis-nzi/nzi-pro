@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -185,15 +185,19 @@ def _attach_dashboard_emissions(con, scope_df):
     resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
     emissions_vals: list[float] = []
     for _, row in scope_df.iterrows():
-        row_job_id = _normalize_int_value(row.get("job_id"))
-        if row_job_id is None:
-            emissions_vals.append(0.0)
-            continue
-        resolver = resolver_by_job.get(row_job_id)
-        if resolver is None:
-            resolver = JobMonthlyEmissionsResolver(con, row_job_id)
-            resolver_by_job[row_job_id] = resolver
-        metrics = resolver.row_metrics(row)
+        row_type = str(row.get("record_type") or "legacy").strip().lower()
+        if row_type == "source_register":
+            metrics = combined_row_metrics(row)
+        else:
+            row_job_id = _normalize_int_value(row.get("job_id"))
+            if row_job_id is None:
+                emissions_vals.append(0.0)
+                continue
+            resolver = resolver_by_job.get(row_job_id)
+            if resolver is None:
+                resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                resolver_by_job[row_job_id] = resolver
+            metrics = combined_row_metrics(row, resolver)
         emissions_vals.append(float(metrics.get("calc_tco2e") or 0.0))
 
     scope_df = scope_df.copy()

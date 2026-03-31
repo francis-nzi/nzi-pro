@@ -10,7 +10,7 @@ from api.auth import _current_user
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -90,12 +90,16 @@ def get_client_dashboard(
             emissions_vals: list[float] = []
             quantity_vals: list[float] = []
             for _, row in scope_df.iterrows():
-                row_job_id = int(row.get('job_id'))
-                resolver = resolver_by_job.get(row_job_id)
-                if resolver is None:
-                    resolver = JobMonthlyEmissionsResolver(con, row_job_id)
-                    resolver_by_job[row_job_id] = resolver
-                metrics = resolver.row_metrics(row)
+                row_type = str(row.get("record_type") or "legacy").strip().lower()
+                if row_type == "source_register":
+                    metrics = combined_row_metrics(row)
+                else:
+                    row_job_id = int(row.get('job_id'))
+                    resolver = resolver_by_job.get(row_job_id)
+                    if resolver is None:
+                        resolver = JobMonthlyEmissionsResolver(con, row_job_id)
+                        resolver_by_job[row_job_id] = resolver
+                    metrics = combined_row_metrics(row, resolver)
                 emissions_vals.append(float(metrics.get('calc_tco2e') or 0.0))
                 quantity_vals.append(float(metrics.get('display_qty') or 0.0))
 

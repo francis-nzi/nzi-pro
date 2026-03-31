@@ -23,6 +23,7 @@ import os
 from datetime import date, datetime, timedelta, timezone
 import inspect
 import pandas as pd
+from threading import Lock
 from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
 from services.attribute_override_import import (
     build_override_template_workbook,
@@ -47,6 +48,11 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
 )
+
+_LOOKUP_BOOTSTRAP_LOCK = Lock()
+_LOOKUP_BOOTSTRAPPED: set[str] = set()
+_ADMIN_USER_BOOTSTRAPPED = False
+_ADMIN_USER_BOOTSTRAP_LOCK = Lock()
 
 
 def _ensure_legacy_cleanup_schema(con) -> None:
@@ -1364,6 +1370,27 @@ def _ensure_lookup_table(con, table_name: str) -> None:
         _ensure_bd_bin_reasons_lookup_table(con)
 
 
+def _ensure_lookup_table_once(con, table_name: str) -> None:
+    with _LOOKUP_BOOTSTRAP_LOCK:
+        if table_name in _LOOKUP_BOOTSTRAPPED:
+            return
+        _ensure_lookup_table(con, table_name)
+        _LOOKUP_BOOTSTRAPPED.add(table_name)
+
+
+def _ensure_admin_user_schema_once(con) -> None:
+    global _ADMIN_USER_BOOTSTRAPPED
+    with _ADMIN_USER_BOOTSTRAP_LOCK:
+        if _ADMIN_USER_BOOTSTRAPPED:
+            return
+        ensure_permission_schema(con)
+        _ensure_users_position_column(con)
+        _ensure_users_password_column(con)
+        _ensure_users_invite_columns(con)
+        _ensure_users_cost_sell_mobile_columns(con)
+        _ADMIN_USER_BOOTSTRAPPED = True
+
+
 def _ensure_supplier_tables(con) -> None:
     """Ensure supplier master and supplier service item tables exist."""
     try:
@@ -1515,11 +1542,7 @@ def list_users(_user: dict = Depends(_current_user)):
     """List all users."""
     try:
         with get_conn() as con:
-            ensure_permission_schema(con)
-            _ensure_users_position_column(con)
-            _ensure_users_password_column(con)
-            _ensure_users_invite_columns(con)
-            _ensure_users_cost_sell_mobile_columns(con)
+            _ensure_admin_user_schema_once(con)
             df = con.execute(
                 """
                 SELECT user_id, full_name, email, role, position, status, password_hash,
@@ -2610,7 +2633,7 @@ def list_lookup_items(table_name: str, _user: dict = Depends(_current_user)):
     
     def _fetch_data():
         with get_conn() as con:
-            _ensure_lookup_table(con, table_name)
+            _ensure_lookup_table_once(con, table_name)
             # Different tables might have different sort columns
             if table_name == "job_statuses_lookup":
                 df = con.execute(f"SELECT * FROM {query_table} ORDER BY sort_order, name").df()

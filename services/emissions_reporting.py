@@ -1,5 +1,70 @@
 from __future__ import annotations
 
+from typing import Any, Mapping
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if out != out:  # NaN check without importing math
+        return None
+    return out
+
+
+def _safe_text(value: Any) -> str | None:
+    txt = str(value or "").strip()
+    return txt or None
+
+
+def combined_row_metrics(row: Mapping[str, Any], resolver=None) -> dict[str, Any]:
+    """Return row metrics for mixed legacy + source-register emissions rows.
+
+    Source-register rows already persist their calculated tCO2e, so we can avoid
+    re-running the heavier legacy resolver for those rows.
+    """
+    record_type = str(row.get("record_type") or "legacy").strip().lower()
+    if record_type == "source_register":
+        qty = _safe_float(row.get("qty")) or 0.0
+        factor = _safe_float(row.get("factor"))
+        apply_pct = _safe_float(row.get("apply_pct")) or 100.0
+        ghg_unit = _safe_text(row.get("ghg_unit"))
+        calc_tco2e = _safe_float(row.get("calc_tco2e"))
+        if calc_tco2e is None:
+            calc_tco2e = float(qty or 0.0) * float(factor or 0.0) * (apply_pct / 100.0)
+            if "kg" in str(ghg_unit or "kgCO2e").lower():
+                calc_tco2e /= 1000.0
+        return {
+            "display_qty": qty,
+            "display_uom": _safe_text(row.get("uom")),
+            "display_factor": factor,
+            "factor_label": None,
+            "dataset_label": _safe_text(row.get("dataset_name")),
+            "calc_tco2e": float(calc_tco2e or 0.0),
+            "tco2e_before_apply": float(calc_tco2e or 0.0),
+            "monthly_factor_details": [],
+            "uses_monthly_factors": False,
+            "source_qty": None,
+            "source_uom": None,
+            "storage_qty": qty,
+            "storage_uom": _safe_text(row.get("uom")),
+            "storage_factor": factor,
+            "reference_factor": None,
+            "reference_ghg_unit": ghg_unit,
+            "factor_reference": None,
+            "storage_reason": None,
+            "uses_emissions_fallback": False,
+            "source_volume_available": False,
+            "display_dataset_id": row.get("dataset_id"),
+        }
+
+    if resolver is None:
+        raise ValueError("resolver is required for legacy rows")
+    return resolver.row_metrics(row)
+
 def load_combined_reporting_rows(con, job_ids: list[int]):
     """Load legacy job_scope_rows plus source-register rows for the given jobs."""
     if not job_ids:
@@ -40,6 +105,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jsr.factor,
                 jsr.ghg_unit,
                 jsr.apply_pct,
+                NULL::numeric AS calc_tco2e,
                 jsr.notes,
                 NULL::text AS source_type,
                 NULL::text AS group_name,
@@ -76,6 +142,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 COALESCE(g.factor, js.factor) AS factor,
                 COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
                 js.apply_pct,
+                js.calc_tco2e AS calc_tco2e,
                 js.notes,
                 js.source_type,
                 g.group_name,

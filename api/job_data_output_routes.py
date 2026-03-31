@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
+from services.emissions_reporting import combined_row_metrics
 
 router = APIRouter()
 
@@ -200,7 +201,7 @@ def get_job_data_output(
                 for _, row in data_df.iterrows():
                     category = row['category'] or 'Uncategorized'
                     site = row['site_name'] or 'No Site Assigned'
-                    metrics = resolver.row_metrics(row)
+                    metrics = combined_row_metrics(row, resolver)
                     qty_val = float(metrics.get("display_qty") or 0.0)
                     emission = float(metrics.get("calc_tco2e") or 0.0)
 
@@ -279,7 +280,7 @@ def get_job_data_output(
                     scope_name = row['scope'] or 'Unknown'
                     category = row['category'] or 'Uncategorized'
                     site = row['site_name'] or 'No Site Assigned'
-                    metrics = resolver.row_metrics(row)
+                    metrics = combined_row_metrics(row, resolver)
                     emission = float(metrics.get("calc_tco2e") or 0.0)
                     
                     if scope_name not in scopes:
@@ -377,7 +378,7 @@ def get_job_data_output_audit(
             for _, row in df.iterrows():
                 scope_name = str(row.get("scope") or "Unknown")
                 site_name = str(row.get("site_name") or "No Site Assigned")
-                metrics = resolver.row_metrics(row)
+                metrics = combined_row_metrics(row, resolver)
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
 

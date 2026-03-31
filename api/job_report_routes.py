@@ -26,6 +26,7 @@ from typing import Optional, Any
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
+from services.emissions_reporting import combined_row_metrics
 from api.report_template_routes import (
     _get_job_report_metadata,
     _build_report_render_values,
@@ -1013,6 +1014,7 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
             COALESCE(g.factor, js.factor) AS factor,
             COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
             js.apply_pct,
+            js.calc_tco2e,
             COALESCE(js.data_source, CASE WHEN js.source_type = 'business_travel' THEN 'Business Travel Register' ELSE 'Asset Register' END) AS data_source,
             COALESCE(js.data_confidence, 'M') AS data_confidence,
             js.notes,
@@ -1275,7 +1277,7 @@ def get_scope_totals(job_id: int):
         }
         
         for row in rows:
-            emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
+            emissions = float(combined_row_metrics(row, resolver).get("calc_tco2e") or 0.0)
             scope = row.get('scope', '')
             if scope in raw_totals:
                 raw_totals[scope] += emissions
@@ -1310,7 +1312,7 @@ def get_emissions_by_category(job_id: int):
         categories = []
         for row in rows:
             try:
-                metrics = resolver.row_metrics(row)
+                metrics = combined_row_metrics(row, resolver)
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
             except Exception:
@@ -1598,7 +1600,7 @@ def get_emissions_by_site(job_id: int):
             for row in rows:
                 site_name = row.get('site_name', 'Unassigned')
                 scope = row.get('scope', '')
-                emissions = float(resolver.row_metrics(row).get("calc_tco2e") or 0.0)
+                emissions = float(combined_row_metrics(row, resolver).get("calc_tco2e") or 0.0)
                 
                 if site_name not in sites:
                     sites[site_name] = {'Scope 1': 0, 'Scope 2': 0, 'Scope 3': 0, 'Total': 0}
@@ -1713,7 +1715,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
             category = str(row.get("category") or "Uncategorized")
             report_label = str(row.get("report_label") or category)
 
-            metrics = resolver.row_metrics(row)
+            metrics = combined_row_metrics(row, resolver)
             qty_val = float(metrics.get("display_qty") or 0.0)
             uom = str(metrics.get("display_uom") or "")
             emissions = float(metrics.get("calc_tco2e") or 0.0)
