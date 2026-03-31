@@ -439,22 +439,22 @@
       <div class="kpi-grid">
         <div class="kpi">
           <div class="kpi-label">Total Emissions</div>
-          <div class="kpi-value">{{ "{:,.1f}".format(total) }}</div>
+          <div class="kpi-value">{{ "{:,.2f}".format(total) }}</div>
           <div class="kpi-sub">tCO2e</div>
         </div>
         <div class="kpi">
           <div class="kpi-label">Scope 1</div>
-          <div class="kpi-value scope-1">{{ "{:,.1f}".format(s1) }}</div>
+          <div class="kpi-value scope-1">{{ "{:,.2f}".format(s1) }}</div>
           <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %} of total</div>
         </div>
         <div class="kpi">
           <div class="kpi-label">Scope 2</div>
-          <div class="kpi-value scope-2">{{ "{:,.1f}".format(s2) }}</div>
+          <div class="kpi-value scope-2">{{ "{:,.2f}".format(s2) }}</div>
           <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %} of total</div>
         </div>
         <div class="kpi">
           <div class="kpi-label">Scope 3</div>
-          <div class="kpi-value scope-3">{{ "{:,.1f}".format(s3) }}</div>
+          <div class="kpi-value scope-3">{{ "{:,.2f}".format(s3) }}</div>
           <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %} of total</div>
         </div>
       </div>
@@ -529,22 +529,22 @@
           <tbody>
             <tr>
               <td><span class="badge b1">Scope 1</span></td>
-              <td class="num">{{ "{:,.1f}".format(s1) }}</td>
+              <td class="num">{{ "{:,.2f}".format(s1) }}</td>
               <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %}</td>
             </tr>
             <tr>
               <td><span class="badge b2">Scope 2</span></td>
-              <td class="num">{{ "{:,.1f}".format(s2) }}</td>
+              <td class="num">{{ "{:,.2f}".format(s2) }}</td>
               <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %}</td>
             </tr>
             <tr>
               <td><span class="badge b3">Scope 3</span></td>
-              <td class="num">{{ "{:,.1f}".format(s3) }}</td>
+              <td class="num">{{ "{:,.2f}".format(s3) }}</td>
               <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %}</td>
             </tr>
             <tr>
               <td><strong>Total</strong></td>
-              <td class="num"><strong>{{ "{:,.1f}".format(total) }}</strong></td>
+              <td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td>
               <td class="num"><strong>100.0%</strong></td>
             </tr>
           </tbody>
@@ -656,10 +656,10 @@
             <tr><td>Non-UK Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("energy_consumption_non_uk_kwh") or 0)|float) }}</td></tr>
             <tr><td>Energy Reporting Basis</td><td class="num">{{ rm.get("energy_reporting_basis") or "-" }}</td></tr>
             <tr><td>Renewable Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("renewable_energy_kwh") or 0)|float) }}</td></tr>
-            <tr><td>Renewables %</td><td class="num">{{ "{:,.1f}%".format((rm.get("renewable_energy_pct") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Location-based tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Market-based tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Carbon Offsets (tCO2e)</td><td class="num">{{ "{:,.1f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Renewables %</td><td class="num">{{ "{:,.2f}%".format((rm.get("renewable_energy_pct") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Location-based tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Market-based tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Carbon Offsets (tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -789,3 +789,4 @@
   </div>
 </body>
 </html>
+

@@ -1114,7 +1114,7 @@ def create_donut_chart(data_dict, colors_dict, title, total_value, center_label=
     total = sum(values)
     for label, val in zip(labels, values):
         pct = (val / total * 100) if total > 0 else 0
-        labels_with_data.append(f'{label}\n{val:,.1f} ({pct:.1f}%)')
+        labels_with_data.append(f'{label}\n{val:,.2f} ({pct:.1f}%)')
     
     # Create donut chart with all info outside (no autopct)
     # pctdistance is not used since we're not using autopct, but we ensure lines are drawn
@@ -1138,7 +1138,7 @@ def create_donut_chart(data_dict, colors_dict, title, total_value, center_label=
     ax.add_artist(centre_circle)
     
     # Add total in center with thousand separator and doubled font size
-    ax.text(0, 0.05, f'{total_value:,.1f}', ha='center', va='center',
+    ax.text(0, 0.05, f'{total_value:,.2f}', ha='center', va='center',
             fontsize=32, fontweight='bold', color='#70AD47',
             family='sans-serif')
     ax.text(0, -0.18, center_label, ha='center', va='center',
@@ -3814,10 +3814,10 @@ def generate_job_report_docx(
         summary_table = doc.add_table(rows=4, cols=2)
         summary_table.style = "Table Grid"
         summary_rows = [
-            ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.1f} tCO₂e"),
-            ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.1f} tCO₂e"),
-            ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.1f} tCO₂e"),
-            ("Total", f"{scope_totals.get('Total', 0.0):,.1f} tCO₂e"),
+            ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.2f} tCO₂e"),
+            ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.2f} tCO₂e"),
+            ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.2f} tCO₂e"),
+            ("Total", f"{scope_totals.get('Total', 0.0):,.2f} tCO₂e"),
         ]
         for idx, (label, value) in enumerate(summary_rows):
             summary_table.cell(idx, 0).text = label
@@ -3828,7 +3828,7 @@ def generate_job_report_docx(
         group_table.style = "Table Grid"
         for idx, group in enumerate(ACTIVITY_GROUP_ORDER):
             group_table.cell(idx, 0).text = group
-            group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.1f} tCO₂e"
+            group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.2f} tCO₂e"
 
         _docx_add_variable_sections(doc, template_variables, template_var_meta)
 
@@ -3861,7 +3861,7 @@ def generate_job_report_docx(
                 cells[0].text = str(row.get("activity_group") or "")
                 cells[1].text = str(row.get("emission_type") or "")
                 cells[2].text = str(row.get("scope") or "")
-                cells[3].text = f"{float(row.get('emissions') or 0.0):,.1f}"
+                cells[3].text = f"{float(row.get('emissions') or 0.0):,.2f}"
 
         output = io.BytesIO()
         doc.save(output)

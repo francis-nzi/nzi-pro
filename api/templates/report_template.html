@@ -248,7 +248,7 @@
     <p>
         This report presents the greenhouse gas emissions for {{ job_data.client_name }} 
         for the reporting year {{ job_data.reporting_year or 'N/A' }}. 
-        Total emissions for the period are <strong>{{ scope_totals.Total|round(1) }} tCO₂e</strong>.
+        Total emissions for the period are <strong>{{ scope_totals.Total|round(2) }} tCO₂e</strong>.
     </p>
 
     <table class="data-table mt-20">
@@ -320,7 +320,7 @@
     <p>
         The total calculated emissions for the business for the period 
         {{ job_data.period_start }} to {{ job_data.period_end }} are 
-        <strong>{{ scope_totals.Total|round(1) }} tCO₂e</strong>. 
+        <strong>{{ scope_totals.Total|round(2) }} tCO₂e</strong>. 
         This is the first year the company has measured its carbon emissions. 
         The breakdown of emissions is analysed throughout this report.
     </p>
@@ -353,7 +353,7 @@
             <tr>
                 <td><strong>Scope 1</strong></td>
                 <td>Scope 1 emissions includes fuels used at company premises and company vehicles.</td>
-                <td class="text-right">{{ scope_totals['Scope 1']|round(1) }}</td>
+                <td class="text-right">{{ scope_totals['Scope 1']|round(2) }}</td>
                 <td class="text-right">
                     {% if scope_totals.Total > 0 %}
                         {{ ((scope_totals['Scope 1'] / scope_totals.Total) * 100)|round(1) }}%
@@ -365,7 +365,7 @@
             <tr>
                 <td><strong>Scope 2</strong></td>
                 <td>Emissions in scope 2 includes electricity used at the company's premises. The premises are on a mixed tariff.</td>
-                <td class="text-right">{{ scope_totals['Scope 2']|round(1) }}</td>
+                <td class="text-right">{{ scope_totals['Scope 2']|round(2) }}</td>
                 <td class="text-right">
                     {% if scope_totals.Total > 0 %}
                         {{ ((scope_totals['Scope 2'] / scope_totals.Total) * 100)|round(1) }}%
@@ -377,7 +377,7 @@
             <tr>
                 <td><strong>Scope 3</strong></td>
                 <td>Scope 3 emissions include:<br>• Business Travel<br>• Employee Commuting<br>• Transmission and Distribution of Electricity<br>• Waste and/or Water</td>
-                <td class="text-right">{{ scope_totals['Scope 3']|round(1) }}</td>
+                <td class="text-right">{{ scope_totals['Scope 3']|round(2) }}</td>
                 <td class="text-right">
                     {% if scope_totals.Total > 0 %}
                         {{ ((scope_totals['Scope 3'] / scope_totals.Total) * 100)|round(1) }}%
@@ -389,7 +389,7 @@
             <tr class="total-row">
                 <td><strong>TOTAL</strong></td>
                 <td></td>
-                <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
+                <td class="text-right"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
                 <td class="text-right"><strong>100.0%</strong></td>
             </tr>
         </tbody>
@@ -433,14 +433,14 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">1</td>
-                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
                     <td colspan="3"></td>
-                    <td class="text-right"><strong>{{ scope1_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td class="text-right"><strong>{{ scope1_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% else %}
@@ -468,14 +468,14 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">2</td>
-                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
                     <td colspan="3"></td>
-                    <td class="text-right"><strong>{{ scope2_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td class="text-right"><strong>{{ scope2_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% else %}
@@ -503,14 +503,14 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">3</td>
-                    <td class="text-right">{{ cat.emissions|round(1) }}</td>
+                    <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
                     <td colspan="3"></td>
-                    <td class="text-right"><strong>{{ scope3_cats|sum(attribute='emissions')|round(1) }}</strong></td>
+                    <td class="text-right"><strong>{{ scope3_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% else %}
@@ -531,9 +531,10 @@
             <!-- Total -->
             <tr class="total-row" style="background: #d6d8db;">
                 <td colspan="3"><strong>TOTAL</strong></td>
-                <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
+                <td class="text-right"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
                 <td colspan="2"></td>
             </tr>
         </tbody>
     </table>
 {% endblock %}
+

@@ -1,4 +1,4 @@
-﻿{% extends "report_base.html" %}
+{% extends "report_base.html" %}
 
 {% set target_data = target_data if target_data is defined else {} %}
 {% set assets = assets if assets is defined else {} %}
@@ -918,21 +918,21 @@
             <div class="exec-donut-summary no-break">
                 <div class="exec-donut" style="background: conic-gradient(#4B74C3 0deg {{ _d1 }}deg, #EB7F2F {{ _d1 }}deg {{ _d2 }}deg, #70AD47 {{ _d2 }}deg 360deg);">
                     <div class="exec-donut-center">
-                        <div class="exec-donut-value">{{ '{:,.1f}'.format(scope_totals.Total) }}</div>
-                        <div class="exec-donut-unit">tCO₂e</div>
+                        <div class="exec-donut-value">{{ '{:,.2f}'.format(scope_totals.Total) }}</div>
+                        <div class="exec-donut-unit">tCO2e</div>
                     </div>
                 </div>
                 <div class="exec-legend">
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.1f}'.format(scope_totals['Scope 1']) }} tCO₂e ({{ _scope1_pct }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.1f}'.format(scope_totals['Scope 2']) }} tCO₂e ({{ _scope2_pct }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.1f}'.format(scope_totals['Scope 3']) }} tCO₂e ({{ _scope3_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct }}%)</span></div>
                 </div>
             </div>
 
             <p>
                 This report presents the greenhouse gas emissions for <strong>{{ job_data.client_name }}</strong> 
                 for the reporting period {% if job_data.period_start.strftime %}{{ job_data.period_start.strftime('%d %B %Y') }}{% else %}{{ job_data.period_start }}{% endif %} to {% if job_data.period_end.strftime %}{{ job_data.period_end.strftime('%d %B %Y') }}{% else %}{{ job_data.period_end }}{% endif %}. 
-                The total calculated emissions for the period are <strong>{{ '{:,.1f}'.format(scope_totals.Total) }} tCO₂e</strong>{% if is_yoy_template %}, compared to <strong>{{ '{:,.1f}'.format(benchmark_totals.Total) }} tCO₂e</strong> from the benchmark year{% endif %}.
+                The total calculated emissions for the period are <strong>{{ '{:,.2f}'.format(scope_totals.Total) }} tCO2e</strong>{% if is_yoy_template %}, compared to <strong>{{ '{:,.2f}'.format(benchmark_totals.Total) }} tCO2e</strong> from the benchmark year{% endif %}.
             </p>
 
             <h3>Emissions Summary by Scope</h3>
@@ -940,16 +940,16 @@
                 <thead>
                     <tr>
                         <th>Scope</th>
-                        <th class="text-right">Current Year (tCO₂e)</th>
-                        <th class="text-right">Benchmark Year (tCO₂e)</th>
+                        <th class="text-right">Current Year (tCO2e)</th>
+                        <th class="text-right">Benchmark Year (tCO2e)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td><strong>Scope 1</strong></td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 1']) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(benchmark_totals['Scope 1']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 1']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(benchmark_totals['Scope 1']) }}</td>
                         <td class="text-right">
                             {% if benchmark_totals['Scope 1'] > 0 %}
                                 {{ (((scope_totals['Scope 1'] - benchmark_totals['Scope 1']) / benchmark_totals['Scope 1']) * 100)|round(1) }}%
@@ -960,8 +960,8 @@
                     </tr>
                     <tr>
                         <td><strong>Scope 2</strong></td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 2']) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(benchmark_totals['Scope 2']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 2']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(benchmark_totals['Scope 2']) }}</td>
                         <td class="text-right">
                             {% if benchmark_totals['Scope 2'] > 0 %}
                                 {{ (((scope_totals['Scope 2'] - benchmark_totals['Scope 2']) / benchmark_totals['Scope 2']) * 100)|round(1) }}%
@@ -972,8 +972,8 @@
                     </tr>
                     <tr>
                         <td><strong>Scope 3</strong></td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 3']) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(benchmark_totals['Scope 3']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 3']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(benchmark_totals['Scope 3']) }}</td>
                         <td class="text-right">
                             {% if benchmark_totals['Scope 3'] > 0 %}
                                 {{ (((scope_totals['Scope 3'] - benchmark_totals['Scope 3']) / benchmark_totals['Scope 3']) * 100)|round(1) }}%
@@ -984,8 +984,8 @@
                     </tr>
                     <tr class="total-row">
                         <td><strong>Total</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(benchmark_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(benchmark_totals.Total) }}</strong></td>
                         <td class="text-right">
                             {% if benchmark_totals.Total > 0 %}
                                 <strong>{{ (((scope_totals.Total - benchmark_totals.Total) / benchmark_totals.Total) * 100)|round(1) }}%</strong>
@@ -1247,26 +1247,26 @@
                     <div style="text-align: center; padding: 6px 10px;">
                         <span style="color: #70AD47; font-size: 10pt; text-transform: uppercase; letter-spacing: 2px;">Current Year Emissions</span>
                         <div style="color: #155724; font-size: 26pt; font-weight: 700; line-height: 1.2; margin: 10px 0;">
-                            {{ '{:,.1f}'.format(scope_totals.Total) }}
+                            {{ '{:,.2f}'.format(scope_totals.Total) }}
                         </div>
-                        <span style="color: #666; font-size: 10pt; font-weight: 500;">tCO₂e</span>
+                        <span style="color: #666; font-size: 10pt; font-weight: 500;">tCO2e</span>
                     </div>
                     <div style="text-align: center; padding: 6px 10px; border-left: 1px solid #e6e6e6;">
                         <span style="color: #4B74C3; font-size: 10pt; text-transform: uppercase; letter-spacing: 2px;">Benchmark Emissions</span>
                         <div style="color: #2f4f7f; font-size: 26pt; font-weight: 700; line-height: 1.2; margin: 10px 0;">
-                            {{ '{:,.1f}'.format(benchmark_totals.Total) }}
+                            {{ '{:,.2f}'.format(benchmark_totals.Total) }}
                         </div>
-                        <span style="color: #666; font-size: 10pt; font-weight: 500;">tCO₂e</span>
+                        <span style="color: #666; font-size: 10pt; font-weight: 500;">tCO2e</span>
                     </div>
                 </div>
                 {% else %}
                 <div style="text-align: center;">
                     <span style="color: #70AD47; font-size: 10pt; text-transform: uppercase; letter-spacing: 2px;">Total Carbon Emissions</span>
                     <div style="color: #155724; font-size: 26pt; font-weight: 700; line-height: 1.2; margin: 10px 0;">
-                        {{ '{:,.1f}'.format(scope_totals.Total) }}
+                        {{ '{:,.2f}'.format(scope_totals.Total) }}
                     </div>
                     <span style="color: #666; font-size: 10pt; font-weight: 500;">
-                        tCO₂e
+                        tCO2e
                     </span>
                 </div>
                 {% endif %}
@@ -1285,7 +1285,7 @@
                 <thead>
                     <tr>
                         <th>Site</th>
-                        <th class="text-right">tCO₂e</th>
+                        <th class="text-right">tCO2e</th>
                         <th class="text-right">% of Total</th>
                     </tr>
                 </thead>
@@ -1293,13 +1293,13 @@
                     {% for row in site_breakdowns.overall %}
                     <tr>
                         <td>{{ row.site_name }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.total) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.pct_total) }}%</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.total) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.pct_total) }}%</td>
                     </tr>
                     {% endfor %}
                     <tr class="total-row">
                         <td><strong>Total</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
                         <td class="text-right"><strong>100.0%</strong></td>
                     </tr>
                 </tbody>
@@ -1312,8 +1312,8 @@
                 <thead>
                     <tr>
                         <th>Site</th>
-                        <th class="text-right">Current Year (tCO₂e)</th>
-                        <th class="text-right">Benchmark Year (tCO₂e)</th>
+                        <th class="text-right">Current Year (tCO2e)</th>
+                        <th class="text-right">Benchmark Year (tCO2e)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1321,15 +1321,15 @@
                     {% for row in site_overall_comparison %}
                     <tr>
                         <td>{{ row.site_name }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.current) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.benchmark) }}</td>
-                        <td class="text-right">{% if row.change_pct is not none %}{{ '{:,.1f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.current) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.benchmark) }}</td>
+                        <td class="text-right">{% if row.change_pct is not none %}{{ '{:,.2f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</td>
                     </tr>
                     {% endfor %}
                     <tr class="total-row">
                         <td><strong>Total</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(benchmark_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(benchmark_totals.Total) }}</strong></td>
                         <td class="text-right">
                             {% if benchmark_totals.Total > 0 %}
                                 <strong>{{ (((scope_totals.Total - benchmark_totals.Total) / benchmark_totals.Total) * 100)|round(1) }}%</strong>
@@ -1359,14 +1359,14 @@
             <div class="exec-donut-summary no-break">
                 <div class="exec-donut" style="background: conic-gradient(#4B74C3 0deg {{ _d1_s5 }}deg, #EB7F2F {{ _d1_s5 }}deg {{ _d2_s5 }}deg, #70AD47 {{ _d2_s5 }}deg 360deg);">
                     <div class="exec-donut-center">
-                        <div class="exec-donut-value">{{ '{:,.1f}'.format(scope_totals.Total) }}</div>
-                        <div class="exec-donut-unit">tCO₂e</div>
+                        <div class="exec-donut-value">{{ '{:,.2f}'.format(scope_totals.Total) }}</div>
+                        <div class="exec-donut-unit">tCO2e</div>
                     </div>
                 </div>
                 <div class="exec-legend">
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.1f}'.format(scope_totals['Scope 1']) }} tCO₂e ({{ _scope1_pct_s5 }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.1f}'.format(scope_totals['Scope 2']) }} tCO₂e ({{ _scope2_pct_s5 }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.1f}'.format(scope_totals['Scope 3']) }} tCO₂e ({{ _scope3_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct_s5 }}%)</span></div>
                 </div>
             </div>
 
@@ -1376,7 +1376,7 @@
                     <tr>
                         <th>Scope</th>
                         <th>Description</th>
-                        <th class="text-right">tCO₂e</th>
+                        <th class="text-right">tCO2e</th>
                         <th class="text-right">%</th>
                     </tr>
                 </thead>
@@ -1384,7 +1384,7 @@
                     <tr>
                         <td class="text-center"><strong>1</strong></td>
                         <td>Scope 1 emissions includes fuels used at company premises and company vehicles.</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 1']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 1']) }}</td>
                         <td class="text-right">
                             {% if scope_totals.Total > 0 %}
                                 {{ ((scope_totals['Scope 1'] / scope_totals.Total) * 100)|round(1) }}%
@@ -1396,7 +1396,7 @@
                     <tr>
                         <td class="text-center"><strong>2</strong></td>
                         <td>Emissions in scope 2 includes electricity used at the company's premises.</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 2']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 2']) }}</td>
                         <td class="text-right">
                             {% if scope_totals.Total > 0 %}
                                 {{ ((scope_totals['Scope 2'] / scope_totals.Total) * 100)|round(1) }}%
@@ -1408,7 +1408,7 @@
                     <tr>
                         <td class="text-center"><strong>3</strong></td>
                         <td>Scope 3 emissions include Business Travel, Employee Commuting, Transmission and Distribution of Electricity, and Waste/Water.</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(scope_totals['Scope 3']) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(scope_totals['Scope 3']) }}</td>
                         <td class="text-right">
                             {% if scope_totals.Total > 0 %}
                                 {{ ((scope_totals['Scope 3'] / scope_totals.Total) * 100)|round(1) }}%
@@ -1420,7 +1420,7 @@
                     <tr class="total-row">
                         <td><strong>TOTAL</strong></td>
                         <td></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
                         <td class="text-right"><strong>100.0%</strong></td>
                     </tr>
                 </tbody>
@@ -1442,18 +1442,18 @@
                     {% for row in site_breakdowns.scope %}
                     <tr>
                         <td>{{ row.site_name }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.scope_1) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.scope_2) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.scope_3) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.total) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.scope_1) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.scope_2) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.scope_3) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.total) }}</td>
                     </tr>
                     {% endfor %}
                     <tr class="total-row">
                         <td><strong>Total</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals['Scope 1']) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals['Scope 2']) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals['Scope 3']) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals['Scope 1']) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals['Scope 2']) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals['Scope 3']) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
                     </tr>
                 </tbody>
             </table>
@@ -1465,8 +1465,8 @@
                 <thead>
                     <tr>
                         <th>Scope</th>
-                        <th class="text-right">Current Year (tCO₂e)</th>
-                        <th class="text-right">Benchmark Year (tCO₂e)</th>
+                        <th class="text-right">Current Year (tCO2e)</th>
+                        <th class="text-right">Benchmark Year (tCO2e)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1474,9 +1474,9 @@
                     {% for row in scope_comparison %}
                     <tr{% if row.label == 'Total' %} class="total-row"{% endif %}>
                         <td><strong>{{ row.label }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(row.current) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(row.benchmark) }}</strong></td>
-                        <td class="text-right"><strong>{% if row.change_pct is not none %}{{ '{:,.1f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(row.current) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(row.benchmark) }}</strong></td>
+                        <td class="text-right"><strong>{% if row.change_pct is not none %}{{ '{:,.2f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</strong></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1530,8 +1530,8 @@
             <div class="exec-donut-summary no-break">
                 <div class="exec-donut" style="background: conic-gradient({{ _activity_grad.css if _activity_grad.css else '#d1d5db 0deg 360deg' }});">
                     <div class="exec-donut-center">
-                        <div class="exec-donut-value">{{ '{:,.1f}'.format(scope_totals.Total) }}</div>
-                        <div class="exec-donut-unit">tCO₂e</div>
+                        <div class="exec-donut-value">{{ '{:,.2f}'.format(scope_totals.Total) }}</div>
+                        <div class="exec-donut-unit">tCO2e</div>
                     </div>
                 </div>
                 <div class="exec-legend">
@@ -1542,7 +1542,7 @@
                             {% set _clr = activity_palette[loop.index0 % (activity_palette|length)] %}
                             <div class="exec-legend-row">
                                 <span class="exec-legend-swatch" style="background:{{ _clr }};"></span>
-                                <span>{{ _lbl }}: {{ '{:,.1f}'.format(_val) }} tCO₂e ({{ _pct }}%)</span>
+                                <span>{{ _lbl }}: {{ '{:,.2f}'.format(_val) }} tCO2e ({{ _pct }}%)</span>
                             </div>
                         {% endfor %}
                     {% else %}
@@ -1596,18 +1596,18 @@
                     {% for row in site_breakdowns.activity %}
                     <tr>
                         <td>{{ row.site_name }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.energy) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.business_travel) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.employee_commuting) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.pgs) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.other) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.total) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.energy) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.business_travel) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.employee_commuting) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.pgs) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.other) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.total) }}</td>
                     </tr>
                     {% endfor %}
                     <tr class="total-row">
                         <td><strong>Total</strong></td>
                         <td colspan="5"></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
                     </tr>
                 </tbody>
             </table>
@@ -1619,8 +1619,8 @@
                 <thead>
                     <tr>
                         <th>Activity Group</th>
-                        <th class="text-right">Current Year (tCO₂e)</th>
-                        <th class="text-right">Benchmark Year (tCO₂e)</th>
+                        <th class="text-right">Current Year (tCO2e)</th>
+                        <th class="text-right">Benchmark Year (tCO2e)</th>
                         <th class="text-right">Change (%)</th>
                     </tr>
                 </thead>
@@ -1628,9 +1628,9 @@
                     {% for row in activity_comparison %}
                     <tr{% if row.group == 'Total' %} class="total-row"{% endif %}>
                         <td><strong>{{ row.group }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(row.current) }}</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(row.benchmark) }}</strong></td>
-                        <td class="text-right"><strong>{% if row.change_pct is not none %}{{ '{:,.1f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(row.current) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(row.benchmark) }}</strong></td>
+                        <td class="text-right"><strong>{% if row.change_pct is not none %}{{ '{:,.2f}'.format(row.change_pct) }}%{% else %}N/A{% endif %}</strong></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1644,7 +1644,7 @@
                     <tr>
                         <th>Scope</th>
                         <th>Category</th>
-                        <th class="text-right">tCO₂e</th>
+                        <th class="text-right">tCO2e</th>
                         <th class="text-right">%</th>
                         <th>Data Source</th>
                         <th>Source Family</th>
@@ -1673,7 +1673,7 @@
                     <tr>
                         <td>{{ row.scope }}</td>
                         <td>{{ row.emission_type }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(row.emissions|default(0)) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(row.emissions|default(0)) }}</td>
                         <td class="text-right">
                             {% if scope_totals.Total > 0 %}
                                 {{ ((row.emissions|default(0) / scope_totals.Total) * 100)|round(1) }}%
@@ -1691,7 +1691,7 @@
                     <tr style="background: #E2EFD9;">
                         <td><strong>{{ scope_name }} Total</strong></td>
                         <td></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_total.value) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_total.value) }}</strong></td>
                         <td class="text-right">
                             {% if scope_totals.Total > 0 %}
                                 <strong>{{ ((scope_total.value / scope_totals.Total) * 100)|round(1) }}%</strong>
@@ -1709,7 +1709,7 @@
                     {# Grand total row #}
                     <tr class="total-row" style="background: #d6d8db;">
                         <td colspan="2"><strong>TOTAL EMISSIONS</strong></td>
-                        <td class="text-right"><strong>{{ '{:,.1f}'.format(scope_totals.Total) }}</strong></td>
+                        <td class="text-right"><strong>{{ '{:,.2f}'.format(scope_totals.Total) }}</strong></td>
                         <td class="text-right"><strong>100.0%</strong></td>
                         <td></td>
                         <td></td>
@@ -1740,7 +1740,7 @@
                     <tr>
                         <th>Metric</th>
                         <th class="text-right">Value</th>
-                        <th class="text-right">Emissions (tCO₂e)</th>
+                        <th class="text-right">Emissions (tCO2e)</th>
                         <th class="text-right">Intensity</th>
                     </tr>
                 </thead>
@@ -1756,8 +1756,8 @@
                     <tr>
                         <td><strong>{{ m.name }}</strong></td>
                         <td class="text-right">{{ '{:,.0f}'.format(m_value) }}</td>
-                        <td class="text-right">{{ '{:,.1f}'.format(m_emissions) }}</td>
-                        <td class="text-right">{{ '{:,.2f}'.format(m_intensity) }} tCO₂e {{ per_label }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(m_emissions) }}</td>
+                        <td class="text-right">{{ '{:,.2f}'.format(m_intensity) }} tCO2e {{ per_label }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1965,27 +1965,27 @@
                     <tr>
                         <td>Total GHG Emissions (Scope 1 & 2)</td>
                         <td class="text-right">{{ (scope_totals['Scope 1'] + scope_totals['Scope 2'])|round(1) }}</td>
-                        <td class="text-right">tCO₂e</td>
+                        <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 1 Emissions</td>
                         <td class="text-right">{{ scope_totals['Scope 1']|round(1) }}</td>
-                        <td class="text-right">tCO₂e</td>
+                        <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 2 Emissions</td>
                         <td class="text-right">{{ scope_totals['Scope 2']|round(1) }}</td>
-                        <td class="text-right">tCO₂e</td>
+                        <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 3 Emissions</td>
                         <td class="text-right">{{ scope_totals['Scope 3']|round(1) }}</td>
-                        <td class="text-right">tCO₂e</td>
+                        <td class="text-right">tCO2e</td>
                     </tr>
                     <tr class="total-row">
                         <td><strong>Total Emissions</strong></td>
                         <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
-                        <td class="text-right"><strong>tCO₂e</strong></td>
+                        <td class="text-right"><strong>tCO2e</strong></td>
                     </tr>
                 </tbody>
             </table>
@@ -2017,22 +2017,22 @@
                     <tr>
                         <td><strong>GHG Protocol</strong></td>
                         <td>Corporate Accounting and Reporting Standard</td>
-                        <td class="text-center">✓</td>
+                        <td class="text-center">?</td>
                     </tr>
                     <tr>
                         <td><strong>ISO 14064-1</strong></td>
                         <td>Quantification and reporting of GHG emissions</td>
-                        <td class="text-center">✓</td>
+                        <td class="text-center">?</td>
                     </tr>
                     <tr>
                         <td><strong>ISO 14064-3</strong></td>
                         <td>Verification of GHG assertions</td>
-                        <td class="text-center">✓</td>
+                        <td class="text-center">?</td>
                     </tr>
                     <tr>
                         <td><strong>SECR</strong></td>
                         <td>Streamlined Energy and Carbon Reporting (UK)</td>
-                        <td class="text-center">✓</td>
+                        <td class="text-center">?</td>
                     </tr>
                 </tbody>
             </table>
@@ -2232,7 +2232,7 @@
                         <th>Source Family</th>
                         <th class="text-right">Qty</th>
                         <th>UOM</th>
-                        <th class="text-right">tCO₂e</th>
+                        <th class="text-right">tCO2e</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2264,7 +2264,7 @@
                         <th>Activity Group</th>
                         <th>Emission Type</th>
                         <th class="text-center">Scope</th>
-                        <th class="text-center">{{ job_data.reporting_year }}<br>tCO₂e</th>
+                        <th class="text-center">{{ job_data.reporting_year }}<br>tCO2e</th>
                         <th>Data Source</th>
                         <th>Source Family</th>
                         <th>Data Confidence</th>
@@ -2277,7 +2277,7 @@
                             <td>{{ row.activity_group }}</td>
                             <td>{{ row.emission_type }}</td>
                             <td class="text-center">{{ row.scope }}</td>
-                            <td class="text-right">{{ '{:,.1f}'.format(row.emissions) }}</td>
+                            <td class="text-right">{{ '{:,.2f}'.format(row.emissions) }}</td>
                             <td>{{ row.data_source }}</td>
                             <td>{{ row.source_family|default('N/A') }}</td>
                             <td>{{ row.data_confidence }}</td>
@@ -2369,7 +2369,7 @@
                                     let label = context.label || '';
                                     let value = context.parsed || 0;
                                     let percentage = scopeTotal > 0 ? ((value / scopeTotal) * 100).toFixed(1) : '0.0';
-                                    return label + ': ' + value.toFixed(1) + ' tCO₂e (' + percentage + '%)';
+                                    return label + ': ' + value.toFixed(1) + ' tCO2e (' + percentage + '%)';
                                 }
                             }
                         }
@@ -2413,7 +2413,7 @@
                                     let label = context.label || '';
                                     let value = context.parsed || 0;
                                     let percentage = scopeTotal > 0 ? ((value / scopeTotal) * 100).toFixed(1) : '0.0';
-                                    return label + ': ' + value.toFixed(1) + ' tCO₂e (' + percentage + '%)';
+                                    return label + ': ' + value.toFixed(1) + ' tCO2e (' + percentage + '%)';
                                 }
                             }
                         }
@@ -2442,3 +2442,4 @@
         }
     </script>
 {% endblock %}
+
