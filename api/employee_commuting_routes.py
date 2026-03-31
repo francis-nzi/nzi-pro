@@ -796,6 +796,17 @@ def _resolve_commuting_factor_record(con, job_id: int, original_id: str) -> dict
     return None
 
 
+def _dataset_id_for_insert(con, dataset_id: Any) -> int | None:
+    dsid = _safe_int(dataset_id)
+    if dsid is None:
+        return None
+    exists = con.execute(
+        "SELECT 1 FROM datasets WHERE dataset_id = %s",
+        [dsid],
+    ).fetchone()
+    return dsid if exists else None
+
+
 def _convert_quantity(quantity: float, from_unit: str, to_unit: str) -> float | None:
     src = _distance_unit_base(from_unit)
     dst = _distance_unit_base(to_unit)
@@ -1107,6 +1118,7 @@ def _disable_existing_commuting_rows(con, job_id: int, site_id: int | None) -> i
 def _insert_ready_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> int:
     inserted = 0
     for row in ready_rows:
+        dataset_id = _dataset_id_for_insert(con, row.get("dataset_id"))
         con.execute(
             """
             INSERT INTO job_scope_rows (
@@ -1126,7 +1138,7 @@ def _insert_ready_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> in
                 int(job_id),
                 row.get("scope"),
                 row.get("site_id"),
-                row.get("dataset_id"),
+                dataset_id,
                 row.get("factor_db_id"),
                 row.get("original_id"),
                 row.get("category"),
@@ -1427,6 +1439,7 @@ def _resolve_manual_commuting_rows(
 def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, Any]]) -> int:
     inserted = 0
     for row in ready_rows:
+        dataset_id = _dataset_id_for_insert(con, row.get("dataset_id"))
         con.execute(
             """
             INSERT INTO job_emission_sources (
@@ -1453,7 +1466,7 @@ def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, A
                 row.get("source_name"),
                 row.get("asset_identifier"),
                 row.get("employee_name"),
-                row.get("dataset_id"),
+                dataset_id,
                 row.get("factor_db_id"),
                 row.get("original_id"),
                 row.get("qty"),
@@ -1473,6 +1486,7 @@ def _insert_manual_commuting_rows(con, job_id: int, ready_rows: list[dict[str, A
 
 
 def _update_manual_commuting_row(con, job_id: int, source_id: int, row: dict[str, Any]) -> None:
+    dataset_id = _dataset_id_for_insert(con, row.get("dataset_id"))
     con.execute(
         """
         UPDATE job_emission_sources
@@ -1514,7 +1528,7 @@ def _update_manual_commuting_row(con, job_id: int, source_id: int, row: dict[str
             row.get("source_name"),
             row.get("asset_identifier"),
             row.get("employee_name"),
-            row.get("dataset_id"),
+            dataset_id,
             row.get("factor_db_id"),
             row.get("original_id"),
             row.get("qty"),
