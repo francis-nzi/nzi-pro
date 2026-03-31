@@ -165,6 +165,13 @@ UNIT_ALIASES = {
     "kilometres": "km",
     "kilometer": "km",
     "kilometers": "km",
+    "passenger km": "passenger.km",
+    "passenger kilometer": "passenger.km",
+    "passenger kilometers": "passenger.km",
+    "passenger kilometre": "passenger.km",
+    "passenger kilometres": "passenger.km",
+    "passenger.km": "passenger.km",
+    "pkm": "passenger.km",
 }
 
 LOOKUP_PATH = (
@@ -283,6 +290,13 @@ def _canonical_variant(value: Any) -> str:
 
 def _canonical_unit(value: Any) -> str:
     return UNIT_ALIASES.get(_norm_text(value), "")
+
+
+def _distance_unit_base(value: Any) -> str:
+    unit = _canonical_unit(value) or _norm_text(value)
+    if unit in {"passenger.km", "passenger km", "pkm"}:
+        return "km"
+    return unit
 
 
 def _default_variant_for_mode(mode: str) -> str | None:
@@ -783,8 +797,8 @@ def _resolve_commuting_factor_record(con, job_id: int, original_id: str) -> dict
 
 
 def _convert_quantity(quantity: float, from_unit: str, to_unit: str) -> float | None:
-    src = _canonical_unit(from_unit) or _norm_text(from_unit)
-    dst = _canonical_unit(to_unit) or _norm_text(to_unit)
+    src = _distance_unit_base(from_unit)
+    dst = _distance_unit_base(to_unit)
     if not src or not dst:
         return None
     if src == dst:
