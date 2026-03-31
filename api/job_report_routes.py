@@ -51,7 +51,7 @@ from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.audit_log import record_audit_event
-from api.job_data_output_routes import _load_data_output_rows
+from api.job_data_output_routes import _load_data_output_rows, _build_scope_summary
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
@@ -1267,33 +1267,12 @@ def get_scope_totals(job_id: int):
     with get_conn() as con:
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
         rows = _load_reporting_rows(con, int(job_id))
-        
-        # Match Data Output: round each row to 2dp before aggregating, so the summary
-        # card and the breakdown table always use the same displayed values.
-        rounded_totals = {
-            "Scope 1": 0.0,
-            "Scope 2": 0.0,
-            "Scope 3": 0.0,
-        }
-        
-        for row in rows:
-            scope = str(row.get('scope') or '').strip()
-            if scope not in rounded_totals:
-                continue
-            emissions = round(float(combined_row_metrics(row, resolver).get("calc_tco2e") or 0.0), 2)
-            rounded_totals[scope] += emissions
-        
-        scope_1_rounded = round(rounded_totals["Scope 1"], 2)
-        scope_2_rounded = round(rounded_totals["Scope 2"], 2)
-        scope_3_rounded = round(rounded_totals["Scope 3"], 2)
-        
-        totals = {
-            "Scope 1": scope_1_rounded,
-            "Scope 2": scope_2_rounded,
-            "Scope 3": scope_3_rounded,
-            "Total": scope_1_rounded + scope_2_rounded + scope_3_rounded
-        }
-        
+        if not rows:
+            return {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+        data_df = _load_data_output_rows(con, int(job_id))
+        if data_df is None or data_df.empty:
+            return {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+        _, totals = _build_scope_summary(data_df, resolver)
         return totals
 
 

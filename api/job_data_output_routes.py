@@ -198,6 +198,72 @@ def _load_data_output_rows(con, job_id: int):
     return df
 
 
+def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    scopes: dict[str, dict[str, Any]] = {}
+    for _, row in data_df.iterrows():
+        scope_name = _clean_label(row.get('scope'), 'Unknown')
+        category = _clean_label(row.get('category'), 'Uncategorized')
+        site = _clean_label(row.get('site_name'), 'No Site Assigned')
+        metrics = combined_row_metrics(row, resolver)
+        emission = round(float(metrics.get("calc_tco2e") or 0.0), 2)
+
+        if scope_name not in scopes:
+            scopes[scope_name] = {
+                "scope_name": scope_name,
+                "total_emissions": 0.0,
+                "categories": {}
+            }
+
+        if category not in scopes[scope_name]["categories"]:
+            scopes[scope_name]["categories"][category] = {
+                "category_name": category,
+                "total_emissions": 0.0,
+                "site_emissions": {}
+            }
+
+        if site not in scopes[scope_name]["categories"][category]["site_emissions"]:
+            scopes[scope_name]["categories"][category]["site_emissions"][site] = {
+                "total": 0.0,
+                "count": 0
+            }
+
+        scopes[scope_name]["total_emissions"] += emission
+        scopes[scope_name]["categories"][category]["total_emissions"] += emission
+        scopes[scope_name]["categories"][category]["site_emissions"][site]["total"] += emission
+        scopes[scope_name]["categories"][category]["site_emissions"][site]["count"] += 1
+
+    scope_list: list[dict[str, Any]] = []
+    totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
+    for scope_name, scope_data in scopes.items():
+        category_list = []
+        for cat_name, cat_data in scope_data["categories"].items():
+            sites_list = [
+                {
+                    "site_name": site_name,
+                    "total_emissions": round(site_data["total"], 2),
+                    "activity_count": site_data["count"]
+                }
+                for site_name, site_data in cat_data["site_emissions"].items()
+            ]
+            category_list.append({
+                "category_name": cat_name,
+                "total_emissions": round(cat_data["total_emissions"], 2),
+                "sites": sites_list
+            })
+
+        scope_total = round(scope_data["total_emissions"], 2)
+        scope_list.append({
+            "scope_name": scope_name,
+            "total_emissions": scope_total,
+            "categories": category_list
+        })
+        if scope_name in totals:
+            totals[scope_name] = scope_total
+
+    totals["Total"] = round(sum(totals.values()), 2)
+    return scope_list, totals
+
+
 @router.get("/jobs/{job_id}/data-output")
 def get_job_data_output(
     job_id: int,
@@ -324,67 +390,7 @@ def get_job_data_output(
 
             else:
                 # Summary view - all scopes
-                # Group by scope and calculate emissions
-                scopes = {}
-                for _, row in data_df.iterrows():
-                    scope_name = _clean_label(row.get('scope'), 'Unknown')
-                    category = _clean_label(row.get('category'), 'Uncategorized')
-                    site = _clean_label(row.get('site_name'), 'No Site Assigned')
-                    metrics = combined_row_metrics(row, resolver)
-                    emission = float(metrics.get("calc_tco2e") or 0.0)
-                    emission_display = round(emission, 2)
-                    
-                    if scope_name not in scopes:
-                        scopes[scope_name] = {
-                            "scope_name": scope_name,
-                            "total_emissions": 0,
-                            "categories": {}
-                        }
-                    
-                    if category not in scopes[scope_name]["categories"]:
-                        scopes[scope_name]["categories"][category] = {
-                            "category_name": category,
-                            "total_emissions": 0,
-                            "site_emissions": {}
-                        }
-                    
-                    # Aggregate by site
-                    if site not in scopes[scope_name]["categories"][category]["site_emissions"]:
-                        scopes[scope_name]["categories"][category]["site_emissions"][site] = {
-                            "total": 0,
-                            "count": 0
-                        }
-                    
-                    scopes[scope_name]["total_emissions"] += emission_display
-                    scopes[scope_name]["categories"][category]["total_emissions"] += emission_display
-                    scopes[scope_name]["categories"][category]["site_emissions"][site]["total"] += emission_display
-                    scopes[scope_name]["categories"][category]["site_emissions"][site]["count"] += 1
-                
-                # Convert to list format
-                scope_list = []
-                for scope_name, scope_data in scopes.items():
-                    category_list = []
-                    for cat_name, cat_data in scope_data["categories"].items():
-                        sites_list = [
-                            {
-                                "site_name": site_name,
-                                "total_emissions": round(site_data["total"], 2),
-                                "activity_count": site_data["count"]
-                            }
-                            for site_name, site_data in cat_data["site_emissions"].items()
-                        ]
-                        category_list.append({
-                            "category_name": cat_name,
-                            "total_emissions": round(cat_data["total_emissions"], 2),
-                            "sites": sites_list
-                        })
-                    
-                    scope_list.append({
-                        "scope_name": scope_name,
-                        "total_emissions": round(scope_data["total_emissions"], 2),
-                        "categories": category_list
-                    })
-                
+                scope_list, _scope_totals = _build_scope_summary(data_df, resolver)
                 return {
                     "job_id": int(job_id),
                     "reporting_year": reporting_year,
