@@ -51,6 +51,7 @@ from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.audit_log import record_audit_event
+from api.job_data_output_routes import _load_data_output_rows
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
@@ -1061,9 +1062,7 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
 
 
 def _load_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
-    rows = _load_legacy_reporting_rows(con, job_id)
-    rows.extend(_load_source_register_rows(con, job_id))
-    return rows
+    return _records_from_df(_load_data_output_rows(con, int(job_id)))
 
 
 def create_donut_chart(data_dict, colors_dict, title, total_value, center_label="tCO2e"):
