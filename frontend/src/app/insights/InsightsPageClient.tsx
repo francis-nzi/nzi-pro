@@ -625,6 +625,7 @@ export default function InsightsPageClient() {
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
       params.set("limit", "100");
+      const requestTimeoutMs = 60000;
 
       const requestInit: RequestInit = {
         credentials: "include",
@@ -632,11 +633,11 @@ export default function InsightsPageClient() {
       };
 
       const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes] = await Promise.allSettled([
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Insights overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, 15000, "Jobs milestone status"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Financial overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Operations overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, requestInit, 15000, "Report view"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Insights overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Report view"),
       ]);
 
       if (overviewRes.status !== "fulfilled") {
