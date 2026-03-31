@@ -167,3 +167,119 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
         """,
         job_ids,
     ).df()
+
+
+def load_combined_emissions_summary_rows(con, job_ids: list[int]):
+    """Load pre-aggregated emissions rows for dashboards and high-level reporting."""
+    if not job_ids:
+        return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
+
+    placeholders = ",".join(["%s"] * len(job_ids))
+    return con.execute(
+        f"""
+        WITH job_context AS (
+            SELECT
+                j.job_id,
+                j.client_db_id AS client_id,
+                c.client_name,
+                COALESCE(
+                    EXTRACT(YEAR FROM j.reporting_period_end),
+                    EXTRACT(YEAR FROM cjd.reporting_period_to),
+                    j.reporting_year
+                ) AS dashboard_year
+            FROM jobs j
+            LEFT JOIN clients c ON c.db_id = j.client_db_id
+            LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+            WHERE j.job_id IN ({placeholders})
+        ),
+        legacy_rows AS (
+            SELECT
+                jc.job_id,
+                jc.client_id,
+                jc.client_name,
+                jc.dashboard_year,
+                jsr.scope,
+                COALESCE(jsr.category, jsr.level_2, 'Uncategorized') AS category,
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%' THEN
+                                (
+                                    COALESCE(
+                                        jsr.qty,
+                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0),
+                                        0
+                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0
+                                ) / 1000.0
+                            ELSE
+                                (
+                                    COALESCE(
+                                        jsr.qty,
+                                        COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                        COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                        COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                        COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                        COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                        COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0),
+                                        0
+                                    ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0
+                                )
+                        END
+                    ),
+                    0
+                ) AS emissions
+            FROM job_scope_rows jsr
+            JOIN job_context jc ON jc.job_id = jsr.job_id
+            WHERE jsr.enabled = TRUE
+            GROUP BY jc.job_id, jc.client_id, jc.client_name, jc.dashboard_year, jsr.scope, COALESCE(jsr.category, jsr.level_2, 'Uncategorized')
+        ),
+        source_rows AS (
+            SELECT
+                jc.job_id,
+                jc.client_id,
+                jc.client_name,
+                jc.dashboard_year,
+                js.scope,
+                COALESCE(js.category, 'Uncategorized') AS category,
+                COALESCE(
+                    SUM(
+                        COALESCE(
+                            js.calc_tco2e,
+                            CASE
+                                WHEN LOWER(COALESCE(js.ghg_unit, COALESCE(g.ghg_unit, 'kgCO2e'))) LIKE '%%kg%%' THEN
+                                    (
+                                        COALESCE(
+                                            js.qty,
+                                            0
+                                        ) * COALESCE(js.factor, g.factor, 0) * COALESCE(js.apply_pct, 100) / 100.0
+                                    ) / 1000.0
+                                ELSE
+                                    (
+                                        COALESCE(js.qty, 0) * COALESCE(js.factor, g.factor, 0) * COALESCE(js.apply_pct, 100) / 100.0
+                                    )
+                            END
+                        )
+                    ),
+                    0
+                ) AS emissions
+            FROM job_emission_sources js
+            JOIN job_context jc ON jc.job_id = js.job_id
+            LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+            WHERE COALESCE(js.enabled, TRUE) = TRUE
+            GROUP BY jc.job_id, jc.client_id, jc.client_name, jc.dashboard_year, js.scope, COALESCE(js.category, 'Uncategorized')
+        )
+        SELECT *
+        FROM (
+            SELECT * FROM legacy_rows
+            UNION ALL
+            SELECT * FROM source_rows
+        ) combined_rows
+        ORDER BY dashboard_year, scope, category, client_name
+        """,
+        job_ids,
+    ).df()

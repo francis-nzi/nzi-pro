@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -367,14 +367,10 @@ def get_dashboard_overview(
             emissions_scope_df = None
             if emissions_jobs_df is not None and not emissions_jobs_df.empty:
                 emissions_job_ids = [int(job_id) for job_id in emissions_jobs_df["job_id"].tolist() if job_id is not None]
-                emissions_scope_df = load_combined_reporting_rows(con, emissions_job_ids)
+                emissions_scope_df = load_combined_emissions_summary_rows(con, emissions_job_ids)
                 if emissions_scope_df is not None and not emissions_scope_df.empty:
-                    emissions_scope_df = emissions_scope_df.merge(
-                        emissions_jobs_df[["job_id", "client_id", "client_name"]],
-                        on="job_id",
-                        how="left",
-                    )
-                    emissions_scope_df = _attach_dashboard_emissions(con, emissions_scope_df)
+                    emissions_scope_df = emissions_scope_df.copy()
+                    emissions_scope_df["dashboard_year_norm"] = emissions_scope_df["dashboard_year"].apply(_normalize_int_value)
 
             # Total CO2 emissions for selected year.
             total_emissions = 0.0

@@ -10,7 +10,7 @@ from api.auth import _current_user
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, load_combined_reporting_rows
+from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows
 
 router = APIRouter()
 
@@ -51,7 +51,7 @@ def get_client_dashboard(
                 [int(client_db_id)]
             ).df()
             job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
-            scope_df = load_combined_reporting_rows(con, job_ids)
+            scope_df = load_combined_emissions_summary_rows(con, job_ids)
             if scope_df is None or scope_df.empty:
                 available_years = sorted(
                     [
@@ -86,26 +86,6 @@ def get_client_dashboard(
                     'net_zero_progress': None
                 }
 
-            resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
-            emissions_vals: list[float] = []
-            quantity_vals: list[float] = []
-            for _, row in scope_df.iterrows():
-                row_type = str(row.get("record_type") or "legacy").strip().lower()
-                if row_type == "source_register":
-                    metrics = combined_row_metrics(row)
-                else:
-                    row_job_id = int(row.get('job_id'))
-                    resolver = resolver_by_job.get(row_job_id)
-                    if resolver is None:
-                        resolver = JobMonthlyEmissionsResolver(con, row_job_id)
-                        resolver_by_job[row_job_id] = resolver
-                    metrics = combined_row_metrics(row, resolver)
-                emissions_vals.append(float(metrics.get('calc_tco2e') or 0.0))
-                quantity_vals.append(float(metrics.get('display_qty') or 0.0))
-
-            scope_df['emissions'] = emissions_vals
-            scope_df['quantity'] = quantity_vals
-
             years = sorted(
                 [
                     int(y)
@@ -120,10 +100,12 @@ def get_client_dashboard(
                 else (available_years[-1] if available_years else None)
             )
 
-            scope_groups = scope_df.groupby(['dashboard_year', 'scope'])['emissions'].sum().reset_index()
+            scope_df = scope_df.copy()
+            scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(lambda value: int(value) if value is not None and str(value) != 'nan' else None)
+            scope_groups = scope_df.groupby(['dashboard_year_norm', 'scope'])['emissions'].sum().reset_index()
             yearly_emissions = []
             for yr in available_years:
-                year_rows = scope_groups[scope_groups['dashboard_year'] == yr]
+                year_rows = scope_groups[scope_groups['dashboard_year_norm'] == yr]
                 scope1_total = float(year_rows[year_rows['scope'] == 'Scope 1']['emissions'].sum())
                 scope2_total = float(year_rows[year_rows['scope'] == 'Scope 2']['emissions'].sum())
                 scope3_total = float(year_rows[year_rows['scope'] == 'Scope 3']['emissions'].sum())
@@ -157,7 +139,7 @@ def get_client_dashboard(
             top_categories = []
             total_selected_emissions = float(current_metrics['total_emissions'] or 0)
             if selected_year is not None:
-                selected_rows = scope_df[scope_df['dashboard_year'] == selected_year].copy()
+                selected_rows = scope_df[scope_df['dashboard_year_norm'] == selected_year].copy()
                 if not selected_rows.empty:
                     category_groups = selected_rows.groupby('category')['emissions'].sum().reset_index()
                     category_groups = category_groups.sort_values('emissions', ascending=False).head(10)
