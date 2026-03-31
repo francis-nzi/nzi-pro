@@ -8,6 +8,7 @@ from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics
+from typing import Any
 
 router = APIRouter()
 
