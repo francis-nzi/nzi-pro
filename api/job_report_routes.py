@@ -1268,23 +1268,24 @@ def get_scope_totals(job_id: int):
         resolver = JobMonthlyEmissionsResolver(con, int(job_id))
         rows = _load_reporting_rows(con, int(job_id))
         
-        # Use raw totals first, round only at the end to ensure Scope 1 + Scope 2 + Scope 3 = Total
-        raw_totals = {
+        # Match Data Output: round each row to 2dp before aggregating, so the summary
+        # card and the breakdown table always use the same displayed values.
+        rounded_totals = {
             "Scope 1": 0.0,
             "Scope 2": 0.0,
             "Scope 3": 0.0,
         }
         
         for row in rows:
-            emissions = float(combined_row_metrics(row, resolver).get("calc_tco2e") or 0.0)
-            scope = row.get('scope', '')
-            if scope in raw_totals:
-                raw_totals[scope] += emissions
+            scope = str(row.get('scope') or '').strip()
+            if scope not in rounded_totals:
+                continue
+            emissions = round(float(combined_row_metrics(row, resolver).get("calc_tco2e") or 0.0), 2)
+            rounded_totals[scope] += emissions
         
-        # Round scope values to 2 decimal places, then sum them for total to ensure consistency
-        scope_1_rounded = round(raw_totals["Scope 1"], 2)
-        scope_2_rounded = round(raw_totals["Scope 2"], 2)
-        scope_3_rounded = round(raw_totals["Scope 3"], 2)
+        scope_1_rounded = round(rounded_totals["Scope 1"], 2)
+        scope_2_rounded = round(rounded_totals["Scope 2"], 2)
+        scope_3_rounded = round(rounded_totals["Scope 3"], 2)
         
         totals = {
             "Scope 1": scope_1_rounded,
