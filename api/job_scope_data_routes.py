@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from core.database import get_conn
 from api.auth import _current_user
+from api.job_data_output_routes import _build_scope_summary, _load_data_output_rows
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
@@ -802,55 +803,20 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
-            
-            # Get all rows
-            scope_df = con.execute(
-                """
-                SELECT scope, dataset_id, factor_db_id, original_id, qty, uom, factor, ghg_unit, apply_pct, notes, source_qty, source_uom,
-                       month_1, month_2, month_3, month_4, month_5, month_6,
-                       month_7, month_8, month_9, month_10, month_11, month_12
-                FROM job_scope_rows
-                WHERE job_id=%s AND enabled=TRUE
-                """,
-                [int(job_id)]
-            ).df()
-            source_df = con.execute(
-                """
-                SELECT scope, calc_tco2e
-                FROM job_emission_sources
-                WHERE job_id=%s AND COALESCE(enabled, TRUE)=TRUE
-                """,
-                [int(job_id)],
-            ).df()
-            
-            totals = {
-                "Scope 1": 0.0,
-                "Scope 2": 0.0,
-                "Scope 3": 0.0,
-                "Total": 0.0
-            }
-            
-            if scope_df is not None and not scope_df.empty:
-                for _, r in scope_df.iterrows():
-                    metrics = resolver.row_metrics(r)
-                    emissions = float(metrics.get("calc_tco2e") or 0.0)
-                    scope = r.get('scope')
-                    if scope in totals:
-                        totals[scope] += emissions
-                        totals["Total"] += emissions
+            data_df = _load_data_output_rows(con, int(job_id))
+            if data_df is None or data_df.empty:
+                return {
+                    "job_id": int(job_id),
+                    "scope_1": 0.0,
+                    "scope_2": 0.0,
+                    "scope_3": 0.0,
+                    "total": 0.0,
+                }
 
-            if source_df is not None and not source_df.empty:
-                for _, r in source_df.iterrows():
-                    scope = r.get("scope")
-                    emissions = float(r.get("calc_tco2e") or 0.0)
-                    if scope in totals:
-                        totals[scope] += emissions
-                        totals["Total"] += emissions
-            
-            # Round scope values first, then sum them for total to ensure consistency
-            scope_1_rounded = round(totals["Scope 1"], 2)
-            scope_2_rounded = round(totals["Scope 2"], 2)
-            scope_3_rounded = round(totals["Scope 3"], 2)
+            _, totals = _build_scope_summary(data_df, resolver)
+            scope_1_rounded = round(float(totals.get("Scope 1") or 0.0), 2)
+            scope_2_rounded = round(float(totals.get("Scope 2") or 0.0), 2)
+            scope_3_rounded = round(float(totals.get("Scope 3") or 0.0), 2)
             
             return {
                 "job_id": int(job_id),
