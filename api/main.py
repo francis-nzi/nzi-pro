@@ -570,6 +570,60 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         from dateutil.relativedelta import relativedelta
         assert_permission(_user, "jobs.create")
 
+        def _col_exists(con, table_name: str, col_name: str) -> bool:
+            try:
+                row = con.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = ? AND column_name = ?
+                    LIMIT 1
+                    """,
+                    [table_name, col_name],
+                ).fetchone()
+                return bool(row)
+            except Exception:
+                return False
+
+        def _month_value(value):
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return value
+            try:
+                numeric = int(str(value).strip())
+                if 1 <= numeric <= 12:
+                    return numeric
+            except Exception:
+                pass
+            month_map = {
+                "january": 1,
+                "jan": 1,
+                "february": 2,
+                "feb": 2,
+                "march": 3,
+                "mar": 3,
+                "april": 4,
+                "apr": 4,
+                "may": 5,
+                "june": 6,
+                "jun": 6,
+                "july": 7,
+                "jul": 7,
+                "august": 8,
+                "aug": 8,
+                "september": 9,
+                "sep": 9,
+                "sept": 9,
+                "october": 10,
+                "oct": 10,
+                "november": 11,
+                "nov": 11,
+                "december": 12,
+                "dec": 12,
+            }
+            return month_map.get(str(value).strip().lower())
+
         def _next_job_number(con) -> str:
             rows = con.execute(
                 """
@@ -622,21 +676,30 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             is_crp = job_type_row[1] or False
             
             # Get client's benchmark period and financial year info
+            fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
+            fy_day_expr = "financial_year_end_day" if _col_exists(con, "clients", "financial_year_end_day") else "NULL"
+            year_end_expr = "year_end_month" if _col_exists(con, "clients", "year_end_month") else "NULL"
             client_row = con.execute(
                 """
-                SELECT benchmark_period_start, benchmark_period_end, 
-                       financial_year_end_month, financial_year_end_day,
-                       benchmark_year
+                SELECT benchmark_period_start, benchmark_period_end,
+                       {fy_month_expr}, {fy_day_expr},
+                       benchmark_year,
+                       {year_end_expr}
                 FROM clients
                 WHERE db_id = ?
-                """,
+                """.format(
+                    fy_month_expr=fy_month_expr,
+                    fy_day_expr=fy_day_expr,
+                    year_end_expr=year_end_expr,
+                ),
                 [int(client_db_id)]
             ).fetchone()
             
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
             
-            benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year = client_row
+            benchmark_start, benchmark_end, fy_month, fy_day, benchmark_year, year_end_month = client_row
+            fy_month = fy_month or _month_value(year_end_month)
             
             # Calculate reporting period
             reporting_period_start = None
