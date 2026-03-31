@@ -24,6 +24,24 @@ function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
 
+async function fetchJsonWithTimeout(url: string, init: RequestInit, timeoutMs: number, label: string) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") {
+      throw new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 const MONTHS = [
   { value: "January", label: "January" },
   { value: "February", label: "February" },
@@ -200,37 +218,37 @@ export default function EditClientPage() {
 
   async function loadLookups() {
     try {
-      const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.all([
-        fetch(`${baseUrl}/admin/lookups/portfolios_lookup`),
-        fetch(`${baseUrl}/admin/lookups/industries_lookup`),
-        fetch(`${baseUrl}/admin/users`),
-        fetch(`${baseUrl}/admin/lookups/currency_lookup`)
+      const lookupInit = { credentials: "include", cache: "no-store" } as RequestInit;
+      const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.allSettled([
+        fetchJsonWithTimeout(`${baseUrl}/admin/lookups/portfolios_lookup`, lookupInit, 10000, "Portfolio lookup"),
+        fetchJsonWithTimeout(`${baseUrl}/admin/lookups/industries_lookup`, lookupInit, 10000, "Industry lookup"),
+        fetchJsonWithTimeout(`${baseUrl}/admin/users`, lookupInit, 10000, "User lookup"),
+        fetchJsonWithTimeout(`${baseUrl}/admin/lookups/currency_lookup`, lookupInit, 10000, "Currency lookup"),
       ]);
 
-      if (portfoliosRes.ok) {
-        const data = await portfoliosRes.json();
+      if (portfoliosRes.status === "fulfilled" && portfoliosRes.value.ok) {
+        const data = await portfoliosRes.value.json();
         const portfolioList = data.items?.map((i: any) => i.name).filter(Boolean) || [];
         setPortfolios(Array.from(new Set(portfolioList)) as string[]);
       }
 
-      if (industriesRes.ok) {
-        const data = await industriesRes.json();
+      if (industriesRes.status === "fulfilled" && industriesRes.value.ok) {
+        const data = await industriesRes.value.json();
         const industryList = data.items?.map((i: any) => i.name).filter(Boolean) || [];
         setIndustries(Array.from(new Set(industryList)) as string[]);
       }
 
-      if (usersRes.ok) {
-        const data = await usersRes.json();
+      if (usersRes.status === "fulfilled" && usersRes.value.ok) {
+        const data = await usersRes.value.json();
         const userList = (data.items || []).filter((u: any) => u && (u.email || u.full_name));
-        // Deduplicate by email
         const uniqueUsers = Array.from(
           new Map(userList.map((u: any) => [u.email || u.full_name, u])).values()
         ) as Array<{email: string, full_name: string}>;
         setUsers(uniqueUsers);
       }
 
-      if (currenciesRes.ok) {
-        const data = await currenciesRes.json();
+      if (currenciesRes.status === "fulfilled" && currenciesRes.value.ok) {
+        const data = await currenciesRes.value.json();
         const currencyItems = Array.isArray(data.items) ? data.items : [];
         const lookupCurrencies = currencyItems
           .map((row: any) => ({

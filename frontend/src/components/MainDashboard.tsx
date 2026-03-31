@@ -92,6 +92,24 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
   const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(true);
 
+  const fetchJsonWithTimeout = useCallback(async (url: string, init: RequestInit, timeoutMs: number, label: string) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        throw new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+      }
+      throw e;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
+
   const loadDashboard = useCallback(async (year: number | null) => {
     try {
       if (!apiBaseUrl) {
@@ -105,7 +123,7 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
       if (selectedCrm) params.push(`crm_owner=${encodeURIComponent(selectedCrm)}`);
       if (params.length) url += `?${params.join("&")}`;
       
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetchJsonWithTimeout(url, { cache: "no-store" }, 20000, "Dashboard overview");
       if (!res.ok) throw new Error("Failed to load dashboard data");
       const json = await res.json();
       setData(json);
@@ -120,7 +138,7 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, selectedIndustry, selectedCrm]);
+  }, [apiBaseUrl, fetchJsonWithTimeout, selectedIndustry, selectedCrm]);
 
   const loadJobsStatus = useCallback(async () => {
     try {
@@ -129,9 +147,9 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
         return;
       }
 
-      const res = await fetch(`${apiBaseUrl}/dashboard/jobs-by-milestone-status`, {
+      const res = await fetchJsonWithTimeout(`${apiBaseUrl}/dashboard/jobs-by-milestone-status`, {
         cache: "no-store",
-      });
+      }, 10000, "Jobs milestone status");
 
       if (!res.ok) {
         setJobsStatus(EMPTY_JOBS_STATUS);
@@ -144,7 +162,7 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
       // Keep dashboard usable even if milestone summary endpoint is unavailable
       setJobsStatus(EMPTY_JOBS_STATUS);
     }
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, fetchJsonWithTimeout]);
 
   useEffect(() => {
     void loadDashboard(selectedYear);

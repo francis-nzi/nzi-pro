@@ -625,7 +625,7 @@ export default function InsightsPageClient() {
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
       params.set("limit", "100");
-      const requestTimeoutMs = 60000;
+      const requestTimeoutMs = 20000;
 
       const requestInit: RequestInit = {
         credentials: "include",
