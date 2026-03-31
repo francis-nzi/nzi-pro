@@ -12,6 +12,15 @@ from services.emissions_reporting import combined_row_metrics, load_combined_rep
 router = APIRouter()
 
 
+def _clean_label(value, fallback: str) -> str:
+    txt = str(value or "").strip()
+    if not txt:
+        return fallback
+    if txt.lower() in {"nan", "none", "null"}:
+        return fallback
+    return txt
+
+
 @router.get("/clients/{client_db_id}/reporting")
 def get_client_reporting(
     client_db_id: int,
@@ -110,11 +119,14 @@ def get_client_reporting(
                         resolver = JobMonthlyEmissionsResolver(con, row_job_id)
                         resolver_by_job[row_job_id] = resolver
                     metrics = combined_row_metrics(row, resolver)
-                emissions_vals.append(float(metrics.get('calc_tco2e') or 0.0))
+                emissions_vals.append(round(float(metrics.get('calc_tco2e') or 0.0), 2))
                 quantity_vals.append(float(metrics.get('display_qty') or 0.0))
 
             scope_df['emissions'] = emissions_vals
             scope_df['quantity'] = quantity_vals
+            scope_df['scope'] = scope_df['scope'].apply(lambda value: _clean_label(value, 'Unknown'))
+            scope_df['category'] = scope_df['category'].apply(lambda value: _clean_label(value, 'Uncategorized'))
+            scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
             
             # Get unique years
             years = sorted([int(y) for y in scope_df['dashboard_year'].dropna().unique().tolist()])
@@ -128,7 +140,7 @@ def get_client_reporting(
                 year_data = {"year": int(year)}
                 year_rows = scope_groups[scope_groups['dashboard_year'] == year]
                 for _, row in year_rows.iterrows():
-                    scope_name = str(row['scope']) if row['scope'] else 'Unknown'
+                    scope_name = _clean_label(row['scope'], 'Unknown')
                     year_data[scope_name] = round(float(row['emissions']), 2)
                 year_data['total'] = round(year_rows['emissions'].sum(), 2)
                 by_scope.append(year_data)
@@ -140,7 +152,7 @@ def get_client_reporting(
                 year_data = {"year": int(year)}
                 year_rows = scope_volume_groups[scope_volume_groups['dashboard_year'] == year]
                 for _, row in year_rows.iterrows():
-                    scope_name = str(row['scope']) if row['scope'] else 'Unknown'
+                    scope_name = _clean_label(row['scope'], 'Unknown')
                     year_data[scope_name] = round(float(row['quantity']), 2)
                 year_data['total'] = round(year_rows['quantity'].sum(), 2)
                 by_scope_volume.append(year_data)
@@ -157,8 +169,8 @@ def get_client_reporting(
                 # Group by scope within this year
                 scope_cats = {}
                 for _, row in year_rows.iterrows():
-                    scope_name = str(row['scope']) if row['scope'] else 'Unknown'
-                    cat_name = str(row['category']) if row['category'] else 'Unknown'
+                    scope_name = _clean_label(row['scope'], 'Unknown')
+                    cat_name = _clean_label(row['category'], 'Uncategorized')
                     if scope_name not in scope_cats:
                         scope_cats[scope_name] = {}
                     scope_cats[scope_name][cat_name] = round(float(row['emissions']), 2)
@@ -174,8 +186,8 @@ def get_client_reporting(
                 year_rows = scope_cat_volume_groups[scope_cat_volume_groups['dashboard_year'] == year]
                 scope_cats = {}
                 for _, row in year_rows.iterrows():
-                    scope_name = str(row['scope']) if row['scope'] else 'Unknown'
-                    cat_name = str(row['category']) if row['category'] else 'Unknown'
+                    scope_name = _clean_label(row['scope'], 'Unknown')
+                    cat_name = _clean_label(row['category'], 'Uncategorized')
                     if scope_name not in scope_cats:
                         scope_cats[scope_name] = {}
                     scope_cats[scope_name][cat_name] = round(float(row['quantity']), 2)
@@ -191,7 +203,7 @@ def get_client_reporting(
                 year_data = {"year": int(year)}
                 year_rows = activity_groups[activity_groups['dashboard_year'] == year]
                 for _, row in year_rows.iterrows():
-                    cat_name = str(row['category']) if row['category'] else 'Unknown'
+                    cat_name = _clean_label(row['category'], 'Uncategorized')
                     year_data[cat_name] = round(float(row['emissions']), 2)
                 year_data['total'] = round(year_rows['emissions'].sum(), 2)
                 by_activity.append(year_data)
@@ -205,7 +217,7 @@ def get_client_reporting(
                 year_data = {"year": int(year)}
                 year_rows = site_groups[site_groups['dashboard_year'] == year]
                 for _, row in year_rows.iterrows():
-                    site_name = str(row['site_name']) if row['site_name'] else 'Unknown'
+                    site_name = _clean_label(row['site_name'], 'Unknown')
                     year_data[site_name] = round(float(row['emissions']), 2)
                 year_data['total'] = round(year_rows['emissions'].sum(), 2)
                 by_site.append(year_data)

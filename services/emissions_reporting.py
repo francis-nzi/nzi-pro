@@ -3,6 +3,15 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
+def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
+    txt = str(value or "").strip()
+    if not txt:
+        return fallback
+    if txt.lower() in {"nan", "none", "null"}:
+        return fallback
+    return txt
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -71,7 +80,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
         return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
 
     placeholders = ",".join(["%s"] * len(job_ids))
-    return con.execute(
+    df = con.execute(
         f"""
         WITH job_context AS (
             SELECT
@@ -92,7 +101,12 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 'legacy'::text AS record_type,
                 jsr.scope,
-                COALESCE(jsr.category, jsr.level_2, 'Uncategorized') AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
+                    ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                END AS category,
                 COALESCE(s.site_name, 'No Site Assigned') AS site_name,
                 jsr.dataset_id,
                 jsr.factor_db_id,
@@ -126,7 +140,12 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 'source_register'::text AS record_type,
                 js.scope,
-                COALESCE(js.category, 'Uncategorized') AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN 'Uncategorized'
+                    ELSE TRIM(CAST(js.category AS VARCHAR))
+                END AS category,
                 COALESCE(cs.site_name, 'No Site Assigned') AS site_name,
                 COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
                 COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
@@ -167,6 +186,9 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
         """,
         job_ids,
     ).df()
+    if not df.empty and "category" in df.columns:
+        df["category"] = df["category"].apply(_clean_label)
+    return df
 
 
 def load_combined_emissions_summary_rows(con, job_ids: list[int]):
@@ -199,7 +221,12 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.client_name,
                 jc.dashboard_year,
                 jsr.scope,
-                COALESCE(jsr.category, jsr.level_2, 'Uncategorized') AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
+                    ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                END AS category,
                 COALESCE(
                     SUM(
                         CASE
@@ -236,7 +263,18 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
             FROM job_scope_rows jsr
             JOIN job_context jc ON jc.job_id = jsr.job_id
             WHERE jsr.enabled = TRUE
-            GROUP BY jc.job_id, jc.client_id, jc.client_name, jc.dashboard_year, jsr.scope, COALESCE(jsr.category, jsr.level_2, 'Uncategorized')
+            GROUP BY
+                jc.job_id,
+                jc.client_id,
+                jc.client_name,
+                jc.dashboard_year,
+                jsr.scope,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
+                    ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                END
         ),
         source_rows AS (
             SELECT
@@ -245,10 +283,15 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.client_name,
                 jc.dashboard_year,
                 js.scope,
-                COALESCE(js.category, 'Uncategorized') AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN 'Uncategorized'
+                    ELSE TRIM(CAST(js.category AS VARCHAR))
+                END AS category,
                 COALESCE(
                     SUM(
-                        COALESCE(
+                        ROUND(COALESCE(
                             js.calc_tco2e,
                             CASE
                                 WHEN LOWER(COALESCE(js.ghg_unit, COALESCE(g.ghg_unit, 'kgCO2e'))) LIKE '%%kg%%' THEN
@@ -263,7 +306,7 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                                         COALESCE(js.qty, 0) * COALESCE(js.factor, g.factor, 0) * COALESCE(js.apply_pct, 100) / 100.0
                                     )
                             END
-                        )
+                        ), 2)
                     ),
                     0
                 ) AS emissions
@@ -271,7 +314,18 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
             JOIN job_context jc ON jc.job_id = js.job_id
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             WHERE COALESCE(js.enabled, TRUE) = TRUE
-            GROUP BY jc.job_id, jc.client_id, jc.client_name, jc.dashboard_year, js.scope, COALESCE(js.category, 'Uncategorized')
+            GROUP BY
+                jc.job_id,
+                jc.client_id,
+                jc.client_name,
+                jc.dashboard_year,
+                js.scope,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN 'Uncategorized'
+                    ELSE TRIM(CAST(js.category AS VARCHAR))
+                END
         )
         SELECT *
         FROM (

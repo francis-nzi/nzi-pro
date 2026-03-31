@@ -35,6 +35,15 @@ def _scope_sort_key(scope_name: str | None) -> tuple[int, str]:
     return (_SCOPE_SORT.get(name, 99), name)
 
 
+def _clean_label(value, fallback: str) -> str:
+    txt = str(value or "").strip()
+    if not txt:
+        return fallback
+    if txt.lower() in {"nan", "none", "null"}:
+        return fallback
+    return txt
+
+
 def _calc_emissions_tco2e(
     qty: float | None,
     factor: float | None,
@@ -57,7 +66,12 @@ def _load_data_output_rows(con, job_id: int):
             SELECT
                 jsr.row_id AS row_id,
                 jsr.scope,
-                COALESCE(jsr.category, jsr.level_2, 'Uncategorized'::text) AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'::text)
+                    ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                END AS category,
                 COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
                 jsr.level_3,
                 jsr.level_4,
@@ -87,7 +101,15 @@ def _load_data_output_rows(con, job_id: int):
                 NULL::text AS group_name,
                 NULL::text AS asset_identifier,
                 NULL::text AS employee_name,
-                COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label
+                COALESCE(
+                    NULLIF(jsr.report_label, ''),
+                    CASE
+                        WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
+                        ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                    END
+                ) AS report_label
             FROM job_scope_rows jsr
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
             LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
@@ -98,11 +120,25 @@ def _load_data_output_rows(con, job_id: int):
             SELECT
                 js.source_id AS row_id,
                 js.scope,
-                COALESCE(js.category, 'Uncategorized'::text) AS category,
+                CASE
+                    WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN 'Uncategorized'::text
+                    ELSE TRIM(CAST(js.category AS VARCHAR))
+                END AS category,
                 COALESCE(cs.site_name, 'No Site Assigned'::text) AS site_name,
                 NULL::text AS level_3,
                 NULL::text AS level_4,
-                COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS activity_name,
+                COALESCE(
+                    NULLIF(js.source_name, ''),
+                    NULLIF(g.group_name, ''),
+                    CASE
+                        WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN 'Uncategorized'
+                        ELSE TRIM(CAST(js.category AS VARCHAR))
+                    END
+                ) AS activity_name,
                 COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
                 COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
                 COALESCE(g.original_id, js.original_id) AS original_id,
@@ -128,7 +164,16 @@ def _load_data_output_rows(con, job_id: int):
                 g.group_name,
                 js.asset_identifier,
                 js.employee_name,
-                COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS report_label
+                COALESCE(
+                    NULLIF(js.source_name, ''),
+                    NULLIF(g.group_name, ''),
+                    CASE
+                        WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN 'Uncategorized'
+                        ELSE TRIM(CAST(js.category AS VARCHAR))
+                    END
+                ) AS report_label
             FROM job_emission_sources js
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
@@ -146,6 +191,10 @@ def _load_data_output_rows(con, job_id: int):
         """,
         [int(job_id), int(job_id)],
     ).df()
+    if not df.empty:
+        for col, fallback in (("scope", "Unknown"), ("category", "Uncategorized"), ("site_name", "No Site Assigned")):
+            if col in df.columns:
+                df[col] = df[col].apply(lambda value: _clean_label(value, fallback))
     return df
 
 
@@ -199,11 +248,12 @@ def get_job_data_output(
                 # Group by category and site
                 categories = {}
                 for _, row in data_df.iterrows():
-                    category = row['category'] or 'Uncategorized'
-                    site = row['site_name'] or 'No Site Assigned'
+                    category = _clean_label(row.get('category'), 'Uncategorized')
+                    site = _clean_label(row.get('site_name'), 'No Site Assigned')
                     metrics = combined_row_metrics(row, resolver)
                     qty_val = float(metrics.get("display_qty") or 0.0)
                     emission = float(metrics.get("calc_tco2e") or 0.0)
+                    emission_display = round(emission, 2)
 
                     if category not in categories:
                         categories[category] = {
@@ -219,8 +269,8 @@ def get_job_data_output(
                             "activities": []
                         }
 
-                    categories[category]["total_emissions"] += emission
-                    categories[category]["sites"][site]["total_emissions"] += emission
+                    categories[category]["total_emissions"] += emission_display
+                    categories[category]["sites"][site]["total_emissions"] += emission_display
                     categories[category]["sites"][site]["activities"].append({
                         "row_id": int(row['row_id']),
                         "level_3": row['level_3'],
@@ -228,7 +278,7 @@ def get_job_data_output(
                         "activity_name": row['activity_name'],
                         "quantity": qty_val if qty_val > 0 else None,
                         "unit": metrics.get("display_uom"),
-                        "emissions": round(emission, 2),
+                        "emissions": emission_display,
                         "is_custom_entry": bool(row.get("is_custom_entry") or False),
                         "record_type": row.get("record_type") or "legacy",
                         "source_family": row.get("source_family") or (
@@ -261,7 +311,7 @@ def get_job_data_output(
 
                     category_list.append({
                         "category_name": cat_name,
-                        "total_emissions": round(cat_data["total_emissions"], 2),
+                    "total_emissions": round(cat_data["total_emissions"], 2),
                         "sites": site_list
                     })
 
@@ -277,11 +327,12 @@ def get_job_data_output(
                 # Group by scope and calculate emissions
                 scopes = {}
                 for _, row in data_df.iterrows():
-                    scope_name = row['scope'] or 'Unknown'
-                    category = row['category'] or 'Uncategorized'
-                    site = row['site_name'] or 'No Site Assigned'
+                    scope_name = _clean_label(row.get('scope'), 'Unknown')
+                    category = _clean_label(row.get('category'), 'Uncategorized')
+                    site = _clean_label(row.get('site_name'), 'No Site Assigned')
                     metrics = combined_row_metrics(row, resolver)
                     emission = float(metrics.get("calc_tco2e") or 0.0)
+                    emission_display = round(emission, 2)
                     
                     if scope_name not in scopes:
                         scopes[scope_name] = {
@@ -304,9 +355,9 @@ def get_job_data_output(
                             "count": 0
                         }
                     
-                    scopes[scope_name]["total_emissions"] += emission
-                    scopes[scope_name]["categories"][category]["total_emissions"] += emission
-                    scopes[scope_name]["categories"][category]["site_emissions"][site]["total"] += emission
+                    scopes[scope_name]["total_emissions"] += emission_display
+                    scopes[scope_name]["categories"][category]["total_emissions"] += emission_display
+                    scopes[scope_name]["categories"][category]["site_emissions"][site]["total"] += emission_display
                     scopes[scope_name]["categories"][category]["site_emissions"][site]["count"] += 1
                 
                 # Convert to list format
@@ -376,11 +427,12 @@ def get_job_data_output_audit(
             rows: list[dict] = []
             subtotal_map: dict[tuple[str, str], float] = {}
             for _, row in df.iterrows():
-                scope_name = str(row.get("scope") or "Unknown")
-                site_name = str(row.get("site_name") or "No Site Assigned")
+                scope_name = _clean_label(row.get("scope"), "Unknown")
+                site_name = _clean_label(row.get("site_name"), "No Site Assigned")
                 metrics = combined_row_metrics(row, resolver)
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
+                emissions_display = round(emissions, 2)
 
                 rows.append(
                     {
@@ -417,7 +469,7 @@ def get_job_data_output_audit(
                     }
                 )
                 key = (site_name, scope_name)
-                subtotal_map[key] = float(subtotal_map.get(key, 0.0) + emissions)
+                subtotal_map[key] = float(subtotal_map.get(key, 0.0) + emissions_display)
 
             rows.sort(key=lambda r: (str(r["site_name"]).lower(), _scope_sort_key(str(r["scope"])), str(r["report_label"]).lower(), str(r["id"]).lower()))
             scope_subtotals = [
