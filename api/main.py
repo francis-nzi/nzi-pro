@@ -936,6 +936,7 @@ def list_jobs(
 
             job_plan_join_sql = ""
             job_plan_select_sql = ""
+            milestone_sort_expr = "2 AS milestone_sort_rank"
             if has_job_plan:
                 job_plan_join_sql = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id"
                 job_plan_select_sql = """
@@ -943,19 +944,52 @@ def list_jobs(
                                , jp.first_draft_due, jp.first_draft_completed_at
                                , jp.final_report_due, jp.final_report_completed_at
                 """
+                if db_backend() == "postgres":
+                    milestone_sort_expr = """
+                        CASE
+                            WHEN (
+                                (jp.data_collection_due IS NOT NULL AND jp.data_collection_completed_at IS NULL AND jp.data_collection_due < (CURRENT_DATE - INTERVAL '1 day'))
+                                OR (jp.first_draft_due IS NOT NULL AND jp.first_draft_completed_at IS NULL AND jp.first_draft_due < (CURRENT_DATE - INTERVAL '1 day'))
+                                OR (jp.final_report_due IS NOT NULL AND jp.final_report_completed_at IS NULL AND jp.final_report_due < (CURRENT_DATE - INTERVAL '1 day'))
+                            ) THEN 0
+                            WHEN (
+                                (jp.data_collection_due IS NOT NULL AND jp.data_collection_completed_at IS NULL AND jp.data_collection_due <= (CURRENT_DATE + INTERVAL '7 day'))
+                                OR (jp.first_draft_due IS NOT NULL AND jp.first_draft_completed_at IS NULL AND jp.first_draft_due <= (CURRENT_DATE + INTERVAL '7 day'))
+                                OR (jp.final_report_due IS NOT NULL AND jp.final_report_completed_at IS NULL AND jp.final_report_due <= (CURRENT_DATE + INTERVAL '7 day'))
+                            ) THEN 1
+                            ELSE 2
+                        END AS milestone_sort_rank
+                    """
+                else:
+                    milestone_sort_expr = """
+                        CASE
+                            WHEN (
+                                (jp.data_collection_due IS NOT NULL AND jp.data_collection_completed_at IS NULL AND DATE(jp.data_collection_due) < DATE('now', '-1 day'))
+                                OR (jp.first_draft_due IS NOT NULL AND jp.first_draft_completed_at IS NULL AND DATE(jp.first_draft_due) < DATE('now', '-1 day'))
+                                OR (jp.final_report_due IS NOT NULL AND jp.final_report_completed_at IS NULL AND DATE(jp.final_report_due) < DATE('now', '-1 day'))
+                            ) THEN 0
+                            WHEN (
+                                (jp.data_collection_due IS NOT NULL AND jp.data_collection_completed_at IS NULL AND DATE(jp.data_collection_due) <= DATE('now', '+7 day'))
+                                OR (jp.first_draft_due IS NOT NULL AND jp.first_draft_completed_at IS NULL AND DATE(jp.first_draft_due) <= DATE('now', '+7 day'))
+                                OR (jp.final_report_due IS NOT NULL AND jp.final_report_completed_at IS NULL AND DATE(jp.final_report_due) <= DATE('now', '+7 day'))
+                            ) THEN 1
+                            ELSE 2
+                        END AS milestone_sort_rank
+                    """
 
             rows = (
                 con.execute(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year,
                            {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
-                           j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr}
+                           j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr},
+                           {milestone_sort_expr}
                            {job_plan_select_sql}
                     FROM jobs j
                     JOIN clients c ON c.db_id = j.client_db_id
                     {job_plan_join_sql}
                     {where_sql}
-                    ORDER BY j.job_id DESC
+                    ORDER BY milestone_sort_rank ASC, COALESCE(j.job_number, '') DESC, j.job_id DESC
                     LIMIT ? OFFSET ?
                     """,
                     [*params, int(limit), int(offset)],
@@ -2984,7 +3018,7 @@ def list_clients(
                            {crm_col}
                     FROM clients c
                     {where_sql}
-                    ORDER BY c.db_id DESC
+                    ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
                     LIMIT %s OFFSET %s
                     """,
                     [*params, int(limit), int(offset)],
@@ -3036,7 +3070,7 @@ def list_clients(
                                NULL::text as crm_owner
                         FROM clients c
                         {where_sql}
-                        ORDER BY c.db_id DESC
+                        ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
                         LIMIT %s OFFSET %s
                         """,
                         [*params, int(limit), int(offset)],

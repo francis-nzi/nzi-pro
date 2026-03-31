@@ -57,7 +57,7 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [crmList, setCrmList] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<SortBy>("due");
+  const [sortBy, setSortBy] = useState<SortBy>("risk");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
