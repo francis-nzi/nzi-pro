@@ -912,6 +912,11 @@ def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dic
         for row in sorted_rows:
             qty = float(row.get('qty', 0) or 0)
             uom = row.get('uom') or ''
+            source_family = row.get('source_family') or (
+                'Business Travel Register'
+                if str(row.get('source_type') or '').strip().lower() == 'business_travel'
+                else ('Asset Register' if str(row.get('record_type') or 'legacy').strip().lower() == 'source_register' else 'Legacy Data Entry')
+            )
             details.append(
                 {
                     'activity_group': group,
@@ -922,6 +927,13 @@ def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dic
                     'emissions': float(row.get('emissions', 0) or 0),
                     'qty': qty,
                     'uom': uom,
+                    'source_family': source_family,
+                    'record_type': row.get('record_type') or 'legacy',
+                    'source_type': row.get('source_type'),
+                    'group_name': row.get('group_name'),
+                    'source_name': row.get('source_name'),
+                    'asset_identifier': row.get('asset_identifier'),
+                    'employee_name': row.get('employee_name'),
                     'data_source': row.get('data_source') or (f"{uom} Data" if uom else 'Calculated'),
                     'data_confidence': row.get('data_confidence') or ('High' if qty > 0 else 'Medium'),
                 }
@@ -1315,6 +1327,11 @@ def get_emissions_by_category(job_id: int):
                 'data_confidence': row.get('data_confidence') or '',
                 'record_type': row.get('record_type') or 'legacy',
                 'source_type': row.get('source_type'),
+                'source_family': row.get('source_family') or (
+                    'Business Travel Register'
+                    if str(row.get('source_type') or '').strip().lower() == 'business_travel'
+                    else ('Asset Register' if str(row.get('record_type') or 'legacy').strip().lower() == 'source_register' else 'Legacy Data Entry')
+                ),
                 'group_name': row.get('group_name'),
                 'source_name': row.get('source_name'),
                 'asset_identifier': row.get('asset_identifier'),
@@ -1724,6 +1741,16 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "record_type": row.get("record_type") or "legacy",
                     "data_source": row.get("data_source") or "",
                     "data_confidence": row.get("data_confidence") or "",
+                    "source_family": row.get("source_family") or (
+                        "Business Travel Register"
+                        if str(row.get("source_type") or "").strip().lower() == "business_travel"
+                        else (
+                            "Asset Register"
+                            if str(row.get("record_type") or "legacy").strip().lower() == "source_register"
+                            else "Legacy Data Entry"
+                        )
+                    ),
+                    "source_type": row.get("source_type"),
                     "source_name": row.get("source_name") or report_label,
                     "group_name": row.get("group_name"),
                     "asset_identifier": row.get("asset_identifier"),

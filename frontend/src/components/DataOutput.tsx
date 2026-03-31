@@ -18,6 +18,13 @@ type Activity = {
   is_custom_entry?: boolean;
   scope?: string;
   category?: string;
+  source_family?: string;
+  record_type?: string;
+  source_type?: string | null;
+  group_name?: string | null;
+  source_name?: string | null;
+  asset_identifier?: string | null;
+  employee_name?: string | null;
 };
 
 type Site = {
@@ -95,6 +102,13 @@ type AuditRow = {
   factor: number;
   tco2e_after_apply: number;
   data_confidence: string;
+  source_family?: string;
+  record_type?: string;
+  source_type?: string | null;
+  group_name?: string | null;
+  source_name?: string | null;
+  asset_identifier?: string | null;
+  employee_name?: string | null;
   dataset_name: string;
   dataset_version: string;
 };
@@ -310,6 +324,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
       "Factor",
       "tCO2e (After Apply)",
       "Data Confidence",
+      "Source Family",
       "Dataset",
     ];
     const lines: string[] = [headers.map(csvEscape).join(",")];
@@ -328,6 +343,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
             item.total.toFixed(2),
             "",
             "",
+            "",
           ]
             .map(csvEscape)
             .join(",")
@@ -343,6 +359,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
             "",
             "",
             item.total.toFixed(2),
+            "",
             "",
             "",
           ]
@@ -365,6 +382,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
             Number(row.factor || 0).toFixed(6),
             Number(row.tco2e_after_apply || 0).toFixed(2),
             row.data_confidence || "-",
+            row.source_family || "-",
             datasetLabel,
           ]
             .map(csvEscape)
@@ -955,6 +973,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                         <th className="p-2 text-right">Factor</th>
                         <th className="p-2 text-right">tCO2e (After Apply)</th>
                         <th className="p-2 text-left">Data Confidence</th>
+                        <th className="p-2 text-left">Source Family</th>
                         <th className="p-2 text-left">Dataset</th>
                       </tr>
                     </thead>
@@ -967,7 +986,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                                 Subtotal: {item.site_name} / {item.scope}
                               </td>
                               <td className="p-2 text-right">{formatNumber(item.total)}</td>
-                              <td className="p-2" colSpan={2}></td>
+                              <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
                         }
@@ -978,7 +997,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                                 Site Total: {item.site_name}
                               </td>
                               <td className="p-2 text-right">{formatNumber(item.total)}</td>
-                              <td className="p-2" colSpan={2}></td>
+                              <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
                         }
@@ -997,6 +1016,11 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                             <td className="p-2 text-right">{formatNumber(row.factor || 0)}</td>
                             <td className="p-2 text-right font-medium">{formatNumber(row.tco2e_after_apply || 0)}</td>
                             <td className="p-2">{row.data_confidence || "-"}</td>
+                            <td className="p-2">
+                              <span className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium">
+                                {row.source_family || "-"}
+                              </span>
+                            </td>
                             <td className="p-2">{datasetLabel}</td>
                           </tr>
                         );
@@ -1070,6 +1094,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                                       <thead className="bg-muted/50">
                                         <tr>
                                           <th className="text-left p-2">Activity</th>
+                                          <th className="text-left p-2">Source Family</th>
                                           <th className="text-left p-2">Level 3</th>
                                           <th className="text-left p-2">Level 4</th>
                                           <th className="text-right p-2">Quantity</th>
@@ -1089,6 +1114,11 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
                                                   </span>
                                                 ) : null}
                                               </div>
+                                            </td>
+                                            <td className="p-2">
+                                              <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
+                                                {activity.source_family || "-"}
+                                              </span>
                                             </td>
                                             <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
                                             <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>

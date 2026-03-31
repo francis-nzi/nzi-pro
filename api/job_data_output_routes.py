@@ -229,6 +229,21 @@ def get_job_data_output(
                         "unit": metrics.get("display_uom"),
                         "emissions": round(emission, 2),
                         "is_custom_entry": bool(row.get("is_custom_entry") or False),
+                        "record_type": row.get("record_type") or "legacy",
+                        "source_family": row.get("source_family") or (
+                            "Business Travel Register"
+                            if str(row.get("source_type") or "").strip().lower() == "business_travel"
+                            else (
+                                "Asset Register"
+                                if str(row.get("record_type") or "legacy").strip().lower() == "source_register"
+                                else "Legacy Data Entry"
+                            )
+                        ),
+                        "source_type": row.get("source_type"),
+                        "group_name": row.get("group_name"),
+                        "source_name": row.get("source_name"),
+                        "asset_identifier": row.get("asset_identifier"),
+                        "employee_name": row.get("employee_name"),
                     })
 
                 # Convert to list format
@@ -378,6 +393,24 @@ def get_job_data_output_audit(
                         "factor_label": metrics.get("factor_label"),
                         "tco2e_after_apply": round(emissions, 6),
                         "data_confidence": str(row.get("data_confidence") or ""),
+                        "source_family": str(
+                            row.get("source_family")
+                            or (
+                                "Business Travel Register"
+                                if str(row.get("source_type") or "").strip().lower() == "business_travel"
+                                else (
+                                    "Asset Register"
+                                    if str(row.get("record_type") or "legacy").strip().lower() == "source_register"
+                                    else "Legacy Data Entry"
+                                )
+                            )
+                        ),
+                        "record_type": str(row.get("record_type") or "legacy"),
+                        "source_type": row.get("source_type"),
+                        "group_name": row.get("group_name"),
+                        "source_name": row.get("source_name"),
+                        "asset_identifier": row.get("asset_identifier"),
+                        "employee_name": row.get("employee_name"),
                         "dataset_name": str(metrics.get("dataset_label") or row.get("dataset_name") or ""),
                         "dataset_version": str(row.get("dataset_version") or ""),
                     }

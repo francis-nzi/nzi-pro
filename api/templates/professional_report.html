@@ -560,6 +560,7 @@
               <th>Emission Type</th>
               <th class="num">tCO2e</th>
               <th>Data Confidence</th>
+              <th>Source Family</th>
             </tr>
           </thead>
           <tbody>
@@ -580,10 +581,11 @@
                   {{ dc }}
                 {% endif %}
               </td>
+              <td>{{ row.source_family|default('N/A') }}</td>
             </tr>
             {% endfor %}
             {% if not activity_details %}
-            <tr><td colspan="4">No activity details available.</td></tr>
+            <tr><td colspan="5">No activity details available.</td></tr>
             {% endif %}
           </tbody>
         </table>
