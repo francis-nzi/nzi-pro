@@ -123,7 +123,7 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
       if (selectedCrm) params.push(`crm_owner=${encodeURIComponent(selectedCrm)}`);
       if (params.length) url += `?${params.join("&")}`;
       
-      const res = await fetchJsonWithTimeout(url, { cache: "no-store" }, 20000, "Dashboard overview");
+      const res = await fetchJsonWithTimeout(url, { cache: "no-store" }, 60000, "Dashboard overview");
       if (!res.ok) throw new Error("Failed to load dashboard data");
       const json = await res.json();
       setData(json);
@@ -149,7 +149,7 @@ export default function MainDashboard({ baseUrl }: MainDashboardProps) {
 
       const res = await fetchJsonWithTimeout(`${apiBaseUrl}/dashboard/jobs-by-milestone-status`, {
         cache: "no-store",
-      }, 10000, "Jobs milestone status");
+      }, 15000, "Jobs milestone status");
 
       if (!res.ok) {
         setJobsStatus(EMPTY_JOBS_STATUS);
