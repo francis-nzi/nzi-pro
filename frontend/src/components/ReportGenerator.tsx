@@ -72,6 +72,7 @@ type ReportVersion = {
   file_id?: number | null;
   file_name?: string | null;
   download_url?: string | null;
+  snapshot_url?: string | null;
 };
 
 type TemplateAssignment = {
@@ -1577,6 +1578,13 @@ export default function ReportGenerator({ jobId, baseUrl = process.env.NEXT_PUBL
                           <Button variant="outline" size="sm" asChild>
                             <a href={`${baseUrl}${version.download_url}`} target="_blank" rel="noreferrer">
                               Download
+                            </a>
+                          </Button>
+                        )}
+                        {version.snapshot_url && (
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={`${baseUrl}${version.snapshot_url}`} target="_blank" rel="noreferrer">
+                              Frozen preview
                             </a>
                           </Button>
                         )}

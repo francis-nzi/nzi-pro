@@ -4,7 +4,7 @@ Generates comprehensive PDF reports with emissions data.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 import io
 from datetime import datetime
@@ -623,7 +623,97 @@ def _serialize_report_version_row(row: dict[str, Any]) -> dict[str, Any]:
         "superseded_at": str(row.get("superseded_at")) if row.get("superseded_at") else None,
         "superseded_by": row.get("superseded_by"),
         "download_url": f"/jobs/{int(job_id)}/files/{int(file_id)}/download" if job_id is not None and file_id is not None else None,
+        "snapshot_url": f"/jobs/{int(job_id)}/report-versions/{int(row.get('report_version_id'))}/snapshot-html"
+        if job_id is not None and row.get("report_version_id") is not None
+        else None,
     }
+
+
+def _load_report_version_snapshot(con, job_id: int, report_version_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    version_df = con.execute(
+        """
+        SELECT *
+        FROM job_report_versions
+        WHERE job_id = %s AND report_version_id = %s
+        """,
+        [int(job_id), int(report_version_id)],
+    ).df()
+    if version_df is None or version_df.empty:
+        raise HTTPException(status_code=404, detail="Report version not found")
+
+    version_row = version_df.iloc[0].to_dict()
+    snapshot_raw = version_row.get("snapshot_json")
+    if not snapshot_raw:
+        raise HTTPException(status_code=404, detail="Report version snapshot is not available")
+    try:
+        snapshot_payload = json.loads(snapshot_raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to parse report version snapshot: {exc}")
+    if not isinstance(snapshot_payload, dict):
+        raise HTTPException(status_code=500, detail="Report version snapshot is invalid")
+    return version_row, snapshot_payload
+
+
+def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
+    template_meta = snapshot_payload.get("template") or snapshot_payload.get("render_template") or {}
+    template_selection = None
+    if isinstance(template_meta, dict):
+        template_id = template_meta.get("template_id")
+        version_id = template_meta.get("version_id")
+        if template_id is not None and version_id is not None:
+            try:
+                template_selection = _get_template_selection(int(template_id), int(version_id))
+            except Exception:
+                template_selection = None
+        elif template_id is not None:
+            try:
+                template_selection = _get_template_selection(int(template_id), None)
+            except Exception:
+                template_selection = None
+        if not template_selection:
+            template_selection = template_meta
+    template_dir = os.path.join(os.path.dirname(__file__), "templates")
+    env = Environment(loader=FileSystemLoader(template_dir))
+    template = _resolve_template_for_render(env, template_selection if isinstance(template_selection, dict) else None)
+
+    categories = snapshot_payload.get("categories") or []
+    activity_groups = snapshot_payload.get("activity_groups")
+    activity_details = snapshot_payload.get("activity_details")
+    if (not activity_groups or not activity_details) and categories:
+        activity_groups, _, activity_details = _build_activity_grouping(categories)
+
+    html_content = template.render(
+        job_data=snapshot_payload.get("job_data") or {},
+        scope_totals=snapshot_payload.get("scope_totals") or {},
+        benchmark_totals=snapshot_payload.get("benchmark_totals") or {},
+        categories=categories,
+        activity_groups=activity_groups or {},
+        activity_totals=snapshot_payload.get("activity_totals") or {},
+        activity_details=activity_details or [],
+        activity_group_order=ACTIVITY_GROUP_ORDER,
+        activity_group_colors=ACTIVITY_GROUP_COLORS,
+        assets=snapshot_payload.get("assets") or {},
+        scope_chart_base64=(snapshot_payload.get("assets") or {}).get("scope_breakdown", ""),
+        activity_chart_base64=(snapshot_payload.get("assets") or {}).get("activity_breakdown", ""),
+        generation_date=snapshot_payload.get("generation_date") or "",
+        template_variables=snapshot_payload.get("template_variables") or {},
+        report_metadata=snapshot_payload.get("report_metadata") or {},
+        job_actions=snapshot_payload.get("job_actions") or {},
+        nzi_logo_src=_get_nzi_logo_src(),
+        render_values=snapshot_payload.get("render_values") or {},
+        render_template=template_selection if isinstance(template_selection, dict) else {},
+        glossary_terms=snapshot_payload.get("glossary_terms") or [],
+        target_data=snapshot_payload.get("target_data") or {},
+        site_breakdowns=snapshot_payload.get("site_breakdowns") or {},
+        is_yoy_template=bool(snapshot_payload.get("is_yoy_template") or (template_meta.get("template_key") if isinstance(template_meta, dict) else "" ) == "crp_yoy_benchmark"),
+        scope_comparison=snapshot_payload.get("scope_comparison") or {},
+        benchmark_activity_totals=snapshot_payload.get("benchmark_activity_totals") or {},
+        activity_comparison=snapshot_payload.get("activity_comparison") or {},
+        benchmark_site_breakdowns=snapshot_payload.get("benchmark_site_breakdowns") or {},
+        site_overall_comparison=snapshot_payload.get("site_overall_comparison") or {},
+    )
+    render_values = snapshot_payload.get("render_values") or {}
+    return _apply_braced_placeholder_substitution(html_content, render_values)
 
 
 def _get_job_assignment_template_and_version(job_id: int) -> tuple[int, int] | None:
@@ -3254,6 +3344,37 @@ def update_report_version(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update report version: {e}")
+
+
+@router.get("/jobs/{job_id}/report-versions/{report_version_id}/snapshot-html")
+def get_report_version_snapshot_html(
+    job_id: int,
+    report_version_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Render a frozen HTML preview from the archived report snapshot."""
+    try:
+        with get_conn() as con:
+            _ensure_job_files_table(con)
+            _ensure_report_versions_schema(con)
+            version_row, snapshot_payload = _load_report_version_snapshot(con, int(job_id), int(report_version_id))
+
+        # Reuse the archived snapshot payload so the preview stays frozen even if live data changes later.
+        html_content = _render_report_snapshot_html(snapshot_payload)
+        label = version_row.get("version_label") or f"v{version_row.get('version_number') or report_version_id}"
+        return HTMLResponse(
+            content=html_content,
+            headers={
+                "X-Report-Version-Id": str(report_version_id),
+                "X-Report-Version-Label": str(label),
+                "X-Report-Version-Status": str(version_row.get("status") or ""),
+                "Cache-Control": "no-store",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to render report version snapshot: {e}")
 
 
 @router.post("/jobs/{job_id}/generate-professional-pdf")

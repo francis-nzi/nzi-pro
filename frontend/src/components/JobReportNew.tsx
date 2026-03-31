@@ -46,6 +46,7 @@ type ReportVersion = {
   generated_by?: string | null;
   file_id?: number | null;
   download_url?: string | null;
+  snapshot_url?: string | null;
 };
 
 type ReportProfile = {
@@ -793,8 +794,18 @@ export default function JobReportNew({
                           className="text-slate-600 underline-offset-4 hover:underline"
                           target="_blank"
                           rel="noreferrer"
+                          >
+                            Download
+                          </a>
+                        ) : null}
+                      {version.snapshot_url ? (
+                        <a
+                          href={`${baseUrl}${version.snapshot_url}`}
+                          className="text-slate-600 underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
                         >
-                          Download
+                          Frozen preview
                         </a>
                       ) : null}
                     </div>
