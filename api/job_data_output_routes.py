@@ -199,6 +199,7 @@ def _load_data_output_rows(con, job_id: int):
     return df
 
 
+# Shared by Data Output and report generation so both views use the same rounding rules.
 def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[str, float]]:
     scopes: dict[str, dict[str, Any]] = {}
     for _, row in data_df.iterrows():
