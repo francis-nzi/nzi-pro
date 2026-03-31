@@ -569,6 +569,24 @@ export default function InsightsPageClient() {
     }
   }, []);
 
+  const fetchJsonWithTimeout = useCallback(async (url: string, init: RequestInit, timeoutMs: number, label: string) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        throw new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+      }
+      throw e;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
+
   const loadSavedReports = useCallback(async (nextSelectedId?: number | null) => {
     setSavedReportsLoading(true);
     setSavedReportsError("");
@@ -608,62 +626,56 @@ export default function InsightsPageClient() {
 
       params.set("limit", "100");
 
-      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes] = await Promise.all([
-        fetch(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, {
-          credentials: "include",
-          cache: "no-store",
-        }),
-        fetch(`${baseUrl}/dashboard/jobs-by-milestone-status`, {
-          credentials: "include",
-          cache: "no-store",
-        }),
-        fetch(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, {
-          credentials: "include",
-          cache: "no-store",
-        }),
-        fetch(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, {
-          credentials: "include",
-          cache: "no-store",
-        }),
-        fetch(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, {
-          credentials: "include",
-          cache: "no-store",
-        }),
+      const requestInit: RequestInit = {
+        credentials: "include",
+        cache: "no-store",
+      };
+
+      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes] = await Promise.allSettled([
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Insights overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, 15000, "Jobs milestone status"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Financial overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, 15000, "Operations overview"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, requestInit, 15000, "Report view"),
       ]);
 
-      if (!overviewRes.ok) {
-        throw new Error(`Insights overview failed (${overviewRes.status})`);
+      if (overviewRes.status !== "fulfilled") {
+        throw new Error((overviewRes.reason as Error)?.message || "Insights overview failed");
       }
 
-      const overviewJson = (await overviewRes.json()) as DashboardOverview;
+      if (!overviewRes.value.ok) {
+        throw new Error(`Insights overview failed (${overviewRes.value.status})`);
+      }
+
+      const overviewJson = (await overviewRes.value.json()) as DashboardOverview;
       setData(overviewJson);
       if (!selectedYear && overviewJson.selected_year) {
         setSelectedYear(Number(overviewJson.selected_year));
       }
 
-      if (jobsStatusRes.ok) {
-        const jobsStatusJson = (await jobsStatusRes.json()) as JobsMilestoneStatus;
+      if (jobsStatusRes.status === "fulfilled" && jobsStatusRes.value.ok) {
+        const jobsStatusJson = (await jobsStatusRes.value.json()) as JobsMilestoneStatus;
         setJobsStatus(jobsStatusJson);
       } else {
         setJobsStatus(EMPTY_JOBS_STATUS);
       }
 
-      if (financialRes.ok) {
-        const financialJson = (await financialRes.json()) as FinancialOverview;
+      if (financialRes.status === "fulfilled" && financialRes.value.ok) {
+        const financialJson = (await financialRes.value.json()) as FinancialOverview;
         setFinancialData(financialJson);
       } else {
         setFinancialData(EMPTY_FINANCIAL);
       }
 
-      if (operationsRes.ok) {
-        const operationsJson = (await operationsRes.json()) as OperationsOverview;
+      if (operationsRes.status === "fulfilled" && operationsRes.value.ok) {
+        const operationsJson = (await operationsRes.value.json()) as OperationsOverview;
         setOperationsData(operationsJson);
       } else {
         setOperationsData(EMPTY_OPERATIONS);
       }
 
-      if (reportRes.ok) {
-        const reportJson = (await reportRes.json()) as ReportViewData;
+      if (reportRes.status === "fulfilled" && reportRes.value.ok) {
+        const reportJson = (await reportRes.value.json()) as ReportViewData;
         setReportData(reportJson);
       } else {
         setReportData(EMPTY_REPORT);
@@ -678,7 +690,7 @@ export default function InsightsPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, reportView, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, fetchJsonWithTimeout, reportView, selectedCrm, selectedIndustry, selectedYear]);
 
   useEffect(() => {
     void loadInsights();
