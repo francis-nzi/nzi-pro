@@ -144,13 +144,17 @@ function MilestoneRow({
   completedAt,
   completedBy,
   onToggle,
+  readOnly = false,
+  helperText,
 }: {
   label: string;
   dueDate: string;
   status: string;
   completedAt?: string | null;
   completedBy?: string | null;
-  onToggle: (completed: boolean) => Promise<void>;
+  onToggle?: (completed: boolean) => Promise<void>;
+  readOnly?: boolean;
+  helperText?: string;
 }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const isCompleted = status === 'completed';
@@ -158,6 +162,7 @@ function MilestoneRow({
   const statusColor = milestoneDotClass(status);
 
   const handleToggle = async () => {
+    if (!onToggle || readOnly) return;
     setIsUpdating(true);
     try {
       await onToggle(!isCompleted);
@@ -186,16 +191,22 @@ function MilestoneRow({
           </div>
         )}
       </div>
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={isCompleted}
-          onChange={handleToggle}
-          disabled={isUpdating}
-          className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
-        />
-        <span className="text-sm">{isCompleted ? 'Complete' : 'Mark Complete'}</span>
-      </label>
+      {readOnly ? (
+        <div className="flex items-center gap-2 rounded-full border border-dashed border-muted-foreground/30 px-3 py-1 text-xs text-muted-foreground">
+          {helperText ?? "Template milestone"}
+        </div>
+      ) : (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isCompleted}
+            onChange={handleToggle}
+            disabled={isUpdating}
+            className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+          />
+          <span className="text-sm">{isCompleted ? 'Complete' : 'Mark Complete'}</span>
+        </label>
+      )}
     </div>
   );
 }
@@ -788,6 +799,61 @@ export default function JobDetailPage() {
     // Fallback to default names
     return defaults;
   }
+
+  function parseDateValue(value?: string | null): Date | null {
+    if (!value) return null;
+    const [year, month, day] = String(value).split("-").map((part) => Number(part));
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day);
+  }
+
+  function addDays(baseDate: Date, daysOffset: number): Date {
+    const next = new Date(baseDate);
+    next.setDate(next.getDate() + daysOffset);
+    return next;
+  }
+
+  function milestoneStatusFromDate(dueDate: Date): string {
+    const today = new Date();
+    const diffDays = Math.floor((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < -1) return "red";
+    if (diffDays <= 7) return "amber";
+    return "green";
+  }
+
+  const selectedMilestoneTemplate = useMemo(() => {
+    const templateId =
+      job?.milestone_template_id ??
+      (selectedMilestoneTemplateId && selectedMilestoneTemplateId !== "__none__"
+        ? Number(selectedMilestoneTemplateId)
+        : null);
+    if (!templateId) return null;
+    return milestoneTemplates.find((template) => template.template_id === templateId) ?? null;
+  }, [job?.milestone_template_id, selectedMilestoneTemplateId, milestoneTemplates]);
+
+  const milestoneAnchorDate = useMemo(() => {
+    return (
+      parseDateValue(jobStartDate) ||
+      parseDateValue(job?.start_date) ||
+      parseDateValue(reportingPeriodStart) ||
+      parseDateValue(job?.reporting_period_start)
+    );
+  }, [job?.reporting_period_start, job?.start_date, jobStartDate, reportingPeriodStart]);
+
+  const additionalMilestoneItems = useMemo(() => {
+    const items = selectedMilestoneTemplate?.items ?? [];
+    if (!milestoneAnchorDate || items.length <= 3) return [];
+
+    return items.slice(3).map((item, index) => {
+      const dueDate = addDays(milestoneAnchorDate, Number(item.days_offset) || 0);
+      return {
+        key: `${selectedMilestoneTemplate?.template_id ?? "template"}-${index + 4}`,
+        label: item.milestone_name || `Milestone ${index + 4}`,
+        dueDate: dueDate.toISOString(),
+        status: milestoneStatusFromDate(dueDate),
+      };
+    });
+  }, [milestoneAnchorDate, selectedMilestoneTemplate]);
 
   const reportMetadataFieldsForSetup = useMemo(() => {
     const filtered = reportMetadataFields.filter((field) =>
@@ -2203,7 +2269,7 @@ export default function JobDetailPage() {
               </div>
 
               {/* Project Milestones */}
-              {(job?.data_collection_due || job?.first_draft_due || job?.final_report_due) && (() => {
+              {(job?.data_collection_due || job?.first_draft_due || job?.final_report_due || additionalMilestoneItems.length > 0) && (() => {
                 const [milestone1Name, milestone2Name, milestone3Name] = getMilestoneNames();
                 return (
                   <Card>
@@ -2265,6 +2331,25 @@ export default function JobDetailPage() {
                         window.location.reload();
                       }}
                     />
+                  )}
+                  {additionalMilestoneItems.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Additional template milestones
+                      </div>
+                      <div className="space-y-3">
+                        {additionalMilestoneItems.map((item) => (
+                          <MilestoneRow
+                            key={item.key}
+                            label={item.label}
+                            dueDate={item.dueDate}
+                            status={item.status}
+                            readOnly
+                            helperText="Shown from the selected template"
+                          />
+                        ))}
+                      </div>
+                    </div>
                   )}
                     </div>
                     </CardContent>
