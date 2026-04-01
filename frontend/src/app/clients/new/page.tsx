@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import ClientLogoUpload from "@/components/ClientLogoUpload";
 import PageHeader from "@/components/PageHeader";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Badge } from "@/components/ui/badge";
@@ -727,6 +728,12 @@ export default function NewClientPage() {
                     />
                   </div>
                 </div>
+
+                <ClientLogoUpload
+                  baseUrl={baseUrl}
+                  logoUrl={logoUrl}
+                  onLogoUrlChange={setLogoUrl}
+                />
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Company Description</Label>

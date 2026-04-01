@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type ReportCoverPageProps = {
   clientName: string;
@@ -26,26 +26,42 @@ export default function ReportCoverPage({
   baseUrl,
 }: ReportCoverPageProps) {
   const [nziLogoUrl, setNziLogoUrl] = useState<string | null>(null);
+  const resolvedClientLogoUrl = useMemo(() => {
+    const raw = String(clientLogoUrl || "").trim();
+    if (!raw) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("data:")) {
+      return raw;
+    }
+    if (raw.startsWith("/uploads/")) {
+      return `${baseUrl.replace(/\/+$/, "")}${raw}`;
+    }
+    if (raw.startsWith("/api/backend/")) {
+      return raw;
+    }
+    return raw;
+  }, [baseUrl, clientLogoUrl]);
 
   useEffect(() => {
-    loadNziLogo();
-  }, [baseUrl]);
-
-  async function loadNziLogo() {
-    try {
-      const res = await fetch(`${baseUrl}/system-settings/nzi_logo_file`, {
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.setting_value) {
-          setNziLogoUrl(`${baseUrl}/system-settings/logo/file`);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/system-settings/nzi_logo_file`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data.setting_value) {
+            setNziLogoUrl(`${baseUrl}/system-settings/logo/file`);
+          }
         }
+      } catch (e) {
+        console.error("Failed to load NZI logo:", e);
       }
-    } catch (e) {
-      console.error("Failed to load NZI logo:", e);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
 
   const today = generatedDate || new Date().toLocaleDateString('en-GB', {
     day: 'numeric',
@@ -75,10 +91,10 @@ export default function ReportCoverPage({
       {/* Middle Section - Title and Details */}
       <div className="flex-1 flex flex-col items-center justify-center text-center space-y-8">
         {/* Client Logo */}
-        {clientLogoUrl && (
+        {resolvedClientLogoUrl && (
           <div className="mb-6">
             <img
-              src={clientLogoUrl}
+              src={resolvedClientLogoUrl}
               alt={`${clientName} Logo`}
               style={{
                 maxHeight: '150px',

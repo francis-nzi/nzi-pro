@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import ClientLogoUpload from "@/components/ClientLogoUpload";
 import PageHeader from "@/components/PageHeader";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
 import StatusBadge from "@/components/StatusBadge";
@@ -735,6 +736,13 @@ export default function EditClientPage() {
                   />
                 </div>
               </div>
+
+              <ClientLogoUpload
+                baseUrl={baseUrl}
+                logoUrl={logoUrl}
+                onLogoUrlChange={setLogoUrl}
+                clientDbId={clientId}
+              />
 
               <div className="space-y-2">
                 <Label htmlFor="description">Company Description</Label>

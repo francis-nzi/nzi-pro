@@ -1,9 +1,11 @@
 import io
+import mimetypes
 import os
 import re
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -262,6 +264,42 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+
+def _client_logo_scope_dir(client_db_id: int | None) -> str:
+    if client_db_id is not None and int(client_db_id) > 0:
+        return f"client-{int(client_db_id)}"
+    return f"temp-{uuid4().hex}"
+
+
+def _client_logo_upload_path(client_db_id: int | None, filename: str, content_type: str | None) -> tuple[Path, str]:
+    scope_dir = _client_logo_scope_dir(client_db_id)
+    upload_dir = UPLOADS_DIR / "clients" / scope_dir
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = Path(filename or "").suffix.lower()
+    if ext and ext not in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}:
+        ext = ""
+    if not ext:
+        guessed = mimetypes.guess_extension(str(content_type or "").split(";")[0].strip().lower())
+        if guessed == ".jpe":
+            guessed = ".jpg"
+        ext = guessed if guessed in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"} else ".png"
+
+    target_path = upload_dir / f"logo{ext}"
+    return target_path, f"/uploads/clients/{scope_dir}/logo{ext}"
+
+
+def _resolve_uploaded_logo_path(raw_url: str | None) -> Path | None:
+    raw = str(raw_url or "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    path = parsed.path if parsed.scheme else raw
+    rel = path.lstrip("/")
+    if not rel.startswith("uploads/"):
+        return None
+    return PROJECT_ROOT / "frontend" / "public" / rel
 
 # Include admin routes
 app.include_router(admin_router)
@@ -2929,6 +2967,89 @@ def create_client(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create client: {e}")
+
+
+@app.post("/clients/logo-upload")
+async def upload_client_logo(
+    request: Request,
+    file: UploadFile = File(...),
+    client_db_id: int | None = Form(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Upload a client logo and optionally persist it against the client record."""
+    if not file.content_type or not str(file.content_type).startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(raw) > (5 * 1024 * 1024):
+        raise HTTPException(status_code=400, detail="Logo exceeds 5MB limit")
+
+    target_path, logo_url = _client_logo_upload_path(client_db_id, file.filename or "logo.png", file.content_type)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if client_db_id is not None and int(client_db_id) > 0:
+        assert_permission(_user, "clients.edit")
+        assert_client_access(_user, int(client_db_id))
+    else:
+        assert_permission(_user, "clients.create")
+
+    try:
+        if client_db_id is not None and int(client_db_id) > 0 and target_path.parent.exists():
+            for existing in target_path.parent.glob("logo.*"):
+                try:
+                    if existing.is_file():
+                        existing.unlink()
+                except Exception:
+                    pass
+
+        with target_path.open("wb") as buffer:
+            buffer.write(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save client logo: {exc}")
+
+    actor = _user.get("email", "unknown")
+    if client_db_id is not None and int(client_db_id) > 0:
+        client_db_id = int(client_db_id)
+        with get_conn() as con:
+            before = _client_audit_snapshot(con, client_db_id)
+            if not before:
+                raise HTTPException(status_code=404, detail="Client not found")
+            existing_logo = str(before.get("logo_url") or "").strip()
+            con.execute(
+                "UPDATE clients SET logo_url = ? WHERE db_id = ?",
+                [logo_url, client_db_id],
+            )
+            after = _client_audit_snapshot(con, client_db_id)
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="client",
+                entity_id=client_db_id,
+                client_id=client_db_id,
+                before=before,
+                after=after,
+                metadata={
+                    "field": "logo_url",
+                    "uploaded_filename": target_path.name,
+                },
+            )
+            old_path = _resolve_uploaded_logo_path(existing_logo)
+            if old_path and old_path.exists() and old_path != target_path:
+                try:
+                    old_path.unlink()
+                except Exception:
+                    pass
+
+    return {
+        "ok": True,
+        "message": "Client logo uploaded successfully",
+        "logo_url": logo_url,
+        "filename": target_path.name,
+    }
 
 
 @app.get("/clients")
