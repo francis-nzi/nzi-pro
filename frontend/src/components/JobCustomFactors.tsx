@@ -103,7 +103,7 @@ export default function JobCustomFactors({
   const [category, setCategory] = useState("");
   const [uom, setUom] = useState("");
   const [ghgUnit, setGhgUnit] = useState("kg CO2e");
-  const [source, setSource] = useState("Job custom factor");
+  const [source, setSource] = useState("Job-only factor");
   const [factor, setFactor] = useState("");
   const [factorYear, setFactorYear] = useState(String(defaultFactorYear));
   const [isActive, setIsActive] = useState(true);
@@ -165,13 +165,13 @@ export default function JobCustomFactors({
       const res = await apiFetch(`/jobs/${jobId}/custom-factors?${params.toString()}`);
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`Failed to load job custom factors: ${res.status}${text ? ` - ${text}` : ""}`);
+        throw new Error(`Failed to load job-only factors: ${res.status}${text ? ` - ${text}` : ""}`);
       }
 
       const json = await res.json();
       setFactors(Array.isArray(json?.items) ? json.items : []);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to load job custom factors"));
+      setStatus(errorMessage(e, "Failed to load job-only factors"));
     } finally {
       setLoading(false);
     }
@@ -195,7 +195,7 @@ export default function JobCustomFactors({
     setCategory("");
     setUom("");
     setGhgUnit("kg CO2e");
-    setSource("Job custom factor");
+    setSource("Job-only factor");
     setFactor("");
     setFactorYear(String(defaultFactorYear));
     setIsActive(true);
@@ -211,7 +211,7 @@ export default function JobCustomFactors({
     setCategory(cleanText(item.category));
     setUom(cleanText(item.uom));
     setGhgUnit(cleanText(item.ghg_unit) || "kg CO2e");
-    setSource(cleanText(item.source) || "Job custom factor");
+    setSource(cleanText(item.source) || "Job-only factor");
     setFactor(typeof item.factor === "number" ? String(item.factor) : "");
     setFactorYear(String(item.factor_year ?? defaultFactorYear));
     setIsActive(Boolean(item.is_active ?? true));
@@ -241,7 +241,7 @@ export default function JobCustomFactors({
     }
 
     setLoading(true);
-    setStatus(editingFactor ? "Updating job factor..." : "Creating job factor...");
+    setStatus(editingFactor ? "Updating job-only factor..." : "Creating job-only factor...");
     try {
       const body = {
         custom_id: customId.trim() || null,
@@ -252,7 +252,7 @@ export default function JobCustomFactors({
         category: cleanText(category) || null,
         uom: cleanText(uom) || null,
         ghg_unit: cleanText(ghgUnit) || null,
-        source: cleanText(source) || "Job custom factor",
+        source: cleanText(source) || "Job-only factor",
         factor: factorNumber,
         factor_year: factorYearNumber,
         is_active: isActive,
@@ -273,12 +273,12 @@ export default function JobCustomFactors({
         throw new Error(`Save failed (${res.status})${text ? `: ${text}` : ""}`);
       }
 
-      setStatus(editingFactor ? "Job custom factor updated" : "Job custom factor created");
+      setStatus(editingFactor ? "Job-only factor updated" : "Job-only factor created");
       clearForm();
       await loadFactors();
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to save job custom factor"));
+      setStatus(errorMessage(e, "Failed to save job-only factor"));
     } finally {
       setLoading(false);
     }
@@ -286,7 +286,7 @@ export default function JobCustomFactors({
 
   async function toggleArchive(item: JobCustomFactor, archived: boolean) {
     const confirmed = await confirmAction({
-      title: `${archived ? "Archive" : "Restore"} job custom factor?`,
+      title: `${archived ? "Archive" : "Restore"} job-only factor?`,
       description: `${archived ? "Archive" : "Restore"} "${item.report_label || item.description}" for this job?`,
       confirmLabel: archived ? "Archive" : "Restore",
       destructive: archived,
@@ -294,7 +294,7 @@ export default function JobCustomFactors({
     if (!confirmed) return;
 
     setLoading(true);
-    setStatus(archived ? "Archiving factor..." : "Restoring factor...");
+    setStatus(archived ? "Archiving job-only factor..." : "Restoring job-only factor...");
     try {
       const res = await apiFetch(`/jobs/${jobId}/custom-factors/${item.factor_id}/archive`, {
         method: "PATCH",
@@ -306,10 +306,10 @@ export default function JobCustomFactors({
         throw new Error(`Archive failed (${res.status})${text ? `: ${text}` : ""}`);
       }
       await loadFactors();
-      setStatus(archived ? "Job factor archived" : "Job factor restored");
+      setStatus(archived ? "Job-only factor archived" : "Job-only factor restored");
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
-      setStatus(errorMessage(e, "Failed to update archive state"));
+      setStatus(errorMessage(e, "Failed to update job-only factor archive state"));
     } finally {
       setLoading(false);
     }
@@ -340,12 +340,14 @@ export default function JobCustomFactors({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Job Custom Factors</CardTitle>
+          <CardTitle>Job-Only Factors</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-            Create one-off factors for this job only. Once saved, they appear automatically in the job
-            Data Entry factor picker and stay scoped to this job.
+            Use this for one-off factors that belong to this job only. If the factor should be reused
+            across every job for this client, add it in Reusable Conversion Factors instead. Once saved,
+            job-only factors appear automatically in the job Data Entry factor picker and stay scoped to
+            this job.
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -392,7 +394,7 @@ export default function JobCustomFactors({
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <Card>
               <CardHeader>
-                <CardTitle>{editingFactor ? "Edit Job Factor" : "Add Job Factor"}</CardTitle>
+                <CardTitle>{editingFactor ? "Edit Job-Only Factor" : "Add Job-Only Factor"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-2">
@@ -448,7 +450,7 @@ export default function JobCustomFactors({
                     id="jobCustomDescription"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe the one-off job factor..."
+                    placeholder="Describe the one-off job-only factor..."
                     rows={2}
                   />
                 </div>
@@ -535,7 +537,7 @@ export default function JobCustomFactors({
                       Clear
                     </Button>
                     <Button type="button" onClick={saveFactor} disabled={loading}>
-                      {editingFactor ? "Update Factor" : "Save Factor"}
+                      {editingFactor ? "Update Job-Only Factor" : "Save Job-Only Factor"}
                     </Button>
                   </div>
                 </div>
@@ -544,7 +546,7 @@ export default function JobCustomFactors({
 
             <Card>
               <CardHeader>
-                <CardTitle>Job Factors in Use ({filteredFactors.length})</CardTitle>
+                <CardTitle>Job-Only Factors in Use ({filteredFactors.length})</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="text-xs text-muted-foreground">
@@ -557,7 +559,7 @@ export default function JobCustomFactors({
                     <div className="p-4 text-sm text-muted-foreground">Loading factors...</div>
                   ) : filteredFactors.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground">
-                      No job custom factors found yet.
+                      No job-only factors found yet.
                     </div>
                   ) : (
                     <div className="space-y-2 p-3">
@@ -567,7 +569,7 @@ export default function JobCustomFactors({
                             <div className="space-y-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="font-medium">
-                                  {item.report_label || item.description || item.custom_id || "Job factor"}
+                                  {item.report_label || item.description || item.custom_id || "Job-only factor"}
                                 </span>
                                 <Badge variant={item.archived ? "secondary" : "default"}>
                                   {item.archived ? "Archived" : "Active"}
@@ -586,7 +588,7 @@ export default function JobCustomFactors({
                                 Factor: <span className="font-mono">{item.factor?.toFixed(6) ?? "-"}</span>{" "}
                                 | UOM: <span className="font-mono">{item.uom || "-"}</span>{" "}
                                 | GHG: <span className="font-mono">{item.ghg_unit || "-"}</span>{" "}
-                                | Source: <span className="font-mono">{item.source || "Job custom factor"}</span>
+                                | Source: <span className="font-mono">{item.source || "Job-only factor"}</span>
                               </div>
                             </div>
 

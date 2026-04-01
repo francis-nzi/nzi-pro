@@ -383,7 +383,7 @@ export default function CustomFactorsPage() {
   async function toggleArchive(factor: CustomFactor, archived: boolean) {
     const action = archived ? "archive" : "restore";
     const confirmed = await confirmAction({
-      title: `${action[0].toUpperCase() + action.slice(1)} custom factor?`,
+      title: `${action[0].toUpperCase() + action.slice(1)} reusable factor?`,
       description: `${action[0].toUpperCase() + action.slice(1)} "${factor.report_label || factor.description}"?`,
       confirmLabel: action[0].toUpperCase() + action.slice(1),
       destructive: archived,
@@ -438,10 +438,10 @@ export default function CustomFactorsPage() {
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold" style={{ color: "#F26624" }}>
-              Custom Conversion Factors
+              Reusable Conversion Factors
             </h1>
             <p className="text-sm text-muted-foreground">
-              Manage global/client custom factors with unlimited yearly values.
+              Manage reusable global and client-level factors with unlimited yearly values.
             </p>
           </div>
           <Button variant="secondary" asChild>
@@ -476,7 +476,7 @@ export default function CustomFactorsPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>{editingFactor ? "Edit Factor" : "Add New Factor"}</CardTitle>
+              <CardTitle>{editingFactor ? "Edit Reusable Factor" : "Add Reusable Factor"}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -552,7 +552,7 @@ export default function CustomFactorsPage() {
                   id="reportLabel"
                   value={reportLabel}
                   onChange={(e) => setReportLabel(e.target.value)}
-                  placeholder="How this appears in factor picker/reports"
+                  placeholder="How this appears in the factor picker and reports"
                 />
               </div>
 
@@ -596,7 +596,7 @@ export default function CustomFactorsPage() {
                       checked={isGlobal}
                       onChange={(e) => setIsGlobal(e.target.checked)}
                     />
-                    Global factor
+                    Global factor (all clients)
                   </label>
 
                   <label className="flex items-center gap-2 text-sm">
@@ -611,13 +611,13 @@ export default function CustomFactorsPage() {
 
                 {!isGlobal ? (
                   <div className="space-y-2">
-                    <Label htmlFor="clientScope">Client Scope *</Label>
+                    <Label htmlFor="clientScope">Client-level scope *</Label>
                     <Select value={clientDbId} onValueChange={setClientDbId}>
                       <SelectTrigger id="clientScope">
-                        <SelectValue placeholder="Select client" />
+                        <SelectValue placeholder="Select client-level scope" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Select client...</SelectItem>
+                        <SelectItem value="__none__">Select client-level scope...</SelectItem>
                         {clients.map((c) => (
                           <SelectItem key={c.client_db_id} value={String(c.client_db_id)}>
                             {c.client_name} (#{c.client_db_id})
@@ -694,7 +694,7 @@ export default function CustomFactorsPage() {
                   </Button>
                 ) : null}
                 <Button onClick={saveFactor} className="flex-1">
-                  {editingFactor ? "Update Factor" : "Add Factor"}
+                  {editingFactor ? "Update Reusable Factor" : "Add Reusable Factor"}
                 </Button>
               </div>
             </CardContent>
@@ -702,13 +702,13 @@ export default function CustomFactorsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Existing Custom Factors ({filteredFactors.length})</CardTitle>
+              <CardTitle>Reusable Factors ({filteredFactors.length})</CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="text-sm text-muted-foreground">Loading...</div>
               ) : filteredFactors.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No custom factors yet</div>
+                <div className="text-sm text-muted-foreground">No reusable factors yet</div>
               ) : (
                 <div className="space-y-2 max-h-[700px] overflow-y-auto">
                   {filteredFactors.map((factor) => {
@@ -737,7 +737,7 @@ export default function CustomFactorsPage() {
                             </div>
                             <div className="flex flex-wrap gap-1 pt-1">
                               <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
-                                {factor.is_global !== false ? "Global" : `Client #${factor.client_db_id ?? "?"}`}
+                                {factor.is_global !== false ? "Global" : "Client-level"}
                               </span>
                               {factor.client_name ? (
                                 <span className="text-xs bg-muted px-1.5 py-0.5 rounded">

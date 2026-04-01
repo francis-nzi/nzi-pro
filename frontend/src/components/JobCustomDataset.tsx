@@ -294,7 +294,7 @@ async function load() {
 
   async function deleteRow(rowId: number) {
     const confirmed = await confirmAction({
-      title: "Delete custom factor row?",
+      title: "Delete factor row?",
       description: "This custom dataset row will be removed from the job.",
       confirmLabel: "Delete",
       destructive: true,
@@ -390,12 +390,12 @@ async function load() {
 
           <div className="rounded-md border">
             <div className="px-3 py-2 text-sm font-medium border-b">
-              Available custom factors ({filteredFactors.length})
+              Available factors ({filteredFactors.length})
             </div>
             <div className="max-h-80 overflow-auto">
               {filteredFactors.length === 0 ? (
                 <div className="p-4 text-sm text-muted-foreground">
-                  No custom factors found for this job (scope/client/search).
+                  No applicable factors found for this job (job-only/client-level/global/search).
                 </div>
               ) : (
                 <table className="w-full text-sm">
