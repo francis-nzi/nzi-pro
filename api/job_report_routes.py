@@ -31,6 +31,7 @@ from services.emissions_reporting import combined_row_metrics
 from api.report_template_routes import (
     _get_job_report_metadata,
     _build_report_render_values,
+    _ensure_report_template_schema,
 )
 from api.chart_generation import (
     generate_report_assets,
