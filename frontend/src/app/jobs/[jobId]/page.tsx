@@ -350,9 +350,26 @@ type JobSitesResponse = {
 };
 
 type MilestoneTemplateItem = {
+  item_id: number;
+  template_id?: number | null;
   milestone_name: string;
   days_offset: number;
   sort_order: number;
+};
+
+type MilestoneTemplateCompletion = {
+  completion_id?: number | null;
+  job_id: number;
+  item_id: number;
+  template_id?: number | null;
+  milestone_name?: string | null;
+  days_offset?: number | null;
+  sort_order?: number | null;
+  is_complete?: boolean;
+  completed_at?: string | null;
+  completed_by?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 };
 
 type MilestoneTemplateOption = {
@@ -364,6 +381,11 @@ type MilestoneTemplateOption = {
 
 type MilestoneTemplatesResponse = {
   templates: MilestoneTemplateOption[];
+};
+
+type MilestoneTemplateCompletionsResponse = {
+  job_id: number;
+  items: MilestoneTemplateCompletion[];
 };
 
 type UploadReadyRow = {
@@ -679,6 +701,7 @@ export default function JobDetailPage() {
   const [jobStatuses, setJobStatuses] = useState<Array<{status_id: number; name: string}>>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [milestoneTemplates, setMilestoneTemplates] = useState<MilestoneTemplateOption[]>([]);
+  const [milestoneTemplateCompletions, setMilestoneTemplateCompletions] = useState<MilestoneTemplateCompletion[]>([]);
   const [selectedMilestoneTemplateId, setSelectedMilestoneTemplateId] = useState<string>("");
   const [reportMetadataFields, setReportMetadataFields] = useState<ReportMetadataField[]>([]);
   const [reportMetadataValues, setReportMetadataValues] = useState<Record<string, string>>({});
@@ -835,6 +858,16 @@ export default function JobDetailPage() {
     return milestoneTemplates.find((template) => template.template_id === templateId) ?? null;
   }, [job?.milestone_template_id, selectedMilestoneTemplateId, milestoneTemplates]);
 
+  const milestoneTemplateCompletionMap = useMemo(() => {
+    const map = new Map<number, MilestoneTemplateCompletion>();
+    milestoneTemplateCompletions.forEach((item) => {
+      if (Number.isFinite(Number(item.item_id))) {
+        map.set(Number(item.item_id), item);
+      }
+    });
+    return map;
+  }, [milestoneTemplateCompletions]);
+
   const milestoneAnchorDate = useMemo(() => {
     return (
       parseDateValue(jobStartDate) ||
@@ -844,20 +877,32 @@ export default function JobDetailPage() {
     );
   }, [job?.reporting_period_start, job?.start_date, jobStartDate, reportingPeriodStart]);
 
+  const additionalMilestonesEditable = Boolean(
+    job?.milestone_template_id &&
+    selectedMilestoneTemplate &&
+    Number(job.milestone_template_id) === Number(selectedMilestoneTemplate.template_id)
+  );
+  const currentJobId = job?.job_id ?? null;
+
   const additionalMilestoneItems = useMemo(() => {
     const items = selectedMilestoneTemplate?.items ?? [];
     if (!milestoneAnchorDate || items.length <= 3) return [];
 
     return items.slice(3).map((item, index) => {
       const dueDate = addDays(milestoneAnchorDate, Number(item.days_offset) || 0);
+      const completion = milestoneTemplateCompletionMap.get(Number(item.item_id));
+      const isCompleted = Boolean(completion?.is_complete);
       return {
+        itemId: Number(item.item_id),
         key: `${selectedMilestoneTemplate?.template_id ?? "template"}-${index + 4}`,
         label: item.milestone_name || `Milestone ${index + 4}`,
         dueDate: dueDate.toISOString(),
-        status: milestoneStatusFromDate(dueDate),
+        status: isCompleted ? "completed" : milestoneStatusFromDate(dueDate),
+        completedAt: completion?.completed_at ?? null,
+        completedBy: completion?.completed_by ?? null,
       };
     });
-  }, [milestoneAnchorDate, selectedMilestoneTemplate]);
+  }, [milestoneAnchorDate, selectedMilestoneTemplate, milestoneTemplateCompletionMap]);
 
   const reportMetadataFieldsForSetup = useMemo(() => {
     const filtered = reportMetadataFields.filter((field) =>
@@ -1117,7 +1162,7 @@ export default function JobDetailPage() {
       setError("");
 
       try {
-        const [jRes, sRes, tRes, dRes, scRes, statusRes, teamRes, mtRes] = await Promise.all([
+        const [jRes, sRes, tRes, dRes, scRes, statusRes, teamRes, mtRes, mcRes] = await Promise.all([
           fetch(`${baseUrl}/jobs/${jobId}`),
           fetch(`${baseUrl}/jobs/${jobId}/sites`),
           fetch(`${baseUrl}/job-templates`),
@@ -1126,6 +1171,7 @@ export default function JobDetailPage() {
           fetch(`${baseUrl}/admin/lookups/job_statuses_lookup`),
           fetch(`${baseUrl}/admin/users`),
           fetch(`${baseUrl}/milestone-templates`),
+          fetch(`${baseUrl}/jobs/${jobId}/milestone-template-completions`),
         ]);
 
         if (!jRes.ok) {
@@ -1141,6 +1187,7 @@ export default function JobDetailPage() {
         const statusJson = statusRes.ok ? await statusRes.json() : null;
         const teamJson = teamRes.ok ? await teamRes.json() : null;
         const mtJson = mtRes.ok ? ((await mtRes.json()) as MilestoneTemplatesResponse) : null;
+        const mcJson = mcRes.ok ? ((await mcRes.json()) as MilestoneTemplateCompletionsResponse) : null;
 
         if (cancelled) return;
 
@@ -1205,6 +1252,7 @@ export default function JobDetailPage() {
         if (statusJson?.items) setJobStatuses(statusJson.items);
         if (teamJson?.items) setTeamMembers(teamJson.items);
         if (mtJson?.templates) setMilestoneTemplates(mtJson.templates);
+        setMilestoneTemplateCompletions(Array.isArray(mcJson?.items) ? mcJson.items : []);
         
         // Set selected milestone template
         if (jJson.milestone_template_id) {
@@ -1247,6 +1295,7 @@ export default function JobDetailPage() {
         setScopeConfigMode("legacy");
         setScopeConfigWarnings([]);
         setScopeAutoResolution(null);
+        setMilestoneTemplateCompletions([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2362,8 +2411,29 @@ export default function JobDetailPage() {
                             label={item.label}
                             dueDate={item.dueDate}
                             status={item.status}
-                            readOnly
-                            helperText="Shown from the selected template"
+                            completedAt={item.completedAt}
+                            completedBy={item.completedBy}
+                            onToggle={(() => {
+                              if (!additionalMilestonesEditable || currentJobId == null) return undefined;
+                              return async (completed) => {
+                                await fetch(
+                                  `${apiBaseUrl()}/jobs/${currentJobId}/milestone-template-items/${item.itemId}/complete`,
+                                  {
+                                    method: "POST",
+                                    credentials: "include",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ completed }),
+                                  }
+                                );
+                                window.location.reload();
+                              };
+                            })()}
+                            readOnly={!additionalMilestonesEditable}
+                            helperText={
+                              additionalMilestonesEditable
+                                ? "Shown from the selected template"
+                                : "Save the milestone template to complete these items"
+                            }
                           />
                         ))}
                       </div>

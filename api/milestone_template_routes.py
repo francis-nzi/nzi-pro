@@ -30,7 +30,7 @@ def list_milestone_templates(_user: dict[str, str] = Depends(_current_user)):
             for _, template in templates.iterrows():
                 items = con.execute(
                     """
-                    SELECT item_id, milestone_name, days_offset, sort_order
+                    SELECT item_id, template_id, milestone_name, days_offset, sort_order
                     FROM milestone_template_items
                     WHERE template_id = %s
                     ORDER BY sort_order, item_id
@@ -47,6 +47,7 @@ def list_milestone_templates(_user: dict[str, str] = Depends(_current_user)):
                     "items": [
                         {
                             "item_id": int(item['item_id']),
+                            "template_id": int(item['template_id']),
                             "milestone_name": item['milestone_name'],
                             "days_offset": int(item['days_offset']),
                             "sort_order": int(item['sort_order'])
