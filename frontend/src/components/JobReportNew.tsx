@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, FileText, LayoutGrid, LineChart, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileText, LayoutGrid, Sparkles, Target } from "lucide-react";
 
 type ReportTemplate = {
   template_id: number;
@@ -331,6 +331,7 @@ export default function JobReportNew({
   const [draftSyncReady, setDraftSyncReady] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftGeneratingSection, setDraftGeneratingSection] = useState<string | null>(null);
+  const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [savingReportVersion, setSavingReportVersion] = useState(false);
@@ -395,6 +396,15 @@ export default function JobReportNew({
     [selectedKey]
   );
   const initialDraftNotes = useMemo(() => buildInitialDraftNotes(selectedProfile), [selectedProfile]);
+
+  useEffect(() => {
+    setActiveDraftSection((current) => {
+      if (selectedProfile.sections.includes(current)) {
+        return current;
+      }
+      return selectedProfile.sections[0] || current;
+    });
+  }, [selectedProfile.sections]);
 
   const availableTemplate = useMemo(
     () => templates.find((template) => template.template_key === selectedProfile.templateKey) || null,
@@ -882,26 +892,30 @@ export default function JobReportNew({
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
-        <CardContent className="grid gap-6 p-6 lg:grid-cols-[1.4fr_0.8fr] lg:p-8">
-          <div className="space-y-4">
+        <CardContent className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr] lg:p-5">
+          <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/80">
               <Sparkles className="h-3.5 w-3.5" />
               Report (New)
             </div>
             <div className="space-y-2">
-              <h2 className="text-3xl font-semibold tracking-tight">Profile-first reporting workspace</h2>
+              <h2 className="text-2xl font-semibold tracking-tight">Profile-first reporting workspace</h2>
               <p className="max-w-2xl text-sm leading-6 text-slate-200">
-                Choose the report family first, shape the content around that profile, then move straight into
-                actions and draft outputs. This is the new reporting path we discussed for CRP, SECR, and
-                country-specific variants.
+                Choose the report family, shape the draft around that profile, and keep the workflow inside one
+                page instead of bouncing between screens.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Button variant="secondary" onClick={onOpenActions} className="gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={onOpenActions} className="gap-2">
                 <Target className="h-4 w-4" />
                 Open Actions
               </Button>
-              <Button variant="outline" onClick={openPreviewModal} className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={openPreviewModal}
+                className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+              >
                 <FileText className="h-4 w-4" />
                 Open Preview Checklist
               </Button>
@@ -909,16 +923,16 @@ export default function JobReportNew({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-300">Assigned profile</div>
-              <div className="mt-2 text-lg font-semibold">{activeAssignmentLabel}</div>
-              <div className="mt-1 text-sm text-slate-300">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-slate-300">Assigned profile</div>
+              <div className="mt-2 text-base font-semibold leading-6">{activeAssignmentLabel}</div>
+              <div className="mt-1 text-xs text-slate-300">
                 {assignment?.version_number ? `Version ${assignment.version_number}` : "No version assigned yet"}
               </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-              <div className="text-xs uppercase tracking-[0.2em] text-slate-300">Actions ready</div>
-              <div className="mt-2 text-lg font-semibold">{selectedActions} selected</div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-slate-300">Actions ready</div>
+              <div className="mt-2 text-base font-semibold">{selectedActions} selected</div>
               <div className="mt-1 text-sm text-slate-300">
                 Short {shortActions} · Medium {mediumActions} · Long {longActions}
               </div>
@@ -1019,7 +1033,7 @@ export default function JobReportNew({
           <CardHeader className="space-y-2">
             <CardTitle>Stage 3 Draft Content</CardTitle>
             <CardDescription>
-              Write the first pass of the report section by section. AI can draft the core sections from the current job context, and the drafts now sync to the server while still mirroring locally for fast editing.
+              Work one section at a time. The navigator keeps the other sections visible without forcing a long scroll.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1029,7 +1043,7 @@ export default function JobReportNew({
                   {selectedProfile.subtitle}
                 </Badge>
                 <Badge variant="outline" className="bg-white">
-                  {draftedSectionCount}/{selectedProfile.sections.length} sections started
+                  {draftedSectionCount}/{selectedProfile.sections.length} drafted
                 </Badge>
                 <Badge variant="outline" className="bg-white">
                   {selectedActions} actions ready
@@ -1041,7 +1055,7 @@ export default function JobReportNew({
                 </Badge>
               </div>
               <p className="mt-3 text-sm text-slate-600">
-                Use the canvas to capture the draft storyline, then move to preview/export when the section notes feel coherent.
+                Draft one section, keep the rest as quick navigation, and move to preview/export when the narrative feels coherent.
               </p>
               {draftContext?.context_summary ? (
                 <p className="mt-2 text-sm text-slate-500">
@@ -1050,76 +1064,103 @@ export default function JobReportNew({
               ) : null}
             </div>
 
-            <div className="space-y-4">
-              {selectedProfile.sections.map((section) => (
-                <div key={section} className="space-y-2 rounded-2xl border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="font-medium">{section}</div>
-                      <Badge variant="outline" className="bg-slate-50">
-                        {draftOrigins[section] === "ai"
-                          ? "AI drafted"
-                          : draftOrigins[section] === "local"
-                            ? "Drafted"
-                            : "Starter prompt"}
-                      </Badge>
-                    </div>
-                    {AI_DRAFT_SECTIONS.has(section) ? (
-                      <Button
+            <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="rounded-2xl border bg-white p-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Sections</div>
+                <div className="mt-3 space-y-2">
+                  {selectedProfile.sections.map((section) => {
+                    const isActive = activeDraftSection === section;
+                    const origin = draftOrigins[section];
+                    const originLabel =
+                      origin === "ai" ? "AI drafted" : origin === "local" ? "Drafted" : "Starter prompt";
+                    return (
+                      <button
+                        key={section}
                         type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                        onClick={() => void generateSectionDraft(section)}
-                        disabled={draftGeneratingSection === section}
+                        onClick={() => setActiveDraftSection(section)}
+                        className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                          isActive
+                            ? "border-slate-900 bg-slate-50 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70"
+                        }`}
                       >
-                        <Sparkles className="h-4 w-4" />
-                        {draftGeneratingSection === section ? "Generating..." : "Generate AI Draft"}
-                      </Button>
-                    ) : null}
-                  </div>
-                  <Textarea
-                    value={draftNotes[section] || ""}
-                    onChange={(event) => updateDraftNote(section, event.target.value)}
-                    rows={4}
-                    placeholder={`Draft the ${section.toLowerCase()} content for this report...`}
-                  />
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-900">{section}</div>
+                            <div className="mt-1 text-xs text-slate-500">{isActive ? "Open in editor" : "Click to focus"}</div>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 bg-slate-50 text-[11px]">
+                            {originLabel}
+                          </Badge>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Button variant="outline" onClick={clearDraftNotes}>
-                Reset draft canvas
-              </Button>
+              <div className="rounded-2xl border bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Active section</div>
+                    <div className="mt-1 text-2xl font-semibold text-slate-950">{activeDraftSection}</div>
+                    <div className="mt-2 text-sm text-slate-600">
+                      Draft this section, then move to the next one when you are ready.
+                    </div>
+                  </div>
+                  {AI_DRAFT_SECTIONS.has(activeDraftSection) ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => void generateSectionDraft(activeDraftSection)}
+                      disabled={draftGeneratingSection === activeDraftSection}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {draftGeneratingSection === activeDraftSection ? "Generating..." : "Generate AI Draft"}
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="bg-slate-50">
+                    {draftOrigins[activeDraftSection] === "ai"
+                      ? "AI drafted"
+                      : draftOrigins[activeDraftSection] === "local"
+                        ? "Drafted"
+                        : "Starter prompt"}
+                  </Badge>
+                  <Badge variant="outline" className="bg-white">
+                    {activeDraftSection === "Executive Summary"
+                      ? "Opening narrative"
+                      : activeDraftSection === "Emissions Overview"
+                        ? "Emissions story"
+                        : activeDraftSection === "Actions"
+                          ? "Action-led narrative"
+                          : "Section draft"}
+                  </Badge>
+                </div>
+
+                <Textarea
+                  className="mt-4 min-h-[320px]"
+                  value={draftNotes[activeDraftSection] || ""}
+                  onChange={(event) => updateDraftNote(activeDraftSection, event.target.value)}
+                  rows={10}
+                  placeholder={`Draft the ${activeDraftSection.toLowerCase()} content for this report...`}
+                />
+
+                <div className="mt-3 flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={clearDraftNotes}>
+                    Reset draft canvas
+                  </Button>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Draft flow</CardTitle>
-              <CardDescription>Use the new process as a guided path from profile to publish.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {[
-                { label: "1. Select profile", done: Boolean(assignment?.template_id), note: "Choose the report family before drafting." },
-                { label: "2. Add actions", done: selectedActions > 0, note: "Use suggested or custom actions from the job." },
-                { label: "3. Draft content", done: draftStarted, note: "Work section by section without hard required blockers." },
-                { label: "4. Preview and export", done: draftReady, note: "Use the current renderer while the v2 path is built out." },
-              ].map((step) => (
-                <div key={step.label} className="flex gap-3 rounded-lg border p-3">
-                  <CheckCircle2 className={`mt-0.5 h-5 w-5 ${step.done ? "text-emerald-600" : "text-slate-300"}`} />
-                  <div>
-                    <div className="font-medium">{step.label}</div>
-                    <div className="text-sm text-muted-foreground">{step.note}</div>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
+        <div className="space-y-4 xl:sticky xl:top-24 self-start">
           <Card>
             <CardHeader className="space-y-2">
               <CardTitle>Stage 4 Preview & Export</CardTitle>
@@ -1163,22 +1204,10 @@ export default function JobReportNew({
                 <div className="flex items-start gap-3">
                   <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
                   <div>
-                    <div className="font-medium text-slate-900">Executive Summary dashboard</div>
-                    <div className="text-sm text-muted-foreground">Use KPI cards, charts, and a quick visual story for the reader.</div>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-start gap-3">
-                  <LineChart className="mt-0.5 h-4 w-4 text-slate-600" />
-                  <div>
-                    <div className="font-medium text-slate-900">Charts and graphs</div>
-                    <div className="text-sm text-muted-foreground">Keep pies/donuts where they add quick interpretation and polish.</div>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-start gap-3">
-                  <Target className="mt-0.5 h-4 w-4 text-slate-600" />
-                  <div>
-                    <div className="font-medium text-slate-900">Actions-led narrative</div>
-                    <div className="text-sm text-muted-foreground">Carry the action plan into the final story so the report feels actionable.</div>
+                    <div className="font-medium text-slate-900">Preview focus</div>
+                    <div className="text-sm text-muted-foreground">
+                      Keep the executive summary, charts, and action story tight so the report reads like a dashboard first.
+                    </div>
                   </div>
                 </div>
               </div>
