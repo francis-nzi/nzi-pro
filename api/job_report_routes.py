@@ -1697,15 +1697,17 @@ def _upsert_report_draft(
             ],
         )
 
-    saved_row = con.execute(
+    saved_df = con.execute(
         """
         SELECT *
         FROM job_report_drafts
         WHERE job_id = %s AND template_id = %s AND version_id = %s AND section_key = %s
         """,
         [int(job_id), int(template_id), int(version_id), normalized_key],
-    ).fetchone()
-    return _serialize_report_draft_row(dict(saved_row)) if saved_row else {
+    ).df()
+    if saved_df is not None and not saved_df.empty:
+        return _serialize_report_draft_row(saved_df.iloc[0].to_dict())
+    return {
         "job_id": int(job_id),
         "template_id": int(template_id),
         "version_id": int(version_id),
@@ -1778,8 +1780,10 @@ def _load_report_drafts(con, job_id: int, template_id: int, version_id: int) -> 
         ORDER BY section_key ASC, updated_at DESC, draft_id DESC
         """,
         [int(job_id), int(template_id), int(version_id)],
-    ).fetchall()
-    return [_serialize_report_draft_row(dict(row)) for row in rows or []]
+    ).df()
+    if rows is None or rows.empty:
+        return []
+    return [_serialize_report_draft_row(row.to_dict()) for _, row in rows.iterrows()]
 
 
 def _resolve_draft_section_inputs(
