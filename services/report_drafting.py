@@ -62,6 +62,68 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _strip_code_fences(text: str) -> str:
+    raw = _text(text)
+    if not raw:
+        return ""
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()
+
+
+def _looks_like_json_text(text: str) -> bool:
+    raw = _strip_code_fences(text)
+    if not raw:
+        return False
+    if (raw.startswith("{") and raw.endswith("}")) or (raw.startswith("[") and raw.endswith("]")):
+        return True
+    return bool(re.search(r'"(?:section_key|draft_text|bullet_points|evidence_used|summary|narrative)"\s*:', raw))
+
+
+def _join_text_parts(parts: list[str], *, separator: str = " ") -> str:
+    cleaned = [_text(part) for part in parts if _text(part)]
+    return separator.join(cleaned).strip()
+
+
+def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, section_key: str) -> str:
+    candidates = [
+        payload.get("draft_text"),
+        payload.get("draftText"),
+        payload.get("summary"),
+        payload.get("narrative"),
+        payload.get("content"),
+        payload.get("text"),
+    ]
+
+    for candidate in candidates:
+        candidate_text = _strip_code_fences(candidate)
+        if candidate_text and not _looks_like_json_text(candidate_text):
+            return candidate_text
+
+    paragraphs = payload.get("paragraphs")
+    if isinstance(paragraphs, list):
+        paragraph_text = _join_text_parts([_strip_code_fences(item) for item in paragraphs], separator="\n\n")
+        if paragraph_text:
+            return paragraph_text
+
+    bullet_points = _safe_list(payload.get("bullet_points") or payload.get("bulletPoints"))
+    if bullet_points:
+        if section_key == "actions":
+            lead_in = _text(payload.get("summary") or payload.get("narrative"))
+            bullet_text = "\n".join(f"- {point}" for point in bullet_points)
+            return _join_text_parts([lead_in, bullet_text], separator="\n\n").strip()
+        return " ".join(f"{point}." if point and not point.endswith((".", "!", "?")) else point for point in bullet_points).strip()
+
+    headline_points = _safe_list(payload.get("headline_points") or payload.get("key_points") or payload.get("takeaways"))
+    if headline_points:
+        return " ".join(
+            f"{point}." if point and not point.endswith((".", "!", "?")) else point
+            for point in headline_points
+        ).strip()
+
+    return _strip_code_fences(fallback_text) or f"Draft the {_get_section_config(section_key)['title'].lower()} section."
+
+
 def _extract_balanced_json_object(raw: str) -> str | None:
     start = raw.find("{")
     if start == -1:
@@ -356,9 +418,7 @@ def _normalize_payload(payload: dict[str, Any], fallback_text: str, section_key:
     if confidence not in {"low", "medium", "high"}:
         confidence = "medium"
 
-    draft_text = _text(payload.get("draft_text"))
-    if not draft_text:
-        draft_text = fallback_text.strip() or f"Draft the {config['title'].lower()} section."
+    draft_text = _coerce_readable_draft_text(payload, fallback_text, section_key)
 
     evidence_used = []
     for row in payload.get("evidence_used") or []:
@@ -373,7 +433,7 @@ def _normalize_payload(payload: dict[str, Any], fallback_text: str, section_key:
         "section_key": _text(payload.get("section_key") or section_key),
         "section_title": _text(payload.get("section_title") or config["title"]),
         "draft_text": draft_text,
-        "bullet_points": _safe_list(payload.get("bullet_points")),
+        "bullet_points": _safe_list(payload.get("bullet_points") or payload.get("bulletPoints")),
         "evidence_used": evidence_used,
         "caveats": _safe_list(payload.get("caveats")),
         "confidence": confidence,

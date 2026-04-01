@@ -206,6 +206,61 @@ function getDraftSectionKey(section: string): string {
   return normalized.toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }
 
+function stripCodeFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+}
+
+function looksLikeJsonText(text: string): boolean {
+  const raw = stripCodeFences(text);
+  if (!raw) return false;
+  if ((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"))) {
+    return true;
+  }
+  return /"(section_key|draft_text|bullet_points|summary|narrative|headline_points)"\s*:/.test(raw);
+}
+
+function coerceReadableDraftText(value: unknown, fallback = ""): string {
+  const stripped = stripCodeFences(String(value ?? ""));
+  if (!stripped) {
+    return stripCodeFences(fallback);
+  }
+
+  if (!looksLikeJsonText(stripped)) {
+    return stripped;
+  }
+
+  try {
+    const parsed = JSON.parse(stripped) as Record<string, unknown>;
+    const nestedCandidates = [
+      parsed.draft_text,
+      parsed.draftText,
+      parsed.summary,
+      parsed.narrative,
+      parsed.content,
+      parsed.text,
+    ];
+    for (const candidate of nestedCandidates) {
+      const candidateText = stripCodeFences(String(candidate ?? ""));
+      if (candidateText && !looksLikeJsonText(candidateText)) {
+        return candidateText;
+      }
+    }
+
+    const bulletPoints = Array.isArray(parsed.bullet_points)
+      ? parsed.bullet_points.map((item) => String(item ?? "").trim()).filter(Boolean)
+      : Array.isArray(parsed.bulletPoints)
+        ? parsed.bulletPoints.map((item) => String(item ?? "").trim()).filter(Boolean)
+        : [];
+    if (bulletPoints.length > 0) {
+      return bulletPoints.map((point) => (/[.!?]$/.test(point) ? point : `${point}.`)).join(" ");
+    }
+  } catch {
+    // Fall through to the fallback text below.
+  }
+
+  return stripCodeFences(fallback) || stripped;
+}
+
 function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { notes: DraftNotes; origins: DraftOrigins } {
   const notes = buildInitialDraftNotes(profile);
   const origins = buildInitialDraftOrigins(profile);
@@ -230,9 +285,9 @@ function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { no
       const alias = SECTION_LABEL_ALIASES[section] || section;
       const storedValue =
         typeof parsedNotes?.[section] === "string"
-          ? parsedNotes[section]
+          ? coerceReadableDraftText(parsedNotes[section], notes[section])
           : typeof parsedNotes?.[alias] === "string"
-            ? parsedNotes[alias]
+            ? coerceReadableDraftText(parsedNotes[alias], notes[section])
             : null;
       const storedOrigin =
         typeof parsedOrigins?.[section] === "string"
@@ -509,7 +564,7 @@ export default function JobReportNew({
                 item.section_title ||
                 sectionKey;
               if (typeof item.draft_text === "string" && sectionLabel) {
-                next[sectionLabel] = item.draft_text;
+                next[sectionLabel] = coerceReadableDraftText(item.draft_text, next[sectionLabel]);
               }
             });
             return next;
@@ -793,11 +848,12 @@ export default function JobReportNew({
             : typeof payload?.draft?.draftText === "string"
               ? payload.draft.draftText
               : "";
-        if (!draftText.trim()) {
+        const readableDraftText = coerceReadableDraftText(draftText, draftText);
+        if (!readableDraftText.trim()) {
           throw new Error("The AI draft did not return usable text.");
         }
 
-        setDraftNotes((prev) => ({ ...prev, [section]: draftText }));
+        setDraftNotes((prev) => ({ ...prev, [section]: readableDraftText }));
         setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
         setDraftDirty(true);
         setStatus(`Generated an AI draft for ${section}.`);
