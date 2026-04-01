@@ -2611,7 +2611,11 @@ def search_factors(
 # =========================
 
 @router.get("/lookups/{table_name}")
-def list_lookup_items(table_name: str, _user: dict = Depends(_current_user)):
+def list_lookup_items(
+    table_name: str,
+    include_archived: bool = Query(False),
+    _user: dict = Depends(_current_user),
+):
     """List items from a lookup table."""
     # Whitelist allowed tables for security
     allowed_tables = [
@@ -2631,23 +2635,51 @@ def list_lookup_items(table_name: str, _user: dict = Depends(_current_user)):
     }
     query_table = table_map.get(table_name, table_name)
     
+    def _lookup_has_active_flag(con, name: str) -> bool:
+        try:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+                  AND column_name = 'is_active'
+                LIMIT 1
+                """,
+                [name],
+            ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
+
     def _fetch_data():
         with get_conn() as con:
             _ensure_lookup_table_once(con, table_name)
+            has_active_flag = _lookup_has_active_flag(con, query_table)
+            active_filter = ""
+            if has_active_flag and not include_archived:
+                active_filter = "WHERE COALESCE(is_active, TRUE) = TRUE"
             # Different tables might have different sort columns
             if table_name == "job_statuses_lookup":
-                df = con.execute(f"SELECT * FROM {query_table} ORDER BY sort_order, name").df()
+                df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY sort_order, name").df()
             elif table_name == "currency_lookup":
                 # Query with explicit column names - avoid using 'name' column since it doesn't exist
-                df = con.execute(f"SELECT currency_id, currency_code, currency_name, symbol, exchange_rate, is_default, is_active, sort_order FROM {query_table} ORDER BY sort_order, currency_code").df()
+                df = con.execute(
+                    f"""
+                    SELECT currency_id, currency_code, currency_name, symbol, exchange_rate, is_default, is_active, sort_order
+                    FROM {query_table}
+                    {active_filter}
+                    ORDER BY sort_order, currency_code
+                    """
+                ).df()
             elif table_name in ("job_item_categories_lookup", "uom_lookup", "bd_bin_reasons_lookup"):
-                df = con.execute(f"SELECT * FROM {query_table} ORDER BY sort_order, name").df()
+                df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY sort_order, name").df()
             else:
                 # Try to order by name, fallback to no ordering if column doesn't exist
                 try:
-                    df = con.execute(f"SELECT * FROM {query_table} ORDER BY name").df()
+                    df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY name").df()
                 except Exception:
-                    df = con.execute(f"SELECT * FROM {query_table}").df()
+                    df = con.execute(f"SELECT * FROM {query_table} {active_filter}").df()
             
             items = []
             if df is not None and not df.empty:
@@ -2669,6 +2701,66 @@ def list_lookup_items(table_name: str, _user: dict = Depends(_current_user)):
             except Exception as e2:
                 raise HTTPException(status_code=500, detail=f"Failed to list {table_name}: {e2}")
         raise HTTPException(status_code=500, detail=f"Failed to list {table_name}: {e}")
+
+
+@router.delete("/lookups/{table_name}/{item_id}")
+def permanently_delete_lookup_item(
+    table_name: str,
+    item_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Permanently delete an archived lookup item."""
+    allowed_tables = [
+        "job_types", "job_statuses_lookup", "vat_rates_lookup",
+        "payment_terms_lookup", "time_subjects", "portfolios_lookup",
+        "industries_lookup", "currency_lookup", "positions_lookup",
+        "processes_lookup", "job_item_categories_lookup", "uom_lookup",
+        "bd_bin_reasons_lookup"
+    ]
+
+    if table_name not in allowed_tables:
+        raise HTTPException(status_code=400, detail="Invalid table name")
+
+    id_col_map = {
+        "job_types": "job_type_id",
+        "job_statuses_lookup": "status_id",
+        "vat_rates_lookup": "vat_rate_id",
+        "payment_terms_lookup": "term_id",
+        "time_subjects": "subject_id",
+        "portfolios_lookup": "portfolio_id",
+        "industries_lookup": "industry_id",
+        "currency_lookup": "currency_id",
+        "positions_lookup": "position_id",
+        "processes_lookup": "process_id",
+        "job_item_categories_lookup": "category_id",
+        "uom_lookup": "uom_id",
+        "bd_bin_reasons_lookup": "bin_reason_id",
+    }
+    id_col = id_col_map.get(table_name)
+    if not id_col:
+        raise HTTPException(status_code=400, detail="Unknown table")
+
+    try:
+        with get_conn() as con:
+            _ensure_lookup_table(con, table_name)
+            row = con.execute(
+                f"SELECT is_active FROM {table_name} WHERE {id_col} = %s",
+                [int(item_id)],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Lookup item not found")
+            is_active = bool(row[0]) if row[0] is not None else True
+            if is_active:
+                raise HTTPException(status_code=400, detail="Item must be archived before permanent deletion")
+            con.execute(
+                f"DELETE FROM {table_name} WHERE {id_col} = %s",
+                [int(item_id)],
+            )
+        return {"ok": True, "message": "Lookup item permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete lookup item: {e}")
 
 
 @router.post("/lookups/{table_name}")

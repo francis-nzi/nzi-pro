@@ -29,12 +29,19 @@ type ArchivedClient = {
   status: string;
 };
 
+type ArchivedIndustry = {
+  industry_id: number;
+  name: string;
+  is_active?: boolean | null;
+};
+
 export default function ArchivePage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [clients, setClients] = useState<ArchivedClient[]>([]);
+  const [industries, setIndustries] = useState<ArchivedIndustry[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -45,9 +52,10 @@ export default function ArchivePage() {
   async function loadArchivedData() {
     setLoading(true);
     try {
-      const [datasetsRes, clientsRes] = await Promise.all([
+      const [datasetsRes, clientsRes, industriesRes] = await Promise.all([
         fetch(`${baseUrl}/admin/datasets?include_archived=true`),
         fetch(`${baseUrl}/admin/archived-clients`),
+        fetch(`${baseUrl}/admin/lookups/industries_lookup?include_archived=true`),
       ]);
 
       if (datasetsRes.ok) {
@@ -58,6 +66,14 @@ export default function ArchivePage() {
       if (clientsRes.ok) {
         const json = await clientsRes.json();
         setClients(Array.isArray(json.items) ? json.items : []);
+      }
+      if (industriesRes.ok) {
+        const json = await industriesRes.json();
+        setIndustries(
+          Array.isArray(json.items)
+            ? json.items.filter((item: ArchivedIndustry) => !item.is_active)
+            : []
+        );
       }
     } catch (e) {
       setStatus(`Error loading archived items: ${(e as Error).message}`);
@@ -179,6 +195,64 @@ export default function ArchivePage() {
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error deleting client: ${(e as Error).message}`);
+    }
+  }
+
+  async function restoreIndustry(industryId: number, industryName: string) {
+    const confirmed = await confirmAction({
+      title: "Restore industry?",
+      description: `Restore industry "${industryName}"? It will return to the active Industry lookup list.`,
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+
+    setStatus(`Restoring ${industryName}...`);
+    try {
+      const res = await fetch(`${baseUrl}/admin/lookups/industries_lookup/${industryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: true }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      setStatus(`${industryName} restored successfully!`);
+      void loadArchivedData();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`Error restoring industry: ${(e as Error).message}`);
+    }
+  }
+
+  async function permanentlyDeleteIndustry(industryId: number, industryName: string) {
+    const confirmed = await confirmAction({
+      title: "Permanently delete industry?",
+      description: `This will permanently delete industry "${industryName}". This action cannot be undone.`,
+      confirmLabel: "Delete permanently",
+      destructive: true,
+      confirmationText: "DELETE",
+    });
+    if (!confirmed) {
+      setStatus("Deletion cancelled");
+      setTimeout(() => setStatus(""), 2000);
+      return;
+    }
+
+    setStatus(`Permanently deleting ${industryName}...`);
+    try {
+      const res = await fetch(`${baseUrl}/admin/lookups/industries_lookup/${industryId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      setStatus(`${industryName} permanently deleted`);
+      void loadArchivedData();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`Error deleting industry: ${(e as Error).message}`);
     }
   }
 
@@ -332,6 +406,54 @@ export default function ArchivePage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Archived Industries ({industries.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">Loading...</div>
+            ) : industries.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No archived industries</div>
+            ) : (
+              <div className="space-y-2">
+                {industries
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((industry) => (
+                    <div
+                      key={industry.industry_id}
+                      className="rounded-md border border-destructive/20 bg-destructive/5 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <div className="font-medium text-sm">[{industry.industry_id}] {industry.name}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">Archived industry lookup item</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => restoreIndustry(industry.industry_id, industry.name)}
+                          >
+                            Restore
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => permanentlyDeleteIndustry(industry.industry_id, industry.name)}
+                          >
+                            Delete Forever
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
               </div>
             )}
           </CardContent>
