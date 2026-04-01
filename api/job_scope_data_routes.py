@@ -1297,6 +1297,104 @@ def get_template_factors(
                 except Exception as cf_error:
                     print(f"WARNING: custom_factors load skipped due to error: {cf_error}")
 
+            # ---------------------------------------------------------------
+            # 1b) Job-scoped custom factors - only for this job
+            # ---------------------------------------------------------------
+            try:
+                has_job_custom_factors = bool(
+                    con.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_name='job_custom_factors'
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                )
+            except Exception:
+                has_job_custom_factors = False
+
+            if has_job_custom_factors:
+                try:
+                    jcf_where = [
+                        "job_id = %s",
+                        "(archived = FALSE OR archived IS NULL)",
+                        "COALESCE(is_active, TRUE) = TRUE",
+                    ]
+                    jcf_params: list = [int(job_id)]
+
+                    if scope and scope.strip():
+                        jcf_where.append("scope = %s")
+                        jcf_params.append(scope.strip())
+
+                    _append_multi_token_like_filters(
+                        jcf_where,
+                        jcf_params,
+                        [
+                            "custom_id",
+                            "description",
+                            "report_label",
+                            "category",
+                            "uom",
+                            "source",
+                        ],
+                        search_term,
+                    )
+
+                    jcf_df = con.execute(
+                        f"""
+                        SELECT factor_id, job_id, country, scope, description, report_label, category,
+                               uom, ghg_unit, source, custom_id, factor, factor_year,
+                               is_active, archived
+                        FROM job_custom_factors
+                        WHERE {' AND '.join(jcf_where)}
+                        ORDER BY scope, category, report_label, description, factor_id
+                        """,
+                        jcf_params,
+                    ).df()
+
+                    if jcf_df is not None and not jcf_df.empty:
+                        jcf_df = jcf_df.where(jcf_df.notna(), None)
+                        for _, row in jcf_df.iterrows():
+                            factor_id = _safe_int(row.get("factor_id"))
+                            if factor_id is None:
+                                continue
+                            factor_value = _safe_float(row.get("factor"))
+                            if factor_value is None:
+                                continue
+
+                            custom_id = str(row.get("custom_id") or "").strip() or f"JCF-{job_id}-{factor_id}"
+                            report_label_val = str(row.get("report_label") or "").strip() or str(row.get("description") or "").strip() or custom_id
+                            category_val = str(row.get("category") or "").strip() or str(row.get("scope") or "").strip()
+
+                            custom_factors.append(
+                                {
+                                    "scope": row.get("scope"),
+                                    "category": category_val,
+                                    "report_label": report_label_val,
+                                    "original_id": custom_id,
+                                    "uom": row.get("uom"),
+                                    "dataset_id": None,
+                                    "factor_db_id": None,
+                                    "factor": float(factor_value),
+                                    "ghg_unit": row.get("ghg_unit"),
+                                    "level_1": None,
+                                    "level_2": None,
+                                    "level_3": None,
+                                    "level_4": None,
+                                    "column_text": None,
+                                    "is_custom": True,
+                                    "source": row.get("source") or "Job custom factor",
+                                    "custom_factor_id": int(factor_id),
+                                    "factor_year": _safe_int(row.get("factor_year")),
+                                    "job_id": int(job_id),
+                                    "is_global": False,
+                                    "client_db_id": job_client_db_id,
+                                }
+                            )
+                except Exception as jcf_error:
+                    print(f"WARNING: job_custom_factors load skipped due to error: {jcf_error}")
+
             custom_total = len(custom_factors)
 
             # ---------------------------------------------------------------

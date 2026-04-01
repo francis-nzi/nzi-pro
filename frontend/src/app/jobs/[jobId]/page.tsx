@@ -24,6 +24,7 @@ import JobDataEntry from "@/components/JobDataEntry";
 import IntensityMetrics from "@/components/IntensityMetrics";
 import DataOutput from "@/components/DataOutput";
 import JobCustomDataset from "@/components/JobCustomDataset";
+import JobCustomFactors from "@/components/JobCustomFactors";
 import JobSourceRegister from "@/components/JobSourceRegister";
 import SpendDataCollection from "@/components/SpendDataCollection";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
@@ -1950,6 +1951,9 @@ export default function JobDetailPage() {
                 <TabsTrigger value="custom-dataset" className={navTriggerClassName}>
                   Custom Dataset
                 </TabsTrigger>
+                <TabsTrigger value="custom-factors" className={navTriggerClassName}>
+                  Custom Factors
+                </TabsTrigger>
                 <TabsTrigger value="spend-data" className={navTriggerClassName}>
                   Spend Data
                 </TabsTrigger>
@@ -2872,6 +2876,16 @@ export default function JobDetailPage() {
 
           <TabsContent value="custom-dataset" className="mt-0">
             <JobCustomDataset jobId={jobId} baseUrl={baseUrl} />
+          </TabsContent>
+
+          <TabsContent value="custom-factors" className="mt-0">
+            <JobCustomFactors
+              jobId={jobId}
+              baseUrl={baseUrl}
+              jobNumber={job?.job_number}
+              clientName={job?.client_name}
+              reportingYear={job?.reporting_year}
+            />
           </TabsContent>
 
           <TabsContent value="spend-data" className="mt-0">
