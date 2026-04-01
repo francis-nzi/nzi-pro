@@ -3737,6 +3737,7 @@ def vacate_client_site(
                 """
                 UPDATE client_sites 
                 SET vacated_date = %s,
+                    archived = TRUE,
                     archived_by = %s,
                     archived_at = CURRENT_TIMESTAMP
                 WHERE site_id = %s AND client_db_id = %s

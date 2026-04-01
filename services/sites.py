@@ -75,16 +75,17 @@ def ensure_registered_office_site(client_db_id: int, con=None) -> int | None:
 
     if existing_site:
         site_id = int(existing_site[0])
-        existing_name = str(existing_site[1] or "").strip()
         existing_location = str(existing_site[2] or "").strip()
-        if existing_name != "Registered Office" or existing_location != location:
+        # Preserve any user-edited site name; only keep the address/location and
+        # registered-office linkage in sync.
+        if existing_location != location:
             con.execute(
                 """
                 UPDATE client_sites
-                SET site_name = ?, location = ?, is_registered_office = ?
+                SET location = ?, is_registered_office = ?
                 WHERE site_id = ?
                 """,
-                ["Registered Office", location, True, site_id],
+                [location, True, site_id],
             )
         return site_id
 
@@ -125,6 +126,55 @@ def list_sites(client_db_id: int) -> pd.DataFrame:
             """,
             [int(client_db_id)],
         ).df()
+
+
+def fetch_client_sites_payload(client_db_id: int, con=None) -> dict[str, object]:
+    own_conn = con is None
+    if own_conn:
+        with get_conn() as managed_con:
+            return fetch_client_sites_payload(int(client_db_id), con=managed_con)
+
+    _ensure_client_site_flag_column(con)
+    ensure_client_sites_runtime_columns(con)
+    ensure_registered_office_site(int(client_db_id), con=con)
+
+    rows = con.execute(
+        """
+        SELECT site_id, site_name, location, is_registered_office, vacated_date, archived
+        FROM client_sites
+        WHERE client_db_id = ?
+        ORDER BY
+            CASE WHEN vacated_date IS NULL AND (archived = FALSE OR archived IS NULL) THEN 0 ELSE 1 END,
+            is_registered_office DESC,
+            site_name ASC,
+            site_id ASC
+        """,
+        [int(client_db_id)],
+    ).fetchall()
+
+    active_sites: list[dict[str, object]] = []
+    vacated_sites: list[dict[str, object]] = []
+
+    for row in rows or []:
+        site_id, site_name, location, is_registered_office, vacated_date, archived = row
+        site_data = {
+            "site_id": int(site_id) if site_id is not None else None,
+            "site_name": site_name,
+            "location": location,
+            "is_registered_office": bool(is_registered_office) if is_registered_office is not None else False,
+            "vacated_date": str(vacated_date) if vacated_date is not None else None,
+            "archived": bool(archived) if archived is not None else False,
+        }
+        if vacated_date is None and not site_data["archived"]:
+            active_sites.append(site_data)
+        else:
+            vacated_sites.append(site_data)
+
+    return {
+        "client_db_id": int(client_db_id),
+        "active_sites": active_sites,
+        "vacated_sites": vacated_sites,
+    }
 
 
 def add_site(client_db_id: int, site_name: str, location: str | None, is_registered_office: bool) -> int:
