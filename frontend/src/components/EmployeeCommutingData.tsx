@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { withAuditHeaders } from "@/lib/auth-client";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 type SiteOption = {
   site_id: number | null;
@@ -120,6 +122,8 @@ export default function EmployeeCommutingData({
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("__none__");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState("");
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(true);
   const [manualEntries, setManualEntries] = useState<DirectEntryDraft[]>([]);
@@ -337,7 +341,9 @@ export default function EmployeeCommutingData({
     }
   }
 
-  async function readError(res: Response): Promise<{ message: string; preview?: PreviewPayload | null }> {
+  async function readError(
+    res: { status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any> }
+  ): Promise<{ message: string; preview?: PreviewPayload | null }> {
     try {
       const data = await res.json();
       const detail = data?.detail;
@@ -365,12 +371,15 @@ export default function EmployeeCommutingData({
     setLoading(true);
     setError("");
     setStatus("");
+    setUploadProgress(0);
+    setUploadPhase("Uploading workbook for preview...");
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/employee-commuting/upload-preview${siteQuery()}`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/employee-commuting/upload-preview${siteQuery()}`, {
         method: "POST",
         body: fd,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
       if (!res.ok) {
         const apiError = await readError(res);
@@ -389,6 +398,8 @@ export default function EmployeeCommutingData({
       setError(e instanceof Error ? e.message : "Preview failed");
     } finally {
       setLoading(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -400,11 +411,13 @@ export default function EmployeeCommutingData({
     setLoading(true);
     setError("");
     setStatus("");
+    setUploadProgress(0);
+    setUploadPhase("Importing workbook...");
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
         const siteSuffix = selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`;
-        const res = await fetch(
+        const res = await uploadFormDataWithProgress(
           `${baseUrl}/jobs/${jobId}/employee-commuting/upload-commit?${siteSuffix}replace_existing=${
             replaceExisting ? "true" : "false"
           }`,
@@ -416,6 +429,7 @@ export default function EmployeeCommutingData({
               container: "Import to Job Data",
             }),
             body: fd,
+            onProgress: ({ percent }) => setUploadProgress(percent),
           }
         );
       if (!res.ok) {
@@ -438,6 +452,8 @@ export default function EmployeeCommutingData({
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
       setLoading(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -695,6 +711,10 @@ export default function EmployeeCommutingData({
               </Button>
             </div>
           </div>
+
+          {loading && uploadPhase ? (
+            <UploadProgressBar value={uploadProgress} label={`${uploadPhase} ${uploadProgress > 0 ? `(${uploadProgress}%)` : ""}`} />
+          ) : null}
 
           <label className="flex items-center gap-2 text-sm">
             <input

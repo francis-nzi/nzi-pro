@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import {
   Select,
@@ -116,6 +118,7 @@ export default function DatasetsPage() {
   // File upload
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadingDatasetId, setUploadingDatasetId] = useState<number | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploadRejectedRows, setUploadRejectedRows] = useState<UploadRejectedRow[]>([]);
 
@@ -148,6 +151,7 @@ export default function DatasetsPage() {
 
     console.log("Starting upload for dataset:", datasetId, "File:", uploadFile.name);
     setUploadingDatasetId(datasetId);
+    setUploadProgress(0);
     setUploadStatus("📤 Uploading file...");
 
     try {
@@ -163,9 +167,11 @@ export default function DatasetsPage() {
         }
       }, 500);
 
-      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
         method: "POST",
         body: formData,
+        credentials: "include",
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
 
       console.log("Response status:", res.status, res.statusText);
@@ -187,6 +193,7 @@ export default function DatasetsPage() {
       console.error("Upload error:", e);
       setUploadStatus(`✗ Error: ${(e as Error).message}`);
       setUploadingDatasetId(null);
+      setUploadProgress(0);
     }
   }
 
@@ -204,9 +211,11 @@ export default function DatasetsPage() {
       const formData = new FormData();
       formData.append("file", uploadFile);
 
-      const res = await fetchWithAuth(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
         method: "POST",
         body: formData,
+        credentials: "include",
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
 
       const text = await res.text();
@@ -241,6 +250,7 @@ export default function DatasetsPage() {
     } catch (e) {
       setUploadStatus(`Error: ${(e as Error).message}`);
       setUploadingDatasetId(null);
+      setUploadProgress(0);
     }
   }
 
@@ -686,6 +696,9 @@ export default function DatasetsPage() {
                       {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
                     </Button>
                   </div>
+                  {uploadingDatasetId === editingDataset.dataset_id ? (
+                    <UploadProgressBar value={uploadProgress} label="Uploading factors..." />
+                  ) : null}
                   
                   {/* Prominent Success/Failure Message */}
                   {uploadStatus && (

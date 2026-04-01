@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 type JobFile = {
   file_id: number;
@@ -45,6 +47,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   const [files, setFiles] = useState<JobFile[]>([]);
   const [scopeRows, setScopeRows] = useState<JobScopeRow[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedFileType, setSelectedFileType] = useState<"client_provided" | "generated_report">("client_provided");
   const [selectedRowId, setSelectedRowId] = useState<number | "">("");
   const [description, setDescription] = useState("");
@@ -106,6 +109,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     if (!file) return;
 
     setUploading(true);
+    setUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -115,9 +119,10 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       }
       formData.append("description", description);
 
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/files`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/files`, {
         method: "POST",
         body: formData,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
 
       if (!res.ok) {
@@ -132,10 +137,11 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       
       // Reload files
       await loadFiles();
-    } catch (e) {
-      alert((e as Error).message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to upload file");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   }
 
@@ -274,7 +280,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
           </div>
           
           {uploading && (
-            <div className="text-sm text-muted-foreground">Uploading...</div>
+            <UploadProgressBar value={uploadProgress} label="Uploading file..." />
           )}
         </CardContent>
       </Card>

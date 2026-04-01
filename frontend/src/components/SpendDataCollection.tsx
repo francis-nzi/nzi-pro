@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 type SpendEntry = {
   entry_id: number;
@@ -79,6 +81,8 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   const [notes, setNotes] = useState("");
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [previewRows, setPreviewRows] = useState<SpendPreviewRow[]>([]);
   const [previewSummary, setPreviewSummary] = useState<{
@@ -255,15 +259,19 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     setUploadError("");
     setLoading(true);
     setError("");
+    setUploadProgress(0);
+    setUploadPhase("Previewing upload...");
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const res = await fetch(
+      const res = await uploadFormDataWithProgress(
         `${baseUrl}/jobs/${jobId}/spend-data/upload-preview?code_type=${encodeURIComponent(codeType)}&site_id=${encodeURIComponent(selectedSiteId)}`,
         {
-        method: "POST",
-        body: fd,
-      });
+          method: "POST",
+          body: fd,
+          onProgress: ({ percent }) => setUploadProgress(percent),
+        }
+      );
       if (!res.ok) throw new Error(`Preview failed (${res.status})`);
       const data = await res.json();
       setPreviewRows(Array.isArray(data?.items) ? data.items : []);
@@ -274,6 +282,8 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       setError(message);
     } finally {
       setLoading(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -290,12 +300,18 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     setLoading(true);
     setError("");
     setStatus("");
+    setUploadProgress(0);
+    setUploadPhase("Importing upload...");
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const res = await fetch(
+      const res = await uploadFormDataWithProgress(
         `${baseUrl}/jobs/${jobId}/spend-data/upload-commit?code_type=${encodeURIComponent(codeType)}&replace_existing=${replaceExisting ? "true" : "false"}&site_id=${encodeURIComponent(selectedSiteId)}`,
-        { method: "POST", body: fd }
+        {
+          method: "POST",
+          body: fd,
+          onProgress: ({ percent }) => setUploadProgress(percent),
+        }
       );
       if (!res.ok) throw new Error(`Upload commit failed (${res.status})`);
       const data = await res.json();
@@ -310,6 +326,8 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       setError(message);
     } finally {
       setLoading(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -748,6 +766,9 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             </label>
             {uploadError ? <span className="self-center text-sm text-destructive">{uploadError}</span> : null}
           </div>
+          {loading && uploadPhase ? (
+            <UploadProgressBar value={uploadProgress} label={`${uploadPhase} ${uploadProgress > 0 ? `(${uploadProgress}%)` : ""}`} />
+          ) : null}
           {previewSummary ? (
             <div className="text-sm">
               Preview: {previewSummary.count} rows, {previewSummary.mapped} auto-mapped, {previewSummary.unmapped} unmapped.

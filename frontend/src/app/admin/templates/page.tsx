@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import ReportVariablesAdmin from "@/components/ReportVariablesAdmin";
 import MessagingTemplatesAdmin from "@/components/MessagingTemplatesAdmin";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
@@ -49,6 +51,7 @@ export default function TemplatesPage() {
   const [status, setStatus] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Form fields for add/edit
   const [templateKey, setTemplateKey] = useState("");
@@ -119,6 +122,7 @@ export default function TemplatesPage() {
     }
 
     setStatus("Saving...");
+    setUploadProgress(0);
     try {
       const formData = new FormData();
       formData.append("template_key", templateKey.trim());
@@ -132,14 +136,18 @@ export default function TemplatesPage() {
 
       let res;
       if (editingId) {
-        res = await fetch(`${baseUrl}/job-templates/${editingId}`, {
+        res = await uploadFormDataWithProgress(`${baseUrl}/job-templates/${editingId}`, {
           method: "PATCH",
+          credentials: "include",
           body: formData,
+          onProgress: ({ percent }) => setUploadProgress(percent),
         });
       } else {
-        res = await fetch(`${baseUrl}/job-templates`, {
+        res = await uploadFormDataWithProgress(`${baseUrl}/job-templates`, {
           method: "POST",
+          credentials: "include",
           body: formData,
+          onProgress: ({ percent }) => setUploadProgress(percent),
         });
       }
 
@@ -154,6 +162,8 @@ export default function TemplatesPage() {
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
+    } finally {
+      setUploadProgress(0);
     }
   }
 
@@ -413,6 +423,7 @@ export default function TemplatesPage() {
                     Selected: {uploadingFile.name}
                   </div>
                 )}
+                {uploadingFile ? <UploadProgressBar value={uploadProgress} label="Uploading template..." /> : null}
                 {editingId && (
                   <div className="text-xs text-muted-foreground">
                     Leave empty to keep existing file

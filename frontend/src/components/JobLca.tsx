@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 type JobLcaProps = {
   jobId: number;
@@ -95,6 +97,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
   const [dataQuality, setDataQuality] = useState("secondary");
   const [notes, setNotes] = useState("");
   const [bomFile, setBomFile] = useState<File | null>(null);
+  const [bomUploadProgress, setBomUploadProgress] = useState(0);
   const [activeWorkflowStage, setActiveWorkflowStage] = useState<WorkflowStageKey>("goal-scope");
   const [stageLockEnabled, setStageLockEnabled] = useState(false);
 
@@ -442,13 +445,15 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
     }
     setStatus("Importing BOM and auto-mapping factors...");
     setError("");
+    setBomUploadProgress(0);
     try {
       const form = new FormData();
       form.append("file", bomFile);
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/lca/products/${selectedProductId}/bom-upload`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/lca/products/${selectedProductId}/bom-upload`, {
         method: "POST",
         credentials: "include",
         body: form,
+        onProgress: ({ percent }) => setBomUploadProgress(percent),
       });
       if (!res.ok) {
         const t = await res.text().catch(() => "");
@@ -464,6 +469,8 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
+    } finally {
+      setBomUploadProgress(0);
     }
   }
 
@@ -516,6 +523,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
               LCA Datasets: {effectiveDatasetIds.length > 0 ? `${effectiveDatasetIds.length} selected` : "None (all datasets)"}
             </div>
           </div>
+          {bomFile ? <UploadProgressBar value={bomUploadProgress} label="Uploading BOM..." /> : null}
           <div className="grid gap-2 md:grid-cols-3">
             {workflow.map((w) => (
               <Button

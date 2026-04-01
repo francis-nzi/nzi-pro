@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -38,6 +40,7 @@ export default function SystemSettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   useEffect(() => {
     void loadSettings();
@@ -111,15 +114,17 @@ export default function SystemSettingsPage() {
     setUploading(true);
     setError("");
     setStatus("Uploading logo...");
+    setUploadProgress(0);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch(`${baseUrl}/system-settings/upload/nzi-logo`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/system-settings/upload/nzi-logo`, {
         method: "POST",
         credentials: "include",
         body: formData,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
 
       const payload = await res.json().catch(() => ({}));
@@ -136,6 +141,7 @@ export default function SystemSettingsPage() {
       setStatus("");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   }
 
@@ -288,6 +294,7 @@ export default function SystemSettingsPage() {
                 onChange={(e) => void handleLogoUpload(e.target.files?.[0])}
                 disabled={uploading}
               />
+              {uploading ? <UploadProgressBar value={uploadProgress} label="Uploading logo..." /> : null}
               <p className="text-xs text-muted-foreground">
                 Accepted formats: PNG, JPG, SVG. Maximum file size: 5MB.
               </p>

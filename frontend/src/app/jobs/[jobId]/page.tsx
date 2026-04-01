@@ -38,8 +38,10 @@ import JobFinancial from "@/components/JobFinancial";
 import JobCommunications from "@/components/JobCommunications";
 import ClientTimeline from "@/components/ClientTimeline";
 import CustomFields from "@/components/CustomFields";
+import UploadProgressBar from "@/components/UploadProgressBar";
 import { milestoneDotClass } from "@/lib/status-utils";
 import { withAuditHeaders } from "@/lib/auth-client";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import {
   AUTO_REPORT_METADATA_KEYS,
   calculateDerivedEnergyEmissionFields,
@@ -661,6 +663,7 @@ export default function JobDetailPage() {
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string>("");
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadResult, setUploadResult] = useState<UploadValidationResult | null>(null);
 
   // Job details editing state
@@ -1663,14 +1666,21 @@ export default function JobDetailPage() {
     setBusy(true);
     setUploadStatus("Uploading for validation...");
     setUploadResult(null);
+    setUploadProgress(0);
 
     try {
       const form = new FormData();
       form.append("file", uploadFile);
 
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/excel-upload`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/excel-upload`, {
         method: "POST",
         body: form,
+        credentials: "include",
+        headers: withAuditHeaders(),
+        onProgress: ({ percent }) => {
+          setUploadProgress(percent);
+          setUploadStatus(percent >= 100 ? "Finalising upload..." : "Uploading for validation...");
+        },
       });
 
       const text = await res.text();
@@ -1698,6 +1708,7 @@ export default function JobDetailPage() {
       setUploadStatus(`Upload failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
+      setUploadProgress(0);
     }
   }
 
@@ -2753,6 +2764,9 @@ export default function JobDetailPage() {
                       </Button>
                     </div>
                   </div>
+                  {busy && uploadProgress > 0 ? (
+                    <UploadProgressBar value={uploadProgress} label={uploadStatus || "Uploading"} />
+                  ) : null}
 
                   <div className="flex justify-end">
                     <Button

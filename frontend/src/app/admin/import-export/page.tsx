@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -356,6 +358,8 @@ export default function AdminImportExportPage() {
   const [clientIndustryBackfillResult, setClientIndustryBackfillResult] = useState<ClientIndustryBackfillResult | null>(null);
   const [wfmSourceFiles, setWfmSourceFiles] = useState<File[]>([]);
   const [replaceExistingWfmFiles, setReplaceExistingWfmFiles] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState("");
   const mergedMappingSummary = useMemo(() => mergeMappingSummary(mapping), [mapping]);
   const uploadedWfmFileNames = useMemo(
     () => new Set((summary?.files || []).map((file) => String(file?.name || "").toLowerCase()).filter(Boolean)),
@@ -506,16 +510,19 @@ export default function AdminImportExportPage() {
     setBusy(true);
     setError("");
     setStatus("Uploading WFM source files...");
+    setUploadProgress(0);
+    setUploadPhase("Uploading WFM source files...");
     try {
       const formData = new FormData();
       formData.append("replace_existing", replaceExistingWfmFiles ? "true" : "false");
       for (const file of wfmSourceFiles) {
         formData.append("files", file);
       }
-      const res = await fetch(`${baseUrl}/admin/import-export/wfm/source-files`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/import-export/wfm/source-files`, {
         method: "POST",
         credentials: "include",
         body: formData,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
       const text = await res.text().catch(() => "");
       let json: any = {};
@@ -537,6 +544,8 @@ export default function AdminImportExportPage() {
       setStatus("");
     } finally {
       setBusy(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -750,6 +759,8 @@ export default function AdminImportExportPage() {
     setBusy(true);
     setError("");
     setStatus("Parsing legacy annual file...");
+    setUploadProgress(0);
+    setUploadPhase("Previewing legacy workbook...");
     setLegacyPreview(null);
     setLegacyCommitResult(null);
     setLegacyCleanupResult(null);
@@ -757,10 +768,11 @@ export default function AdminImportExportPage() {
       const fd = new FormData();
       fd.append("job_id", legacyJobId.trim());
       fd.append("file", legacyFile);
-      const res = await fetch(`${baseUrl}/admin/import-export/legacy/preview`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/import-export/legacy/preview`, {
         method: "POST",
         credentials: "include",
         body: fd,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
       const text = await res.text().catch(() => "");
       let json: any = {};
@@ -780,6 +792,8 @@ export default function AdminImportExportPage() {
       setStatus("");
     } finally {
       setBusy(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -1031,14 +1045,17 @@ export default function AdminImportExportPage() {
     setBusy(true);
     setError("");
     setStatus("Previewing attribute overrides...");
+    setUploadProgress(0);
+    setUploadPhase("Previewing attribute overrides...");
     setAttributeOverrideCommitResult(null);
     try {
       const fd = new FormData();
       fd.append("file", attributeOverrideFile);
-      const res = await fetch(`${baseUrl}/admin/import-export/attributes/preview`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/import-export/attributes/preview`, {
         method: "POST",
         credentials: "include",
         body: fd,
+        onProgress: ({ percent }) => setUploadProgress(percent),
       });
       const text = await res.text().catch(() => "");
       let json: AttributeOverridePreview | { raw: string } = {};
@@ -1062,6 +1079,8 @@ export default function AdminImportExportPage() {
       setStatus("");
     } finally {
       setBusy(false);
+      setUploadProgress(0);
+      setUploadPhase("");
     }
   }
 
@@ -1239,6 +1258,9 @@ export default function AdminImportExportPage() {
                   Upload WFM Files
                 </Button>
               </div>
+              {busy && uploadPhase && uploadProgress > 0 ? (
+                <UploadProgressBar value={uploadProgress} label={uploadPhase} />
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -1768,6 +1790,9 @@ export default function AdminImportExportPage() {
                 Clear Legacy Rows
               </Button>
             </div>
+            {busy && uploadPhase && uploadProgress > 0 ? (
+              <UploadProgressBar value={uploadProgress} label={uploadPhase} />
+            ) : null}
             {legacyCommitResult ? (
               <div className="rounded border p-3 space-y-3">
                 <div className="text-sm font-medium">Last Legacy Commit</div>
@@ -2007,6 +2032,9 @@ export default function AdminImportExportPage() {
                 </Button>
               </div>
             </div>
+            {busy && uploadPhase && uploadProgress > 0 ? (
+              <UploadProgressBar value={uploadProgress} label={uploadPhase} />
+            ) : null}
 
             {attributeOverridePreview ? (
               <div className="rounded border p-3 space-y-4">

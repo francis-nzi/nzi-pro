@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import UploadProgressBar from "@/components/UploadProgressBar";
+import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import {
   Select,
@@ -163,6 +165,7 @@ export default function JobSourceRegister({
   const [selectedFactor, setSelectedFactor] = useState<FactorOption | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();
@@ -445,14 +448,25 @@ export default function JobSourceRegister({
     }
     setImporting(true);
     setError("");
+    setImportProgress(0);
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const res = await apiFetch(
+      const res = await uploadFormDataWithProgress(
         `/jobs/${jobId}/emission-registers/import-workbook?source_type=${encodeURIComponent(sourceType)}`,
         {
           method: "POST",
+          headers: (() => {
+            const token = getToken();
+            const userIdentifier = getAuthUserIdentifier();
+            const headers: Record<string, string> = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
+            return headers;
+          })(),
+          credentials: "include",
           body: fd,
+          onProgress: ({ percent }) => setImportProgress(percent),
         }
       );
       if (!res.ok) {
@@ -469,6 +483,7 @@ export default function JobSourceRegister({
       setError(e instanceof Error ? e.message : "Failed to import workbook");
     } finally {
       setImporting(false);
+      setImportProgress(0);
     }
   }
 
@@ -633,6 +648,7 @@ export default function JobSourceRegister({
               </Button>
             </div>
           </div>
+          {importing ? <UploadProgressBar value={importProgress} label="Importing workbook..." /> : null}
         </CardContent>
       </Card>
 
