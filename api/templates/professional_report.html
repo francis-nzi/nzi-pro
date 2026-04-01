@@ -561,6 +561,8 @@
               <th class="num">tCO2e</th>
               <th>Data Confidence</th>
               <th>Source Family</th>
+              <th>Group / Asset</th>
+              <th>Factor ID</th>
             </tr>
           </thead>
           <tbody>
@@ -582,10 +584,12 @@
                 {% endif %}
               </td>
               <td>{{ row.source_family|default('N/A') }}</td>
+              <td>{{ row.reference_label or row.group_name or row.asset_identifier or row.source_name or '-' }}</td>
+              <td>{{ row.factor_id or row.factor_db_id or row.original_id or '-' }}</td>
             </tr>
             {% endfor %}
             {% if not activity_details %}
-            <tr><td colspan="5">No activity details available.</td></tr>
+            <tr><td colspan="7">No activity details available.</td></tr>
             {% endif %}
           </tbody>
         </table>

@@ -13,6 +13,7 @@ import re
 import os
 import base64
 import json
+import urllib.parse
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from typing import Optional, Any
@@ -41,6 +42,7 @@ from api.job_files_routes import (
     _drive_base_path as _files_drive_base_path,
     _ensure_job_files_table,
     _graph_request as _files_graph_request,
+    _graph_download as _files_graph_download,
     _graph_raw_request as _files_graph_raw_request,
     _graph_token as _files_graph_token,
     _joined_remote_path as _files_joined_remote_path,
@@ -586,6 +588,7 @@ def _build_report_version_snapshot(
         "scope_comparison": scope_comparison,
         "activity_comparison": activity_comparison,
         "site_overall_comparison": site_overall_comparison,
+        "assets": assets,
         "asset_keys": sorted([str(key) for key in assets.keys()]),
         "generation_date": generation_date,
     }
@@ -656,6 +659,70 @@ def _load_report_version_snapshot(con, job_id: int, report_version_id: int) -> t
     return version_row, snapshot_payload
 
 
+def _load_latest_final_report_version_snapshot(con, job_id: int) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    version_row = con.execute(
+        """
+        SELECT *
+        FROM job_report_versions
+        WHERE job_id = %s
+          AND lower(COALESCE(status, '')) = 'final'
+        ORDER BY COALESCE(finalized_at, generated_at) DESC NULLS LAST, version_number DESC, report_version_id DESC
+        LIMIT 1
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not version_row:
+        return None
+
+    version_id = int(version_row[0]) if getattr(version_row, "__len__", None) else None
+    if version_id is None:
+        return None
+    return _load_report_version_snapshot(con, int(job_id), version_id)
+
+
+def _load_report_version_file_payload(con, job_id: int, file_id: int) -> dict[str, Any] | None:
+    file_row = con.execute(
+        """
+        SELECT file_name, file_path, storage_provider, external_item_id, mime_type
+        FROM job_files
+        WHERE file_id = %s AND job_id = %s
+        """,
+        [int(file_id), int(job_id)],
+    ).fetchone()
+    if not file_row:
+        return None
+
+    file_name = str(file_row[0] or f"job-{job_id}-report.pdf")
+    file_path = str(file_row[1] or "").strip()
+    storage_provider = str(file_row[2] or "local").strip().lower()
+    external_item_id = str(file_row[3] or "").strip()
+    mime_type = str(file_row[4] or "application/octet-stream")
+
+    if storage_provider == "onedrive":
+        if not external_item_id:
+            return None
+        token = _files_graph_token()
+        drive_base = _files_drive_base_path(token)
+        content, content_type = _files_graph_download(
+            f"{drive_base}/items/{urllib.parse.quote(external_item_id)}/content",
+            token,
+        )
+        return {
+            "file_name": file_name,
+            "content": content,
+            "media_type": content_type or mime_type or "application/octet-stream",
+        }
+
+    if not file_path or not os.path.exists(file_path):
+        return None
+
+    return {
+        "file_name": file_name,
+        "content": Path(file_path).read_bytes(),
+        "media_type": mime_type or "application/octet-stream",
+    }
+
+
 def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
     template_meta = snapshot_payload.get("template") or snapshot_payload.get("render_template") or {}
     template_selection = None
@@ -716,6 +783,28 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
     )
     render_values = snapshot_payload.get("render_values") or {}
     return _apply_braced_placeholder_substitution(html_content, render_values)
+
+
+def _render_html_to_pdf_bytes(html_content: str) -> bytes:
+    from playwright.sync_api import sync_playwright
+
+    ensure_playwright_browser()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.set_content(html_content)
+        pdf_bytes = page.pdf(
+            format="A4",
+            margin={
+                "top": "20mm",
+                "right": "20mm",
+                "bottom": "20mm",
+                "left": "20mm",
+            },
+            print_background=True,
+        )
+        browser.close()
+    return pdf_bytes
 
 
 def _get_job_assignment_template_and_version(job_id: int) -> tuple[int, int] | None:
@@ -886,6 +975,32 @@ def _classify_activity_group(scope: str, category: str, report_label: str) -> st
     return 'Other Emissions'
 
 
+def _source_family_label(row: dict[str, Any]) -> str:
+    source_type = str(row.get("source_type") or "").strip().lower()
+    record_type = str(row.get("record_type") or "legacy").strip().lower()
+    if source_type == "business_travel":
+        return "Business Travel Register"
+    if record_type == "source_register":
+        return "Asset Register"
+    return "Legacy Data Entry"
+
+
+def _source_factor_id(row: dict[str, Any]) -> str:
+    for key in ("original_id", "group_original_id", "factor_db_id", "group_factor_db_id", "dataset_id", "group_dataset_id"):
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def _source_reference_label(row: dict[str, Any]) -> str:
+    for key in ("group_name", "asset_identifier", "source_name", "report_label", "category"):
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
 def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dict]], dict[str, float], list[dict]]:
     """Return grouped activities, totals by group, and flattened detailed rows."""
     groups: dict[str, list[dict]] = {k: [] for k in ACTIVITY_GROUP_ORDER}
@@ -915,10 +1030,10 @@ def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dic
             qty = float(row.get('qty', 0) or 0)
             uom = row.get('uom') or ''
             source_family = row.get('source_family') or (
-                'Business Travel Register'
-                if str(row.get('source_type') or '').strip().lower() == 'business_travel'
-                else ('Asset Register' if str(row.get('record_type') or 'legacy').strip().lower() == 'source_register' else 'Legacy Data Entry')
+                _source_family_label(row)
             )
+            factor_id = _source_factor_id(row)
+            reference_label = _source_reference_label(row)
             details.append(
                 {
                     'activity_group': group,
@@ -936,6 +1051,10 @@ def _build_activity_grouping(categories: list[dict]) -> tuple[dict[str, list[dic
                     'source_name': row.get('source_name'),
                     'asset_identifier': row.get('asset_identifier'),
                     'employee_name': row.get('employee_name'),
+                    'reference_label': reference_label,
+                    'factor_id': factor_id,
+                    'factor_db_id': row.get('factor_db_id'),
+                    'original_id': row.get('original_id'),
                     'data_source': row.get('data_source') or (f"{uom} Data" if uom else 'Calculated'),
                     'data_confidence': row.get('data_confidence') or ('High' if qty > 0 else 'Medium'),
                 }
@@ -1308,16 +1427,15 @@ def get_emissions_by_category(job_id: int):
                 'data_confidence': row.get('data_confidence') or '',
                 'record_type': row.get('record_type') or 'legacy',
                 'source_type': row.get('source_type'),
-                'source_family': row.get('source_family') or (
-                    'Business Travel Register'
-                    if str(row.get('source_type') or '').strip().lower() == 'business_travel'
-                    else ('Asset Register' if str(row.get('record_type') or 'legacy').strip().lower() == 'source_register' else 'Legacy Data Entry')
-                ),
+                'source_family': row.get('source_family') or _source_family_label(row),
                 'group_name': row.get('group_name'),
                 'source_name': row.get('source_name'),
                 'asset_identifier': row.get('asset_identifier'),
                 'employee_name': row.get('employee_name'),
                 'original_id': row.get('original_id'),
+                'factor_id': _source_factor_id(row),
+                'reference_label': _source_reference_label(row),
+                'factor_db_id': row.get('factor_db_id'),
             })
 
         return categories
@@ -1723,13 +1841,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "data_source": row.get("data_source") or "",
                     "data_confidence": row.get("data_confidence") or "",
                     "source_family": row.get("source_family") or (
-                        "Business Travel Register"
-                        if str(row.get("source_type") or "").strip().lower() == "business_travel"
-                        else (
-                            "Asset Register"
-                            if str(row.get("record_type") or "legacy").strip().lower() == "source_register"
-                            else "Legacy Data Entry"
-                        )
+                        _source_family_label(row)
                     ),
                     "source_type": row.get("source_type"),
                     "source_name": row.get("source_name") or report_label,
@@ -1737,6 +1849,9 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "asset_identifier": row.get("asset_identifier"),
                     "employee_name": row.get("employee_name"),
                     "original_id": row.get("original_id"),
+                    "factor_id": _source_factor_id(row),
+                    "reference_label": _source_reference_label(row),
+                    "factor_db_id": row.get("factor_db_id"),
                     "qty": qty_val,
                     "uom": uom,
                     "emissions": emissions,
@@ -2309,6 +2424,29 @@ def get_report_assets(job_id: int, _user: dict[str, str] = Depends(_current_user
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        if not save_version:
+            with get_conn() as con:
+                frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+            if frozen_snapshot:
+                version_row, snapshot_payload = frozen_snapshot
+                html_content = _render_report_snapshot_html(snapshot_payload)
+                pdf_bytes = _render_html_to_pdf_bytes(html_content)
+                headers = {
+                    "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+                    "X-Report-Version-Saved": "false",
+                    "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                    "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                    "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                    "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                    "X-Report-Version-Status": str(version_row.get("status") or ""),
+                    "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                }
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers=headers,
+                )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -2375,6 +2513,49 @@ def generate_report_with_assets(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        if not save_version:
+            with get_conn() as con:
+                frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+                if frozen_snapshot:
+                    version_row, snapshot_payload = frozen_snapshot
+                    file_payload = None
+                    file_id = version_row.get("file_id")
+                    if file_id is not None:
+                        file_payload = _load_report_version_file_payload(con, int(job_id), int(file_id))
+                    if file_payload:
+                        headers = {
+                            "Content-Disposition": f"inline; filename={file_payload['file_name']}",
+                            "X-Report-Version-Saved": "false",
+                            "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                            "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                            "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                            "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                            "X-Report-Version-Status": str(version_row.get("status") or ""),
+                            "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                        }
+                        return Response(
+                            content=file_payload["content"],
+                            media_type=str(file_payload.get("media_type") or "application/octet-stream"),
+                            headers=headers,
+                        )
+                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    pdf_bytes = _render_html_to_pdf_bytes(html_content)
+                    headers = {
+                        "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+                        "X-Report-Version-Saved": "false",
+                        "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                        "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                        "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                        "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                        "X-Report-Version-Status": str(version_row.get("status") or ""),
+                        "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                    }
+                    return Response(
+                        content=pdf_bytes,
+                        media_type="application/pdf",
+                        headers=headers,
+                    )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -2558,25 +2739,7 @@ def generate_report_with_assets(
         report_snapshot_json = json.dumps(report_snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
         normalized_version_status = _normalize_report_version_status(report_version_status)
         
-        # Convert HTML to PDF using Playwright
-        from playwright.sync_api import sync_playwright
-        
-        ensure_playwright_browser()
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            page.set_content(html_content)
-            pdf_bytes = page.pdf(
-                format='A4',
-                margin={
-                    'top': '20mm',
-                    'right': '20mm',
-                    'bottom': '20mm',
-                    'left': '20mm'
-                },
-                print_background=True
-            )
-            browser.close()
+        pdf_bytes = _render_html_to_pdf_bytes(html_content)
 
         saved_report_version: dict[str, Any] | None = None
         if save_version:
@@ -2670,6 +2833,50 @@ def generate_job_report(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        save_version = bool(payload.save_version) if payload else False
+        if not save_version:
+            with get_conn() as con:
+                frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+                if frozen_snapshot:
+                    version_row, snapshot_payload = frozen_snapshot
+                    file_payload = None
+                    file_id = version_row.get("file_id")
+                    if file_id is not None:
+                        file_payload = _load_report_version_file_payload(con, int(job_id), int(file_id))
+                    if file_payload:
+                        headers = {
+                            "Content-Disposition": f"inline; filename={file_payload['file_name']}",
+                            "X-Report-Version-Saved": "false",
+                            "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                            "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                            "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                            "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                            "X-Report-Version-Status": str(version_row.get("status") or ""),
+                            "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                        }
+                        return Response(
+                            content=file_payload["content"],
+                            media_type=str(file_payload.get("media_type") or "application/octet-stream"),
+                            headers=headers,
+                        )
+                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    pdf_bytes = _render_html_to_pdf_bytes(html_content)
+                    headers = {
+                        "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+                        "X-Report-Version-Saved": "false",
+                        "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                        "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                        "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                        "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                        "X-Report-Version-Status": str(version_row.get("status") or ""),
+                        "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                    }
+                    return Response(
+                        content=pdf_bytes,
+                        media_type="application/pdf",
+                        headers=headers,
+                    )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -2912,27 +3119,7 @@ def generate_job_report(
             getattr(payload, "report_version_status", None) if payload else None
         )
         
-        # Import Playwright inside function to avoid startup overhead
-        from playwright.sync_api import sync_playwright
-        
-        # Convert HTML to PDF using Playwright
-        ensure_playwright_browser()
-        with sync_playwright() as p:
-
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            page.set_content(html_content)
-            pdf_bytes = page.pdf(
-                format='A4',
-                margin={
-                    'top': '20mm',
-                    'right': '20mm',
-                    'bottom': '20mm',
-                    'left': '20mm'
-                },
-                print_background=True
-            )
-            browser.close()
+        pdf_bytes = _render_html_to_pdf_bytes(html_content)
 
         saved_report_version: dict[str, Any] | None = None
         should_save_version = bool(payload.save_version) if payload else False
@@ -3028,6 +3215,22 @@ def generate_html_report(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        with get_conn() as con:
+            frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+        if frozen_snapshot:
+            version_row, snapshot_payload = frozen_snapshot
+            html_content = _render_report_snapshot_html(snapshot_payload)
+            label = version_row.get("version_label") or f"v{version_row.get('version_number') or job_id}"
+            return HTMLResponse(
+                content=html_content,
+                headers={
+                    "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                    "X-Report-Version-Label": str(label),
+                    "X-Report-Version-Status": str(version_row.get("status") or ""),
+                    "Cache-Control": "no-store",
+                },
+            )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -3404,6 +3607,49 @@ def generate_professional_pdf(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        if not save_version:
+            with get_conn() as con:
+                frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+                if frozen_snapshot:
+                    version_row, snapshot_payload = frozen_snapshot
+                    file_payload = None
+                    file_id = version_row.get("file_id")
+                    if file_id is not None:
+                        file_payload = _load_report_version_file_payload(con, int(job_id), int(file_id))
+                    if file_payload:
+                        headers = {
+                            "Content-Disposition": f"inline; filename={file_payload['file_name']}",
+                            "X-Report-Version-Saved": "false",
+                            "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                            "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                            "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                            "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                            "X-Report-Version-Status": str(version_row.get("status") or ""),
+                            "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                        }
+                        return Response(
+                            content=file_payload["content"],
+                            media_type=str(file_payload.get("media_type") or "application/octet-stream"),
+                            headers=headers,
+                        )
+                    html_content = _render_report_snapshot_html(snapshot_payload)
+                    pdf_bytes = _render_html_to_pdf_bytes(html_content)
+                    headers = {
+                        "Content-Disposition": f"inline; filename=job-{job_id}-emissions-report.pdf",
+                        "X-Report-Version-Saved": "false",
+                        "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                        "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                        "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                        "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                        "X-Report-Version-Status": str(version_row.get("status") or ""),
+                        "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                    }
+                    return Response(
+                        content=pdf_bytes,
+                        media_type="application/pdf",
+                        headers=headers,
+                    )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -3698,6 +3944,186 @@ def generate_job_report_docx(
         job_data = get_job_data(job_id)
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
+
+        frozen_snapshot = None
+        with get_conn() as con:
+            frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+        if frozen_snapshot:
+            version_row, snapshot_payload = frozen_snapshot
+            job_data = snapshot_payload.get("job_data") or job_data
+            scope_totals = snapshot_payload.get("scope_totals") or {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+            categories = snapshot_payload.get("categories") or []
+            _activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+            template_data = snapshot_payload.get("template") or {}
+            selected_template = template_data if isinstance(template_data, dict) else {}
+            template_variables = snapshot_payload.get("template_variables") or {}
+            report_metadata = snapshot_payload.get("report_metadata") or {}
+            job_actions = snapshot_payload.get("job_actions") or {}
+            generation_date = snapshot_payload.get("generation_date") or datetime.now().strftime('%d %B %Y')
+            render_values = snapshot_payload.get("render_values") or {}
+            template_var_meta = _get_template_variable_metadata(int(selected_template.get("template_id") or 0)) if selected_template.get("template_id") is not None else []
+
+            template_name = str(selected_template.get("template_name") or "")
+            template_type = str(selected_template.get("template_type") or "")
+            report_type = str(selected_template.get("report_type") or "")
+            version_number = selected_template.get("version_number")
+            template_hint = f"{template_name} {template_type} {report_type}".lower()
+            is_annual = ("annual" in template_hint) or ("carbon_report" in template_hint)
+            is_crp = ("crp" in template_hint) or ("carbon_reduction" in template_hint)
+
+            doc = DocxDocument()
+
+            heading = doc.add_heading(
+                str(
+                    render_values.get("report_title")
+                    or template_variables.get("report_title")
+                    or f"Emissions Report – {job_data.get('client_name') or 'Client'}"
+                ),
+                level=0,
+            )
+            if WD_PARAGRAPH_ALIGNMENT is not None:
+                heading.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+            subtitle = doc.add_paragraph(
+                f"Job {job_data.get('job_number') or job_id} • Reporting year {job_data.get('reporting_year') or 'N/A'}"
+            )
+            if WD_PARAGRAPH_ALIGNMENT is not None:
+                subtitle.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+
+            doc.add_paragraph(f"Generated: {generation_date}")
+
+            meta_p = doc.add_paragraph(
+                f"Template: {template_name or selected_template.get('template_key') or selected_template.get('template_id')}"
+            )
+            if version_number is not None:
+                meta_p.add_run(f" (v{version_number})")
+
+            if is_crp:
+                _docx_add_section_heading(doc, "Carbon Reduction Plan Summary", level=1)
+                crp_fields = [
+                    ("Executive Summary", template_variables.get("executive_summary")),
+                    ("Commitment Statement", template_variables.get("commitment_statement")),
+                    ("Reduction Targets", template_variables.get("reduction_targets")),
+                    ("Reduction Projects", template_variables.get("reduction_projects")),
+                ]
+                for label, raw in crp_fields:
+                    value = _format_template_value(raw, "textarea")
+                    if not value:
+                        continue
+                    p = doc.add_paragraph()
+                    p.add_run(f"{label}: ").bold = True
+                    p.add_run(value)
+            elif is_annual:
+                _docx_add_section_heading(doc, "Annual Report Narrative", level=1)
+                annual_fields = [
+                    ("Introduction", template_variables.get("introduction")),
+                    ("Methodology", template_variables.get("methodology")),
+                    ("Key Findings", template_variables.get("key_findings")),
+                    ("Recommendations", template_variables.get("recommendations")),
+                    ("Conclusion", template_variables.get("conclusion")),
+                ]
+                for label, raw in annual_fields:
+                    value = _format_template_value(raw, "textarea")
+                    if not value:
+                        continue
+                    p = doc.add_paragraph()
+                    p.add_run(f"{label}: ").bold = True
+                    p.add_run(value)
+
+            if job_actions.get("items"):
+                doc.add_heading("Planned Actions", level=1)
+                actions_table = doc.add_table(rows=1, cols=4)
+                actions_table.style = "Table Grid"
+                action_headers = ["Term", "Action", "Category", "Description"]
+                for col, header in enumerate(action_headers):
+                    actions_table.cell(0, col).text = header
+
+                for item in job_actions.get("items", []):
+                    row_cells = actions_table.add_row().cells
+                    row_cells[0].text = str(item.get("action_term_label") or item.get("action_term") or "")
+                    row_cells[1].text = str(item.get("action_name") or "")
+                    row_cells[2].text = str(item.get("action_category") or "")
+                    row_cells[3].text = str(item.get("description") or "")
+
+            doc.add_heading("Summary", level=1)
+            summary_table = doc.add_table(rows=4, cols=2)
+            summary_table.style = "Table Grid"
+            summary_rows = [
+                ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.2f} tCO₂e"),
+                ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.2f} tCO₂e"),
+                ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.2f} tCO₂e"),
+                ("Total", f"{scope_totals.get('Total', 0.0):,.2f} tCO₂e"),
+            ]
+            for idx, (label, value) in enumerate(summary_rows):
+                summary_table.cell(idx, 0).text = label
+                summary_table.cell(idx, 1).text = value
+
+            doc.add_heading("Activity Group Totals", level=1)
+            group_table = doc.add_table(rows=max(1, len(ACTIVITY_GROUP_ORDER)), cols=2)
+            group_table.style = "Table Grid"
+            for idx, group in enumerate(ACTIVITY_GROUP_ORDER):
+                group_table.cell(idx, 0).text = group
+                group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.2f} tCO₂e"
+
+            _docx_add_variable_sections(doc, template_variables, template_var_meta)
+
+            metadata_rows = [
+                (key, report_metadata.get(key))
+                for key in report_metadata.keys()
+                if report_metadata.get(key) not in (None, "")
+            ]
+            if metadata_rows:
+                doc.add_heading("Report Metadata", level=1)
+                meta_table = doc.add_table(rows=1, cols=2)
+                meta_table.style = "Table Grid"
+                meta_table.cell(0, 0).text = "Field"
+                meta_table.cell(0, 1).text = "Value"
+                for key, value in metadata_rows:
+                    row_cells = meta_table.add_row().cells
+                    row_cells[0].text = str(key).replace("_", " ").title()
+                    row_cells[1].text = _stringify_render_value(value)
+
+            if activity_details:
+                doc.add_heading("Top Activity Rows", level=1)
+                details_table = doc.add_table(rows=1, cols=7)
+                details_table.style = "Table Grid"
+                headers = ["Group", "Emission Type", "Scope", "Source Family", "Group / Asset", "Factor ID", "tCO₂e"]
+                for col, header in enumerate(headers):
+                    details_table.cell(0, col).text = header
+
+                for row in activity_details[:50]:
+                    cells = details_table.add_row().cells
+                    cells[0].text = str(row.get("activity_group") or "")
+                    cells[1].text = str(row.get("emission_type") or "")
+                    cells[2].text = str(row.get("scope") or "")
+                    cells[3].text = str(row.get("source_family") or "")
+                    cells[4].text = str(row.get("reference_label") or row.get("group_name") or row.get("asset_identifier") or row.get("source_name") or "")
+                    cells[5].text = str(row.get("factor_id") or row.get("factor_db_id") or row.get("original_id") or "")
+                    cells[6].text = f"{float(row.get('emissions') or 0.0):,.2f}"
+
+            output = io.BytesIO()
+            doc.save(output)
+            output.seek(0)
+
+            file_name = _safe_filename(
+                f"job-{job_data.get('job_number') or job_id}-emissions-report",
+                "docx",
+            )
+
+            return Response(
+                content=output.getvalue(),
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{file_name}"',
+                    "X-Report-Version-Saved": "false",
+                    "X-Report-Snapshot-Hash": str(version_row.get("data_hash") or ""),
+                    "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                    "X-Report-Version-Number": str(version_row.get("version_number") or ""),
+                    "X-Report-Version-Label": str(version_row.get("version_label") or ""),
+                    "X-Report-Version-Status": str(version_row.get("status") or ""),
+                    "X-Report-File-Id": str(version_row.get("file_id") or ""),
+                },
+            )
 
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)

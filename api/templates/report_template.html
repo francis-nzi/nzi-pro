@@ -417,6 +417,9 @@
             <tr>
                 <th colspan="2">Data Details<br>Emission Type</th>
                 <th class="text-center">Scope</th>
+                <th>Source Family</th>
+                <th>Group / Asset</th>
+                <th>Factor ID</th>
                 <th class="text-center">{{ job_data.reporting_year }}<br>tCO₂e</th>
                 <th>Data Source</th>
                 <th>Data Confidence</th>
@@ -425,7 +428,7 @@
         <tbody>
             <!-- Scope 1 -->
             <tr class="scope-header">
-                <td colspan="6"><strong>Scope 1 - Direct Emissions</strong></td>
+                <td colspan="9"><strong>Scope 1 - Direct Emissions</strong></td>
             </tr>
             {% set scope1_cats = categories|selectattr('scope', 'equalto', 'Scope 1')|list %}
             {% if scope1_cats %}
@@ -433,13 +436,16 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">1</td>
+                    <td>{{ cat.source_family|default('N/A') }}</td>
+                    <td>{{ cat.reference_label or cat.group_name or cat.asset_identifier or cat.source_name or '-' }}</td>
+                    <td>{{ cat.factor_id or cat.factor_db_id or cat.original_id or '-' }}</td>
                     <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
-                    <td colspan="3"></td>
+                    <td colspan="6"></td>
                     <td class="text-right"><strong>{{ scope1_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
@@ -447,20 +453,23 @@
                 <tr>
                     <td colspan="2" style="font-style: italic; color: #666;">No Scope 1 emissions</td>
                     <td class="text-center">1</td>
-                    <td class="text-right">0.0</td>
+                    <td>N/A</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="text-right">0.00</td>
                     <td>-</td>
                     <td>-</td>
                 </tr>
                 <tr class="total-row">
-                    <td colspan="3"></td>
-                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="6"></td>
+                    <td class="text-right"><strong>0.00</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% endif %}
 
             <!-- Scope 2 -->
             <tr class="scope-header">
-                <td colspan="6"><strong>Scope 2 - Indirect Emissions from Energy</strong></td>
+                <td colspan="9"><strong>Scope 2 - Indirect Emissions from Energy</strong></td>
             </tr>
             {% set scope2_cats = categories|selectattr('scope', 'equalto', 'Scope 2')|list %}
             {% if scope2_cats %}
@@ -468,13 +477,16 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">2</td>
+                    <td>{{ cat.source_family|default('N/A') }}</td>
+                    <td>{{ cat.reference_label or cat.group_name or cat.asset_identifier or cat.source_name or '-' }}</td>
+                    <td>{{ cat.factor_id or cat.factor_db_id or cat.original_id or '-' }}</td>
                     <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
-                    <td colspan="3"></td>
+                    <td colspan="6"></td>
                     <td class="text-right"><strong>{{ scope2_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
@@ -482,20 +494,23 @@
                 <tr>
                     <td colspan="2" style="font-style: italic; color: #666;">No Scope 2 emissions</td>
                     <td class="text-center">2</td>
-                    <td class="text-right">0.0</td>
+                    <td>N/A</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="text-right">0.00</td>
                     <td>-</td>
                     <td>-</td>
                 </tr>
                 <tr class="total-row">
-                    <td colspan="3"></td>
-                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="6"></td>
+                    <td class="text-right"><strong>0.00</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% endif %}
 
             <!-- Scope 3 -->
             <tr class="scope-header">
-                <td colspan="6"><strong>Scope 3 - Other Indirect Emissions</strong></td>
+                <td colspan="9"><strong>Scope 3 - Other Indirect Emissions</strong></td>
             </tr>
             {% set scope3_cats = categories|selectattr('scope', 'equalto', 'Scope 3')|list %}
             {% if scope3_cats %}
@@ -503,13 +518,16 @@
                 <tr>
                     <td colspan="2">{{ cat.report_label or cat.category }}</td>
                     <td class="text-center">3</td>
+                    <td>{{ cat.source_family|default('N/A') }}</td>
+                    <td>{{ cat.reference_label or cat.group_name or cat.asset_identifier or cat.source_name or '-' }}</td>
+                    <td>{{ cat.factor_id or cat.factor_db_id or cat.original_id or '-' }}</td>
                     <td class="text-right">{{ cat.emissions|round(2) }}</td>
                     <td>{{ cat.uom ~ ' Data' if cat.uom else 'Calculated' }}</td>
                     <td>{{ 'High' if cat.qty > 0 else 'Medium' }}</td>
                 </tr>
                 {% endfor %}
                 <tr class="total-row">
-                    <td colspan="3"></td>
+                    <td colspan="6"></td>
                     <td class="text-right"><strong>{{ scope3_cats|sum(attribute='emissions')|round(2) }}</strong></td>
                     <td colspan="2"></td>
                 </tr>
@@ -517,20 +535,23 @@
                 <tr>
                     <td colspan="2" style="font-style: italic; color: #666;">No Scope 3 emissions</td>
                     <td class="text-center">3</td>
-                    <td class="text-right">0.0</td>
+                    <td>N/A</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="text-right">0.00</td>
                     <td>-</td>
                     <td>-</td>
                 </tr>
                 <tr class="total-row">
-                    <td colspan="3"></td>
-                    <td class="text-right"><strong>0.0</strong></td>
+                    <td colspan="6"></td>
+                    <td class="text-right"><strong>0.00</strong></td>
                     <td colspan="2"></td>
                 </tr>
             {% endif %}
 
             <!-- Total -->
             <tr class="total-row" style="background: #d6d8db;">
-                <td colspan="3"><strong>TOTAL</strong></td>
+                <td colspan="6"><strong>TOTAL</strong></td>
                 <td class="text-right"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
                 <td colspan="2"></td>
             </tr>

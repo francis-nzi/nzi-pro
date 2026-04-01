@@ -1719,7 +1719,7 @@
             </table>
             {% endif %}
             <div class="highlight-box">
-                <strong>Note:</strong> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
+                <strong>Note:</strong> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.
             </div>
             <div class="page-break"></div>
 
@@ -1964,27 +1964,27 @@
                 <tbody>
                     <tr>
                         <td>Total GHG Emissions (Scope 1 & 2)</td>
-                        <td class="text-right">{{ (scope_totals['Scope 1'] + scope_totals['Scope 2'])|round(1) }}</td>
+                        <td class="text-right">{{ (scope_totals['Scope 1'] + scope_totals['Scope 2'])|round(2) }}</td>
                         <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 1 Emissions</td>
-                        <td class="text-right">{{ scope_totals['Scope 1']|round(1) }}</td>
+                        <td class="text-right">{{ scope_totals['Scope 1']|round(2) }}</td>
                         <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 2 Emissions</td>
-                        <td class="text-right">{{ scope_totals['Scope 2']|round(1) }}</td>
+                        <td class="text-right">{{ scope_totals['Scope 2']|round(2) }}</td>
                         <td class="text-right">tCO2e</td>
                     </tr>
                     <tr>
                         <td>Scope 3 Emissions</td>
-                        <td class="text-right">{{ scope_totals['Scope 3']|round(1) }}</td>
+                        <td class="text-right">{{ scope_totals['Scope 3']|round(2) }}</td>
                         <td class="text-right">tCO2e</td>
                     </tr>
                     <tr class="total-row">
                         <td><strong>Total Emissions</strong></td>
-                        <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
+                        <td class="text-right"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
                         <td class="text-right"><strong>tCO2e</strong></td>
                     </tr>
                 </tbody>
@@ -2074,7 +2074,7 @@
                 provides transparency on data reliability.
             </p>
             <p>
-                To ensure readability, greenhouse gas (GHG) emission levels are rounded to 1 decimal place. Small differences in the sums of individual rows or columns may occur due to this rounding and are not indicative of calculation errors.
+                To ensure readability, greenhouse gas (GHG) emission levels are rounded to 2 decimal places. Small differences in the sums of individual rows or columns may occur due to this rounding and are not indicative of calculation errors.
             </p>
             <h3>Data Sources and Confidence Levels</h3>
             <table class="data-table no-break">
@@ -2230,6 +2230,8 @@
                         <th>Activity Group</th>
                         <th>Emission Type</th>
                         <th>Source Family</th>
+                        <th>Group / Asset</th>
+                        <th>Factor ID</th>
                         <th class="text-right">Qty</th>
                         <th>UOM</th>
                         <th class="text-right">tCO2e</th>
@@ -2243,6 +2245,8 @@
                         <td>{{ row.activity_group }}</td>
                         <td>{{ row.emission_type }}</td>
                         <td>{{ row.source_family|default('N/A') }}</td>
+                        <td>{{ row.reference_label or row.group_name or row.asset_identifier or row.source_name or '-' }}</td>
+                        <td>{{ row.factor_id or row.factor_db_id or row.original_id or '-' }}</td>
                         <td class="text-right">{{ '{:,.2f}'.format(row.qty) }}</td>
                         <td>{{ row.uom or '-' }}</td>
                         <td class="text-right">{{ '{:,.3f}'.format(row.emissions) }}</td>
@@ -2250,7 +2254,7 @@
                     {% endfor %}
                     {% if not site_breakdowns.appendix_rows %}
                     <tr>
-                        <td colspan="8" style="font-style: italic; color: #666; text-align: center;">No detailed by-site data available</td>
+                        <td colspan="10" style="font-style: italic; color: #666; text-align: center;">No detailed by-site data available</td>
                     </tr>
                     {% endif %}
                 </tbody>
@@ -2267,6 +2271,8 @@
                         <th class="text-center">{{ job_data.reporting_year }}<br>tCO2e</th>
                         <th>Data Source</th>
                         <th>Source Family</th>
+                        <th>Group / Asset</th>
+                        <th>Factor ID</th>
                         <th>Data Confidence</th>
                     </tr>
                 </thead>
@@ -2280,20 +2286,22 @@
                             <td class="text-right">{{ '{:,.2f}'.format(row.emissions) }}</td>
                             <td>{{ row.data_source }}</td>
                             <td>{{ row.source_family|default('N/A') }}</td>
+                            <td>{{ row.reference_label or row.group_name or row.asset_identifier or row.source_name or '-' }}</td>
+                            <td>{{ row.factor_id or row.factor_db_id or row.original_id or '-' }}</td>
                             <td>{{ row.data_confidence }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="7" style="font-style: italic; color: #666; text-align: center;">No detailed data available</td>
+                            <td colspan="9" style="font-style: italic; color: #666; text-align: center;">No detailed data available</td>
                         </tr>
                     {% endif %}
 
                     <!-- Total -->
                     <tr class="total-row" style="background: #d6d8db;">
                     <td colspan="3"><strong>TOTAL EMISSIONS</strong></td>
-                    <td class="text-right"><strong>{{ scope_totals.Total|round(1) }}</strong></td>
-                    <td colspan="3"></td>
+                    <td class="text-right"><strong>{{ scope_totals.Total|round(2) }}</strong></td>
+                    <td colspan="5"></td>
                     </tr>
                 </tbody>
             </table>
