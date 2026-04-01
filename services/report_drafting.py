@@ -86,6 +86,7 @@ def _join_text_parts(parts: list[str], *, separator: str = " ") -> str:
 
 
 def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, section_key: str) -> str:
+    section_title = _get_section_config(section_key)["title"]
     candidates = [
         payload.get("draft_text"),
         payload.get("draftText"),
@@ -121,7 +122,23 @@ def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, sec
             for point in headline_points
         ).strip()
 
-    return _strip_code_fences(fallback_text) or f"Draft the {_get_section_config(section_key)['title'].lower()} section."
+    fallback_candidate = _strip_code_fences(fallback_text)
+    if fallback_candidate and not _looks_like_json_text(fallback_candidate):
+        return fallback_candidate
+
+    if section_key == "executive_summary":
+        return (
+            f"{section_title}: open with the key story, the direction of travel, and the most important headline points."
+        )
+    if section_key == "emissions_overview":
+        return (
+            f"{section_title}: summarise the current emissions totals, the scope split, and the main drivers of change."
+        )
+    if section_key == "actions":
+        return (
+            f"{section_title}: summarise the current actions, prioritise the next steps, and highlight the most practical delivery themes."
+        )
+    return f"Draft the {section_title.lower()} section using the supplied evidence."
 
 
 def _extract_balanced_json_object(raw: str) -> str | None:

@@ -258,7 +258,12 @@ function coerceReadableDraftText(value: unknown, fallback = ""): string {
     // Fall through to the fallback text below.
   }
 
-  return stripCodeFences(fallback) || stripped;
+  const fallbackText = stripCodeFences(fallback);
+  if (fallbackText && !looksLikeJsonText(fallbackText)) {
+    return fallbackText;
+  }
+
+  return "Draft the section using the supplied evidence.";
 }
 
 function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { notes: DraftNotes; origins: DraftOrigins } {
