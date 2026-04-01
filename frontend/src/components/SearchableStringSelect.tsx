@@ -1,0 +1,150 @@
+"use client";
+
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown } from "lucide-react";
+
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+type SearchableStringSelectProps = {
+  id?: string;
+  value: string;
+  options: string[];
+  placeholder?: string;
+  ariaInvalid?: boolean;
+  className?: string;
+  disabled?: boolean;
+  noMatchesText?: string;
+  onValueChange: (value: string) => void;
+};
+
+export default function SearchableStringSelect({
+  id,
+  value,
+  options,
+  placeholder = "Search...",
+  ariaInvalid,
+  className,
+  disabled = false,
+  noMatchesText = "No matches found",
+  onValueChange,
+}: SearchableStringSelectProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!wrapperRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery(value);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [value]);
+
+  const filteredOptions = useMemo(() => {
+    const trimmed = query.trim().toLowerCase();
+    const base = trimmed
+      ? options.filter((option) => option.toLowerCase().includes(trimmed))
+      : options;
+    return base.slice(0, 100);
+  }, [options, query]);
+
+  function handleSelect(option: string) {
+    onValueChange(option);
+    setQuery(option);
+    setOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (filteredOptions.length > 0) {
+        handleSelect(filteredOptions[0]);
+      } else if (query.trim()) {
+        onValueChange(query.trim());
+        setOpen(false);
+      }
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setOpen(false);
+      setQuery(value);
+    }
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <Input
+          id={id}
+          value={open ? query : value}
+          onChange={(event) => {
+            setOpen(true);
+            setQuery(event.target.value);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          onBlur={() => {
+            window.setTimeout(() => {
+              if (!wrapperRef.current?.contains(document.activeElement)) {
+                setOpen(false);
+                setQuery(value);
+              }
+            }, 120);
+          }}
+          placeholder={placeholder}
+          aria-invalid={ariaInvalid}
+          disabled={disabled}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          className={cn("pr-9", className)}
+        />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" />
+      </div>
+
+      {open && !disabled && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg">
+          <div className="max-h-64 overflow-y-auto p-1">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => {
+                const selected = option === value;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleSelect(option);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                      selected && "bg-accent/70 font-medium"
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{option}</span>
+                    {selected && <Check className="ml-2 size-4 shrink-0" />}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-3 py-2 text-sm text-muted-foreground">
+                {noMatchesText}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -121,6 +122,20 @@ type CurrencyOption = {
   is_default?: boolean;
 };
 
+type LookupRow = {
+  name?: string | null;
+  email?: string | null;
+  full_name?: string | null;
+  currency_code?: string | null;
+  currency_name?: string | null;
+  symbol?: string | null;
+  is_default?: boolean | null;
+};
+
+type LookupResponse = {
+  items?: LookupRow[];
+};
+
 export default function EditClientPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const params = useParams<{ clientId: string }>();
@@ -227,31 +242,42 @@ export default function EditClientPage() {
       ]);
 
       if (portfoliosRes.status === "fulfilled" && portfoliosRes.value.ok) {
-        const data = await portfoliosRes.value.json();
-        const portfolioList = data.items?.map((i: any) => i.name).filter(Boolean) || [];
+        const data = (await portfoliosRes.value.json()) as LookupResponse;
+        const portfolioList =
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
         setPortfolios(Array.from(new Set(portfolioList)) as string[]);
       }
 
       if (industriesRes.status === "fulfilled" && industriesRes.value.ok) {
-        const data = await industriesRes.value.json();
-        const industryList = data.items?.map((i: any) => i.name).filter(Boolean) || [];
-        setIndustries(Array.from(new Set(industryList)) as string[]);
+        const data = (await industriesRes.value.json()) as LookupResponse;
+        const industryList =
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
+        setIndustries(
+          Array.from(new Set(industryList))
+            .map((value) => String(value))
+            .sort((a, b) => a.localeCompare(b))
+        );
       }
 
       if (usersRes.status === "fulfilled" && usersRes.value.ok) {
-        const data = await usersRes.value.json();
-        const userList = (data.items || []).filter((u: any) => u && (u.email || u.full_name));
+        const data = (await usersRes.value.json()) as LookupResponse;
+        const userList = (data.items || [])
+          .map((u) => ({
+            email: String(u.email || ""),
+            full_name: String(u.full_name || ""),
+          }))
+          .filter((u) => u.email || u.full_name);
         const uniqueUsers = Array.from(
-          new Map(userList.map((u: any) => [u.email || u.full_name, u])).values()
+          new Map(userList.map((u) => [u.email || u.full_name, u] as const)).values()
         ) as Array<{email: string, full_name: string}>;
         setUsers(uniqueUsers);
       }
 
       if (currenciesRes.status === "fulfilled" && currenciesRes.value.ok) {
-        const data = await currenciesRes.value.json();
+        const data = (await currenciesRes.value.json()) as LookupResponse;
         const currencyItems = Array.isArray(data.items) ? data.items : [];
         const lookupCurrencies = currencyItems
-          .map((row: any) => ({
+          .map((row) => ({
             currency_code: String(row.currency_code || "").toUpperCase(),
             currency_name: String(row.currency_name || ""),
             symbol: String(row.symbol || ""),
@@ -622,16 +648,13 @@ export default function EditClientPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="industry">Industry</Label>
-                  <Select value={industry} onValueChange={setIndustry}>
-                    <SelectTrigger id="industry">
-                      <SelectValue placeholder="Select industry..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {industries.map((ind, idx) => (
-                        <SelectItem key={`industry-${idx}`} value={ind}>{ind}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <SearchableStringSelect
+                    id="industry"
+                    value={industry}
+                    options={industries}
+                    placeholder="Search industries..."
+                    onValueChange={setIndustry}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="companyReg">Company Registration</Label>

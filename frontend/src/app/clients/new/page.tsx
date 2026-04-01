@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,20 @@ type CurrencyOption = {
   currency_name: string;
   symbol: string;
   is_default?: boolean;
+};
+
+type LookupRow = {
+  name?: string | null;
+  email?: string | null;
+  full_name?: string | null;
+  currency_code?: string | null;
+  currency_name?: string | null;
+  symbol?: string | null;
+  is_default?: boolean | null;
+};
+
+type LookupResponse = {
+  items?: LookupRow[];
 };
 
 export default function NewClientPage() {
@@ -284,38 +299,45 @@ export default function NewClientPage() {
       ]);
 
       if (portfoliosRes.ok) {
-        const data = await portfoliosRes.json();
+        const data = (await portfoliosRes.json()) as LookupResponse;
         const portfolioList =
-          data.items?.map((i: any) => i.name).filter(Boolean) || [];
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
         setPortfolios(Array.from(new Set(portfolioList)) as string[]);
       }
 
       if (industriesRes.ok) {
-        const data = await industriesRes.json();
+        const data = (await industriesRes.json()) as LookupResponse;
         const industryList =
-          data.items?.map((i: any) => i.name).filter(Boolean) || [];
-        setIndustries(Array.from(new Set(industryList)) as string[]);
+          data.items?.map((item) => item.name).filter((item): item is string => Boolean(item)) || [];
+        setIndustries(
+          Array.from(new Set(industryList))
+            .map((value) => String(value))
+            .sort((a, b) => a.localeCompare(b))
+        );
       }
 
       if (usersRes.ok) {
-        const data = await usersRes.json();
-        const userList = (data.items || []).filter(
-          (u: any) => u && (u.email || u.full_name)
-        );
+        const data = (await usersRes.json()) as LookupResponse;
+        const userList = (data.items || [])
+          .map((u) => ({
+            email: String(u.email || ""),
+            full_name: String(u.full_name || ""),
+          }))
+          .filter((u) => u.email || u.full_name);
         // Deduplicate by email
         const uniqueUsers = Array.from(
           new Map(
-            userList.map((u: any) => [u.email || u.full_name, u])
+            userList.map((u) => [u.email || u.full_name, u] as const)
           ).values()
         ) as Array<{ email: string; full_name: string }>;
         setUsers(uniqueUsers);
       }
 
       if (currenciesRes.ok) {
-        const data = await currenciesRes.json();
+        const data = (await currenciesRes.json()) as LookupResponse;
         const currencyItems = Array.isArray(data.items) ? data.items : [];
         const lookupCurrencies = currencyItems
-          .map((row: any) => ({
+          .map((row) => ({
             currency_code: String(row.currency_code || "").toUpperCase(),
             currency_name: String(row.currency_name || ""),
             symbol: String(row.symbol || ""),
@@ -594,28 +616,18 @@ export default function NewClientPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="industry">Industry *</Label>
-                    <Select
+                    <SearchableStringSelect
+                      id="industry"
                       value={industry}
+                      options={industries}
+                      placeholder="Search industries..."
+                      ariaInvalid={!!formErrors.industry}
+                      className={formErrors.industry ? "border-destructive" : ""}
                       onValueChange={(value) => {
                         setIndustry(value);
                         clearFieldError("industry");
                       }}
-                    >
-                      <SelectTrigger
-                        id="industry"
-                        aria-invalid={!!formErrors.industry}
-                        className={formErrors.industry ? "border-destructive" : ""}
-                      >
-                        <SelectValue placeholder="Select industry..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {industries.map((ind, idx) => (
-                          <SelectItem key={`industry-${idx}`} value={ind}>
-                            {ind}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
                     {formErrors.industry && (
                       <p className="text-xs text-destructive">
                         {formErrors.industry}
