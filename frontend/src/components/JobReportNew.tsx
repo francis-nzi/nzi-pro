@@ -62,6 +62,37 @@ type ReportProfile = {
 };
 
 type DraftNotes = Record<string, string>;
+type DraftOrigins = Record<string, "starter" | "local" | "ai">;
+
+type DraftWorkspaceContext = {
+  job_id?: number;
+  template_key?: string | null;
+  context_summary?: string | null;
+  job_data?: Record<string, unknown> | null;
+  previous_job_data?: Record<string, unknown> | null;
+  scope_totals?: Record<string, number>;
+  benchmark_totals?: Record<string, number>;
+  categories?: Array<Record<string, unknown>>;
+  previous_categories?: Array<Record<string, unknown>>;
+  job_actions?: JobActionsSummary | null;
+  top_category?: { category?: string; emissions?: number } | null;
+};
+
+type ReportDraftRow = {
+  section_key?: string | null;
+  section_title?: string | null;
+  draft_text?: string | null;
+  draft_json?: Record<string, unknown> | null;
+  provider?: string | null;
+  model?: string | null;
+  confidence?: string | null;
+  status?: string | null;
+};
+
+type DraftStoragePayload = {
+  draft_notes?: DraftNotes;
+  draft_origins?: DraftOrigins;
+} | DraftNotes;
 
 type JobReportNewProps = {
   jobId: number;
@@ -77,7 +108,7 @@ const PROFILE_LIBRARY: ReportProfile[] = [
     subtitle: "Standard",
     description: "The flagship compliance-led CRP for government and buyer-led submissions.",
     templateKey: "crp_standard",
-    sections: ["Executive Summary", "Emissions Footprint", "Actions", "Declaration"],
+    sections: ["Executive Summary", "Emissions Overview", "Actions", "Declaration"],
     graphics: ["Executive dashboard", "Scope donut", "Trend cards", "Action matrix"],
     statusLabel: "Ready",
     statusTone: "ready",
@@ -117,6 +148,12 @@ const PROFILE_LIBRARY: ReportProfile[] = [
   },
 ];
 
+const SECTION_LABEL_ALIASES: Record<string, string> = {
+  "Emissions Footprint": "Emissions Overview",
+};
+
+const AI_DRAFT_SECTIONS = new Set(["Executive Summary", "Emissions Overview", "Actions"]);
+
 function toneClass(tone: ReportProfile["statusTone"]): string {
   if (tone === "ready") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (tone === "preview") return "bg-sky-100 text-sky-800 border-sky-200";
@@ -127,7 +164,7 @@ function buildInitialDraftNotes(profile: ReportProfile): DraftNotes {
   const promptMap: Record<string, string> = {
     "Executive Summary":
       "Open with the key story, the reduction direction, and 2-3 dashboard-style headline points.",
-    "Emissions Footprint":
+    "Emissions Overview":
       "Summarise the main emissions sources, any notable changes, and the biggest drivers to watch.",
     "Key Emissions":
       "Capture the highest-emitting activities and the quick interpretation the reader should take away.",
@@ -148,9 +185,72 @@ function buildInitialDraftNotes(profile: ReportProfile): DraftNotes {
   };
 
   return profile.sections.reduce((acc, section) => {
-    acc[section] = promptMap[section] || `Draft the ${section.toLowerCase()} narrative here.`;
+    const normalizedSection = SECTION_LABEL_ALIASES[section] || section;
+    acc[section] = promptMap[normalizedSection] || promptMap[section] || `Draft the ${section.toLowerCase()} narrative here.`;
     return acc;
   }, {} as DraftNotes);
+}
+
+function buildInitialDraftOrigins(profile: ReportProfile): DraftOrigins {
+  return profile.sections.reduce((acc, section) => {
+    acc[section] = "starter";
+    return acc;
+  }, {} as DraftOrigins);
+}
+
+function getDraftSectionKey(section: string): string {
+  const normalized = SECTION_LABEL_ALIASES[section] || section;
+  if (normalized === "Executive Summary") return "executive_summary";
+  if (normalized === "Emissions Overview") return "emissions_overview";
+  if (normalized === "Actions") return "actions";
+  return normalized.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { notes: DraftNotes; origins: DraftOrigins } {
+  const notes = buildInitialDraftNotes(profile);
+  const origins = buildInitialDraftOrigins(profile);
+  if (!raw) {
+    return { notes, origins };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as DraftStoragePayload;
+    const parsedNotes =
+      parsed && typeof parsed === "object" && "draft_notes" in parsed && parsed.draft_notes && typeof parsed.draft_notes === "object"
+        ? parsed.draft_notes
+        : parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as DraftNotes)
+          : {};
+    const parsedOrigins =
+      parsed && typeof parsed === "object" && "draft_origins" in parsed && parsed.draft_origins && typeof parsed.draft_origins === "object"
+        ? parsed.draft_origins
+        : {};
+
+    profile.sections.forEach((section) => {
+      const alias = SECTION_LABEL_ALIASES[section] || section;
+      const storedValue =
+        typeof parsedNotes?.[section] === "string"
+          ? parsedNotes[section]
+          : typeof parsedNotes?.[alias] === "string"
+            ? parsedNotes[alias]
+            : null;
+      const storedOrigin =
+        typeof parsedOrigins?.[section] === "string"
+          ? parsedOrigins[section]
+          : typeof parsedOrigins?.[alias] === "string"
+            ? parsedOrigins[alias]
+            : null;
+
+      if (storedValue !== null) {
+        notes[section] = storedValue;
+        origins[section] = storedOrigin === "ai" || storedOrigin === "local" ? storedOrigin : "local";
+      }
+    });
+  } catch {
+    // Fall back to the starter canvas when the saved payload cannot be parsed.
+  }
+
+  return { notes, origins };
 }
 
 export default function JobReportNew({
@@ -165,6 +265,12 @@ export default function JobReportNew({
   const [actionsSummary, setActionsSummary] = useState<JobActionsSummary | null>(null);
   const [reportVersions, setReportVersions] = useState<ReportVersion[]>([]);
   const [draftNotes, setDraftNotes] = useState<DraftNotes>(() => buildInitialDraftNotes(PROFILE_LIBRARY[0]));
+  const [draftOrigins, setDraftOrigins] = useState<DraftOrigins>(() => buildInitialDraftOrigins(PROFILE_LIBRARY[0]));
+  const [draftContext, setDraftContext] = useState<DraftWorkspaceContext | null>(null);
+  const [serverDraftCount, setServerDraftCount] = useState(0);
+  const [draftSyncReady, setDraftSyncReady] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftGeneratingSection, setDraftGeneratingSection] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [savingReportVersion, setSavingReportVersion] = useState(false);
@@ -228,6 +334,7 @@ export default function JobReportNew({
     () => PROFILE_LIBRARY.find((profile) => profile.key === selectedKey) || PROFILE_LIBRARY[0],
     [selectedKey]
   );
+  const initialDraftNotes = useMemo(() => buildInitialDraftNotes(selectedProfile), [selectedProfile]);
 
   const availableTemplate = useMemo(
     () => templates.find((template) => template.template_key === selectedProfile.templateKey) || null,
@@ -242,30 +349,214 @@ export default function JobReportNew({
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(draftStorageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as DraftNotes;
-        setDraftNotes(() => {
-          const next = buildInitialDraftNotes(selectedProfile);
-          selectedProfile.sections.forEach((section) => {
-            next[section] = typeof parsed?.[section] === "string" ? parsed[section] : next[section];
-          });
-          return next;
-        });
-        return;
-      }
+      const stored = loadStoredDraftCanvas(raw, selectedProfile);
+      setDraftNotes(stored.notes);
+      setDraftOrigins(stored.origins);
+      setDraftDirty(false);
+      return;
     } catch {
       // Fall back to the default prompts below.
     }
-    setDraftNotes(buildInitialDraftNotes(selectedProfile));
-  }, [draftStorageKey, selectedProfile]);
+    setDraftNotes(initialDraftNotes);
+    setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
+    setDraftDirty(false);
+  }, [draftStorageKey, initialDraftNotes, selectedProfile]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(draftStorageKey, JSON.stringify(draftNotes));
+      window.localStorage.setItem(draftStorageKey, JSON.stringify({ draft_notes: draftNotes, draft_origins: draftOrigins }));
     } catch {
       // Ignore storage failures in private/incognito contexts.
     }
-  }, [draftNotes, draftStorageKey]);
+  }, [draftNotes, draftOrigins, draftStorageKey]);
+
+  const syncReportDrafts = useCallback(async () => {
+    if (!draftSyncReady || !draftDirty || !selectedProfile.templateKey) {
+      return;
+    }
+
+    const sections = selectedProfile.sections
+      .map((section) => {
+        const draftText = String(draftNotes[section] || "").trim();
+        const starterText = String(initialDraftNotes[section] || "").trim();
+        const origin = draftOrigins[section] || "starter";
+        if (!draftText) {
+          return null;
+        }
+        if (draftText === starterText && origin === "starter") {
+          return null;
+        }
+        return {
+          section_key: getDraftSectionKey(section),
+          section_title: section,
+          draft_text: draftText,
+          draft_json: {
+            section_key: getDraftSectionKey(section),
+            section_title: section,
+            draft_text: draftText,
+            origin,
+          },
+          provider: origin === "ai" ? "anthropic" : "manual",
+          model: origin === "ai" ? "draft-generation" : "manual-edit",
+          confidence: origin === "ai" ? "medium" : "low",
+          origin,
+        };
+      })
+      .filter(Boolean);
+
+    if (sections.length === 0 && serverDraftCount === 0) {
+      return;
+    }
+
+    const res = await fetch(`${baseUrl}/jobs/${jobId}/report-drafts`, {
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        template_key: selectedProfile.templateKey,
+        sections,
+      }),
+    });
+    if (!res.ok) {
+      const message = await res.text().catch(() => "");
+      throw new Error(message || `Failed to save report drafts (${res.status})`);
+    }
+    const payload = await res.json().catch(() => null);
+    if (Array.isArray(payload?.items)) {
+      setServerDraftCount(payload.items.length);
+    }
+    setDraftDirty(false);
+  }, [baseUrl, draftDirty, draftNotes, draftOrigins, draftSyncReady, initialDraftNotes, jobId, selectedProfile.sections, selectedProfile.templateKey, serverDraftCount]);
+
+  useEffect(() => {
+    if (!draftSyncReady) {
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      void syncReportDrafts().catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to save report drafts");
+      });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [draftNotes, draftOrigins, draftSyncReady, syncReportDrafts]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDraftContext() {
+      if (!selectedProfile.templateKey) {
+        setDraftContext(null);
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/jobs/${jobId}/report-draft-context?template_key=${encodeURIComponent(selectedProfile.templateKey)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          throw new Error(`Failed to load draft context (${res.status})`);
+        }
+        const payload = (await res.json()) as DraftWorkspaceContext;
+        if (!cancelled) {
+          setDraftContext(payload);
+        }
+      } catch {
+        if (!cancelled) {
+          setDraftContext(null);
+        }
+      }
+    }
+
+    void loadDraftContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, jobId, selectedProfile.templateKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadReportDrafts() {
+      setDraftSyncReady(false);
+      setServerDraftCount(0);
+
+      try {
+        const res = await fetch(
+          `${baseUrl}/jobs/${jobId}/report-drafts?template_key=${encodeURIComponent(selectedProfile.templateKey)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok) {
+          throw new Error(`Failed to load saved drafts (${res.status})`);
+        }
+        const payload = await res.json();
+        const items: ReportDraftRow[] = Array.isArray(payload?.items) ? payload.items : [];
+        if (items.length > 0 && !cancelled) {
+          setDraftNotes((prev) => {
+            const next = { ...prev };
+            items.forEach((item) => {
+              const sectionKey = String(item.section_key || "").trim();
+              if (!sectionKey) return;
+              const sectionLabel =
+                selectedProfile.sections.find((label) => getDraftSectionKey(label) === sectionKey) ||
+                item.section_title ||
+                sectionKey;
+              if (typeof item.draft_text === "string" && sectionLabel) {
+                next[sectionLabel] = item.draft_text;
+              }
+            });
+            return next;
+          });
+          setDraftOrigins((prev) => {
+            const next = { ...prev };
+            items.forEach((item) => {
+              const sectionKey = String(item.section_key || "").trim();
+              if (!sectionKey) return;
+              const sectionLabel =
+                selectedProfile.sections.find((label) => getDraftSectionKey(label) === sectionKey) ||
+                item.section_title ||
+                sectionKey;
+              if (sectionLabel) {
+                const origin = item.draft_json && typeof item.draft_json === "object" && typeof item.draft_json.origin === "string"
+                  ? item.draft_json.origin
+                  : item.provider === "anthropic" || item.provider === "openai"
+                    ? "ai"
+                    : "local";
+                next[sectionLabel] = origin === "ai" ? "ai" : "local";
+              }
+            });
+            return next;
+          });
+        }
+        if (!cancelled) {
+          setServerDraftCount(items.length);
+          setDraftDirty(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setServerDraftCount(0);
+          setDraftDirty(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setDraftSyncReady(true);
+        }
+      }
+    }
+
+    void loadReportDrafts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, jobId, selectedProfile.sections, selectedProfile.templateKey]);
 
   const selectedActions = Array.isArray(actionsSummary?.items) ? actionsSummary.items.length : 0;
   const shortActions = actionsSummary?.term_counts?.short || 0;
@@ -275,7 +566,11 @@ export default function JobReportNew({
     assignment?.template_name || availableTemplate?.template_name || selectedProfile.title;
 
   const draftReady = Boolean(assignment?.template_id) && selectedActions > 0;
-  const draftedSectionCount = selectedProfile.sections.filter((section) => String(draftNotes[section] || "").trim().length > 0).length;
+  const draftedSectionCount = selectedProfile.sections.filter((section) => {
+    const note = String(draftNotes[section] || "").trim();
+    const starter = String(initialDraftNotes[section] || "").trim();
+    return note.length > 0 && note !== starter;
+  }).length;
   const draftStarted = draftedSectionCount > 0;
   const previewStatus = draftReady
     ? "Ready for preview"
@@ -443,12 +738,77 @@ export default function JobReportNew({
 
   function updateDraftNote(section: string, value: string) {
     setDraftNotes((prev) => ({ ...prev, [section]: value }));
+    setDraftOrigins((prev) => ({ ...prev, [section]: value.trim() ? "local" : "starter" }));
+    setDraftDirty(true);
   }
 
   function clearDraftNotes() {
-    setDraftNotes(buildInitialDraftNotes(selectedProfile));
+    setDraftNotes(initialDraftNotes);
+    setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
+    setDraftDirty(true);
     setStatus("Draft canvas reset to the starter prompts.");
   }
+
+  const generateSectionDraft = useCallback(
+    async (section: string) => {
+      const sectionKey = getDraftSectionKey(section);
+      if (!AI_DRAFT_SECTIONS.has(section)) {
+        return;
+      }
+
+      setDraftGeneratingSection(section);
+      setStatus("");
+      setError("");
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            section_key: sectionKey,
+            template_key: selectedProfile.templateKey,
+            provider: "anthropic",
+          }),
+        });
+
+        if (!res.ok) {
+          let message = `Failed to generate draft for ${section} (${res.status})`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) {
+              message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+            }
+          } catch {
+            // Keep fallback message.
+          }
+          throw new Error(message);
+        }
+
+        const payload = await res.json();
+        const draftText =
+          typeof payload?.draft?.draft_text === "string"
+            ? payload.draft.draft_text
+            : typeof payload?.draft?.draftText === "string"
+              ? payload.draft.draftText
+              : "";
+        if (!draftText.trim()) {
+          throw new Error("The AI draft did not return usable text.");
+        }
+
+        setDraftNotes((prev) => ({ ...prev, [section]: draftText }));
+        setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
+        setDraftDirty(true);
+        setStatus(`Generated an AI draft for ${section}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : `Failed to generate draft for ${section}`);
+      } finally {
+        setDraftGeneratingSection(null);
+      }
+    },
+    [baseUrl, jobId, selectedProfile.templateKey]
+  );
 
   function openPreviewModal() {
     setPreviewModalOpen(true);
@@ -598,7 +958,7 @@ export default function JobReportNew({
           <CardHeader className="space-y-2">
             <CardTitle>Stage 3 Draft Content</CardTitle>
             <CardDescription>
-              Write the first pass of the report section by section. The notes below stay local to this browser for now.
+              Write the first pass of the report section by section. AI can draft the core sections from the current job context, and the drafts now sync to the server while still mirroring locally for fast editing.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -613,20 +973,49 @@ export default function JobReportNew({
                 <Badge variant="outline" className="bg-white">
                   {selectedActions} actions ready
                 </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {draftOrigins["Executive Summary"] === "ai" || draftOrigins["Emissions Overview"] === "ai" || draftOrigins["Actions"] === "ai"
+                    ? "AI drafting enabled"
+                    : "AI drafting ready"}
+                </Badge>
               </div>
               <p className="mt-3 text-sm text-slate-600">
                 Use the canvas to capture the draft storyline, then move to preview/export when the section notes feel coherent.
               </p>
+              {draftContext?.context_summary ? (
+                <p className="mt-2 text-sm text-slate-500">
+                  Draft inputs: {draftContext.context_summary}
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-4">
               {selectedProfile.sections.map((section) => (
                 <div key={section} className="space-y-2 rounded-2xl border p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium">{section}</div>
-                    <Badge variant="outline" className="bg-slate-50">
-                      {String(draftNotes[section] || "").trim() ? "Drafted" : "Starter prompt"}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{section}</div>
+                      <Badge variant="outline" className="bg-slate-50">
+                        {draftOrigins[section] === "ai"
+                          ? "AI drafted"
+                          : draftOrigins[section] === "local"
+                            ? "Drafted"
+                            : "Starter prompt"}
+                      </Badge>
+                    </div>
+                    {AI_DRAFT_SECTIONS.has(section) ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => void generateSectionDraft(section)}
+                        disabled={draftGeneratingSection === section}
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        {draftGeneratingSection === section ? "Generating..." : "Generate AI Draft"}
+                      </Button>
+                    ) : null}
                   </div>
                   <Textarea
                     value={draftNotes[section] || ""}
