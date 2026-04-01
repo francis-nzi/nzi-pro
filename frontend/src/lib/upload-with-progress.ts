@@ -1,3 +1,5 @@
+import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+
 export type UploadProgressHandler = (progress: {
   percent: number;
   loaded: number;
@@ -48,18 +50,17 @@ export function uploadFormDataWithProgress(
     xhr.open(init.method || "POST", url, true);
     xhr.withCredentials = init.credentials === "include" || init.credentials === "same-origin";
 
-    const headers = init.headers;
-    if (headers) {
-      if (headers instanceof Headers) {
-        headers.forEach((value, key) => xhr.setRequestHeader(key, value));
-      } else if (Array.isArray(headers)) {
-        headers.forEach(([key, value]) => xhr.setRequestHeader(key, value));
-      } else {
-        Object.entries(headers).forEach(([key, value]) => {
-          if (typeof value === "string") xhr.setRequestHeader(key, value);
-        });
-      }
+    const headers = new Headers(init.headers || {});
+    const token = getToken();
+    const userIdentifier = getAuthUserIdentifier();
+
+    if (token && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${token}`);
+    } else if (!token && userIdentifier && !headers.has("X-User-Email")) {
+      headers.set("X-User-Email", userIdentifier);
     }
+
+    headers.forEach((value, key) => xhr.setRequestHeader(key, value));
 
     xhr.upload.onprogress = (event) => {
       if (!init.onProgress) return;
