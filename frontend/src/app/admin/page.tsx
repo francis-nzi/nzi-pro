@@ -55,10 +55,10 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "Reference Data",
   },
   {
-    title: "Custom Factors",
-    description: "Add custom conversion factors for specific scenarios.",
+    title: "Reusable Factors",
+    description: "Add reusable global and client-level factors for jobs.",
     href: "/admin/custom-factors",
-    cta: "Manage Custom Factors",
+    cta: "Manage Reusable Factors",
     domain: "Reference Data",
   },
   {

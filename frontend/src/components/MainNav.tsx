@@ -25,7 +25,7 @@ const ADMIN_QUICK_LINKS: Array<{
   { label: "Job Items", href: "/admin/job-items", domain: "Reference Data" },
   { label: "Suppliers", href: "/admin/suppliers", domain: "Reference Data" },
   { label: "Datasets & Factors", href: "/admin/datasets", domain: "Reference Data" },
-  { label: "Custom Factors", href: "/admin/custom-factors", domain: "Reference Data" },
+  { label: "Reusable Factors", href: "/admin/custom-factors", domain: "Reference Data" },
   { label: "Templates", href: "/admin/templates", domain: "Reporting & Delivery" },
   { label: "Milestone Templates", href: "/admin/milestone-templates", domain: "Reporting & Delivery" },
   { label: "Automation Rules", href: "/admin/automations", domain: "Reporting & Delivery" },

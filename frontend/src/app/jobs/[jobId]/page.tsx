@@ -2001,7 +2001,7 @@ export default function JobDetailPage() {
                   Custom Dataset
                 </TabsTrigger>
                 <TabsTrigger value="custom-factors" className={navTriggerClassName}>
-                  Custom Factors
+                  Job-Only Factors
                 </TabsTrigger>
                 <TabsTrigger value="spend-data" className={navTriggerClassName}>
                   Spend Data
