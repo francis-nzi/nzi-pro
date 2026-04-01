@@ -18,16 +18,22 @@ SECTION_CONFIGS: dict[str, dict[str, str]] = {
         "title": "Executive Summary",
         "purpose": "Write the opening summary for a client-ready carbon report.",
         "focus": "headline story, direction of travel, biggest drivers, and business meaning",
+        "length": "Write 2 short paragraphs, around 120-180 words in total.",
+        "style": "Open with the client name, total emissions, and the comparison story. Then explain the largest driver, the action picture, and the business implication.",
     },
     "emissions_overview": {
         "title": "Emissions Overview",
         "purpose": "Explain the current emissions footprint and what is driving it.",
         "focus": "scope split, total emissions, category drivers, trend movement, and caveats",
+        "length": "Write 2 short paragraphs, around 120-180 words in total.",
+        "style": "Lead with total emissions and the scope split. Then cover the biggest categories, any year-on-year movement, and the key hotspot to watch.",
     },
     "actions": {
         "title": "Actions",
         "purpose": "Translate the active action plan into report-ready narrative.",
         "focus": "what is already underway, priorities, horizons, and practical next steps",
+        "length": "Write 1-2 short paragraphs, around 100-150 words in total.",
+        "style": "Summarise the current action mix, call out the practical priorities, and show how the plan moves from short-term wins to longer-term delivery.",
     },
 }
 
@@ -80,12 +86,156 @@ def _looks_like_json_text(text: str) -> bool:
     return bool(re.search(r'"(?:section_key|draft_text|bullet_points|evidence_used|summary|narrative)"\s*:', raw))
 
 
+def _word_count(text: str) -> int:
+    raw = _text(text)
+    if not raw:
+        return 0
+    return len(re.findall(r"\S+", raw))
+
+
+def _looks_like_placeholder_draft(text: str) -> bool:
+    raw = _strip_code_fences(text)
+    if not raw:
+        return True
+    lowered = raw.lower()
+    if _looks_like_json_text(raw):
+        return True
+    if "draft the section" in lowered:
+        return True
+    if "supplied evidence" in lowered:
+        return True
+    if "use the strongest available evidence" in lowered:
+        return True
+    if _word_count(raw) < 30:
+        return True
+    return False
+
+
 def _join_text_parts(parts: list[str], *, separator: str = " ") -> str:
     cleaned = [_text(part) for part in parts if _text(part)]
     return separator.join(cleaned).strip()
 
 
-def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, section_key: str) -> str:
+def _format_category_list(categories: list[dict[str, Any]], *, limit: int = 3) -> str:
+    items: list[str] = []
+    for item in categories[:limit]:
+        category = _text(item.get("category") or "Uncategorized")
+        emissions = _as_float(item.get("emissions"))
+        if category:
+            items.append(f"{category} ({emissions:.2f} tCO2e)")
+    return ", ".join(items)
+
+
+def _format_action_list(items: list[dict[str, Any]], *, limit: int = 3) -> str:
+    parts: list[str] = []
+    for item in items[:limit]:
+        name = _text(item.get("action_name") or item.get("name") or "Untitled action")
+        term = _text(item.get("action_term_label") or item.get("action_term") or "")
+        category = _text(item.get("action_category") or "")
+        detail_bits = [bit for bit in [term, category] if bit]
+        if detail_bits:
+            parts.append(f"{name} ({', '.join(detail_bits)})")
+        else:
+            parts.append(name)
+    return "; ".join(parts)
+
+
+def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> str:
+    job_data = context.get("job_data") or {}
+    previous_job_data = context.get("previous_job_data") or {}
+    scope_totals = context.get("scope_totals") or {}
+    benchmark_totals = context.get("benchmark_totals") or {}
+    categories = _sort_categories(context.get("categories") or [])
+    previous_categories = _sort_categories(context.get("previous_categories") or [])
+    job_actions = context.get("job_actions") or {}
+    items = job_actions.get("items") or []
+    current_total = _as_float(scope_totals.get("Total"))
+    previous_total = _as_float(benchmark_totals.get("Total"))
+    change_sentence, _change_pct = _change_text(current_total, previous_total)
+    top = _top_category(categories)
+    top_list = _format_category_list(categories, limit=3)
+    prev_top_list = _format_category_list(previous_categories, limit=3)
+    action_list = _format_action_list(items, limit=3)
+    short_count = int((job_actions.get("term_counts") or {}).get("short") or 0)
+    medium_count = int((job_actions.get("term_counts") or {}).get("medium") or 0)
+    long_count = int((job_actions.get("term_counts") or {}).get("long") or 0)
+    client_name = _text(job_data.get("client_name") or "The client")
+    reporting_year = _text(job_data.get("reporting_year") or "the reporting period")
+    comparison_year = _text(previous_job_data.get("reporting_year") or "the comparison period")
+    comparison_job = _text(previous_job_data.get("job_number") or "")
+
+    if section_key == "executive_summary":
+        paragraph_1 = f"{client_name} reported {current_total:.2f} tCO2e in {reporting_year}. {change_sentence}".strip()
+        if previous_job_data:
+            paragraph_1 += f" The comparison period is {comparison_year}{f' ({comparison_job})' if comparison_job else ''}."
+        paragraph_2_bits = []
+        if top:
+            paragraph_2_bits.append(
+                f"The largest driver is { _text(top.get('category')) } at {_as_float(top.get('emissions')):.2f} tCO2e"
+            )
+        if action_list:
+            paragraph_2_bits.append(
+                f"the current action plan includes {len(items)} actions, with {short_count} short-term, {medium_count} medium-term, and {long_count} long-term priorities"
+            )
+        if paragraph_2_bits:
+            paragraph_2 = " and ".join(paragraph_2_bits).strip()
+            if not paragraph_2.endswith("."):
+                paragraph_2 += "."
+        else:
+            paragraph_2 = "The report should focus on the main emissions drivers and the practical reduction themes most likely to move the footprint."
+        return f"{paragraph_1} {paragraph_2}"
+
+    if section_key == "emissions_overview":
+        paragraph_1 = (
+            f"Total emissions are {current_total:.2f} tCO2e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.2f}, "
+            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.2f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.2f} tCO2e. "
+            f"{change_sentence}"
+        ).strip()
+        paragraph_2_bits = []
+        if top_list:
+            paragraph_2_bits.append(f"the main categories are {top_list}")
+        if prev_top_list:
+            paragraph_2_bits.append(f"the comparison period concentrated on {prev_top_list}")
+        if paragraph_2_bits:
+            paragraph_2 = " ".join(paragraph_2_bits).strip()
+            if not paragraph_2.endswith("."):
+                paragraph_2 += "."
+        else:
+            paragraph_2 = "The footprint should be read alongside the category split to identify the biggest hotspots and any change in trend."
+        return f"{paragraph_1} {paragraph_2}"
+
+    if section_key == "actions":
+        paragraph_1 = (
+            f"The current plan contains {len(items)} actions: {short_count} short-term, {medium_count} medium-term, and {long_count} long-term items."
+        )
+        paragraph_2_bits = []
+        if action_list:
+            paragraph_2_bits.append(f"Priority actions include {action_list}")
+        if top:
+            paragraph_2_bits.append(
+                f"These should remain aligned to the largest emissions source, { _text(top.get('category')) }, at {_as_float(top.get('emissions')):.2f} tCO2e"
+            )
+        if paragraph_2_bits:
+            paragraph_2 = ". ".join(paragraph_2_bits).strip()
+            paragraph_2 = paragraph_2[0].upper() + paragraph_2[1:] if paragraph_2 else paragraph_2
+            if not paragraph_2.endswith("."):
+                paragraph_2 += "."
+        else:
+            paragraph_2 = "The practical next step is to sequence quick wins first and keep the longer-horizon measures moving into a funded delivery roadmap."
+        return f"{paragraph_1} {paragraph_2}"
+
+    return (
+        f"Draft the { _get_section_config(section_key)['title'].lower() } section using the supplied evidence. "
+        f"Current emissions are {current_total:.2f} tCO2e and the comparison note is: {change_sentence}"
+    )
+
+
+def _coerce_readable_draft_text(
+    payload: dict[str, Any],
+    fallback_text: str,
+    section_key: str,
+    context: dict[str, Any] | None = None,
+) -> str:
     section_title = _get_section_config(section_key)["title"]
     candidates = [
         payload.get("draft_text"),
@@ -98,7 +248,7 @@ def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, sec
 
     for candidate in candidates:
         candidate_text = _strip_code_fences(candidate)
-        if candidate_text and not _looks_like_json_text(candidate_text):
+        if candidate_text and not _looks_like_placeholder_draft(candidate_text):
             return candidate_text
 
     paragraphs = payload.get("paragraphs")
@@ -123,8 +273,12 @@ def _coerce_readable_draft_text(payload: dict[str, Any], fallback_text: str, sec
         ).strip()
 
     fallback_candidate = _strip_code_fences(fallback_text)
-    if fallback_candidate and not _looks_like_json_text(fallback_candidate):
+    if fallback_candidate and not _looks_like_placeholder_draft(fallback_candidate):
         return fallback_candidate
+
+    rich_fallback = _build_section_fallback_draft(context or {}, section_key)
+    if rich_fallback.strip():
+        return rich_fallback.strip()
 
     if section_key == "executive_summary":
         return (
@@ -343,6 +497,10 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
             "You are drafting a client-ready carbon report section.",
             "Use only the evidence provided below. Do not invent data, dates, or claims.",
             "If a detail is missing, say so plainly.",
+            "Write the draft_text as finished report prose, not as a prompt, note, or placeholder sentence.",
+            "Do not write phrases like 'draft the section' or 'use the supplied evidence' in the draft_text field.",
+            f"{config['length']} {config['style']}",
+            "The draft_text should read naturally in a report and should be specific to the evidence pack.",
             "Return ONLY valid JSON with this schema:",
             json.dumps(schema, ensure_ascii=False),
             "",
@@ -368,38 +526,7 @@ def _fallback_payload(context: dict[str, Any], section_key: str, *, reason: str)
     previous_total = _as_float(benchmark_totals.get("Total"))
     change_sentence, _change_pct = _change_text(current_total, previous_total)
     top = _top_category(categories)
-
-    if section_key == "executive_summary":
-        draft_text = (
-            f"{_text(job_data.get('client_name') or 'The client')} reported {current_total:.2f} tCO2e in "
-            f"{_text(job_data.get('reporting_year') or 'the reporting period')}. "
-            f"{change_sentence} "
-            f"{('The largest driver is ' + _text(top.get('category')) + ' at ' + f'{_as_float(top.get('emissions')):.2f} tCO2e.' ) if top else 'A full category split should be reviewed to confirm the main drivers.'} "
-            f"The action plan currently contains {len(items)} actions to support the next phase of reduction."
-        )
-    elif section_key == "emissions_overview":
-        draft_text = (
-            f"Emissions total {current_total:.2f} tCO2e across Scope 1 { _as_float(scope_totals.get('Scope 1')):.2f}, "
-            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.2f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.2f} tCO2e. "
-            f"{change_sentence} "
-            f"{('The highest category is ' + _text(top.get('category')) + ', contributing ' + f'{_as_float(top.get('emissions')):.2f} tCO2e.' ) if top else 'The current dataset does not isolate a single leading category.'} "
-            f"Review the detailed breakdown to confirm material hotspots and any change in trend."
-        )
-    elif section_key == "actions":
-        short_count = int((job_actions.get("term_counts") or {}).get("short") or 0)
-        medium_count = int((job_actions.get("term_counts") or {}).get("medium") or 0)
-        long_count = int((job_actions.get("term_counts") or {}).get("long") or 0)
-        draft_text = (
-            f"The current plan contains {len(items)} actions: {short_count} short-term, {medium_count} medium-term, and {long_count} long-term. "
-            f"Prioritise the highest-impact operational measures first, then carry forward the longer-horizon items into the delivery roadmap. "
-            f"{'The strongest signal in the data is the leading category ' + _text(top.get('category')) + '.' if top else 'The action plan should be aligned to the main emissions drivers identified in the overview.'}"
-        )
-    else:
-        draft_text = (
-            f"Draft the {config['title'].lower()} section using the supplied evidence. "
-            f"{change_sentence} "
-            f"Use the strongest available evidence and flag any gaps."
-        )
+    draft_text = _build_section_fallback_draft(context, section_key)
 
     evidence_used: list[dict[str, str]] = []
     if current_total:
@@ -429,13 +556,20 @@ def _fallback_payload(context: dict[str, Any], section_key: str, *, reason: str)
     }
 
 
-def _normalize_payload(payload: dict[str, Any], fallback_text: str, section_key: str) -> dict[str, Any]:
+def _normalize_payload(
+    payload: dict[str, Any],
+    fallback_text: str,
+    section_key: str,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     config = _get_section_config(section_key)
     confidence = _text(payload.get("confidence")).lower()
     if confidence not in {"low", "medium", "high"}:
         confidence = "medium"
 
-    draft_text = _coerce_readable_draft_text(payload, fallback_text, section_key)
+    draft_text = _coerce_readable_draft_text(payload, fallback_text, section_key, context=context)
+    if _looks_like_placeholder_draft(draft_text):
+        draft_text = _build_section_fallback_draft(context or {}, section_key)
 
     evidence_used = []
     for row in payload.get("evidence_used") or []:
@@ -504,10 +638,13 @@ def generate_report_section_draft(
 
     parsed = _extract_json(raw_text)
     if parsed:
-        normalized = _normalize_payload(parsed, raw_text, section_key)
+        normalized = _normalize_payload(parsed, raw_text, section_key, context)
     else:
         normalized = _fallback_payload(context, section_key, reason="model returned unstructured output")
-        normalized["draft_text"] = raw_text.strip() or normalized["draft_text"]
+        if raw_text.strip() and not _looks_like_placeholder_draft(raw_text):
+            normalized["draft_text"] = raw_text.strip()
+        else:
+            normalized["draft_text"] = _build_section_fallback_draft(context, section_key)
         normalized["confidence"] = normalized.get("confidence") or "low"
         if raw_text.strip():
             normalized["caveats"] = _safe_list(normalized.get("caveats")) + ["Model response could not be parsed as JSON; review before use."]
