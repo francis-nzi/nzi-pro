@@ -55,7 +55,7 @@ type CommunicationsResponse = {
 type Props = {
   jobId: number;
   baseUrl: string;
-  mode?: "all" | "inbox" | "timeline" | "email" | "tasks" | "automation";
+  mode?: "all" | "inbox" | "timeline" | "notes" | "email" | "tasks" | "automation";
 };
 
 type InboxItem = {
@@ -132,11 +132,12 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
   const tasks = useMemo(() => data?.tasks || [], [data]);
 
   const showInbox = mode === "all" || mode === "inbox";
-  const showTimeline = mode === "all" || mode === "timeline";
+  const showTimeline = mode === "all" || mode === "timeline" || mode === "notes";
+  const showNotes = mode === "notes";
   const showEmail = mode === "all" || mode === "email";
   const showTasks = mode === "all" || mode === "tasks";
   const showAutomation = mode === "all" || mode === "automation";
-  const showLogCard = mode === "all" || mode === "timeline";
+  const showLogCard = mode === "all" || mode === "timeline" || mode === "notes";
 
   const inboxItems = useMemo<InboxItem[]>(() => {
     const commItems: InboxItem[] = communications.map((c) => ({
@@ -180,6 +181,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       return haystack.includes(q);
     });
   }, [inboxItems, inboxQuery, inboxType, inboxDirection, inboxTaskStatus]);
+
+  const noteOnlyCommunications = useMemo(() => {
+    if (!showNotes) return communications;
+    return communications.filter((c) => String(c.channel || "").toLowerCase() === "note");
+  }, [communications, showNotes]);
 
   async function addCommunication() {
     if (!messageText.trim()) {
@@ -483,10 +489,17 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {showLogCard ? (
-          <Card>
-            <CardHeader><CardTitle>Log Communication</CardTitle></CardHeader>
+      {showLogCard ? (
+        <Card>
+            <CardHeader>
+              <CardTitle>{showNotes ? "Add Note" : "Log Communication"}</CardTitle>
+            </CardHeader>
             <CardContent className="space-y-3">
+              {showNotes ? (
+                <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Notes are saved as internal communications and will appear in the job timeline and inbox.
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Direction</Label>
@@ -605,18 +618,22 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {showTimeline ? (
+      {showTimeline ? (
           <Card>
             <CardHeader>
-              <CardTitle>Communication Timeline ({data?.summary?.communications_count ?? 0})</CardTitle>
+              <CardTitle>
+                {showNotes ? `Notes Timeline (${noteOnlyCommunications.length})` : `Communication Timeline (${data?.summary?.communications_count ?? 0})`}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {loading ? (
                 <div className="text-sm text-muted-foreground">Loading...</div>
-              ) : communications.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No communication entries yet.</div>
+              ) : (showNotes ? noteOnlyCommunications : communications).length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  {showNotes ? "No notes yet." : "No communication entries yet."}
+                </div>
               ) : (
-                communications.map((c) => (
+                (showNotes ? noteOnlyCommunications : communications).map((c) => (
                   <div key={c.communication_id} className="rounded-md border p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-medium">[{c.channel}] {c.subject || "(No subject)"}</div>

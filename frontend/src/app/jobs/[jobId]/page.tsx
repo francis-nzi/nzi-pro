@@ -1993,6 +1993,9 @@ export default function JobDetailPage() {
                 <TabsTrigger value="communications-inbox" className={navTriggerClassName}>
                   Inbox
                 </TabsTrigger>
+                <TabsTrigger value="communications-notes" className={navTriggerClassName}>
+                  Notes
+                </TabsTrigger>
                 <TabsTrigger value="communications-email" className={navTriggerClassName}>
                   Email
                 </TabsTrigger>
@@ -2932,6 +2935,10 @@ export default function JobDetailPage() {
 
           <TabsContent value="communications-inbox" className="mt-0">
             <JobCommunications jobId={jobId} baseUrl={baseUrl} mode="inbox" />
+          </TabsContent>
+
+          <TabsContent value="communications-notes" className="mt-0">
+            <JobCommunications jobId={jobId} baseUrl={baseUrl} mode="notes" />
           </TabsContent>
 
           <TabsContent value="communications-email" className="mt-0">
