@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 
 type ScopeTotals = {
   scope_1: number;
@@ -14,16 +13,9 @@ type ScopeTotals = {
 type EmissionsSummaryProps = {
   jobId: number;
   baseUrl?: string;
-  variant?: "card" | "compact";
-  className?: string;
 };
 
-export default function EmissionsSummary({
-  jobId,
-  baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
-  variant = "card",
-  className,
-}: EmissionsSummaryProps) {
+export default function EmissionsSummary({ jobId, baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "" }: EmissionsSummaryProps) {
   const [loading, setLoading] = useState(true);
   const [scopeTotals, setScopeTotals] = useState<ScopeTotals | null>(null);
 
@@ -86,45 +78,8 @@ export default function EmissionsSummary({
     });
   };
 
-  if (variant === "compact") {
-    return (
-      <div className={cn("rounded-2xl border bg-slate-50/80 p-4 shadow-sm", className)}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Emissions Summary</div>
-            <div className="mt-1 text-sm text-slate-600">Current job totals</div>
-          </div>
-          {loading ? <div className="text-sm text-muted-foreground">Loading...</div> : null}
-        </div>
-
-        {scopeTotals ? (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border bg-white px-4 py-3 text-center">
-              <div className="text-2xl font-bold text-slate-950">{formatNumber(scopeTotals.total)}</div>
-              <div className="text-xs text-muted-foreground">Total tCO2e</div>
-            </div>
-            <div className="rounded-xl border bg-white px-4 py-3 text-center">
-              <div className="text-2xl font-bold text-red-600">{formatNumber(scopeTotals.scope_1)}</div>
-              <div className="text-xs text-muted-foreground">Scope 1</div>
-            </div>
-            <div className="rounded-xl border bg-white px-4 py-3 text-center">
-              <div className="text-2xl font-bold text-orange-600">{formatNumber(scopeTotals.scope_2)}</div>
-              <div className="text-xs text-muted-foreground">Scope 2</div>
-            </div>
-            <div className="rounded-xl border bg-white px-4 py-3 text-center">
-              <div className="text-2xl font-bold text-blue-600">{formatNumber(scopeTotals.scope_3)}</div>
-              <div className="text-xs text-muted-foreground">Scope 3</div>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-3 text-sm text-muted-foreground">No data</div>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <Card className={className}>
+    <Card>
       <CardHeader>
         <CardTitle>Emissions Summary</CardTitle>
       </CardHeader>
