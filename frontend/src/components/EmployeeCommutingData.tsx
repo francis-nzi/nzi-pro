@@ -441,7 +441,7 @@ export default function EmployeeCommutingData({
       }
       const data = await res.json();
       setStatus(
-        `Employee commuting import completed. Inserted ${data?.inserted ?? 0} rows${
+        `Employee commuting import completed. Inserted ${data?.inserted ?? 0} grouped row(s) from ${data?.source_row_count ?? data?.inserted ?? 0} workbook row(s)${
           replaceExisting ? `, replaced ${data?.disabled ?? 0}` : ""
         }.`
       );

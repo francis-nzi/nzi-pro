@@ -1096,6 +1096,81 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
     }
 
 
+def _merge_commuting_ready_rows(ready_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[Any, Any, Any, Any, Any], dict[str, Any]] = {}
+    order: list[tuple[Any, Any, Any, Any, Any]] = []
+
+    for row in ready_rows:
+        key = (
+            row.get("site_id"),
+            row.get("scope"),
+            row.get("original_id"),
+            row.get("data_source"),
+            row.get("row_type"),
+        )
+        if key not in grouped:
+            grouped[key] = dict(row)
+            grouped[key]["_source_row_count"] = 1
+            grouped[key]["_employee_names"] = []
+            grouped[key]["_notes"] = []
+            employee_name = _safe_str(row.get("employee_name"))
+            note_text = _safe_str(row.get("notes"))
+            if employee_name:
+                grouped[key]["_employee_names"].append(employee_name)
+            if note_text:
+                grouped[key]["_notes"].append(note_text)
+            order.append(key)
+            continue
+
+        bucket = grouped[key]
+        bucket["_source_row_count"] = int(bucket.get("_source_row_count") or 0) + 1
+
+        employee_name = _safe_str(row.get("employee_name"))
+        if employee_name and employee_name not in bucket["_employee_names"]:
+            bucket["_employee_names"].append(employee_name)
+
+        note_text = _safe_str(row.get("notes"))
+        if note_text and note_text not in bucket["_notes"]:
+            bucket["_notes"].append(note_text)
+
+        bucket["qty"] = float(bucket.get("qty") or 0.0) + float(row.get("qty") or 0.0)
+        bucket["calc_tco2e"] = float(bucket.get("calc_tco2e") or 0.0) + float(row.get("calc_tco2e") or 0.0)
+
+    merged_rows: list[dict[str, Any]] = []
+    for key in order:
+        row = grouped[key]
+        row_count = int(row.pop("_source_row_count", 1) or 1)
+        employee_names = [name for name in row.pop("_employee_names", []) if name]
+        notes = [note for note in row.pop("_notes", []) if note]
+
+        if row_count > 1:
+            summary_bits = [f"Aggregated {row_count} workbook rows"]
+            if employee_names:
+                sample_names = ", ".join(employee_names[:5])
+                if len(employee_names) > 5:
+                    sample_names = f"{sample_names}, ..."
+                summary_bits.append(f"employees: {sample_names}")
+            if notes:
+                summary_bits.append(f"notes: {' | '.join(notes[:3])}")
+
+            aggregation_note = "; ".join(summary_bits)
+            existing_note = _safe_str(row.get("notes"))
+            row["notes"] = f"{aggregation_note} | {existing_note}" if existing_note else aggregation_note
+
+        merged_rows.append(row)
+
+    return merged_rows
+
+
+def _is_commuting_unique_violation(exc: Exception) -> bool:
+    message = str(exc)
+    return (
+        "job_scope_rows_job_site_scope_active_uidx" in message
+        or "duplicate key value violates unique constraint" in message
+        or "UNIQUE constraint failed" in message
+    )
+
+
 def _disable_existing_commuting_rows(con, job_id: int, site_id: int | None) -> int:
     rows = con.execute(
         """
@@ -1572,7 +1647,7 @@ def download_employee_commuting_template(
     site_id: int | None = Query(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    with get_conn() as con:
+    with get_conn(autocommit=False) as con:
         meta = _job_meta(con, int(job_id))
         _, site_label = _job_site_label(con, int(job_id), site_id)
         workbook_bytes = _build_template_workbook(meta, site_label)
@@ -1675,62 +1750,77 @@ async def commit_employee_commuting_upload(
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
 
-    with get_conn() as con:
-        _ensure_job_scope_rows_schema(con)
-        meta = _job_meta(con, int(job_id))
-        validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
-        parsed_rows = _parse_template(raw)
-        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
+    try:
+        with get_conn(autocommit=False) as con:
+            _ensure_job_scope_rows_schema(con)
+            meta = _job_meta(con, int(job_id))
+            validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
+            parsed_rows = _parse_template(raw)
+            preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
 
-        if preview["unresolved_count"] > 0:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "message": "Upload contains unresolved rows. Please correct the workbook and preview again before import.",
-                    "preview": {
-                        "job_id": int(job_id),
-                        "site_id": validated_site_id,
-                        "site_label": site_label,
-                        "template_version": TEMPLATE_VERSION,
-                        **preview,
+            if preview["unresolved_count"] > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": "Upload contains unresolved rows. Please correct the workbook and preview again before import.",
+                        "preview": {
+                            "job_id": int(job_id),
+                            "site_id": validated_site_id,
+                            "site_label": site_label,
+                            "template_version": TEMPLATE_VERSION,
+                            **preview,
+                        },
                     },
+                )
+
+            if preview["ready_count"] <= 0:
+                raise HTTPException(status_code=400, detail="No importable employee commuting rows were found")
+
+            grouped_rows = _merge_commuting_ready_rows(preview["ready_rows"])
+            disabled = 0
+            if replace_existing:
+                disabled = _disable_existing_commuting_rows(con, int(job_id), validated_site_id)
+
+            inserted = _insert_ready_rows(con, int(job_id), grouped_rows)
+
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="import",
+                entity_type="employee_commuting_import",
+                entity_id=f"{int(job_id)}:{validated_site_id if validated_site_id is not None else 'all'}",
+                client_id=meta.get("client_db_id"),
+                job_id=int(job_id),
+                metadata={
+                    "site_id": validated_site_id,
+                    "site_label": site_label,
+                    "replace_existing": bool(replace_existing),
+                    "inserted": int(inserted),
+                    "disabled": int(disabled),
+                    "parsed_count": int(preview.get("parsed_count") or 0),
+                    "ready_count": int(preview.get("ready_count") or 0),
+                    "grouped_count": int(len(grouped_rows)),
+                    "unresolved_count": int(preview.get("unresolved_count") or 0),
+                    "total_tco2e": float(preview.get("total_tco2e") or 0.0),
+                    "employee_headcount": preview.get("employee_headcount"),
+                    "commuting_response_count": preview.get("commuting_response_count"),
+                    "commuting_scale_factor": preview.get("commuting_scale_factor"),
+                    "data_source": COMMUTING_DATA_SOURCE,
                 },
             )
-
-        if preview["ready_count"] <= 0:
-            raise HTTPException(status_code=400, detail="No importable employee commuting rows were found")
-
-        disabled = 0
-        if replace_existing:
-            disabled = _disable_existing_commuting_rows(con, int(job_id), validated_site_id)
-
-        inserted = _insert_ready_rows(con, int(job_id), preview["ready_rows"])
-
-        record_audit_event(
-            con,
-            request=request,
-            actor=_user,
-            action="import",
-            entity_type="employee_commuting_import",
-            entity_id=f"{int(job_id)}:{validated_site_id if validated_site_id is not None else 'all'}",
-            client_id=meta.get("client_db_id"),
-            job_id=int(job_id),
-            metadata={
-                "site_id": validated_site_id,
-                "site_label": site_label,
-                "replace_existing": bool(replace_existing),
-                "inserted": int(inserted),
-                "disabled": int(disabled),
-                "parsed_count": int(preview.get("parsed_count") or 0),
-                "ready_count": int(preview.get("ready_count") or 0),
-                "unresolved_count": int(preview.get("unresolved_count") or 0),
-                "total_tco2e": float(preview.get("total_tco2e") or 0.0),
-                "employee_headcount": preview.get("employee_headcount"),
-                "commuting_response_count": preview.get("commuting_response_count"),
-                "commuting_scale_factor": preview.get("commuting_scale_factor"),
-                "data_source": COMMUTING_DATA_SOURCE,
-            },
-        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if _is_commuting_unique_violation(exc):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This commuting import conflicts with an existing active row for the same commute factor. "
+                    "Use Replace previous commuting import, or clear the existing commuting rows for this site and try again."
+                ),
+            ) from exc
+        raise
 
     return {
         "ok": True,
@@ -1738,6 +1828,7 @@ async def commit_employee_commuting_upload(
         "site_id": validated_site_id,
         "site_label": site_label,
         "inserted": int(inserted),
+        "source_row_count": int(preview.get("ready_count") or 0),
         "disabled": int(disabled),
         "total_tco2e": float(preview["total_tco2e"]),
         "employee_headcount": preview.get("employee_headcount"),
