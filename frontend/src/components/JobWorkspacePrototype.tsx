@@ -145,7 +145,7 @@ export default function JobWorkspacePrototype({
           if (res.status === 404) {
             if (!cancelled) {
               setJob(SAMPLE_JOB);
-              setNotice("Prototype shell preview: using sample job context because this deployment cannot read the live job record.");
+              setNotice("Sample job context shown: this prototype service cannot read the live job record in Render.");
             }
             return;
           }
@@ -158,7 +158,7 @@ export default function JobWorkspacePrototype({
       } catch (err) {
         if (!cancelled) {
           setJob(SAMPLE_JOB);
-          setNotice("Prototype shell preview: using sample job context because the live job record could not be loaded.");
+          setNotice("Sample job context shown: the prototype could not load the live job record.");
         }
       } finally {
         if (!cancelled) {
@@ -184,6 +184,7 @@ export default function JobWorkspacePrototype({
     activeGroupConfig.sections[0];
 
   const jobSummary = job || SAMPLE_JOB;
+  const isSampleContext = jobSummary === SAMPLE_JOB;
   const jobNumberLabel =
     (jobSummary?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() || "Job";
   const jobTitleLabel = (jobSummary?.title || "").trim();
@@ -233,7 +234,7 @@ export default function JobWorkspacePrototype({
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground">
                 <p>Try this route on desktop and tablet to check whether the top-nav pattern feels wider and calmer.</p>
-                <p>Keep the current Jobs page stable while we validate the shell here first.</p>
+                <p>Use the groups and subsections to test spacing, density, and flow before we promote anything to Jobs.</p>
               </CardContent>
             </Card>
           </div>
@@ -276,11 +277,11 @@ export default function JobWorkspacePrototype({
                     pattern.
                   </p>
                   <p>
-                    Use the stable job page to open the live report editor while we iterate on the new shell.
+                    Use the live job page to open the current report editor while we iterate on the new shell.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button asChild>
-                      <Link href={openStableJob}>Open stable job page</Link>
+                      <Link href={openStableJob}>Open live job page</Link>
                     </Button>
                   </div>
                 </CardContent>
@@ -306,7 +307,16 @@ export default function JobWorkspacePrototype({
             { label: "Jobs", href: "/jobs" },
             { label: jobNumberLabel },
           ]}
-          titleSuffix={<Badge className="border-slate-200 bg-slate-50 text-slate-700">Prototype</Badge>}
+          titleSuffix={
+            <div className="flex flex-wrap gap-2">
+              <Badge className="border-slate-200 bg-slate-50 text-slate-700">Prototype</Badge>
+              {isSampleContext ? (
+                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                  Sample preview
+                </Badge>
+              ) : null}
+            </div>
+          }
           meta={
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -318,6 +328,11 @@ export default function JobWorkspacePrototype({
                 <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
                   Owner: {ownerLabel}
                 </Badge>
+                {isSampleContext ? (
+                  <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
+                    Sample job context
+                  </Badge>
+                ) : null}
                 {Number.isFinite(jobId) ? (
                   <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
                     Job ID: {jobId}
