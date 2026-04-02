@@ -45,3 +45,19 @@ services:
         value: https://nzi-pro-api-prod.onrender.com
       - key: BACKEND_API_BASE_URL
         value: https://nzi-pro-api-prod.onrender.com
+
+  - type: web
+    name: nzi-pro-web-prototype
+    runtime: node
+    rootDir: frontend
+    branch: prototype/job-top-nav-shell
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://nzi-pro-api-prod.onrender.com
+      - key: BACKEND_API_BASE_URL
+        value: https://nzi-pro-api-prod.onrender.com

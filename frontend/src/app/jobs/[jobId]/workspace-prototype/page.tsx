@@ -1,11 +1,12 @@
 import JobWorkspacePrototype from "@/components/JobWorkspacePrototype";
 
-export default function JobWorkspacePrototypePage({
+export default async function JobWorkspacePrototypePage({
   params,
 }: {
-  params: { jobId: string };
+  params: Promise<{ jobId: string }>;
 }) {
-  const jobId = Number(params?.jobId);
+  const { jobId: jobIdParam } = await params;
+  const jobId = Number(jobIdParam);
 
   return <JobWorkspacePrototype jobId={Number.isFinite(jobId) ? jobId : 0} />;
 }
