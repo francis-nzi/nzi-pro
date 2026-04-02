@@ -114,7 +114,7 @@ export default function JobWorkspacePrototype({
 }) {
   const [job, setJob] = useState<JobSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [activeGroup, setActiveGroup] = useState<WorkspaceGroup["value"]>("setup");
   const [sectionByGroup, setSectionByGroup] = useState<Record<string, string>>({
     setup: "setup-overview",
@@ -126,10 +126,17 @@ export default function JobWorkspacePrototype({
     let cancelled = false;
     const loadJob = async () => {
       setLoading(true);
-      setError("");
+      setNotice("");
       try {
         const res = await fetch(`${baseUrl}/jobs/${jobId}`, { credentials: "include" });
         if (!res.ok) {
+          if (res.status === 404) {
+            if (!cancelled) {
+              setJob(null);
+              setNotice("Prototype shell preview: job details are not available in this deployment, so the shell is using fallback labels.");
+            }
+            return;
+          }
           throw new Error(`Failed to load job (${res.status})`);
         }
         const payload = await res.json();
@@ -138,7 +145,7 @@ export default function JobWorkspacePrototype({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load prototype workspace");
+          setNotice(err instanceof Error ? err.message : "Failed to load prototype workspace");
         }
       } finally {
         if (!cancelled) {
@@ -329,7 +336,7 @@ export default function JobWorkspacePrototype({
           }
         />
 
-        {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
+        {notice ? <div className="mb-4 text-sm text-muted-foreground">{notice}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading prototype...</div> : null}
 
         <div className="space-y-6">
