@@ -53,6 +53,78 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
+type WorkspaceNavItem = {
+  value: string;
+  label: string;
+};
+
+type WorkspaceNavGroup = {
+  label: string;
+  items: WorkspaceNavItem[];
+};
+
+const JOB_WORKSPACE_NAV_GROUPS: WorkspaceNavGroup[] = [
+  {
+    label: "Setup",
+    items: [{ value: "setup", label: "Setup Overview" }],
+  },
+  {
+    label: "Data",
+    items: [
+      { value: "data-entry", label: "Data Entry" },
+      { value: "employee-commuting", label: "Employee Commuting" },
+      { value: "asset-register", label: "Asset Register" },
+      { value: "business-travel", label: "Business Travel" },
+      { value: "upload", label: "Data Upload" },
+      { value: "custom-dataset", label: "Custom Dataset" },
+      { value: "custom-factors", label: "Job-Only Factors" },
+      { value: "spend-data", label: "Spend Data" },
+    ],
+  },
+  {
+    label: "Outputs",
+    items: [
+      { value: "data-output", label: "Data Output" },
+      { value: "actions", label: "Actions" },
+      { value: "report-new", label: "Report (New)" },
+      { value: "reporting", label: "Reporting (Legacy)" },
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [{ value: "lca", label: "Life Cycle Analysis" }],
+  },
+  {
+    label: "Communications",
+    items: [
+      { value: "communications-timeline", label: "Timeline" },
+      { value: "communications-inbox", label: "Inbox" },
+      { value: "communications-notes", label: "Notes" },
+      { value: "communications-email", label: "Email" },
+      { value: "communications-tasks", label: "Tasks" },
+      { value: "communications-automation", label: "Automation" },
+      { value: "communications-crm", label: "CRM Timeline" },
+    ],
+  },
+  {
+    label: "Financial",
+    items: [
+      { value: "financial-quotes", label: "Quotes" },
+      { value: "financial-invoices", label: "Invoices" },
+      { value: "financial-other-costs", label: "Other Costs" },
+      { value: "financial-profit-loss", label: "Profit & Loss" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { value: "custom-fields", label: "Custom Fields" },
+      { value: "files", label: "Files" },
+      { value: "time", label: "Time Entries" },
+    ],
+  },
+];
+
 const MONTH_MAP: Record<string, number> = {
   January: 1, February: 2, March: 3, April: 4,
   May: 5, June: 6, July: 7, August: 8,
@@ -798,7 +870,7 @@ export default function JobDetailPage() {
   const primaryActionLabel =
     primaryActionTab === "setup" ? "Continue Setup" : "Go to Data Entry";
   const navTriggerClassName =
-    "w-full justify-start rounded-md px-3 py-2 text-sm font-medium hover:bg-muted/60 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none";
+    "h-9 rounded-full border border-transparent bg-background px-3 text-sm font-medium shadow-none transition-colors hover:border-slate-300 hover:bg-white data-[state=active]:border-slate-900 data-[state=active]:bg-slate-900 data-[state=active]:text-white";
 
   function selectedSiteName(): string {
     if (selectedSiteId === "All") return "All";
@@ -1967,135 +2039,30 @@ export default function JobDetailPage() {
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="flex flex-col items-start gap-6 lg:flex-row">
-            <TabsList className="h-auto w-full flex-col items-stretch gap-4 rounded-lg border bg-muted/40 p-4 lg:w-64">
-              <div className="space-y-1">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Setup
-                </div>
-                <TabsTrigger value="setup" className={navTriggerClassName}>
-                  Setup Overview
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Data
-                </div>
-                <TabsTrigger value="data-entry" className={navTriggerClassName}>
-                  Data Entry
-                </TabsTrigger>
-                <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
-                  Employee Commuting
-                </TabsTrigger>
-                <TabsTrigger value="asset-register" className={navTriggerClassName}>
-                  Asset Register
-                </TabsTrigger>
-                <TabsTrigger value="business-travel" className={navTriggerClassName}>
-                  Business Travel
-                </TabsTrigger>
-                <TabsTrigger value="upload" className={navTriggerClassName}>
-                  Data Upload
-                </TabsTrigger>
-                <TabsTrigger value="custom-dataset" className={navTriggerClassName}>
-                  Custom Dataset
-                </TabsTrigger>
-                <TabsTrigger value="custom-factors" className={navTriggerClassName}>
-                  Job-Only Factors
-                </TabsTrigger>
-                <TabsTrigger value="spend-data" className={navTriggerClassName}>
-                  Spend Data
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Outputs
-                </div>
-                <TabsTrigger value="data-output" className={navTriggerClassName}>
-                  Data Output
-                </TabsTrigger>
-                <TabsTrigger value="actions" className={navTriggerClassName}>
-                  Actions
-                </TabsTrigger>
-                <TabsTrigger value="report-new" className={navTriggerClassName}>
-                  Report (New)
-                </TabsTrigger>
-                <TabsTrigger value="reporting" className={navTriggerClassName}>
-                  Reporting (Legacy)
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  LCA
-                </div>
-                <TabsTrigger value="lca" className={navTriggerClassName}>
-                  Life Cycle Analysis
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Communications
-                </div>
-                <TabsTrigger value="communications-timeline" className={navTriggerClassName}>
-                  Timeline
-                </TabsTrigger>
-                <TabsTrigger value="communications-inbox" className={navTriggerClassName}>
-                  Inbox
-                </TabsTrigger>
-                <TabsTrigger value="communications-notes" className={navTriggerClassName}>
-                  Notes
-                </TabsTrigger>
-                <TabsTrigger value="communications-email" className={navTriggerClassName}>
-                  Email
-                </TabsTrigger>
-                <TabsTrigger value="communications-tasks" className={navTriggerClassName}>
-                  Tasks
-                </TabsTrigger>
-                <TabsTrigger value="communications-automation" className={navTriggerClassName}>
-                  Automation
-                </TabsTrigger>
-                <TabsTrigger value="communications-crm" className={navTriggerClassName}>
-                  CRM Timeline
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Financial
-                </div>
-                <TabsTrigger value="financial-quotes" className={navTriggerClassName}>
-                  Quotes
-                </TabsTrigger>
-                <TabsTrigger value="financial-invoices" className={navTriggerClassName}>
-                  Invoices
-                </TabsTrigger>
-                <TabsTrigger value="financial-other-costs" className={navTriggerClassName}>
-                  Other Costs
-                </TabsTrigger>
-                <TabsTrigger value="financial-profit-loss" className={navTriggerClassName}>
-                  Profit & Loss
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Admin
-                </div>
-                <TabsTrigger value="custom-fields" className={navTriggerClassName}>
-                  Custom Fields
-                </TabsTrigger>
-                <TabsTrigger value="files" className={navTriggerClassName}>
-                  Files
-                </TabsTrigger>
-                <TabsTrigger value="time" className={navTriggerClassName}>
-                  Time Entries
-                </TabsTrigger>
-              </div>
-            </TabsList>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
+          <EmissionsSummary jobId={jobId} baseUrl={baseUrl} variant="compact" />
 
-            <div className="flex-1">
-              <TabsContent value="setup" className="mt-0">
+          <div className="rounded-2xl border bg-muted/40 p-4">
+            <TabsList className="flex w-full flex-col gap-4 bg-transparent p-0">
+              {JOB_WORKSPACE_NAV_GROUPS.map((group) => (
+                <div key={group.label} className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {group.label}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {group.items.map((item) => (
+                      <TabsTrigger key={item.value} value={item.value} className={navTriggerClassName}>
+                        {item.label}
+                      </TabsTrigger>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </TabsList>
+          </div>
+
+          <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
-              
               <div className="grid gap-6 md:grid-cols-2">
                 <Card>
             <CardHeader>
@@ -2789,8 +2756,6 @@ export default function JobDetailPage() {
 
           <TabsContent value="upload" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
-              
               <Card>
                 <CardHeader>
                   <CardTitle>Excel Upload</CardTitle>
@@ -2963,7 +2928,6 @@ export default function JobDetailPage() {
 
           <TabsContent value="spend-data" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
               <SpendDataCollection jobId={jobId} baseUrl={baseUrl} />
             </div>
           </TabsContent>
@@ -3085,8 +3049,6 @@ export default function JobDetailPage() {
           <TabsContent value="time" className="mt-0">
             <JobTimeEntries jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
-            </div>
-          </div>
         </Tabs>
       </div>
     </div>
