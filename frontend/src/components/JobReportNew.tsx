@@ -206,6 +206,34 @@ function getDraftSectionKey(section: string): string {
   return normalized.toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }
 
+function getDraftSectionMeta(section: string): { badge: string; hint: string } {
+  const normalized = SECTION_LABEL_ALIASES[section] || section;
+
+  if (normalized === "Executive Summary") {
+    return {
+      badge: "Opening narrative",
+      hint: "Lead with the headline change and the business takeaway.",
+    };
+  }
+  if (normalized === "Emissions Overview") {
+    return {
+      badge: "Emissions story",
+      hint: "Focus on totals, scope split, and the biggest drivers.",
+    };
+  }
+  if (normalized === "Actions") {
+    return {
+      badge: "Action-led",
+      hint: "Group practical next steps and the most important priorities.",
+    };
+  }
+
+  return {
+    badge: "Section draft",
+    hint: "Draft this section with the supplied job and client evidence.",
+  };
+}
+
 function stripCodeFences(text: string): string {
   return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
 }
@@ -1037,7 +1065,7 @@ export default function JobReportNew({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-xl border bg-slate-50 p-4">
+            <div className="rounded-xl border bg-slate-50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="bg-white">
                   {selectedProfile.subtitle}
@@ -1054,42 +1082,48 @@ export default function JobReportNew({
                     : "AI drafting ready"}
                 </Badge>
               </div>
-              <p className="mt-3 text-sm text-slate-600">
-                Draft one section, keep the rest as quick navigation, and move to preview/export when the narrative feels coherent.
+              <p className="mt-2 text-sm text-slate-600">
+                Draft one section at a time, keep the others as quick navigation, and move to preview/export when the narrative feels coherent.
               </p>
               {draftContext?.context_summary ? (
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-1.5 text-sm text-slate-500">
                   Draft inputs: {draftContext.context_summary}
                 </p>
               ) : null}
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-              <div className="rounded-2xl border bg-white p-3">
-                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Sections</div>
-                <div className="mt-3 space-y-2">
+            <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
+              <div className="rounded-2xl border bg-white p-2.5">
+                <div className="flex items-center justify-between gap-2 px-0.5">
+                  <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Sections</div>
+                  <Badge variant="outline" className="bg-slate-50 text-[11px]">
+                    {selectedProfile.sections.length} total
+                  </Badge>
+                </div>
+                <div className="mt-2 space-y-1.5">
                   {selectedProfile.sections.map((section) => {
                     const isActive = activeDraftSection === section;
                     const origin = draftOrigins[section];
                     const originLabel =
                       origin === "ai" ? "AI drafted" : origin === "local" ? "Drafted" : "Starter prompt";
+                    const meta = getDraftSectionMeta(section);
                     return (
                       <button
                         key={section}
                         type="button"
                         onClick={() => setActiveDraftSection(section)}
-                        className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                        title={meta.hint}
+                        className={`w-full rounded-xl border px-2.5 py-2.5 text-left transition ${
                           isActive
                             ? "border-slate-900 bg-slate-50 shadow-sm"
                             : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70"
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-slate-900">{section}</div>
-                            <div className="mt-1 text-xs text-slate-500">{isActive ? "Open in editor" : "Click to focus"}</div>
+                            <div className="truncate text-[13px] font-medium text-slate-900">{section}</div>
                           </div>
-                          <Badge variant="outline" className="shrink-0 bg-slate-50 text-[11px]">
+                          <Badge variant="outline" className="shrink-0 bg-slate-50 text-[10px]">
                             {originLabel}
                           </Badge>
                         </div>
@@ -1099,14 +1133,12 @@ export default function JobReportNew({
                 </div>
               </div>
 
-              <div className="rounded-2xl border bg-white p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="rounded-2xl border bg-white p-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Active section</div>
-                    <div className="mt-1 text-2xl font-semibold text-slate-950">{activeDraftSection}</div>
-                    <div className="mt-2 text-sm text-slate-600">
-                      Draft this section, then move to the next one when you are ready.
-                    </div>
+                    <div className="mt-1 text-xl font-semibold text-slate-950">{activeDraftSection}</div>
+                    <div className="mt-1.5 max-w-2xl text-sm text-slate-600">{getDraftSectionMeta(activeDraftSection).hint}</div>
                   </div>
                   {AI_DRAFT_SECTIONS.has(activeDraftSection) ? (
                     <Button
@@ -1123,7 +1155,7 @@ export default function JobReportNew({
                   ) : null}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="bg-slate-50">
                     {draftOrigins[activeDraftSection] === "ai"
                       ? "AI drafted"
@@ -1132,26 +1164,20 @@ export default function JobReportNew({
                         : "Starter prompt"}
                   </Badge>
                   <Badge variant="outline" className="bg-white">
-                    {activeDraftSection === "Executive Summary"
-                      ? "Opening narrative"
-                      : activeDraftSection === "Emissions Overview"
-                        ? "Emissions story"
-                        : activeDraftSection === "Actions"
-                          ? "Action-led narrative"
-                          : "Section draft"}
+                    {getDraftSectionMeta(activeDraftSection).badge}
                   </Badge>
                 </div>
 
                 <Textarea
-                  className="mt-4 min-h-[320px]"
+                  className="mt-3 min-h-[260px]"
                   value={draftNotes[activeDraftSection] || ""}
                   onChange={(event) => updateDraftNote(activeDraftSection, event.target.value)}
-                  rows={10}
+                  rows={8}
                   placeholder={`Draft the ${activeDraftSection.toLowerCase()} content for this report...`}
                 />
 
-                <div className="mt-3 flex flex-wrap gap-3">
-                  <Button variant="outline" onClick={clearDraftNotes}>
+                <div className="mt-2.5 flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={clearDraftNotes}>
                     Reset draft canvas
                   </Button>
                 </div>
