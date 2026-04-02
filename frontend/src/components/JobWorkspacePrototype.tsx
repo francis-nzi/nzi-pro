@@ -26,6 +26,18 @@ type JobSummary = {
   client_db_id?: number | null;
 };
 
+const SAMPLE_JOB: JobSummary = {
+  job_number: "J000556",
+  title: "Carbon Reduction Plan",
+  client_name: "First Event",
+  status: "Open",
+  reporting_period_start: "2025-02-01",
+  reporting_period_end: "2026-01-31",
+  reporting_year: 2026,
+  crm_name: "Tina Hartley",
+  client_db_id: null,
+};
+
 type WorkspaceSection = {
   value: string;
   label: string;
@@ -132,8 +144,8 @@ export default function JobWorkspacePrototype({
         if (!res.ok) {
           if (res.status === 404) {
             if (!cancelled) {
-              setJob(null);
-              setNotice("Prototype shell preview: job details are not available in this deployment, so the shell is using fallback labels.");
+              setJob(SAMPLE_JOB);
+              setNotice("Prototype shell preview: using sample job context because this deployment cannot read the live job record.");
             }
             return;
           }
@@ -141,11 +153,12 @@ export default function JobWorkspacePrototype({
         }
         const payload = await res.json();
         if (!cancelled) {
-          setJob(payload?.job || payload || null);
+          setJob(payload?.job || payload || SAMPLE_JOB);
         }
       } catch (err) {
         if (!cancelled) {
-          setNotice(err instanceof Error ? err.message : "Failed to load prototype workspace");
+          setJob(SAMPLE_JOB);
+          setNotice("Prototype shell preview: using sample job context because the live job record could not be loaded.");
         }
       } finally {
         if (!cancelled) {
@@ -170,16 +183,17 @@ export default function JobWorkspacePrototype({
     activeGroupConfig.sections.find((section) => section.value === sectionByGroup[activeGroup]) ||
     activeGroupConfig.sections[0];
 
+  const jobSummary = job || SAMPLE_JOB;
   const jobNumberLabel =
-    (job?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() || "Job";
-  const jobTitleLabel = (job?.title || "").trim();
-  const clientLabel = (job?.client_name || "Client").trim() || "Client";
-  const ownerLabel = (job?.crm_name || "Unassigned").trim() || "Unassigned";
+    (jobSummary?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() || "Job";
+  const jobTitleLabel = (jobSummary?.title || "").trim();
+  const clientLabel = (jobSummary?.client_name || "Client").trim() || "Client";
+  const ownerLabel = (jobSummary?.crm_name || "Unassigned").trim() || "Unassigned";
   const reportingPeriodLabel =
-    job?.reporting_period_start && job?.reporting_period_end
-      ? `${formatDisplayDate(job.reporting_period_start)} - ${formatDisplayDate(job.reporting_period_end)}`
-      : job?.reporting_year
-        ? `Year ${job.reporting_year}`
+    jobSummary?.reporting_period_start && jobSummary?.reporting_period_end
+      ? `${formatDisplayDate(jobSummary.reporting_period_start)} - ${formatDisplayDate(jobSummary.reporting_period_end)}`
+      : jobSummary?.reporting_year
+        ? `Year ${jobSummary.reporting_year}`
         : "Reporting period not set";
 
   const openStableJob = `/jobs/${jobId}`;
@@ -288,7 +302,7 @@ export default function JobWorkspacePrototype({
           subtitle={jobTitleLabel || undefined}
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
-            job?.client_db_id ? { label: clientLabel, href: `/clients/${job.client_db_id}` } : { label: clientLabel },
+            jobSummary?.client_db_id ? { label: clientLabel, href: `/clients/${jobSummary.client_db_id}` } : { label: clientLabel },
             { label: "Jobs", href: "/jobs" },
             { label: jobNumberLabel },
           ]}
@@ -319,9 +333,9 @@ export default function JobWorkspacePrototype({
                 <Button asChild>
                   <Link href={openStableJob}>Open stable job page</Link>
                 </Button>
-                {job?.client_db_id ? (
+                {jobSummary?.client_db_id ? (
                   <Button variant="secondary" asChild>
-                    <Link href={`/?clientId=${job.client_db_id}&jobId=${jobId}`}>Open in Hub</Link>
+                    <Link href={`/?clientId=${jobSummary.client_db_id}&jobId=${jobId}`}>Open in Hub</Link>
                   </Button>
                 ) : (
                   <Button variant="secondary" asChild>
