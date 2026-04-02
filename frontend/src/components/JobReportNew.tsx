@@ -1092,7 +1092,7 @@ export default function JobReportNew({
               ) : null}
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
+            <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
               <div className="rounded-2xl border bg-white p-2.5">
                 <div className="flex items-center justify-between gap-2 px-0.5">
                   <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Sections</div>
@@ -1134,8 +1134,8 @@ export default function JobReportNew({
               </div>
 
               <div className="rounded-2xl border bg-white p-3.5">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+                  <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Active section</div>
                     <div className="mt-1 text-xl font-semibold text-slate-950">{activeDraftSection}</div>
                     <div className="mt-1.5 max-w-2xl text-sm text-slate-600">{getDraftSectionMeta(activeDraftSection).hint}</div>
@@ -1145,7 +1145,7 @@ export default function JobReportNew({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="gap-2"
+                      className="gap-2 w-fit justify-self-start xl:justify-self-end"
                       onClick={() => void generateSectionDraft(activeDraftSection)}
                       disabled={draftGeneratingSection === activeDraftSection}
                     >
@@ -1155,7 +1155,7 @@ export default function JobReportNew({
                   ) : null}
                 </div>
 
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" className="bg-slate-50">
                     {draftOrigins[activeDraftSection] === "ai"
                       ? "AI drafted"
