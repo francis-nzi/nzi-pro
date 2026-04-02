@@ -1164,11 +1164,9 @@ export default function JobReportNew({
           <Card>
             <CardHeader className="space-y-2">
               <CardTitle>Stage 4 Preview & Export</CardTitle>
-              <CardDescription>
-                Review the draft, confirm the checklist, and hand off into preview/export.
-              </CardDescription>
+              <CardDescription>Quick review before you jump into preview/export.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="rounded-xl border bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="bg-white">
@@ -1178,53 +1176,37 @@ export default function JobReportNew({
                     {draftReady ? "Ready to review" : "Needs attention"}
                   </Badge>
                 </div>
-                <p className="mt-3 text-sm text-slate-600">
-                  Review the current draft, confirm the checkpoint, and then open the live preview/export flow.
-                </p>
+                <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
               </div>
 
-              <div className="space-y-3">
+              <div className="grid gap-2">
                 {[
                   { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
                   { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
                   { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
                   { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
                 ].map((item) => (
-                  <div key={item.label} className="flex gap-3 rounded-lg border p-3">
-                    <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
+                  <div key={item.label} className="flex gap-2 rounded-lg border p-2.5">
+                    <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
                     <div>
-                      <div className="font-medium text-slate-900">{item.label}</div>
-                      <div className="text-sm text-muted-foreground">{item.note}</div>
+                      <div className="text-sm font-medium text-slate-900">{item.label}</div>
+                      <div className="text-xs text-muted-foreground">{item.note}</div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <div className="rounded-xl border bg-white p-4">
-                <div className="flex items-start gap-3">
-                  <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
-                  <div>
-                    <div className="font-medium text-slate-900">Preview focus</div>
-                    <div className="text-sm text-muted-foreground">
-                      Keep the executive summary, charts, and action story tight so the report reads like a dashboard first.
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border bg-slate-50 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-slate-900">Version history</div>
-                    <div className="text-sm text-muted-foreground">
-                      Save a reviewed PDF version to the client folder, then mark it final once the client agrees.
-                    </div>
+                    <div className="text-xs text-muted-foreground">Recent saved PDFs and frozen previews.</div>
                   </div>
                   <Badge variant="outline" className="bg-white">
                     {reportVersions.length} saved
                   </Badge>
                 </div>
-                <div className="mt-3 space-y-2">
+                <div className="mt-2 space-y-2">
                   {latestReportVersion ? (
                     <div className="rounded-lg border bg-white px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1235,7 +1217,7 @@ export default function JobReportNew({
                           {latestReportVersion.status || "review"}
                         </Badge>
                       </div>
-                      <div className="text-sm text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         {latestReportVersion.generated_at ? `Generated ${latestReportVersion.generated_at}` : "Recently generated"}
                       </div>
                       {latestReportVersion.status !== "final" ? (
@@ -1251,44 +1233,34 @@ export default function JobReportNew({
                           </Button>
                         </div>
                       ) : null}
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-sm text-muted-foreground">
-                      No saved versions yet. Save the first review PDF when you are ready.
-                    </div>
-                  )}
-                  {reportVersions.slice(1, 4).map((version) => (
-                    <div key={version.report_version_id} className="flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-900">
-                          {version.version_label || `v${version.version_number}`}
-                        </span>
-                        <Badge variant="outline" className="bg-slate-50">
-                          {version.status || "review"}
-                        </Badge>
-                      </div>
-                      {version.download_url ? (
-                        <a
-                          href={`${baseUrl}${version.download_url}`}
-                          className="text-slate-600 underline-offset-4 hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                        {latestReportVersion.download_url ? (
+                          <a
+                            href={`${baseUrl}${latestReportVersion.download_url}`}
+                            className="text-slate-600 underline-offset-4 hover:underline"
+                            target="_blank"
+                            rel="noreferrer"
                           >
                             Download
                           </a>
                         ) : null}
-                      {version.snapshot_url ? (
-                        <a
-                          href={`${baseUrl}${version.snapshot_url}`}
-                          className="text-slate-600 underline-offset-4 hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Frozen preview
-                        </a>
-                      ) : null}
+                        {latestReportVersion.snapshot_url ? (
+                          <a
+                            href={`${baseUrl}${latestReportVersion.snapshot_url}`}
+                            className="text-slate-600 underline-offset-4 hover:underline"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Frozen preview
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-xs text-muted-foreground">
+                      No saved versions yet. Save the first review PDF when you are ready.
+                    </div>
+                  )}
                 </div>
               </div>
 
