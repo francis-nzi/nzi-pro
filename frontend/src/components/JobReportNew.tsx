@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, FileText, LayoutGrid, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileText, Sparkles, Target } from "lucide-react";
 
 type ReportTemplate = {
   template_id: number;
@@ -1282,76 +1282,47 @@ export default function JobReportNew({
         </div>
       </div>
       <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
-        <DialogContent className="max-w-3xl border-slate-200 bg-white">
+        <DialogContent className="max-w-2xl border-slate-200 bg-white">
           <DialogHeader>
             <DialogTitle>Preview checklist</DialogTitle>
-            <DialogDescription>
-              Review the current draft state before jumping into the renderer. This keeps Stage 4 explicit without blocking drafting.
-            </DialogDescription>
+            <DialogDescription>Quick check before opening the renderer.</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="rounded-xl border bg-slate-50 p-4">
+          <div className="space-y-3">
+            <div className="rounded-xl border bg-slate-50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="bg-white">
                   {selectedProfile.title} - {selectedProfile.subtitle}
                 </Badge>
                 <Badge variant="outline" className="bg-white">
-                  {selectedActions} actions selected
+                  {selectedActions} actions
                 </Badge>
                 <Badge variant="outline" className="bg-white">
-                  {draftedSectionCount}/{selectedProfile.sections.length} sections drafted
+                  {draftedSectionCount}/{selectedProfile.sections.length} drafted
                 </Badge>
                 <Badge variant="outline" className="bg-white">
                   {previewStatus}
                 </Badge>
               </div>
-              <p className="mt-3 text-sm text-slate-600">
-                The renderer will use the selected profile, the saved actions, and the draft notes already captured in Stage 3.
-              </p>
+              <p className="mt-2 text-sm text-slate-600">The renderer will use the selected profile, actions, and Stage 3 drafts.</p>
             </div>
 
             {!draftReady ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
                 The preview can still open, but the actions section is incomplete until at least one suggested or custom action is saved.
               </div>
             ) : null}
 
-            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-3">
-                {previewChecklist.map((item) => (
-                  <div key={item.label} className="flex gap-3 rounded-lg border p-3">
-                    <CheckCircle2 className={`mt-0.5 h-5 w-5 ${item.done ? 'text-emerald-600' : 'text-slate-300'}`} />
-                    <div>
-                      <div className="font-medium text-slate-900">{item.label}</div>
-                      <div className="text-sm text-muted-foreground">{item.note}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-xl border border-dashed bg-white p-4">
-                <div className="flex items-start gap-3">
-                  <LayoutGrid className="mt-0.5 h-4 w-4 text-slate-600" />
+            <div className="grid gap-2">
+              {previewChecklist.map((item) => (
+                <div key={item.label} className="flex gap-2 rounded-lg border p-2.5">
+                  <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
                   <div>
-                    <div className="font-medium text-slate-900">Preview focus</div>
-                    <div className="text-sm text-muted-foreground">
-                      Keep the executive summary, charts, and action visuals front and center so the report reads like a dashboard first.
-                    </div>
+                    <div className="text-sm font-medium text-slate-900">{item.label}</div>
+                    <div className="text-xs text-muted-foreground">{item.note}</div>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-3 text-sm text-slate-700">
-                  <div className="rounded-lg bg-slate-50 px-3 py-2">
-                    Executive summary with headline metrics and chart-led interpretation.
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-3 py-2">
-                    Graphics that support quick reading: pies, donuts, bars, and reduction trend visuals.
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-3 py-2">
-                    Actions carried through as the narrative bridge into the draft output.
-                  </div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
