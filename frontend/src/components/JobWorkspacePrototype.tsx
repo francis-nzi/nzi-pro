@@ -69,7 +69,7 @@ export default function JobWorkspacePrototype({
         isSampleContext={isSampleContext}
         note={
           prototypeNote ??
-          "Prototype shell only. Use this route to test the top-nav workspace, compact summary strip, and content density."
+          "Prototype shell only. Use this route to test the top-nav workspace and content density."
         }
         primaryActions={[
           onOpenStableJob

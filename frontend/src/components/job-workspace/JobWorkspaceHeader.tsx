@@ -111,7 +111,7 @@ export default function JobWorkspaceHeader({
             </span>
             {isSampleContext ? (
               <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                Sample preview
+                Sample data
               </span>
             ) : null}
           </div>
@@ -123,10 +123,9 @@ export default function JobWorkspaceHeader({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Pill label={`Owner: ${job.ownerLabel}`} />
-            <Pill label={job.crmLabel ?? "CRM"} />
             <Pill label={`Status: ${job.statusLabel}`} />
           </div>
-          {note ? <p className="max-w-3xl text-sm text-slate-500">{note}</p> : null}
+          {note ? <p className="max-w-2xl text-xs leading-5 text-slate-500">{note}</p> : null}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -177,4 +176,3 @@ function Pill({ label }: { label: string }) {
     </span>
   );
 }
-
