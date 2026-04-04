@@ -58,6 +58,7 @@ export default function JobWorkspacePrototype({
   );
 
   const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);
+  const showSubtabs = activeTab === "setup" || activeTab === "outputs" || activeTab === "report";
   return (
     <div className="space-y-6">
       <JobWorkspaceHeader
@@ -97,7 +98,7 @@ export default function JobWorkspacePrototype({
 
       <JobWorkspaceTabs activeTab={activeTab} tabs={workspaceTabs} onTabChange={setActiveTab} />
 
-      <JobWorkspaceSubtabs activeSubtab={activeSubtab} subtabs={subtabs} onSubtabChange={setActiveSubtab} />
+      {showSubtabs ? <JobWorkspaceSubtabs activeSubtab={activeSubtab} subtabs={subtabs} onSubtabChange={setActiveSubtab} /> : null}
 
       <WorkspacePanels
         activeTab={activeTab}
