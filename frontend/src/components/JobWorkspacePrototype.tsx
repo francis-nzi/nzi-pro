@@ -30,37 +30,6 @@ type JobWorkspacePrototypeProps = {
   onOpenStableJob?: () => void;
 };
 
-const tabCopy: Record<WorkspaceTabKey, { title: string; description: string }> = {
-  setup: {
-    title: "Setup",
-    description: "Job details, custom fields, and report metadata live here before the wider workspace tabs.",
-  },
-  data: {
-    title: "Data",
-    description: "Working data entry, commuting, datasets, and factor browsing are grouped into one broad workspace.",
-  },
-  outputs: {
-    title: "Outputs",
-    description: "Keep output tables, actions, and reporting handoff in one place.",
-  },
-  report: {
-    title: "Report",
-    description: "Use this area for the report drafting and preview flow.",
-  },
-  analysis: {
-    title: "Analysis",
-    description: "Life cycle analysis and supporting analysis views sit here.",
-  },
-  communications: {
-    title: "Communications",
-    description: "Timeline, inbox, notes, email, tasks, and automation stay together.",
-  },
-  financial: {
-    title: "Financial",
-    description: "Quotes, invoices, and other financial controls live here.",
-  },
-};
-
 export default function JobWorkspacePrototype({
   job,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
@@ -89,8 +58,6 @@ export default function JobWorkspacePrototype({
   );
 
   const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);
-  const activeCopy = tabCopy[activeTab];
-
   return (
     <div className="space-y-6">
       <JobWorkspaceHeader
@@ -130,20 +97,7 @@ export default function JobWorkspacePrototype({
 
       <JobWorkspaceTabs activeTab={activeTab} tabs={workspaceTabs} onTabChange={setActiveTab} />
 
-      <div className="space-y-3">
-        <JobWorkspaceSubtabs activeSubtab={activeSubtab} subtabs={subtabs} onSubtabChange={setActiveSubtab} />
-        <div className="rounded-3xl border bg-white px-6 py-5 shadow-sm">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-900">{activeCopy.title}</h2>
-              <p className="mt-1 max-w-3xl text-sm text-slate-500">{activeCopy.description}</p>
-            </div>
-            <div className="rounded-full border bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-              Prototype shell
-            </div>
-          </div>
-        </div>
-      </div>
+      <JobWorkspaceSubtabs activeSubtab={activeSubtab} subtabs={subtabs} onSubtabChange={setActiveSubtab} />
 
       <WorkspacePanels
         activeTab={activeTab}
@@ -204,7 +158,7 @@ function WorkspacePanels({
   if (activeTab === "data") {
     return (
       <div className="space-y-6">
-        {activeSubtab === "data-entry" ? <JobDataEntry jobId={job.jobId} /> : null}
+        {activeSubtab === "data-entry" ? <JobDataEntry jobId={job.jobId} showEmissionsSummary={false} /> : null}
         {activeSubtab === "employee-commuting" ? (
           <EmployeeCommutingData
             jobId={job.jobId}

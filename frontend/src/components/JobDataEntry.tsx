@@ -156,7 +156,12 @@ type ScopeDataDebugRow = ScopeDataRow & {
   updated_at?: string | null;
 };
 
-export default function JobDataEntry({ jobId }: { jobId: number }) {
+type JobDataEntryProps = {
+  jobId: number;
+  showEmissionsSummary?: boolean;
+};
+
+export default function JobDataEntry({ jobId, showEmissionsSummary = true }: JobDataEntryProps) {
   const confirmAction = useConfirmDialog();
   const baseUrl = apiBaseUrl();
   
@@ -1010,38 +1015,39 @@ export default function JobDataEntry({ jobId }: { jobId: number }) {
 
   return (
     <div className="min-w-0 space-y-6">
-      {/* Emissions Summary Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Emissions Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-sm text-muted-foreground text-center">Loading...</div>
-          ) : scopeTotals ? (
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="space-y-1 text-center">
-                <div className="text-2xl font-bold">{scopeTotals.total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div className="text-xs text-muted-foreground">Total tCO2e</div>
+      {showEmissionsSummary ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Emissions Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-sm text-muted-foreground text-center">Loading...</div>
+            ) : scopeTotals ? (
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="space-y-1 text-center">
+                  <div className="text-2xl font-bold">{scopeTotals.total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="text-xs text-muted-foreground">Total tCO2e</div>
+                </div>
+                <div className="space-y-1 text-center">
+                  <div className="text-2xl font-bold text-red-600">{scopeTotals.scope_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="text-xs text-muted-foreground">Scope 1</div>
+                </div>
+                <div className="space-y-1 text-center">
+                  <div className="text-2xl font-bold text-orange-600">{scopeTotals.scope_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="text-xs text-muted-foreground">Scope 2</div>
+                </div>
+                <div className="space-y-1 text-center">
+                  <div className="text-2xl font-bold text-blue-600">{scopeTotals.scope_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div className="text-xs text-muted-foreground">Scope 3</div>
+                </div>
               </div>
-              <div className="space-y-1 text-center">
-                <div className="text-2xl font-bold text-red-600">{scopeTotals.scope_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div className="text-xs text-muted-foreground">Scope 1</div>
-              </div>
-              <div className="space-y-1 text-center">
-                <div className="text-2xl font-bold text-orange-600">{scopeTotals.scope_2.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div className="text-xs text-muted-foreground">Scope 2</div>
-              </div>
-              <div className="space-y-1 text-center">
-                <div className="text-2xl font-bold text-blue-600">{scopeTotals.scope_3.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div className="text-xs text-muted-foreground">Scope 3</div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground text-center">No data</div>
-          )}
-        </CardContent>
-      </Card>
+            ) : (
+              <div className="text-sm text-muted-foreground text-center">No data</div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {error && (
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
