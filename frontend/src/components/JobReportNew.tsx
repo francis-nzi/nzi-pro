@@ -99,6 +99,7 @@ type JobReportNewProps = {
   baseUrl?: string;
   onOpenActions?: () => void;
   onOpenLegacyReporting?: () => void;
+  showEmissionsSummary?: boolean;
 };
 
 const PROFILE_LIBRARY: ReportProfile[] = [
@@ -346,6 +347,7 @@ export default function JobReportNew({
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   onOpenActions,
   onOpenLegacyReporting,
+  showEmissionsSummary = true,
 }: JobReportNewProps) {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [assignment, setAssignment] = useState<TemplateAssignment | null>(null);
@@ -969,7 +971,7 @@ export default function JobReportNew({
         </CardContent>
       </Card>
 
-      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+      {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <Card>

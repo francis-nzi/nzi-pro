@@ -116,6 +116,7 @@ export default function JobSourceRegister({
   jobNumber,
   clientName,
   reportingYear,
+  showEmissionsSummary = true,
 }: {
   jobId: number;
   baseUrl: string;
@@ -125,6 +126,7 @@ export default function JobSourceRegister({
   jobNumber?: string | number | null;
   clientName?: string | null;
   reportingYear?: string | number | null;
+  showEmissionsSummary?: boolean;
 }) {
   const isBusinessTravel = sourceType === "business_travel";
   const recordLabel = isBusinessTravel ? "Travel Source" : "Asset";
@@ -567,7 +569,7 @@ export default function JobSourceRegister({
 
   return (
     <div className="space-y-6">
-      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+      {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
       <Card>
         <CardHeader>

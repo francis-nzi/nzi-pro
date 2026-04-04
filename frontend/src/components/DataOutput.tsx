@@ -64,6 +64,7 @@ type DataOutputDetailed = {
 type DataOutputProps = {
   jobId: number;
   baseUrl: string;
+  showEmissionsSummary?: boolean;
 };
 
 type ScopeCategoryData = {
@@ -126,7 +127,7 @@ type AuditData = {
   scope_subtotals: AuditSubtotal[];
 };
 
-export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
+export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = true }: DataOutputProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [summaryData, setSummaryData] = useState<DataOutputSummary | null>(null);
@@ -612,7 +613,7 @@ export default function DataOutput({ jobId, baseUrl }: DataOutputProps) {
 
   return (
     <div className="space-y-6">
-      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+      {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
       
       <Tabs defaultValue="by-scope" className="w-full">
         <TabsList>

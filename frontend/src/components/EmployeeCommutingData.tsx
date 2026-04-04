@@ -107,6 +107,7 @@ export default function EmployeeCommutingData({
   clientName,
   reportingPeriodStart,
   reportingPeriodEnd,
+  showEmissionsSummary = true,
 }: {
   jobId: number;
   baseUrl: string;
@@ -114,6 +115,7 @@ export default function EmployeeCommutingData({
   clientName?: string | null;
   reportingPeriodStart?: string | null;
   reportingPeriodEnd?: string | null;
+  showEmissionsSummary?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -613,7 +615,7 @@ export default function EmployeeCommutingData({
 
   return (
     <div className="space-y-5">
-      <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
+      {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
       <Card>
         <CardHeader>
