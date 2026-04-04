@@ -1,417 +1,179 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
+import JobWorkspaceSubtabs from "@/components/job-workspace/JobWorkspaceSubtabs";
+import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
+import { sampleEmissionsSummary, sampleJob, workspaceSubtabs, workspaceTabs } from "@/components/job-workspace/sample-data";
+import type {
+  JobWorkspaceJob,
+  WorkspaceEmissionsSummaryData,
+  WorkspaceTabKey,
+} from "@/components/job-workspace/types";
 
-import EmissionsSummary from "@/components/EmissionsSummary";
-import PageHeader from "@/components/PageHeader";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import JobActions from "@/components/JobActions";
-import JobCustomDataset from "@/components/JobCustomDataset";
-import JobCustomFactors from "@/components/JobCustomFactors";
-import JobDataEntry from "@/components/JobDataEntry";
-import SpendDataCollection from "@/components/SpendDataCollection";
-
-type JobSummary = {
-  job_number?: string | null;
-  title?: string | null;
-  client_name?: string | null;
-  status?: string | null;
-  reporting_period_start?: string | null;
-  reporting_period_end?: string | null;
-  reporting_year?: number | null;
-  crm_name?: string | null;
-  client_db_id?: number | null;
+type JobWorkspacePrototypeProps = {
+  job?: JobWorkspaceJob | null;
+  emissionsSummary?: WorkspaceEmissionsSummaryData | null;
+  isSampleContext?: boolean;
+  prototypeNote?: string;
+  onOpenStableJob?: () => void;
 };
 
-const SAMPLE_JOB: JobSummary = {
-  job_number: "J000556",
-  title: "Carbon Reduction Plan",
-  client_name: "First Event",
-  status: "Open",
-  reporting_period_start: "2025-02-01",
-  reporting_period_end: "2026-01-31",
-  reporting_year: 2026,
-  crm_name: "Tina Hartley",
-  client_db_id: null,
-};
-
-type WorkspaceSection = {
-  value: string;
-  label: string;
-  description: string;
-};
-
-type WorkspaceGroup = {
-  value: string;
-  label: string;
-  sections: WorkspaceSection[];
-};
-
-const WORKSPACE_GROUPS: WorkspaceGroup[] = [
-  {
-    value: "setup",
-    label: "Setup",
-    sections: [
-      {
-        value: "setup-overview",
-        label: "Setup Overview",
-        description: "Prototype shell only. This is the place for job metadata, templates, and readiness checks.",
-      },
-    ],
+const tabCopy: Record<WorkspaceTabKey, { title: string; description: string }> = {
+  setup: {
+    title: "Setup",
+    description: "Keep job details, custom fields, and report metadata in one place before the working tabs.",
   },
-  {
-    value: "data",
-    label: "Data",
-    sections: [
-      {
-        value: "data-entry",
-        label: "Data Entry",
-        description: "The wide entry area that needs the most horizontal space.",
-      },
-      {
-        value: "custom-dataset",
-        label: "Custom Dataset",
-        description: "Prototype for custom scope mapping and overrides.",
-      },
-      {
-        value: "custom-factors",
-        label: "Job-Only Factors",
-        description: "Job-specific factors stay visible without stealing the whole screen.",
-      },
-      {
-        value: "spend-data",
-        label: "Spend Data",
-        description: "Spend-led capture and mapping work can live alongside other data tabs.",
-      },
-    ],
+  data: {
+    title: "Data",
+    description: "Group data-entry screens, uploads, and reusable factor tools into one broad workspace.",
   },
-  {
-    value: "outputs",
-    label: "Outputs",
-    sections: [
-      {
-        value: "actions",
-        label: "Actions",
-        description: "Action planning stays visible while the report story is being built.",
-      },
-      {
-        value: "report-new",
-        label: "Report (New)",
-        description: "The report writer can slot into the same workspace shell when ready.",
-      },
-    ],
+  outputs: {
+    title: "Outputs",
+    description: "Focus the output story around data output, actions, and reporting handoff.",
   },
-];
-
-function formatDisplayDate(dateValue?: string | null): string {
-  if (!dateValue) return "";
-  const parsed = new Date(dateValue);
-  if (Number.isNaN(parsed.getTime())) return String(dateValue);
-  return parsed.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
+  report: {
+    title: "Report",
+    description: "Reserve this area for the report drafting and preview flow.",
+  },
+  analysis: {
+    title: "Analysis",
+    description: "Place life cycle analysis and other supporting analysis views here.",
+  },
+  communications: {
+    title: "Communications",
+    description: "Keep timeline, inbox, notes, and task workflow together.",
+  },
+  financial: {
+    title: "Financial",
+    description: "Surface quotes, invoices, and other financial work in one group.",
+  },
+};
 
 export default function JobWorkspacePrototype({
-  jobId,
-  baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/backend",
-}: {
-  jobId: number;
-  baseUrl?: string;
-}) {
-  const [job, setJob] = useState<JobSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState("");
-  const [activeGroup, setActiveGroup] = useState<WorkspaceGroup["value"]>("setup");
-  const [sectionByGroup, setSectionByGroup] = useState<Record<string, string>>({
-    setup: "setup-overview",
-    data: "data-entry",
-    outputs: "actions",
-  });
+  job,
+  emissionsSummary,
+  isSampleContext = true,
+  prototypeNote,
+  onOpenStableJob,
+}: JobWorkspacePrototypeProps) {
+  const jobData = job ?? sampleJob;
+  const summaryData = emissionsSummary ?? sampleEmissionsSummary;
+  const [activeTab, setActiveTab] = useState<WorkspaceTabKey>("setup");
+  const [activeSubtab, setActiveSubtab] = useState(workspaceSubtabs.setup[0]?.key ?? "");
 
   useEffect(() => {
-    let cancelled = false;
-    const loadJob = async () => {
-      setLoading(true);
-      setNotice("");
-      try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}`, { credentials: "include" });
-        if (!res.ok) {
-          if (res.status === 404) {
-            if (!cancelled) {
-              setJob(SAMPLE_JOB);
-              setNotice("Sample job context shown: this prototype service cannot read the live job record in Render.");
-            }
-            return;
-          }
-          throw new Error(`Failed to load job (${res.status})`);
-        }
-        const payload = await res.json();
-        if (!cancelled) {
-          setJob(payload?.job || payload || SAMPLE_JOB);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setJob(SAMPLE_JOB);
-          setNotice("Sample job context shown: the prototype could not load the live job record.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
+    setActiveSubtab(workspaceSubtabs[activeTab][0]?.key ?? "");
+  }, [activeTab]);
 
-    void loadJob();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [baseUrl, jobId]);
-
-  const activeGroupConfig = useMemo(
-    () => WORKSPACE_GROUPS.find((group) => group.value === activeGroup) || WORKSPACE_GROUPS[0],
-    [activeGroup]
-  );
-
-  const activeSection =
-    activeGroupConfig.sections.find((section) => section.value === sectionByGroup[activeGroup]) ||
-    activeGroupConfig.sections[0];
-
-  const jobSummary = job || SAMPLE_JOB;
-  const isSampleContext = jobSummary === SAMPLE_JOB;
-  const jobNumberLabel =
-    (jobSummary?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() || "Job";
-  const jobTitleLabel = (jobSummary?.title || "").trim();
-  const clientLabel = (jobSummary?.client_name || "Client").trim() || "Client";
-  const ownerLabel = (jobSummary?.crm_name || "Unassigned").trim() || "Unassigned";
-  const reportingPeriodLabel =
-    jobSummary?.reporting_period_start && jobSummary?.reporting_period_end
-      ? `${formatDisplayDate(jobSummary.reporting_period_start)} - ${formatDisplayDate(jobSummary.reporting_period_end)}`
-      : jobSummary?.reporting_year
-        ? `Year ${jobSummary.reporting_year}`
-        : "Reporting period not set";
-
-  const openStableJob = `/jobs/${jobId}`;
-
-  function setSection(value: string) {
-    setSectionByGroup((current) => ({ ...current, [activeGroup]: value }));
-  }
-
-  function renderWorkspace() {
-    switch (activeGroup) {
-      case "setup":
-        return (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Setup Overview</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>
-                  This prototype keeps the job header, summary, and workspace navigation at the top so the
-                  work area gets the full width.
-                </p>
-                <p>
-                  The sections below are representative only. We can expand this shell gradually without
-                  touching the stable Jobs page again.
-                </p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Badge variant="outline">{jobNumberLabel}</Badge>
-                  <Badge variant="outline">{clientLabel}</Badge>
-                  <Badge variant="outline">{ownerLabel}</Badge>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Prototype Notes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <p>Try this route on desktop and tablet to check whether the top-nav pattern feels wider and calmer.</p>
-                <p>Use the groups and subsections to test spacing, density, and flow before we promote anything to Jobs.</p>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      case "data":
-        switch (activeSection.value) {
-          case "data-entry":
-            return <JobDataEntry jobId={jobId} />;
-          case "custom-dataset":
-            return <JobCustomDataset jobId={jobId} baseUrl={baseUrl} />;
-          case "custom-factors":
-            return <JobCustomFactors jobId={jobId} baseUrl={baseUrl} />;
-          case "spend-data":
-            return <SpendDataCollection jobId={jobId} baseUrl={baseUrl} />;
-          default:
-            return null;
-        }
-      case "outputs":
-        switch (activeSection.value) {
-          case "actions":
-            return (
-              <JobActions
-                jobId={jobId}
-                baseUrl={baseUrl}
-                onOpenReportNew={() => {
-                  setActiveGroup("outputs");
-                  setSectionByGroup((current) => ({ ...current, outputs: "report-new" }));
-                }}
-              />
-            );
-          case "report-new":
-            return (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Report (New) placeholder</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm text-muted-foreground">
-                  <p>
-                    This prototype keeps the report shell out of the main page while we test the top-nav
-                    pattern.
-                  </p>
-                  <p>
-                    Use the live job page to open the current report editor while we iterate on the new shell.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button asChild>
-                      <Link href={openStableJob}>Open live job page</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          default:
-            return null;
-        }
-      default:
-        return null;
-    }
-  }
+  const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);
+  const activeCopy = tabCopy[activeTab];
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <PageHeader
-          title={jobNumberLabel}
-          subtitle={jobTitleLabel || undefined}
-          breadcrumbs={[
-            { label: "Clients", href: "/clients" },
-            jobSummary?.client_db_id ? { label: clientLabel, href: `/clients/${jobSummary.client_db_id}` } : { label: clientLabel },
-            { label: "Jobs", href: "/jobs" },
-            { label: jobNumberLabel },
-          ]}
-          titleSuffix={
-            <div className="flex flex-wrap gap-2">
-              <Badge className="border-slate-200 bg-slate-50 text-slate-700">Prototype</Badge>
-              {isSampleContext ? (
-                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
-                  Sample preview
-                </Badge>
-              ) : null}
-            </div>
-          }
-          meta={
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span>{clientLabel}</span>
-                <span>•</span>
-                <span>{reportingPeriodLabel}</span>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
-                  Owner: {ownerLabel}
-                </Badge>
-                {isSampleContext ? (
-                  <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
-                    Sample job context
-                  </Badge>
-                ) : null}
-                {Number.isFinite(jobId) ? (
-                  <Badge variant="outline" className="border-muted-foreground/20 text-muted-foreground">
-                    Job ID: {jobId}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-          }
-          actionsClassName="w-full lg:w-auto justify-start lg:justify-end"
-          actions={
-            <div className="flex flex-col gap-2 sm:items-end">
-              <div className="flex flex-wrap gap-2">
-                <Button asChild>
-                  <Link href={openStableJob}>Open stable job page</Link>
-                </Button>
-                {jobSummary?.client_db_id ? (
-                  <Button variant="secondary" asChild>
-                    <Link href={`/?clientId=${jobSummary.client_db_id}&jobId=${jobId}`}>Open in Hub</Link>
-                  </Button>
-                ) : (
-                  <Button variant="secondary" asChild>
-                    <Link href={`/?jobId=${jobId}`}>Open in Hub</Link>
-                  </Button>
-                )}
-                <Button variant="outline" asChild>
-                  <Link href="/jobs">Back to Jobs</Link>
-                </Button>
-              </div>
-            </div>
-          }
-        />
+    <div className="space-y-6">
+      <JobWorkspaceHeader
+        breadcrumbs={[
+          { label: "Clients", href: "/clients" },
+          { label: jobData.clientName, href: `/clients` },
+          { label: "Jobs", href: "/jobs" },
+          { label: jobData.jobNumber },
+        ]}
+        job={jobData}
+        emissionsSummary={summaryData}
+        isPrototype
+        isSampleContext={isSampleContext}
+        note={prototypeNote ?? "Prototype shell only. This is the place to test the new top-nav workspace layout."}
+        primaryActions={[
+          {
+            label: "Open stable job page",
+            href: `/jobs/${jobData.jobId}`,
+            variant: "primary",
+          },
+          {
+            label: "Open in Hub",
+            href: "#",
+            variant: "secondary",
+          },
+          {
+            label: "Back to Jobs",
+            href: "/jobs",
+            variant: "outline",
+          },
+        ]}
+      />
 
-        {notice ? <div className="mb-4 text-sm text-muted-foreground">{notice}</div> : null}
-        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading prototype...</div> : null}
+      <JobWorkspaceTabs activeTab={activeTab} tabs={workspaceTabs} onTabChange={setActiveTab} />
 
-        <div className="space-y-6">
-          <EmissionsSummary jobId={jobId} baseUrl={baseUrl} variant="compact" />
-
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <div className="flex flex-wrap gap-2">
-              {WORKSPACE_GROUPS.map((group) => (
-                <Button
-                  key={group.value}
-                  type="button"
-                  variant={activeGroup === group.value ? "default" : "outline"}
-                  className="h-9 rounded-full px-4"
-                  onClick={() => setActiveGroup(group.value)}
-                >
-                  {group.label}
-                </Button>
-              ))}
+      <div className="space-y-3">
+        <JobWorkspaceSubtabs activeSubtab={activeSubtab} subtabs={subtabs} onSubtabChange={setActiveSubtab} />
+        <div className="rounded-3xl border bg-white px-6 py-5 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-slate-900">{activeCopy.title}</h2>
+              <p className="mt-1 max-w-3xl text-sm text-slate-500">{activeCopy.description}</p>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {activeGroupConfig.sections.map((section) => {
-                const isActive = activeSection.value === section.value;
-                return (
-                  <Button
-                    key={section.value}
-                    type="button"
-                    variant={isActive ? "default" : "outline"}
-                    className="h-9 rounded-full px-4"
-                    onClick={() => setSection(section.value)}
-                  >
-                    {section.label}
-                  </Button>
-                );
-              })}
+            <div className="rounded-full border bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+              Prototype shell
             </div>
           </div>
-
-          <Card>
-            <CardHeader className="space-y-2">
-              <CardTitle>{activeSection.label}</CardTitle>
-              <div className="text-sm text-muted-foreground">{activeSection.description}</div>
-            </CardHeader>
-            <CardContent>{renderWorkspace()}</CardContent>
-          </Card>
         </div>
       </div>
+
+      <WorkspacePanels activeTab={activeTab} activeSubtab={activeSubtab} />
     </div>
   );
 }
+
+function WorkspacePanels({ activeTab, activeSubtab }: { activeTab: WorkspaceTabKey; activeSubtab: string }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {activeTab === "setup" ? (
+        <>
+          <Panel title="Job Details" text="Primary job metadata and status live here." />
+          <Panel title="Custom Fields" text="Job-level custom fields sit between job details and report variables." />
+          <Panel title="Job Report Variables" text="Global report metadata and template placeholders." />
+        </>
+      ) : null}
+
+      {activeTab === "data" ? (
+        <>
+          <Panel title="Data Entry" text="Working data entry screens for job-level inputs." />
+          <Panel title="Employee Commuting" text="Preview the commuting flow, upload, and factor application." />
+          <Panel title="Custom Dataset" text="Factor browsing and job-specific dataset management." />
+        </>
+      ) : null}
+
+      {activeTab === "outputs" ? (
+        <>
+          <Panel title="Data Output" text="Export-ready data output and validation." />
+          <Panel title="Actions" text="Action planning and prioritisation." />
+          <Panel title="Report" text="Drafting, preview, and export handoff." />
+        </>
+      ) : null}
+
+      {activeTab === "report" ? (
+        <>
+          <Panel title={`Report Draft - ${activeSubtab || "Draft"}`} text="Section-by-section drafting and review." />
+          <Panel title="Preview and Export" text="Render the current report draft for review and output." />
+        </>
+      ) : null}
+
+      {activeTab === "analysis" ? <Panel title="Life Cycle Analysis" text="LCA and supporting analysis views." /> : null}
+      {activeTab === "communications" ? <Panel title="Communications" text="Timeline, inbox, notes, email, and tasks." /> : null}
+      {activeTab === "financial" ? <Panel title="Financial" text="Quotes, invoices, and financial control views." /> : null}
+    </div>
+  );
+}
+
+function Panel({ title, text }: { title: string; text: string }) {
+  return (
+    <section className="rounded-2xl border bg-slate-50/60 p-5 shadow-sm">
+      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+      <p className="mt-2 text-sm text-slate-600">{text}</p>
+      <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+        Placeholder content for the prototype shell.
+      </div>
+    </section>
+  );
+}
+

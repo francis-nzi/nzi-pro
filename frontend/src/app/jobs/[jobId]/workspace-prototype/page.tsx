@@ -1,12 +1,30 @@
 import JobWorkspacePrototype from "@/components/JobWorkspacePrototype";
 
-export default async function JobWorkspacePrototypePage({
-  params,
-}: {
+type WorkspacePrototypePageProps = {
   params: Promise<{ jobId: string }>;
-}) {
-  const { jobId: jobIdParam } = await params;
-  const jobId = Number(jobIdParam);
+};
 
-  return <JobWorkspacePrototype jobId={Number.isFinite(jobId) ? jobId : 0} />;
+export default async function WorkspacePrototypePage({ params }: WorkspacePrototypePageProps) {
+  const { jobId } = await params;
+  const parsedJobId = Number(jobId);
+
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <JobWorkspacePrototype
+        job={{
+          jobId: Number.isNaN(parsedJobId) ? 556 : parsedJobId,
+          jobNumber: `J${String(Number.isNaN(parsedJobId) ? 556 : parsedJobId).padStart(6, "0")}`,
+          jobTitle: "Carbon Reduction Plan",
+          clientName: "First Event",
+          reportingPeriodLabel: "01 Feb 2025 - 31 Jan 2026",
+          statusLabel: "Open",
+          ownerLabel: "Tina Hartley",
+          crmLabel: "Sample job context",
+        }}
+        isSampleContext
+        prototypeNote="Prototype shell only. This route keeps the workspace navigation, summary, and sections in a top-level layout."
+      />
+    </div>
+  );
 }
+
