@@ -25,13 +25,13 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
     : subtabs[0]?.key ?? "";
 
   return (
-    <div className="rounded-2xl border bg-slate-50/80 px-4 py-3">
+    <div className="rounded-2xl border bg-slate-50/80 px-3 py-2.5">
       <div className="md:hidden">
-        <label className="mb-2 block text-xs font-medium uppercase tracking-[0.25em] text-slate-500">
+        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.22em] text-slate-500">
           Section
         </label>
         <Select value={selectedSubtab} onValueChange={onSubtabChange}>
-          <SelectTrigger className="w-full rounded-xl border-slate-200 bg-white text-left">
+          <SelectTrigger className="h-9 w-full rounded-xl border-slate-200 bg-white text-left text-sm">
             <SelectValue placeholder="Choose a section" />
           </SelectTrigger>
           <SelectContent>
@@ -44,7 +44,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
         </Select>
       </div>
 
-      <div className="hidden flex-wrap gap-2 md:flex">
+      <div className="hidden flex-wrap gap-1.5 md:flex">
         {subtabs.map((subtab) => {
           const active = activeSubtab === subtab.key;
           return (
@@ -53,7 +53,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
               type="button"
               disabled={subtab.disabled}
               onClick={() => onSubtabChange(subtab.key)}
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[5px] text-[13px] font-medium transition ${
                 active
                   ? "bg-slate-900 text-white"
                   : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
@@ -61,7 +61,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
             >
               <span>{subtab.label}</span>
               {subtab.countBadge !== undefined ? (
-                <span className={`rounded-full px-2 py-0.5 text-xs ${active ? "bg-white/15" : "bg-slate-100"}`}>
+                <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${active ? "bg-white/15" : "bg-slate-100"}`}>
                   {subtab.countBadge}
                 </span>
               ) : null}
