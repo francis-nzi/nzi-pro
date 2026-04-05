@@ -26,10 +26,10 @@ function EmissionsStrip({ data }: { data: WorkspaceEmissionsSummaryData }) {
   return (
     <div className="rounded-2xl border bg-slate-50/80 px-4 py-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs uppercase tracking-[0.35em] text-slate-500">Emissions summary</div>
+        <div className="text-xs uppercase tracking-[0.32em] text-slate-500">Emissions summary</div>
         {data.label ? <div className="text-xs text-slate-500">{data.label}</div> : null}
       </div>
-      <div className="mt-3 grid gap-4 md:grid-cols-4">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Stat label="Total tCO2e" value={formatNumber(data.totalTco2e)} emphasis />
         <Stat label="Scope 1" value={formatNumber(data.scope1Tco2e)} tone="red" />
         <Stat label="Scope 2" value={formatNumber(data.scope2Tco2e)} tone="orange" />
@@ -61,9 +61,11 @@ function Stat({
           : "text-slate-900";
 
   return (
-    <div className="min-w-0 rounded-xl bg-white px-4 py-3 ring-1 ring-slate-200">
-      <div className={`text-2xl font-semibold ${emphasis ? "text-slate-900" : toneClass}`}>{value}</div>
-      <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">{label}</div>
+    <div className="min-w-0 rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-200">
+      <div className={`text-[1.15rem] font-semibold leading-none sm:text-[1.35rem] ${emphasis ? "text-slate-900" : toneClass}`}>
+        {value}
+      </div>
+      <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">{label}</div>
     </div>
   );
 }
