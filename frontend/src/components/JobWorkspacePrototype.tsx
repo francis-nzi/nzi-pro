@@ -64,7 +64,7 @@ export default function JobWorkspacePrototype({
         isPrototype
         note={
           prototypeNote ??
-          "Prototype shell only. Use this route to test the top-nav workspace and content density."
+          "Prototype shell only. Use this route to review the top-nav layout."
         }
       />
 
