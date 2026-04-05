@@ -114,6 +114,7 @@ export default function JobWorkspacePrototype({
   const [liveJob, setLiveJob] = useState<JobWorkspaceJob | null>(null);
   const [liveSummary, setLiveSummary] = useState<WorkspaceEmissionsSummaryData | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "fallback">("loading");
+  const [loadDetail, setLoadDetail] = useState<string>("");
   const [activeTab, setActiveTab] = useState<WorkspaceTabKey>("setup");
   const [activeSubtab, setActiveSubtab] = useState(workspaceSubtabs.setup[0]?.key ?? "");
 
@@ -127,7 +128,15 @@ export default function JobWorkspacePrototype({
 
     async function loadLiveJob() {
       setLoadState("loading");
+      setLoadDetail("");
       try {
+        const authToken = getToken();
+        const authUser = getAuthUserIdentifier();
+        const authState = [
+          authToken ? "token" : "no token",
+          authUser ? "user" : "no user",
+        ].join(", ");
+
         const [jobRes, totalsRes] = await Promise.all([
           fetch(`${baseUrl}/jobs/${jobId}`, {
             credentials: "include",
@@ -144,7 +153,8 @@ export default function JobWorkspacePrototype({
         ]);
 
         if (!jobRes.ok) {
-          throw new Error(`Job request failed (${jobRes.status})`);
+          const detail = await jobRes.text().catch(() => "");
+          throw new Error(`Job request failed (${jobRes.status})${detail ? `: ${detail}` : ""}${authState ? ` [${authState}]` : ""}`);
         }
 
         const liveJobData = mapLiveJob(await jobRes.json());
@@ -155,6 +165,12 @@ export default function JobWorkspacePrototype({
           const liveSummaryData = mapScopeTotals(await totalsRes.json());
           if (!cancelled) setLiveSummary(liveSummaryData);
         } else if (!cancelled) {
+          const detail = await totalsRes.text().catch(() => "");
+          setLoadDetail(
+            detail
+              ? `Scope totals request failed (${totalsRes.status}): ${detail}`
+              : `Scope totals request failed (${totalsRes.status})`
+          );
           setLiveSummary(null);
         }
 
@@ -164,6 +180,7 @@ export default function JobWorkspacePrototype({
         console.error("Prototype job load failed:", error);
         setLiveJob(null);
         setLiveSummary(null);
+        setLoadDetail(error instanceof Error ? error.message : "Prototype job load failed");
         setLoadState("fallback");
       }
     }
@@ -193,7 +210,12 @@ export default function JobWorkspacePrototype({
   const showSubtabs = activeTab === "setup" || activeTab === "outputs" || activeTab === "report";
   const note =
     loadState === "fallback"
-      ? "Live job data is unavailable right now, so this prototype is showing fallback preview data."
+      ? [
+          "Live job data is unavailable right now, so this prototype is showing fallback preview data.",
+          loadDetail ? `Fetch detail: ${loadDetail}.` : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
       : prototypeNote ?? "Prototype shell only. Use this route to review the top-nav layout.";
   return (
     <div className="space-y-4">

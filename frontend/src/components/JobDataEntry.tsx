@@ -370,8 +370,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
         setPreviousYearError("");
       } else {
         const details = await previousRowsRes.text().catch(() => "");
+        const normalizedDetails = details.trim();
+        const isNotFound =
+          previousRowsRes.status === 404 ||
+          normalizedDetails === '{"detail":"Not Found"}' ||
+          normalizedDetails === '{"detail": "Not Found"}';
         setPreviousYearRows([]);
-        setPreviousYearError(details || "Failed to load previous-year rows");
+        setPreviousYearError(isNotFound ? "" : normalizedDetails || "Failed to load previous-year rows");
       }
     } catch (e) {
       setPreviousYearRows([]);
