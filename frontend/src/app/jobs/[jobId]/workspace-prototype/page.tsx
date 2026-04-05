@@ -21,10 +21,8 @@ export default async function WorkspacePrototypePage({ params }: WorkspaceProtot
           ownerLabel: "Tina Hartley",
           crmLabel: "Sample job context",
         }}
-        isSampleContext
         prototypeNote="Prototype shell only. This route keeps the workspace navigation, summary, and sections in a top-level layout."
       />
     </div>
   );
 }
-

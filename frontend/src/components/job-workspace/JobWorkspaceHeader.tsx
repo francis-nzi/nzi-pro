@@ -8,7 +8,6 @@ type JobWorkspaceHeaderProps = {
   job: JobWorkspaceJob;
   emissionsSummary: WorkspaceEmissionsSummaryData;
   isPrototype?: boolean;
-  isSampleContext?: boolean;
   note?: string;
 };
 
@@ -70,14 +69,7 @@ function Stat({
   );
 }
 
-export default function JobWorkspaceHeader({
-  breadcrumbs,
-  job,
-  emissionsSummary,
-  isPrototype,
-  isSampleContext,
-  note,
-}: JobWorkspaceHeaderProps) {
+export default function JobWorkspaceHeader({ breadcrumbs, job, emissionsSummary, isPrototype, note }: JobWorkspaceHeaderProps) {
   return (
     <section className="space-y-4">
       <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -103,11 +95,6 @@ export default function JobWorkspaceHeader({
               <span className="rounded-full border px-3 py-1 text-xs font-medium text-slate-700">
                 {isPrototype ? "Prototype" : "Workspace"}
               </span>
-              {isSampleContext ? (
-                <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                  Sample data
-                </span>
-              ) : null}
             </div>
             <div className="text-lg text-slate-700">{job.jobTitle}</div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">

@@ -25,7 +25,6 @@ type JobWorkspacePrototypeProps = {
   job?: JobWorkspaceJob | null;
   baseUrl?: string;
   emissionsSummary?: WorkspaceEmissionsSummaryData | null;
-  isSampleContext?: boolean;
   prototypeNote?: string;
 };
 
@@ -33,7 +32,6 @@ export default function JobWorkspacePrototype({
   job,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   emissionsSummary,
-  isSampleContext = true,
   prototypeNote,
 }: JobWorkspacePrototypeProps) {
   const jobData = job ?? sampleJob;
@@ -64,7 +62,6 @@ export default function JobWorkspacePrototype({
         job={jobData}
         emissionsSummary={summaryData}
         isPrototype
-        isSampleContext={isSampleContext}
         note={
           prototypeNote ??
           "Prototype shell only. Use this route to test the top-nav workspace and content density."
