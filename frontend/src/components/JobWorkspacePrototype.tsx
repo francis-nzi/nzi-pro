@@ -14,6 +14,7 @@ import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
 import JobWorkspaceSubtabs from "@/components/job-workspace/JobWorkspaceSubtabs";
 import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
 import { sampleEmissionsSummary, sampleJob, workspaceSubtabs, workspaceTabs } from "@/components/job-workspace/sample-data";
+import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
 import type {
   JobWorkspaceJob,
   WorkspaceBreadcrumb,
@@ -89,6 +90,20 @@ function mapScopeTotals(totals: ScopeTotalsResponse): WorkspaceEmissionsSummaryD
   };
 }
 
+function buildAuthHeaders(): HeadersInit {
+  const token = getToken();
+  const userIdentifier = getAuthUserIdentifier();
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (userIdentifier) {
+    headers["X-User-Email"] = userIdentifier;
+  }
+
+  return headers;
+}
+
 export default function JobWorkspacePrototype({
   jobId,
   job,
@@ -117,11 +132,13 @@ export default function JobWorkspacePrototype({
           fetch(`${baseUrl}/jobs/${jobId}`, {
             credentials: "include",
             cache: "no-store",
+            headers: buildAuthHeaders(),
             signal: controller.signal,
           }),
           fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, {
             credentials: "include",
             cache: "no-store",
+            headers: buildAuthHeaders(),
             signal: controller.signal,
           }),
         ]);
