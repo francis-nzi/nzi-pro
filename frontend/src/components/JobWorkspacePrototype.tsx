@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import CustomFields from "@/components/CustomFields";
 import DataOutput from "@/components/DataOutput";
@@ -111,6 +112,9 @@ export default function JobWorkspacePrototype({
   emissionsSummary,
   prototypeNote,
 }: JobWorkspacePrototypeProps) {
+  const searchParams = useSearchParams();
+  const queryApiBase = searchParams.get("apiBase")?.trim() || "";
+  const resolvedBaseUrl = queryApiBase || baseUrl;
   const [liveJob, setLiveJob] = useState<JobWorkspaceJob | null>(null);
   const [liveSummary, setLiveSummary] = useState<WorkspaceEmissionsSummaryData | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "fallback">("loading");
@@ -138,13 +142,13 @@ export default function JobWorkspacePrototype({
         ].join(", ");
 
         const [jobRes, totalsRes] = await Promise.all([
-          fetch(`${baseUrl}/jobs/${jobId}`, {
+          fetch(`${resolvedBaseUrl}/jobs/${jobId}`, {
             credentials: "include",
             cache: "no-store",
             headers: buildAuthHeaders(),
             signal: controller.signal,
           }),
-          fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, {
+          fetch(`${resolvedBaseUrl}/jobs/${jobId}/scope-totals`, {
             credentials: "include",
             cache: "no-store",
             headers: buildAuthHeaders(),
@@ -191,7 +195,7 @@ export default function JobWorkspacePrototype({
       cancelled = true;
       controller.abort();
     };
-  }, [baseUrl, jobId]);
+  }, [jobId, resolvedBaseUrl]);
 
   const jobData = liveJob ?? job ?? sampleJob;
   const summaryData = liveSummary ?? emissionsSummary ?? sampleEmissionsSummary;
@@ -235,7 +239,7 @@ export default function JobWorkspacePrototype({
         activeTab={activeTab}
         activeSubtab={activeSubtab}
         job={jobData}
-        baseUrl={baseUrl}
+        baseUrl={resolvedBaseUrl}
         onTabChange={setActiveTab}
         onSubtabChange={setActiveSubtab}
       />

@@ -159,11 +159,12 @@ type ScopeDataDebugRow = ScopeDataRow & {
 type JobDataEntryProps = {
   jobId: number;
   showEmissionsSummary?: boolean;
+  baseUrl?: string;
 };
 
-export default function JobDataEntry({ jobId, showEmissionsSummary = true }: JobDataEntryProps) {
+export default function JobDataEntry({ jobId, showEmissionsSummary = true, baseUrl }: JobDataEntryProps) {
   const confirmAction = useConfirmDialog();
-  const baseUrl = apiBaseUrl();
+  const effectiveBaseUrl = (baseUrl || apiBaseUrl()).trim() || apiBaseUrl();
   
   const [scopeTotals, setScopeTotals] = useState<ScopeTotals | null>(null);
   const [scopeData, setScopeData] = useState<ScopeDataRow[]>([]);
@@ -239,10 +240,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
     try {
       // Only load essential data on initial load (not template factors)
       const [totalsRes, dataRes, jobRes, previousRowsRes] = await Promise.all([
-        fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs/${jobId}/scope-data`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs/${jobId}`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, { credentials: "include" }),
+        fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" }),
+        fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, { credentials: "include" }),
+        fetch(`${effectiveBaseUrl}/jobs/${jobId}`, { credentials: "include" }),
+        fetch(`${effectiveBaseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, { credentials: "include" }),
       ]);
 
       if (totalsRes.ok) {
@@ -262,7 +263,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
         // Fetch sites for this client
         if (jobJson.client_db_id) {
           try {
-            const sitesRes = await fetch(`${baseUrl}/clients/${jobJson.client_db_id}/sites`, { credentials: "include" });
+            const sitesRes = await fetch(`${effectiveBaseUrl}/clients/${jobJson.client_db_id}/sites`, { credentials: "include" });
             if (sitesRes.ok) {
               const sitesData = await sitesRes.json();
               setSites(sitesData.active_sites || []);
@@ -305,7 +306,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
       const searchParam = factorSearchQuery ? `&search=${encodeURIComponent(factorSearchQuery)}` : "";
       
       const factorsRes = await fetch(
-        `${baseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${offset}${scopeParam}${searchParam}`,
+        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${offset}${scopeParam}${searchParam}`,
         { credentials: "include" }
       );
       
@@ -337,7 +338,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
       const searchParam = factorSearchQuery ? `&search=${encodeURIComponent(factorSearchQuery)}` : "";
       
       const factorsRes = await fetch(
-        `${baseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${factorsOffset}${scopeParam}${searchParam}`,
+        `${effectiveBaseUrl}/jobs/${jobId}/template-factors?limit=50&offset=${factorsOffset}${scopeParam}${searchParam}`,
         { credentials: "include" }
       );
       
@@ -361,7 +362,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
   async function loadPreviousYearRows() {
     setPreviousYearLoading(true);
     try {
-      const previousRowsRes = await fetch(`${baseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, {
+      const previousRowsRes = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/previous-scope-rows?limit=50`, {
         credentials: "include",
       });
       if (previousRowsRes.ok) {
@@ -390,7 +391,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
     setDebugLoading(true);
     setDebugError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -467,7 +468,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
 
   async function updateQuantity(rowId: number, newQty: number | null) {
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
           method: "PATCH",
           headers: withAuditHeaders(
             { "Content-Type": "application/json" },
@@ -563,7 +564,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
 
   async function updateField(rowId: number, fields: Record<string, unknown>) {
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
           method: "PATCH",
           headers: withAuditHeaders(
             { "Content-Type": "application/json" },
@@ -716,7 +717,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
       
       console.log("Sending payload:", payload);
       
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data`, {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
         method: "POST",
         headers: withAuditHeaders(
           { "Content-Type": "application/json" },
@@ -772,7 +773,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
         is_custom_entry: false,
       };
 
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data`, {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
         method: "POST",
         headers: withAuditHeaders(
           { "Content-Type": "application/json" },
@@ -806,7 +807,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = true }: Job
     if (!confirmed) return;
     
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
           method: "DELETE",
           headers: withAuditHeaders(undefined, {
             page: "Jobs",

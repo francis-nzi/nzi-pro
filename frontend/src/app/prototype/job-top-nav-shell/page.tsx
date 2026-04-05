@@ -1,6 +1,9 @@
 import Link from "next/link";
 
 export default function JobTopNavShellLandingPage() {
+  const cleanApiBase = "https://nzi-pro-api-clean.onrender.com";
+  const prodApiBase = "https://nzi-pro-api-prod.onrender.com";
+
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
       <section className="rounded-3xl border bg-white p-8 shadow-sm">
@@ -13,10 +16,16 @@ export default function JobTopNavShellLandingPage() {
 
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/jobs/556/workspace-prototype"
+            href={`/jobs/556/workspace-prototype?apiBase=${encodeURIComponent(cleanApiBase)}`}
             className="inline-flex items-center justify-center rounded-xl bg-emerald-800 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
           >
-            Open prototype workspace
+            Open with clean API
+          </Link>
+          <Link
+            href={`/jobs/556/workspace-prototype?apiBase=${encodeURIComponent(prodApiBase)}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50"
+          >
+            Open with prod API
           </Link>
           <Link
             href="/jobs/556"
@@ -44,4 +53,3 @@ function InfoCard({ title, text }: { title: string; text: string }) {
     </article>
   );
 }
-
