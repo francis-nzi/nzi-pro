@@ -22,26 +22,145 @@ import type {
 } from "@/components/job-workspace/types";
 
 type JobWorkspacePrototypeProps = {
+  jobId: number;
   job?: JobWorkspaceJob | null;
   baseUrl?: string;
   emissionsSummary?: WorkspaceEmissionsSummaryData | null;
   prototypeNote?: string;
 };
 
+type JobApiRecord = {
+  job_id: number;
+  job_number: string | null;
+  title: string | null;
+  client_name: string | null;
+  reporting_period_start: string | null;
+  reporting_period_end: string | null;
+  status: string | null;
+  crm_name?: string | null;
+};
+
+type ScopeTotalsResponse = {
+  total?: number | null;
+  scope_1?: number | null;
+  scope_2?: number | null;
+  scope_3?: number | null;
+};
+
+function formatDateLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatPeriodLabel(start: string | null | undefined, end: string | null | undefined): string {
+  const startLabel = formatDateLabel(start);
+  const endLabel = formatDateLabel(end);
+  if (startLabel && endLabel) return `${startLabel} - ${endLabel}`;
+  return startLabel || endLabel || "Reporting period not set";
+}
+
+function mapLiveJob(job: JobApiRecord): JobWorkspaceJob {
+  const jobNumber = job.job_number?.trim() || `J${String(job.job_id).padStart(6, "0")}`;
+  const title = job.title?.trim() || "Job";
+  const clientName = job.client_name?.trim() || "Client";
+  const statusLabel = job.status?.trim() || "Draft";
+  const ownerLabel = job.crm_name?.trim() || "Unassigned";
+  return {
+    jobId: job.job_id,
+    jobNumber,
+    jobTitle: title,
+    clientName,
+    reportingPeriodLabel: formatPeriodLabel(job.reporting_period_start, job.reporting_period_end),
+    statusLabel,
+    ownerLabel,
+    crmLabel: job.crm_name?.trim() || undefined,
+  };
+}
+
+function mapScopeTotals(totals: ScopeTotalsResponse): WorkspaceEmissionsSummaryData {
+  return {
+    totalTco2e: typeof totals.total === "number" ? totals.total : null,
+    scope1Tco2e: typeof totals.scope_1 === "number" ? totals.scope_1 : null,
+    scope2Tco2e: typeof totals.scope_2 === "number" ? totals.scope_2 : null,
+    scope3Tco2e: typeof totals.scope_3 === "number" ? totals.scope_3 : null,
+    label: "Current job totals",
+  };
+}
+
 export default function JobWorkspacePrototype({
+  jobId,
   job,
-  baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
+  baseUrl = "/api/backend",
   emissionsSummary,
   prototypeNote,
 }: JobWorkspacePrototypeProps) {
-  const jobData = job ?? sampleJob;
-  const summaryData = emissionsSummary ?? sampleEmissionsSummary;
+  const [liveJob, setLiveJob] = useState<JobWorkspaceJob | null>(null);
+  const [liveSummary, setLiveSummary] = useState<WorkspaceEmissionsSummaryData | null>(null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "fallback">("loading");
   const [activeTab, setActiveTab] = useState<WorkspaceTabKey>("setup");
   const [activeSubtab, setActiveSubtab] = useState(workspaceSubtabs.setup[0]?.key ?? "");
 
   useEffect(() => {
     setActiveSubtab(workspaceSubtabs[activeTab][0]?.key ?? "");
   }, [activeTab]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
+    async function loadLiveJob() {
+      setLoadState("loading");
+      try {
+        const [jobRes, totalsRes] = await Promise.all([
+          fetch(`${baseUrl}/jobs/${jobId}`, {
+            credentials: "include",
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, {
+            credentials: "include",
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+        ]);
+
+        if (!jobRes.ok) {
+          throw new Error(`Job request failed (${jobRes.status})`);
+        }
+
+        const liveJobData = mapLiveJob(await jobRes.json());
+        if (cancelled) return;
+        setLiveJob(liveJobData);
+
+        if (totalsRes.ok) {
+          const liveSummaryData = mapScopeTotals(await totalsRes.json());
+          if (!cancelled) setLiveSummary(liveSummaryData);
+        } else if (!cancelled) {
+          setLiveSummary(null);
+        }
+
+        if (!cancelled) setLoadState("ready");
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Prototype job load failed:", error);
+        setLiveJob(null);
+        setLiveSummary(null);
+        setLoadState("fallback");
+      }
+    }
+
+    void loadLiveJob();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [baseUrl, jobId]);
+
+  const jobData = liveJob ?? job ?? sampleJob;
+  const summaryData = liveSummary ?? emissionsSummary ?? sampleEmissionsSummary;
 
   const breadcrumbs: WorkspaceBreadcrumb[] = useMemo(
     () => [
@@ -55,6 +174,10 @@ export default function JobWorkspacePrototype({
 
   const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);
   const showSubtabs = activeTab === "setup" || activeTab === "outputs" || activeTab === "report";
+  const note =
+    loadState === "fallback"
+      ? "Live job data is unavailable right now, so this prototype is showing fallback preview data."
+      : prototypeNote ?? "Prototype shell only. Use this route to review the top-nav layout.";
   return (
     <div className="space-y-4">
       <JobWorkspaceHeader
@@ -62,10 +185,7 @@ export default function JobWorkspacePrototype({
         job={jobData}
         emissionsSummary={summaryData}
         isPrototype
-        note={
-          prototypeNote ??
-          "Prototype shell only. Use this route to review the top-nav layout."
-        }
+        note={note}
       />
 
       <JobWorkspaceTabs activeTab={activeTab} tabs={workspaceTabs} onTabChange={setActiveTab} />
