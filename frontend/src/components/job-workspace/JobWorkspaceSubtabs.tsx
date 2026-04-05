@@ -25,7 +25,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
     : subtabs[0]?.key ?? "";
 
   return (
-    <div className="rounded-2xl border bg-slate-50/80 px-3 py-2.5">
+    <div className="border-b border-slate-200/80 pb-1">
       <div className="md:hidden">
         <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.22em] text-slate-500">
           Section
@@ -44,7 +44,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
         </Select>
       </div>
 
-      <div className="hidden flex-wrap gap-1.5 md:flex">
+      <div className="hidden flex-wrap gap-5 px-1 md:flex">
         {subtabs.map((subtab) => {
           const active = activeSubtab === subtab.key;
           return (
@@ -53,17 +53,15 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
               type="button"
               disabled={subtab.disabled}
               onClick={() => onSubtabChange(subtab.key)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[5px] text-[13px] font-medium transition ${
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 pb-2 text-[13px] font-medium transition ${
                 active
-                  ? "bg-slate-900 text-white"
-                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                  ? "border-emerald-800 text-slate-900"
+                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
               } ${subtab.disabled ? "cursor-not-allowed opacity-50" : ""}`}
             >
               <span>{subtab.label}</span>
               {subtab.countBadge !== undefined ? (
-                <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${active ? "bg-white/15" : "bg-slate-100"}`}>
-                  {subtab.countBadge}
-                </span>
+                <span className="text-xs text-slate-400">{subtab.countBadge}</span>
               ) : null}
             </button>
           );

@@ -27,7 +27,6 @@ type JobWorkspacePrototypeProps = {
   emissionsSummary?: WorkspaceEmissionsSummaryData | null;
   isSampleContext?: boolean;
   prototypeNote?: string;
-  onOpenStableJob?: () => void;
 };
 
 export default function JobWorkspacePrototype({
@@ -36,7 +35,6 @@ export default function JobWorkspacePrototype({
   emissionsSummary,
   isSampleContext = true,
   prototypeNote,
-  onOpenStableJob,
 }: JobWorkspacePrototypeProps) {
   const jobData = job ?? sampleJob;
   const summaryData = emissionsSummary ?? sampleEmissionsSummary;
@@ -71,29 +69,6 @@ export default function JobWorkspacePrototype({
           prototypeNote ??
           "Prototype shell only. Use this route to test the top-nav workspace and content density."
         }
-        primaryActions={[
-          onOpenStableJob
-            ? {
-                label: "Open stable job page",
-                onClick: onOpenStableJob,
-                variant: "primary" as const,
-              }
-            : {
-                label: "Open stable job page",
-                href: `/jobs/${jobData.jobId}`,
-                variant: "primary" as const,
-              },
-          {
-            label: "Open in Hub",
-            href: "#",
-            variant: "secondary" as const,
-          },
-          {
-            label: "Back to Jobs",
-            href: "/jobs",
-            variant: "outline" as const,
-          },
-        ]}
       />
 
       <JobWorkspaceTabs activeTab={activeTab} tabs={workspaceTabs} onTabChange={setActiveTab} />
