@@ -58,7 +58,7 @@ export default function JobWorkspacePrototype({
   const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);
   const showSubtabs = activeTab === "setup" || activeTab === "outputs" || activeTab === "report";
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <JobWorkspaceHeader
         breadcrumbs={breadcrumbs}
         job={jobData}
