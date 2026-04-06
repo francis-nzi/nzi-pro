@@ -615,6 +615,7 @@ export default function EmployeeCommutingData({
 
   return (
     <div className="space-y-5">
+      {/* Prototype shells can hide this duplicate summary so the header stays compact. */}
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
       <Card>
