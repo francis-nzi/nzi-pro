@@ -4,9 +4,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import PageHeader from "@/components/PageHeader";
-import { Badge } from "@/components/ui/badge";
-import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import JobDataEntry from "@/components/JobDataEntry";
 import IntensityMetrics from "@/components/IntensityMetrics";
 import DataOutput from "@/components/DataOutput";
@@ -28,7 +25,6 @@ import JobCustomFactors from "@/components/JobCustomFactors";
 import JobSourceRegister from "@/components/JobSourceRegister";
 import SpendDataCollection from "@/components/SpendDataCollection";
 import EmployeeCommutingData from "@/components/EmployeeCommutingData";
-import EmissionsSummary from "@/components/EmissionsSummary";
 import JobActions from "@/components/JobActions";
 import JobReportNew from "@/components/JobReportNew";
 import JobReporting from "@/components/JobReporting";
@@ -40,6 +36,10 @@ import JobCommunications from "@/components/JobCommunications";
 import ClientTimeline from "@/components/ClientTimeline";
 import CustomFields from "@/components/CustomFields";
 import UploadProgressBar from "@/components/UploadProgressBar";
+import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
+import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
+import JobWorkspaceSubtabs from "@/components/job-workspace/JobWorkspaceSubtabs";
+import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceSubtab, WorkspaceTab } from "@/components/job-workspace/types";
 import { milestoneDotClass } from "@/lib/status-utils";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
@@ -93,6 +93,129 @@ const EMPTY_SCOPE_MAP: Record<ScopeKey, string> = {
   "Scope 1": "__none__",
   "Scope 2": "__none__",
   "Scope 3": "__none__",
+};
+
+type JobWorkspaceGroup = {
+  key: WorkspaceTab["key"];
+  label: string;
+  defaultTab: string;
+  subtabs: WorkspaceSubtab[];
+};
+
+const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
+  {
+    key: "setup",
+    label: "Setup",
+    defaultTab: "setup",
+    subtabs: [
+      { key: "setup-overview", label: "Setup Overview" },
+      { key: "setup-custom-fields", label: "Custom Fields" },
+      { key: "setup-report-variables", label: "Job Report Variables" },
+    ],
+  },
+  {
+    key: "data",
+    label: "Data",
+    defaultTab: "data-entry",
+    subtabs: [
+      { key: "data-entry", label: "Data Entry" },
+      { key: "employee-commuting", label: "Employee Commuting" },
+      { key: "asset-register", label: "Asset Register" },
+      { key: "business-travel", label: "Business Travel" },
+      { key: "upload", label: "Data Upload" },
+      { key: "custom-dataset", label: "Custom Dataset" },
+      { key: "custom-factors", label: "Job-Only Factors" },
+      { key: "spend-data", label: "Spend Data" },
+    ],
+  },
+  {
+    key: "outputs",
+    label: "Outputs",
+    defaultTab: "data-output",
+    subtabs: [
+      { key: "data-output", label: "Data Output" },
+      { key: "actions", label: "Actions" },
+    ],
+  },
+  {
+    key: "report",
+    label: "Report",
+    defaultTab: "report-new",
+    subtabs: [
+      { key: "report-new", label: "Report (New)" },
+      { key: "reporting", label: "Reporting (Legacy)" },
+    ],
+  },
+  {
+    key: "analysis",
+    label: "Analysis",
+    defaultTab: "lca",
+    subtabs: [{ key: "lca", label: "Life Cycle Analysis" }],
+  },
+  {
+    key: "communications",
+    label: "Communications",
+    defaultTab: "communications-timeline",
+    subtabs: [
+      { key: "communications-timeline", label: "Timeline" },
+      { key: "communications-inbox", label: "Inbox" },
+      { key: "communications-notes", label: "Notes" },
+      { key: "communications-email", label: "Email" },
+      { key: "communications-tasks", label: "Tasks" },
+      { key: "communications-automation", label: "Automation" },
+      { key: "communications-crm", label: "CRM Timeline" },
+    ],
+  },
+  {
+    key: "financial",
+    label: "Financial",
+    defaultTab: "financial-quotes",
+    subtabs: [
+      { key: "financial-quotes", label: "Quotes" },
+      { key: "financial-invoices", label: "Invoices" },
+      { key: "financial-other-costs", label: "Other Costs" },
+      { key: "financial-profit-loss", label: "Profit & Loss" },
+    ],
+  },
+  {
+    key: "admin",
+    label: "Admin",
+    defaultTab: "files",
+    subtabs: [
+      { key: "files", label: "Files" },
+      { key: "time", label: "Time Entries" },
+    ],
+  },
+];
+
+const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
+  setup: "setup",
+  "data-entry": "data",
+  "employee-commuting": "data",
+  "asset-register": "data",
+  "business-travel": "data",
+  upload: "data",
+  "custom-dataset": "data",
+  "custom-factors": "data",
+  "spend-data": "data",
+  "data-output": "outputs",
+  actions: "outputs",
+  "report-new": "report",
+  reporting: "report",
+  lca: "analysis",
+  "communications-timeline": "communications",
+  "communications-inbox": "communications",
+  "communications-notes": "communications",
+  "communications-email": "communications",
+  "communications-tasks": "communications",
+  "communications-automation": "communications",
+  "communications-crm": "communications",
+  "financial-quotes": "financial",
+  "financial-invoices": "financial",
+  "financial-other-costs": "financial",
+  "financial-profit-loss": "financial",
+  files: "admin",
+  time: "admin",
 };
 
 function calculateReportingPeriod(
@@ -674,6 +797,7 @@ export default function JobDetailPage() {
   const [clientCurrency, setClientCurrency] = useState<string>("GBP");
   const [totalEmissions, setTotalEmissions] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<string>("setup");
+  const [activeSetupSubtab, setActiveSetupSubtab] = useState<string>("setup-overview");
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [scopeDatasetIds, setScopeDatasetIds] = useState<Record<ScopeKey, string>>({ ...EMPTY_SCOPE_MAP });
@@ -726,6 +850,43 @@ export default function JobDetailPage() {
       : job?.reporting_year
         ? `Year ${job.reporting_year}`
         : "Reporting period not set";
+
+  const activeWorkspaceGroup = JOB_TAB_TO_GROUP[activeTab] ?? "setup";
+  const activeWorkspaceGroupConfig =
+    JOB_WORKSPACE_GROUPS.find((group) => group.key === activeWorkspaceGroup) ?? JOB_WORKSPACE_GROUPS[0];
+  const activeWorkspaceSubtabs = activeWorkspaceGroupConfig.subtabs;
+  const activeWorkspaceSubtab =
+    activeWorkspaceGroup === "setup" ? activeSetupSubtab : activeTab;
+
+  function handleWorkspaceGroupChange(groupKey: WorkspaceTab["key"]) {
+    const group = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === groupKey);
+    if (!group) return;
+    setActiveTab(group.defaultTab);
+    if (groupKey === "setup") {
+      setActiveSetupSubtab("setup-overview");
+    }
+  }
+
+  function handleWorkspaceSubtabChange(subtabKey: string) {
+    if (activeWorkspaceGroup === "setup") {
+      setActiveSetupSubtab(subtabKey);
+      const setupAnchorByKey: Record<string, string> = {
+        "setup-overview": "job-details-section",
+        "setup-custom-fields": "custom-fields-section",
+        "setup-report-variables": "report-variables-section",
+      };
+      const anchorId = setupAnchorByKey[subtabKey];
+      if (anchorId) {
+        window.requestAnimationFrame(() => {
+          const el = document.getElementById(anchorId);
+          el?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+      return;
+    }
+
+    setActiveTab(subtabKey);
+  }
 
   function parseClientYearEndMonthToNumber(value: string): number | null {
     const raw = String(value || "").trim();
@@ -794,8 +955,24 @@ export default function JobDetailPage() {
   const setupCompletionBadgeClassName = isSetupComplete
     ? "border-green-200 bg-green-50 text-green-800"
     : "border-red-200 bg-red-50 text-red-800";
-  const navTriggerClassName =
-    "rounded-none border-b-2 border-transparent px-1 py-2 text-sm font-medium text-muted-foreground shadow-none hover:text-foreground data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none";
+  const workspaceJob: JobWorkspaceJob = {
+    jobId,
+    jobNumber: jobNumberLabel,
+    jobTitle: jobTitleLabel || "Job",
+    clientName: clientLabel,
+    reportingPeriodLabel,
+    statusLabel,
+    ownerLabel,
+    crmLabel: crmName || job?.crm_name || undefined,
+    setupCompletionLabel,
+    setupCompletionClassName: setupCompletionBadgeClassName,
+  };
+  const workspaceBreadcrumbs: WorkspaceBreadcrumb[] = [
+    { label: "Clients", href: "/clients" },
+    { label: clientLabel },
+    { label: "Jobs", href: "/jobs" },
+    { label: jobNumberLabel },
+  ];
 
   function selectedSiteName(): string {
     if (selectedSiteId === "All") return "All";
@@ -1870,160 +2047,37 @@ export default function JobDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <PageHeader
-          title={jobNumberLabel}
-          subtitle={jobTitleLabel || undefined}
-          breadcrumbs={[
-            { label: "Clients", href: "/clients" },
-            job?.client_db_id
-              ? { label: clientLabel, href: `/clients/${job.client_db_id}` }
-              : { label: clientLabel },
-            { label: "Jobs", href: "/jobs" },
-            { label: jobNumberLabel },
-          ]}
-          titleSuffix={
-            <>
-              <StatusBadge status={statusLabel} label={statusLabel} />
-              {job?.is_benchmark ? (
-                <Badge className="border-blue-200 bg-blue-50 text-blue-700">
-                  Benchmark
-                </Badge>
-              ) : null}
-            </>
-          }
-          meta={
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span>{clientLabel}</span>
-                <span>•</span>
-                <span>{reportingPeriodLabel}</span>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <Badge
-                  variant="outline"
-                  className="border-muted-foreground/20 text-muted-foreground"
-                >
-                  Owner: {ownerLabel}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className={setupCompletionBadgeClassName}
-                >
-                  {setupCompletionLabel}
-                </Badge>
-                {Number.isFinite(jobId) ? (
-                  <Badge
-                    variant="outline"
-                    className="border-muted-foreground/20 text-muted-foreground"
-                  >
-                    Job ID: {jobId}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-          }
-          actions={
-            <EmissionsSummary jobId={jobId} baseUrl={baseUrl} variant="compact" className="w-full max-w-[560px]" />
-          }
+        <JobWorkspaceHeader
+          breadcrumbs={workspaceBreadcrumbs}
+          jobId={jobId}
+          baseUrl={baseUrl}
+          job={workspaceJob}
         />
 
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="space-y-6">
-            <TabsList className="h-auto w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-none border-b bg-transparent p-0 pb-3">
-              <TabsTrigger value="setup" className={navTriggerClassName}>
-                Setup Overview
-              </TabsTrigger>
-              <TabsTrigger value="data-entry" className={navTriggerClassName}>
-                Data Entry
-              </TabsTrigger>
-              <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
-                Employee Commuting
-              </TabsTrigger>
-              <TabsTrigger value="asset-register" className={navTriggerClassName}>
-                Asset Register
-              </TabsTrigger>
-              <TabsTrigger value="business-travel" className={navTriggerClassName}>
-                Business Travel
-              </TabsTrigger>
-              <TabsTrigger value="upload" className={navTriggerClassName}>
-                Data Upload
-              </TabsTrigger>
-              <TabsTrigger value="custom-dataset" className={navTriggerClassName}>
-                Custom Dataset
-              </TabsTrigger>
-              <TabsTrigger value="custom-factors" className={navTriggerClassName}>
-                Job-Only Factors
-              </TabsTrigger>
-              <TabsTrigger value="spend-data" className={navTriggerClassName}>
-                Spend Data
-              </TabsTrigger>
-              <TabsTrigger value="data-output" className={navTriggerClassName}>
-                Data Output
-              </TabsTrigger>
-              <TabsTrigger value="actions" className={navTriggerClassName}>
-                Actions
-              </TabsTrigger>
-              <TabsTrigger value="report-new" className={navTriggerClassName}>
-                Report (New)
-              </TabsTrigger>
-              <TabsTrigger value="reporting" className={navTriggerClassName}>
-                Reporting (Legacy)
-              </TabsTrigger>
-              <TabsTrigger value="lca" className={navTriggerClassName}>
-                Life Cycle Analysis
-              </TabsTrigger>
-              <TabsTrigger value="communications-timeline" className={navTriggerClassName}>
-                Timeline
-              </TabsTrigger>
-              <TabsTrigger value="communications-inbox" className={navTriggerClassName}>
-                Inbox
-              </TabsTrigger>
-              <TabsTrigger value="communications-notes" className={navTriggerClassName}>
-                Notes
-              </TabsTrigger>
-              <TabsTrigger value="communications-email" className={navTriggerClassName}>
-                Email
-              </TabsTrigger>
-              <TabsTrigger value="communications-tasks" className={navTriggerClassName}>
-                Tasks
-              </TabsTrigger>
-              <TabsTrigger value="communications-automation" className={navTriggerClassName}>
-                Automation
-              </TabsTrigger>
-              <TabsTrigger value="communications-crm" className={navTriggerClassName}>
-                CRM Timeline
-              </TabsTrigger>
-              <TabsTrigger value="financial-quotes" className={navTriggerClassName}>
-                Quotes
-              </TabsTrigger>
-              <TabsTrigger value="financial-invoices" className={navTriggerClassName}>
-                Invoices
-              </TabsTrigger>
-              <TabsTrigger value="financial-other-costs" className={navTriggerClassName}>
-                Other Costs
-              </TabsTrigger>
-              <TabsTrigger value="financial-profit-loss" className={navTriggerClassName}>
-                Profit & Loss
-              </TabsTrigger>
-              <TabsTrigger value="custom-fields" className={navTriggerClassName}>
-                Custom Fields
-              </TabsTrigger>
-              <TabsTrigger value="files" className={navTriggerClassName}>
-                Files
-              </TabsTrigger>
-              <TabsTrigger value="time" className={navTriggerClassName}>
-                Time Entries
-              </TabsTrigger>
-            </TabsList>
+          <div className="space-y-4">
+            <JobWorkspaceTabs
+              activeTab={activeWorkspaceGroup}
+              tabs={JOB_WORKSPACE_GROUPS.map((group) => ({
+                key: group.key,
+                label: group.label,
+              }))}
+              onTabChange={handleWorkspaceGroupChange}
+            />
+            <JobWorkspaceSubtabs
+              activeSubtab={activeWorkspaceSubtab}
+              subtabs={activeWorkspaceSubtabs}
+              onSubtabChange={handleWorkspaceSubtabChange}
+            />
+          </div>
 
-            <div>
           <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
-                <Card>
+                <Card id="job-details-section">
             <CardHeader>
               <CardTitle>Job Details</CardTitle>
             </CardHeader>
@@ -2374,34 +2428,7 @@ export default function JobDetailPage() {
 
 
 
-              {/* Custom Fields (before Job Report Variables) */}
-              <Card>
-                <CardHeader>
-                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before saving.
-                  </p>
-                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
-                </CardContent>
-              </Card>
-
-              {/* Custom Fields (before Job Report Variables) */}
-              <Card>
-                <CardHeader>
-                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Quick access to job-level custom fields configured in Admin → Custom Fields.
-                  </p>
-                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
-                </CardContent>
-              </Card>
-
-              {/* Custom Fields */}
-              <Card>
+              <Card id="custom-fields-section">
                 <CardHeader>
                   <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
                 </CardHeader>
@@ -2415,7 +2442,7 @@ export default function JobDetailPage() {
               </Card>
 
               {/* Job Report Variables */}
-              <Card>
+              <Card id="report-variables-section">
                 <CardHeader>
                   <CardTitle>Job Report Variables</CardTitle>
                 </CardHeader>
@@ -3028,10 +3055,6 @@ export default function JobDetailPage() {
             />
           </TabsContent>
 
-          <TabsContent value="custom-fields" className="mt-0">
-            <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
-          </TabsContent>
-
           <TabsContent value="files" className="mt-0">
             <JobFiles jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
@@ -3039,8 +3062,6 @@ export default function JobDetailPage() {
           <TabsContent value="time" className="mt-0">
             <JobTimeEntries jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
-            </div>
-          </div>
         </Tabs>
       </div>
     </div>

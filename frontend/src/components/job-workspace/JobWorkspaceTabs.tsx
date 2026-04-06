@@ -1,16 +1,12 @@
 "use client";
 
-import type { WorkspaceTabKey } from "./types";
+import type { WorkspaceTab } from "./types";
+import type { WorkspaceGroupKey } from "./types";
 
 type JobWorkspaceTabsProps = {
-  activeTab: WorkspaceTabKey;
-  tabs: Array<{
-    key: WorkspaceTabKey;
-    label: string;
-    countBadge?: string | number;
-    disabled?: boolean;
-  }>;
-  onTabChange: (tab: WorkspaceTabKey) => void;
+  activeTab: WorkspaceGroupKey;
+  tabs: WorkspaceTab[];
+  onTabChange: (tab: WorkspaceGroupKey) => void;
 };
 
 export default function JobWorkspaceTabs({ activeTab, tabs, onTabChange }: JobWorkspaceTabsProps) {

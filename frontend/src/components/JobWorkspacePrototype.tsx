@@ -225,6 +225,7 @@ export default function JobWorkspacePrototype({
     <div className="space-y-4">
       <JobWorkspaceHeader
         breadcrumbs={breadcrumbs}
+        jobId={jobId}
         job={jobData}
         emissionsSummary={summaryData}
         isPrototype

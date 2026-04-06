@@ -1,12 +1,7 @@
 "use client";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import type { WorkspaceSubtab } from "./types";
 
 type JobWorkspaceSubtabsProps = {
@@ -70,3 +65,4 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
     </div>
   );
 }
+

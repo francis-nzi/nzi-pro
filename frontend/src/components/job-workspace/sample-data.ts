@@ -72,5 +72,8 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
     { key: "other-costs", label: "Other Costs" },
     { key: "profit-loss", label: "Profit & Loss" },
   ],
+  admin: [
+    { key: "files", label: "Files" },
+    { key: "time", label: "Time Entries" },
+  ],
 };
-
