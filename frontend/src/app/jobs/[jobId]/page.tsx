@@ -794,11 +794,8 @@ export default function JobDetailPage() {
   const setupCompletionBadgeClassName = isSetupComplete
     ? "border-green-200 bg-green-50 text-green-800"
     : "border-red-200 bg-red-50 text-red-800";
-  const primaryActionTab = setupCompletedCount < setupTotalCount ? "setup" : "data-entry";
-  const primaryActionLabel =
-    primaryActionTab === "setup" ? "Continue Setup" : "Go to Data Entry";
   const navTriggerClassName =
-    "w-full justify-start rounded-md px-3 py-2 text-sm font-medium hover:bg-muted/60 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-none";
+    "rounded-none border-b-2 border-transparent px-1 py-2 text-sm font-medium text-muted-foreground shadow-none hover:text-foreground data-[state=active]:border-emerald-800 data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
   function selectedSiteName(): string {
     if (selectedSiteId === "All") return "All";
@@ -1925,42 +1922,8 @@ export default function JobDetailPage() {
               </div>
             </div>
           }
-          actionsClassName="w-full lg:w-auto justify-start lg:justify-end"
           actions={
-            <div className="flex flex-col gap-2 sm:items-end">
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setActiveTab(primaryActionTab)}>
-                  {primaryActionLabel}
-                </Button>
-                {job?.client_db_id ? (
-                  <Button variant="secondary" asChild>
-                    <Link href={`/?clientId=${job.client_db_id}&jobId=${jobId}`}>
-                      Open in Hub
-                    </Link>
-                  </Button>
-                ) : (
-                  <Button variant="secondary" asChild>
-                    <Link href={`/?jobId=${jobId}`}>Open in Hub</Link>
-                  </Button>
-                )}
-                <Button variant="outline" asChild>
-                  <Link href="/jobs">Back to Jobs</Link>
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                {job?.client_db_id ? (
-                  <Link
-                    className="hover:text-foreground"
-                    href={`/clients/${job.client_db_id}`}
-                  >
-                    Client
-                  </Link>
-                ) : null}
-                <Link className="hover:text-foreground" href="/">
-                  Hub
-                </Link>
-              </div>
-            </div>
+            <EmissionsSummary jobId={jobId} baseUrl={baseUrl} variant="compact" className="w-full max-w-[560px]" />
           }
         />
 
@@ -1968,134 +1931,97 @@ export default function JobDetailPage() {
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="flex flex-col items-start gap-6 lg:flex-row">
-            <TabsList className="h-auto w-full flex-col items-stretch gap-4 rounded-lg border bg-muted/40 p-4 lg:w-64">
-              <div className="space-y-1">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Setup
-                </div>
-                <TabsTrigger value="setup" className={navTriggerClassName}>
-                  Setup Overview
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Data
-                </div>
-                <TabsTrigger value="data-entry" className={navTriggerClassName}>
-                  Data Entry
-                </TabsTrigger>
-                <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
-                  Employee Commuting
-                </TabsTrigger>
-                <TabsTrigger value="asset-register" className={navTriggerClassName}>
-                  Asset Register
-                </TabsTrigger>
-                <TabsTrigger value="business-travel" className={navTriggerClassName}>
-                  Business Travel
-                </TabsTrigger>
-                <TabsTrigger value="upload" className={navTriggerClassName}>
-                  Data Upload
-                </TabsTrigger>
-                <TabsTrigger value="custom-dataset" className={navTriggerClassName}>
-                  Custom Dataset
-                </TabsTrigger>
-                <TabsTrigger value="custom-factors" className={navTriggerClassName}>
-                  Job-Only Factors
-                </TabsTrigger>
-                <TabsTrigger value="spend-data" className={navTriggerClassName}>
-                  Spend Data
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Outputs
-                </div>
-                <TabsTrigger value="data-output" className={navTriggerClassName}>
-                  Data Output
-                </TabsTrigger>
-                <TabsTrigger value="actions" className={navTriggerClassName}>
-                  Actions
-                </TabsTrigger>
-                <TabsTrigger value="report-new" className={navTriggerClassName}>
-                  Report (New)
-                </TabsTrigger>
-                <TabsTrigger value="reporting" className={navTriggerClassName}>
-                  Reporting (Legacy)
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  LCA
-                </div>
-                <TabsTrigger value="lca" className={navTriggerClassName}>
-                  Life Cycle Analysis
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Communications
-                </div>
-                <TabsTrigger value="communications-timeline" className={navTriggerClassName}>
-                  Timeline
-                </TabsTrigger>
-                <TabsTrigger value="communications-inbox" className={navTriggerClassName}>
-                  Inbox
-                </TabsTrigger>
-                <TabsTrigger value="communications-notes" className={navTriggerClassName}>
-                  Notes
-                </TabsTrigger>
-                <TabsTrigger value="communications-email" className={navTriggerClassName}>
-                  Email
-                </TabsTrigger>
-                <TabsTrigger value="communications-tasks" className={navTriggerClassName}>
-                  Tasks
-                </TabsTrigger>
-                <TabsTrigger value="communications-automation" className={navTriggerClassName}>
-                  Automation
-                </TabsTrigger>
-                <TabsTrigger value="communications-crm" className={navTriggerClassName}>
-                  CRM Timeline
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Financial
-                </div>
-                <TabsTrigger value="financial-quotes" className={navTriggerClassName}>
-                  Quotes
-                </TabsTrigger>
-                <TabsTrigger value="financial-invoices" className={navTriggerClassName}>
-                  Invoices
-                </TabsTrigger>
-                <TabsTrigger value="financial-other-costs" className={navTriggerClassName}>
-                  Other Costs
-                </TabsTrigger>
-                <TabsTrigger value="financial-profit-loss" className={navTriggerClassName}>
-                  Profit & Loss
-                </TabsTrigger>
-              </div>
-              <div className="space-y-1 pt-3">
-                <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Admin
-                </div>
-                <TabsTrigger value="custom-fields" className={navTriggerClassName}>
-                  Custom Fields
-                </TabsTrigger>
-                <TabsTrigger value="files" className={navTriggerClassName}>
-                  Files
-                </TabsTrigger>
-                <TabsTrigger value="time" className={navTriggerClassName}>
-                  Time Entries
-                </TabsTrigger>
-              </div>
+          <div className="space-y-6">
+            <TabsList className="h-auto w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-none border-b bg-transparent p-0 pb-3">
+              <TabsTrigger value="setup" className={navTriggerClassName}>
+                Setup Overview
+              </TabsTrigger>
+              <TabsTrigger value="data-entry" className={navTriggerClassName}>
+                Data Entry
+              </TabsTrigger>
+              <TabsTrigger value="employee-commuting" className={navTriggerClassName}>
+                Employee Commuting
+              </TabsTrigger>
+              <TabsTrigger value="asset-register" className={navTriggerClassName}>
+                Asset Register
+              </TabsTrigger>
+              <TabsTrigger value="business-travel" className={navTriggerClassName}>
+                Business Travel
+              </TabsTrigger>
+              <TabsTrigger value="upload" className={navTriggerClassName}>
+                Data Upload
+              </TabsTrigger>
+              <TabsTrigger value="custom-dataset" className={navTriggerClassName}>
+                Custom Dataset
+              </TabsTrigger>
+              <TabsTrigger value="custom-factors" className={navTriggerClassName}>
+                Job-Only Factors
+              </TabsTrigger>
+              <TabsTrigger value="spend-data" className={navTriggerClassName}>
+                Spend Data
+              </TabsTrigger>
+              <TabsTrigger value="data-output" className={navTriggerClassName}>
+                Data Output
+              </TabsTrigger>
+              <TabsTrigger value="actions" className={navTriggerClassName}>
+                Actions
+              </TabsTrigger>
+              <TabsTrigger value="report-new" className={navTriggerClassName}>
+                Report (New)
+              </TabsTrigger>
+              <TabsTrigger value="reporting" className={navTriggerClassName}>
+                Reporting (Legacy)
+              </TabsTrigger>
+              <TabsTrigger value="lca" className={navTriggerClassName}>
+                Life Cycle Analysis
+              </TabsTrigger>
+              <TabsTrigger value="communications-timeline" className={navTriggerClassName}>
+                Timeline
+              </TabsTrigger>
+              <TabsTrigger value="communications-inbox" className={navTriggerClassName}>
+                Inbox
+              </TabsTrigger>
+              <TabsTrigger value="communications-notes" className={navTriggerClassName}>
+                Notes
+              </TabsTrigger>
+              <TabsTrigger value="communications-email" className={navTriggerClassName}>
+                Email
+              </TabsTrigger>
+              <TabsTrigger value="communications-tasks" className={navTriggerClassName}>
+                Tasks
+              </TabsTrigger>
+              <TabsTrigger value="communications-automation" className={navTriggerClassName}>
+                Automation
+              </TabsTrigger>
+              <TabsTrigger value="communications-crm" className={navTriggerClassName}>
+                CRM Timeline
+              </TabsTrigger>
+              <TabsTrigger value="financial-quotes" className={navTriggerClassName}>
+                Quotes
+              </TabsTrigger>
+              <TabsTrigger value="financial-invoices" className={navTriggerClassName}>
+                Invoices
+              </TabsTrigger>
+              <TabsTrigger value="financial-other-costs" className={navTriggerClassName}>
+                Other Costs
+              </TabsTrigger>
+              <TabsTrigger value="financial-profit-loss" className={navTriggerClassName}>
+                Profit & Loss
+              </TabsTrigger>
+              <TabsTrigger value="custom-fields" className={navTriggerClassName}>
+                Custom Fields
+              </TabsTrigger>
+              <TabsTrigger value="files" className={navTriggerClassName}>
+                Files
+              </TabsTrigger>
+              <TabsTrigger value="time" className={navTriggerClassName}>
+                Time Entries
+              </TabsTrigger>
             </TabsList>
 
-            <div className="flex-1">
-              <TabsContent value="setup" className="mt-0">
+            <div>
+          <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
-              
               <div className="grid gap-6 md:grid-cols-2">
                 <Card>
             <CardHeader>
@@ -2445,6 +2371,49 @@ export default function JobDetailPage() {
                 );
               })()}
 
+
+
+
+              {/* Custom Fields (before Job Report Variables) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before saving.
+                  </p>
+                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
+                </CardContent>
+              </Card>
+
+              {/* Custom Fields (before Job Report Variables) */}
+              <Card>
+                <CardHeader>
+                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Quick access to job-level custom fields configured in Admin → Custom Fields.
+                  </p>
+                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
+                </CardContent>
+              </Card>
+
+              {/* Custom Fields */}
+              <Card>
+                <CardHeader>
+                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
+                    saving.
+                  </p>
+                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
+                </CardContent>
+              </Card>
+
               {/* Job Report Variables */}
               <Card>
                 <CardHeader>
@@ -2731,18 +2700,6 @@ export default function JobDetailPage() {
                 />
               </div>
 
-              {/* Custom Fields - shown in Setup for easy access during job creation */}
-              <Card>
-                <CardHeader>
-                  <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before saving.
-                  </p>
-                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
-                </CardContent>
-              </Card>
             </div>
           </TabsContent>
 
@@ -2789,8 +2746,6 @@ export default function JobDetailPage() {
 
           <TabsContent value="upload" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
-              
               <Card>
                 <CardHeader>
                   <CardTitle>Excel Upload</CardTitle>
@@ -2963,7 +2918,6 @@ export default function JobDetailPage() {
 
           <TabsContent value="spend-data" className="mt-0">
             <div className="space-y-6">
-              <EmissionsSummary jobId={jobId} baseUrl={baseUrl} />
               <SpendDataCollection jobId={jobId} baseUrl={baseUrl} />
             </div>
           </TabsContent>
