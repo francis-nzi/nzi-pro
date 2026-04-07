@@ -865,6 +865,40 @@ def create_scope_data_row(
                 except (ValueError, TypeError):
                     site_id = None
 
+            # Always resolve the factor from the job's active dataset for this
+            # reporting year so stale values from previous-year rows are not
+            # carried forward into the new row.
+            resolved_dataset_id = None
+            resolved_factor_db_id = None
+            resolved_factor = None
+            resolved_ghg_unit = None
+            try:
+                from services.dataset_selector import resolve_dataset_resolution
+                _resolution = resolve_dataset_resolution(int(job_id))
+                _scope_map: dict[str, int] = {
+                    str(s): int(d)
+                    for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
+                    if d is not None
+                }
+                current_ds = _scope_map.get(str(scope))
+                if current_ds:
+                    _refreshed = _lookup_factor_from_reference(con, current_ds, scope, str(original_id))
+                    if _refreshed:
+                        resolved_dataset_id = current_ds
+                        resolved_factor_db_id = _refreshed["db_id"]
+                        resolved_factor = _refreshed["factor"]
+                        resolved_ghg_unit = _refreshed["ghg_unit"]
+                    else:
+                        resolved_dataset_id = current_ds
+            except Exception:
+                pass
+
+            # Fall back to whatever the payload supplied if resolution failed
+            final_dataset_id = resolved_dataset_id if resolved_dataset_id is not None else payload.get("dataset_id")
+            final_factor_db_id = resolved_factor_db_id if resolved_factor_db_id is not None else payload.get("factor_db_id")
+            final_factor = resolved_factor if resolved_factor is not None else payload.get("factor")
+            final_ghg_unit = resolved_ghg_unit if resolved_ghg_unit is not None else payload.get("ghg_unit")
+
             # Insert row
             result = con.execute(
                 """
@@ -882,8 +916,8 @@ def create_scope_data_row(
                     int(job_id),
                     scope,
                     site_id,
-                    payload.get("dataset_id"),
-                    payload.get("factor_db_id"),
+                    final_dataset_id,
+                    final_factor_db_id,
                     original_id,
                     payload.get("category"),
                     payload.get("level_1"),
@@ -894,8 +928,8 @@ def create_scope_data_row(
                     payload.get("report_label"),
                     payload.get("qty"),
                     payload.get("uom"),
-                    payload.get("factor"),
-                    payload.get("ghg_unit"),
+                    final_factor,
+                    final_ghg_unit,
                     payload.get("apply_pct", 100),
                     payload.get("data_source", "Company Data"),
                     payload.get("data_confidence", "M"),
@@ -930,8 +964,8 @@ def create_scope_data_row(
                 metadata={
                     "scope": scope,
                     "original_id": original_id,
-                    "dataset_id": payload.get("dataset_id"),
-                    "factor_db_id": payload.get("factor_db_id"),
+                    "dataset_id": final_dataset_id,
+                    "factor_db_id": final_factor_db_id,
                 },
             )
 
