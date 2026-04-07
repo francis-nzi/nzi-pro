@@ -127,7 +127,7 @@ type AuditData = {
   scope_subtotals: AuditSubtotal[];
 };
 
-export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = true }: DataOutputProps) {
+export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = false }: DataOutputProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [summaryData, setSummaryData] = useState<DataOutputSummary | null>(null);

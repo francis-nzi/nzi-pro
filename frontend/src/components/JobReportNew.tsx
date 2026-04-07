@@ -347,7 +347,7 @@ export default function JobReportNew({
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   onOpenActions,
   onOpenLegacyReporting,
-  showEmissionsSummary = true,
+  showEmissionsSummary = false,
 }: JobReportNewProps) {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [assignment, setAssignment] = useState<TemplateAssignment | null>(null);

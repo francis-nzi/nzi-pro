@@ -162,7 +162,7 @@ type JobDataEntryProps = {
   baseUrl?: string;
 };
 
-export default function JobDataEntry({ jobId, showEmissionsSummary = true, baseUrl }: JobDataEntryProps) {
+export default function JobDataEntry({ jobId, showEmissionsSummary = false, baseUrl }: JobDataEntryProps) {
   const confirmAction = useConfirmDialog();
   const effectiveBaseUrl = (baseUrl || apiBaseUrl()).trim() || apiBaseUrl();
   

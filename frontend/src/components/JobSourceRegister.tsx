@@ -116,7 +116,7 @@ export default function JobSourceRegister({
   jobNumber,
   clientName,
   reportingYear,
-  showEmissionsSummary = true,
+  showEmissionsSummary = false,
 }: {
   jobId: number;
   baseUrl: string;

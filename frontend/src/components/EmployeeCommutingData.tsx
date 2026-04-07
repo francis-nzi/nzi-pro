@@ -107,7 +107,7 @@ export default function EmployeeCommutingData({
   clientName,
   reportingPeriodStart,
   reportingPeriodEnd,
-  showEmissionsSummary = true,
+  showEmissionsSummary = false,
 }: {
   jobId: number;
   baseUrl: string;

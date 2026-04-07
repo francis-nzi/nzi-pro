@@ -95,15 +95,15 @@ export default function JobWorkspaceHeader({
 
           <div className="min-w-0">
             {emissionsSummary ? (
-              <div className="rounded-[28px] border border-slate-200/70 bg-slate-50/65 p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="rounded-[28px] border border-slate-200/70 bg-slate-50/55 p-3.5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3 px-1 pt-0.5">
                   <div>
-                    <div className="text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">Emissions Summary</div>
-                    <div className="mt-1 text-sm text-slate-600">{emissionsSummary.label ?? "Current job totals"}</div>
+                    <div className="text-[0.68rem] uppercase tracking-[0.36em] text-slate-500">Emissions Summary</div>
+                    <div className="mt-1 text-xs text-slate-600">{emissionsSummary.label ?? "Current job totals"}</div>
                   </div>
-                  {emissionsSummary.note ? <div className="text-sm text-muted-foreground">{emissionsSummary.note}</div> : null}
+                  {emissionsSummary.note ? <div className="text-xs text-slate-500">{emissionsSummary.note}</div> : null}
                 </div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-3.5 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard label="Total tCO2e" value={emissionsSummary.totalTco2e} tone="default" />
                   <SummaryCard label="Scope 1" value={emissionsSummary.scope1Tco2e} tone="red" />
                   <SummaryCard label="Scope 2" value={emissionsSummary.scope2Tco2e} tone="orange" />
@@ -139,11 +139,11 @@ function SummaryCard({
           : "text-slate-950";
 
   return (
-    <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-3.5 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-      <div className={`text-[1.05rem] font-semibold leading-none tracking-tight tabular-nums sm:text-[1.15rem] xl:text-[1.3rem] ${toneClassName}`}>
+    <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+      <div className={`text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums sm:text-[1.02rem] xl:text-[1.14rem] ${toneClassName}`}>
         {typeof value === "number" ? value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
       </div>
-      <div className="mt-1.5 text-[0.62rem] uppercase tracking-[0.26em] text-slate-500">{label}</div>
+      <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">{label}</div>
     </div>
   );
 }

@@ -88,44 +88,44 @@ export default function EmissionsSummary({
 
   if (variant === "compact") {
     return (
-      <div className={cn("rounded-[28px] border border-slate-200/70 bg-slate-50/65 p-4 shadow-sm", className)}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={cn("rounded-[28px] border border-slate-200/70 bg-slate-50/55 p-3.5 shadow-sm", className)}>
+        <div className="flex flex-wrap items-start justify-between gap-3 px-1 pt-0.5">
           <div>
-            <div className="text-[0.72rem] uppercase tracking-[0.32em] text-slate-500">Emissions Summary</div>
-            <div className="mt-1 text-sm text-slate-600">Current job totals</div>
+            <div className="text-[0.68rem] uppercase tracking-[0.36em] text-slate-500">Emissions Summary</div>
+            <div className="mt-1 text-xs text-slate-600">Current job totals</div>
           </div>
-          {loading ? <div className="text-sm text-muted-foreground">Loading...</div> : null}
+          {loading ? <div className="text-xs text-slate-500">Loading...</div> : null}
         </div>
 
         {scopeTotals ? (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-3.5 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-              <div className="text-[1.05rem] font-semibold leading-none tracking-tight tabular-nums text-slate-950 sm:text-[1.15rem] xl:text-[1.3rem]">
+          <div className="mt-3.5 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+              <div className="text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums text-slate-950 sm:text-[1.02rem] xl:text-[1.14rem]">
                 {formatNumber(scopeTotals.total)}
               </div>
-              <div className="mt-1.5 text-[0.62rem] uppercase tracking-[0.26em] text-slate-500">Total tCO2e</div>
+              <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">Total tCO2e</div>
             </div>
-            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-3.5 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-              <div className="text-[1.05rem] font-semibold leading-none tracking-tight tabular-nums text-red-600 sm:text-[1.15rem] xl:text-[1.3rem]">
+            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+              <div className="text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums text-red-600 sm:text-[1.02rem] xl:text-[1.14rem]">
                 {formatNumber(scopeTotals.scope_1)}
               </div>
-              <div className="mt-1.5 text-[0.62rem] uppercase tracking-[0.26em] text-slate-500">Scope 1</div>
+              <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">Scope 1</div>
             </div>
-            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-3.5 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-              <div className="text-[1.05rem] font-semibold leading-none tracking-tight tabular-nums text-orange-600 sm:text-[1.15rem] xl:text-[1.3rem]">
+            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+              <div className="text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums text-orange-600 sm:text-[1.02rem] xl:text-[1.14rem]">
                 {formatNumber(scopeTotals.scope_2)}
               </div>
-              <div className="mt-1.5 text-[0.62rem] uppercase tracking-[0.26em] text-slate-500">Scope 2</div>
+              <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">Scope 2</div>
             </div>
-            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-3.5 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-              <div className="text-[1.05rem] font-semibold leading-none tracking-tight tabular-nums text-blue-600 sm:text-[1.15rem] xl:text-[1.3rem]">
+            <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+              <div className="text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums text-blue-600 sm:text-[1.02rem] xl:text-[1.14rem]">
                 {formatNumber(scopeTotals.scope_3)}
               </div>
-              <div className="mt-1.5 text-[0.62rem] uppercase tracking-[0.26em] text-slate-500">Scope 3</div>
+              <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">Scope 3</div>
             </div>
           </div>
         ) : (
-          <div className="mt-3 text-sm text-muted-foreground">No data</div>
+          <div className="mt-3 text-xs text-slate-500">No data</div>
         )}
       </div>
     );
