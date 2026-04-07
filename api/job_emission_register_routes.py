@@ -433,7 +433,7 @@ def _register_source_exists(
     )
 
 
-def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int | None) -> dict[str, Any]:
+def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int | None, job_id: int | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "dataset_id": None,
         "factor_db_id": factor_db_id,
@@ -462,7 +462,23 @@ def _resolve_factor(con, scope: str, original_id: str | None, factor_db_id: int 
             out["category"] = str(row[5]).strip() if row[5] is not None else None
             out["uom"] = str(row[6]).strip() if row[6] is not None else None
             return out
-    lookup = _lookup_factor_from_reference(con, None, scope, original_id)
+    # Resolve the correct year's dataset for this job so we don't rely on
+    # dataset_id ordering (which would pick the wrong year if datasets were
+    # loaded out of chronological order).
+    resolved_dataset_id: int | None = None
+    if job_id is not None:
+        try:
+            from services.dataset_selector import resolve_dataset_resolution
+            _resolution = resolve_dataset_resolution(int(job_id))
+            _scope_map: dict[str, int] = {
+                str(s): int(d)
+                for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
+                if d is not None
+            }
+            resolved_dataset_id = _scope_map.get(str(scope))
+        except Exception:
+            pass
+    lookup = _lookup_factor_from_reference(con, resolved_dataset_id, scope, original_id)
     if lookup:
         out["factor_db_id"] = lookup.get("db_id")
         out["factor"] = lookup.get("factor")
@@ -739,7 +755,7 @@ def create_emission_group(
             group_type = str(payload.get("group_type") or "asset").strip() or "asset"
             factor_db_id = _safe_int(payload.get("factor_db_id"))
             original_id = str(payload.get("original_id") or "").strip() or None
-            resolved = _resolve_factor(con, scope, original_id, factor_db_id)
+            resolved = _resolve_factor(con, scope, original_id, factor_db_id, job_id=int(job_id))
             if resolved.get("factor_db_id") is None and resolved.get("original_id") is None:
                 raise HTTPException(status_code=400, detail="factor_db_id or original_id is required for the group")
             row = con.execute(
@@ -956,7 +972,7 @@ async def import_emission_register_workbook(
                 notes = str(row.get("notes") or "").strip() or None
                 group_factor_db_id = _safe_int(row.get("factor_db_id"))
                 group_original_id = str(row.get("original_id") or "").strip() or None
-                resolved = _resolve_factor(con, scope, group_original_id, group_factor_db_id)
+                resolved = _resolve_factor(con, scope, group_original_id, group_factor_db_id, job_id=int(job_id))
                 group_id, created = _ensure_register_group(
                     con,
                     job_id=int(job_id),
@@ -999,7 +1015,7 @@ async def import_emission_register_workbook(
                 employee_name = str(row.get("employee_name") or "").strip() or None
                 original_id = str(row.get("original_id") or "").strip() or None
                 factor_db_id = _safe_int(row.get("factor_db_id"))
-                resolved = _resolve_factor(con, scope, original_id, factor_db_id)
+                resolved = _resolve_factor(con, scope, original_id, factor_db_id, job_id=int(job_id))
                 qty = _safe_float(row.get("qty"), 0) or 0
                 factor = _safe_float(row.get("factor"), resolved.get("factor"))
                 apply_pct = _safe_float(row.get("apply_pct"), 100) or 100
