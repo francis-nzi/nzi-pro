@@ -95,15 +95,15 @@ export default function JobWorkspaceHeader({
 
           <div className="min-w-0">
             {emissionsSummary ? (
-              <div className="rounded-2xl border bg-slate-50/80 p-4 shadow-sm">
+              <div className="rounded-[28px] border border-slate-200/70 bg-slate-50/65 p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Emissions Summary</div>
+                    <div className="text-xs uppercase tracking-[0.26em] text-slate-500">Emissions Summary</div>
                     <div className="mt-1 text-sm text-slate-600">{emissionsSummary.label ?? "Current job totals"}</div>
                   </div>
                   {emissionsSummary.note ? <div className="text-sm text-muted-foreground">{emissionsSummary.note}</div> : null}
                 </div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <SummaryCard label="Total tCO2e" value={emissionsSummary.totalTco2e} tone="default" />
                   <SummaryCard label="Scope 1" value={emissionsSummary.scope1Tco2e} tone="red" />
                   <SummaryCard label="Scope 2" value={emissionsSummary.scope2Tco2e} tone="orange" />
@@ -139,11 +139,11 @@ function SummaryCard({
           : "text-slate-950";
 
   return (
-    <div className="rounded-xl border bg-white px-4 py-3 text-center">
-      <div className={`text-2xl font-bold ${toneClassName}`}>
+    <div className="rounded-2xl border border-slate-200/75 bg-white px-4 py-3 text-center shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+      <div className={`text-[1.5rem] font-semibold leading-none tracking-tight tabular-nums sm:text-[1.65rem] xl:text-[1.85rem] ${toneClassName}`}>
         {typeof value === "number" ? value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
       </div>
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1.5 text-[0.72rem] uppercase tracking-[0.24em] text-slate-500">{label}</div>
     </div>
   );
 }

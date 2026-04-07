@@ -857,7 +857,6 @@ export default function JobDetailPage() {
   const activeWorkspaceSubtabs = activeWorkspaceGroupConfig.subtabs;
   const activeWorkspaceSubtab =
     activeWorkspaceGroup === "setup" ? activeSetupSubtab : activeTab;
-
   function handleWorkspaceGroupChange(groupKey: WorkspaceTab["key"]) {
     const group = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === groupKey);
     if (!group) return;

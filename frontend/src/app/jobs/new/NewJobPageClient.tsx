@@ -226,8 +226,9 @@ function NewJobPageContent() {
     const stepErrors: Record<string, string> = {};
 
     stepFields.forEach((field) => {
-      if (allErrors[field]) {
-        stepErrors[field] = allErrors[field];
+      const fieldError = allErrors[field];
+      if (fieldError) {
+        stepErrors[field] = fieldError;
       }
     });
 
@@ -669,7 +670,7 @@ function NewJobPageContent() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="crmName">CRM Owner</Label>
+                      <Label htmlFor="crmName">CRM</Label>
                       <Select
                         value={crmName || "__none__"}
                         onValueChange={(value) => setCrmName(value === "__none__" ? "" : value)}
