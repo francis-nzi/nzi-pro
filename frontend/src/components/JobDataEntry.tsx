@@ -200,6 +200,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [factorScopeFilter, setFactorScopeFilter] = useState<string>("All");
   const [addingFactorId, setAddingFactorId] = useState<string | null>(null);
   const [addingPreviousRowId, setAddingPreviousRowId] = useState<number | null>(null);
+  const [selectedPreviousRowIds, setSelectedPreviousRowIds] = useState<Set<number>>(new Set());
+  const [bulkAdding, setBulkAdding] = useState(false);
   const [factorsLoading, setFactorsLoading] = useState(false);
   const [factorsOffset, setFactorsOffset] = useState(0);
   const [factorsTotal, setFactorsTotal] = useState(0);
@@ -794,6 +796,59 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       setError((e as Error).message);
     } finally {
       setAddingPreviousRowId(null);
+    }
+  }
+
+  async function addSelectedPreviousRowsToJob() {
+    const rowsToAdd = filteredPreviousYearRows.filter((r) => selectedPreviousRowIds.has(r.row_id));
+    if (rowsToAdd.length === 0) return;
+    setBulkAdding(true);
+    try {
+      for (const row of rowsToAdd) {
+        const payload = {
+          scope: row.scope,
+          site_id: row.site_id,
+          original_id: row.original_id,
+          category: row.category,
+          level_1: row.level_1 ?? null,
+          level_2: row.level_2 ?? null,
+          level_3: row.level_3 ?? null,
+          level_4: row.level_4 ?? null,
+          column_text: row.column_text ?? null,
+          report_label: row.report_label,
+          uom: row.uom,
+          factor: row.factor,
+          ghg_unit: row.ghg_unit,
+          dataset_id: row.dataset_id,
+          factor_db_id: row.factor_db_id,
+          qty: 0,
+          apply_pct: 100,
+          data_source: "Company Data",
+          data_confidence: row.data_confidence || "M",
+          is_custom_entry: false,
+        };
+        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
+          method: "POST",
+          headers: withAuditHeaders(
+            { "Content-Type": "application/json" },
+            { page: "Jobs", section: "Data Entry", container: "Reuse Previous Year Rows" }
+          ),
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          setError(`Failed to add row "${row.report_label}": ${text}`);
+          break;
+        }
+      }
+      setSelectedPreviousRowIds(new Set());
+      await loadData();
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBulkAdding(false);
     }
   }
 
@@ -1465,68 +1520,109 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               No reusable rows were found for the current filters.
             </div>
           ) : (
-            <div className="border rounded-md max-h-96 overflow-y-auto min-w-0">
-              <div className="divide-y">
-                {filteredPreviousYearRows.map((row) => {
-                  const isAdding = addingPreviousRowId === row.row_id;
-                  return (
-                    <div key={`previous-${row.row_id}`} className="p-3 hover:bg-muted/40 transition-colors">
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-                        <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-start gap-2 min-w-0">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded text-xs ${
-                                row.scope === "Scope 1"
-                                  ? "bg-red-100 text-red-800"
-                                  : row.scope === "Scope 2"
-                                    ? "bg-orange-100 text-orange-800"
-                                    : "bg-blue-100 text-blue-800"
-                              }`}
-                            >
-                              {row.scope}
-                            </span>
-                            <span className="min-w-0 flex-1 break-words font-medium leading-snug" title={rowDisplayTitle(row)}>
-                              {rowDisplayTitle(row)}
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
-                            {rowDisplaySubtitle(row) || row.original_id}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            From {row.source_job_number || `Job ${row.job_id}`}
-                            {row.source_job_title ? ` • ${row.source_job_title}` : ""}
-                            {row.source_reporting_period_start && row.source_reporting_period_end
-                              ? ` • ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
-                              : ""}
-                          </div>
-                          <div className="flex flex-wrap gap-3 text-xs">
-                            <span className="font-mono">
-                              Previous Qty: {row.previous_qty?.toFixed(2) || "0.00"} {row.uom || ""}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Months used: {row.previous_month_count}/12
-                            </span>
-                            {row.site_name && (
-                              <span className="text-muted-foreground">
-                                Site: {row.site_name}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300"
+                    checked={selectedPreviousRowIds.size === filteredPreviousYearRows.length && filteredPreviousYearRows.length > 0}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selectedPreviousRowIds.size > 0 && selectedPreviousRowIds.size < filteredPreviousYearRows.length;
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPreviousRowIds(new Set(filteredPreviousYearRows.map((r) => r.row_id)));
+                      } else {
+                        setSelectedPreviousRowIds(new Set());
+                      }
+                    }}
+                  />
+                  Select all ({filteredPreviousYearRows.length})
+                </label>
+                <Button
+                  onClick={addSelectedPreviousRowsToJob}
+                  disabled={selectedPreviousRowIds.size === 0 || bulkAdding}
+                  size="sm"
+                >
+                  {bulkAdding
+                    ? "Adding..."
+                    : selectedPreviousRowIds.size === 0
+                      ? "Add to Job"
+                      : `Add ${selectedPreviousRowIds.size} to Job`}
+                </Button>
+              </div>
+              <div className="border rounded-md max-h-96 overflow-y-auto min-w-0">
+                <div className="divide-y">
+                  {filteredPreviousYearRows.map((row) => {
+                    const isSelected = selectedPreviousRowIds.has(row.row_id);
+                    return (
+                      <div
+                        key={`previous-${row.row_id}`}
+                        className={`p-3 transition-colors cursor-pointer ${isSelected ? "bg-muted/60" : "hover:bg-muted/40"}`}
+                        onClick={() =>
+                          setSelectedPreviousRowIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(row.row_id)) next.delete(row.row_id);
+                            else next.add(row.row_id);
+                            return next;
+                          })
+                        }
+                      >
+                        <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 mt-1"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-start gap-2 min-w-0">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded text-xs ${
+                                  row.scope === "Scope 1"
+                                    ? "bg-red-100 text-red-800"
+                                    : row.scope === "Scope 2"
+                                      ? "bg-orange-100 text-orange-800"
+                                      : "bg-blue-100 text-blue-800"
+                                }`}
+                              >
+                                {row.scope}
                               </span>
-                            )}
+                              <span className="min-w-0 flex-1 break-words font-medium leading-snug" title={rowDisplayTitle(row)}>
+                                {rowDisplayTitle(row)}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
+                              {rowDisplaySubtitle(row) || row.original_id}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              From {row.source_job_number || `Job ${row.job_id}`}
+                              {row.source_job_title ? ` • ${row.source_job_title}` : ""}
+                              {row.source_reporting_period_start && row.source_reporting_period_end
+                                ? ` • ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
+                                : ""}
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-xs">
+                              <span className="font-mono">
+                                Previous Qty: {row.previous_qty?.toFixed(2) || "0.00"} {row.uom || ""}
+                              </span>
+                              <span className="text-muted-foreground">
+                                Months used: {row.previous_month_count}/12
+                              </span>
+                              {row.site_name && (
+                                <span className="text-muted-foreground">
+                                  Site: {row.site_name}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="md:justify-self-end">
-                            <Button
-                            onClick={() => addPreviousYearRowToJob(row)}
-                            disabled={isAdding}
-                            size="sm"
-                            className="w-full md:w-auto"
-                          >
-                            {isAdding ? "Adding..." : "Add to Job"}
-                          </Button>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
