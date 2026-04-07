@@ -1012,6 +1012,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return true;
   });
 
+  const addedOriginalIds = new Set(
+    scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)
+  );
+
   const filteredDebugRows = debugRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (!debugSearch.trim()) return true;
@@ -1556,24 +1560,27 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 <div className="divide-y">
                   {filteredPreviousYearRows.map((row) => {
                     const isSelected = selectedPreviousRowIds.has(row.row_id);
+                    const alreadyAdded = addedOriginalIds.has(`${row.original_id}::${row.site_id ?? ""}`);
                     return (
                       <div
                         key={`previous-${row.row_id}`}
-                        className={`p-3 transition-colors cursor-pointer ${isSelected ? "bg-muted/60" : "hover:bg-muted/40"}`}
-                        onClick={() =>
+                        className={`p-3 transition-colors ${alreadyAdded ? "opacity-60" : "cursor-pointer"} ${isSelected ? "bg-muted/60" : alreadyAdded ? "" : "hover:bg-muted/40"}`}
+                        onClick={() => {
+                          if (alreadyAdded) return;
                           setSelectedPreviousRowIds((prev) => {
                             const next = new Set(prev);
                             if (next.has(row.row_id)) next.delete(row.row_id);
                             else next.add(row.row_id);
                             return next;
-                          })
-                        }
+                          });
+                        }}
                       >
                         <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
                           <input
                             type="checkbox"
                             className="h-4 w-4 rounded border-gray-300 mt-1"
                             checked={isSelected}
+                            disabled={alreadyAdded}
                             onChange={() => {}}
                             onClick={(e) => e.stopPropagation()}
                           />
@@ -1593,6 +1600,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               <span className="min-w-0 flex-1 break-words font-medium leading-snug" title={rowDisplayTitle(row)}>
                                 {rowDisplayTitle(row)}
                               </span>
+                              {alreadyAdded && (
+                                <span className="shrink-0 inline-block px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700">
+                                  Added ✓
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
                               {rowDisplaySubtitle(row) || row.original_id}
