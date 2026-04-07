@@ -192,11 +192,17 @@ def parse_single_sheet_upload(
         # Lookup factors (check both factor_lookup and custom_conversion_factors)
         factor_map = _lookup_factors(dataset_id, scope_name, ids, job_id)
         
-        # Check for missing IDs
+        # Check for missing IDs — report row numbers and the IDs themselves
         missing = [oid for oid in ids if oid not in factor_map]
         if missing:
             missing_ids[scope_name] = missing[:50]
-            errors.append(f"{scope_name}: {len(missing)} IDs not found in factor database")
+            # Find which rows each missing ID came from
+            for oid in missing[:10]:
+                row_nums = [str(r["row_number"]) for r in scope_rows if r["original_id"] == oid]
+                row_ref = f" (row{'s' if len(row_nums) > 1 else ''} {', '.join(row_nums)})" if row_nums else ""
+                errors.append(f"{scope_name}: ID '{oid}' not found in factor database{row_ref}")
+            if len(missing) > 10:
+                errors.append(f"{scope_name}: …and {len(missing) - 10} more unrecognised IDs")
         
         # Build rows_ready
         for r in scope_rows:

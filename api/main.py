@@ -2561,6 +2561,35 @@ async def job_excel_upload(
         raise HTTPException(status_code=400, detail=f"Invalid xlsx file: {e}")
 
     details["sheets"] = list(wb.sheetnames)
+
+    # Year-mismatch check: compare filename year against job's reporting period.
+    # The standard template filename contains the period dates, e.g.:
+    #   J000002_ClientName_SiteName_2021-01-01-to-2021-12-31_data_upload.xlsx
+    # Extract the end-year from the filename and compare to the job.
+    try:
+        import re as _re
+        with get_conn() as _con:
+            _job_period = _con.execute(
+                "SELECT reporting_period_start, reporting_period_end, reporting_year FROM jobs WHERE job_id=%s",
+                [int(job_id)],
+            ).fetchone()
+        if _job_period:
+            _job_end = _job_period[1]
+            _job_year = int(_job_period[2]) if _job_period[2] else (int(str(_job_end)[:4]) if _job_end else None)
+            # Look for a 4-digit year in the filename (prefer the end-date year if two found)
+            _years_in_name = [int(y) for y in _re.findall(r'\b(20\d{2})\b', filename)]
+            if _years_in_name and _job_year:
+                # Use the last year found (likely the period end year in the filename)
+                _file_year = _years_in_name[-1]
+                if _file_year != _job_year:
+                    errors.append(
+                        f"Year mismatch: this file appears to be for {_file_year} "
+                        f"but the job covers {_job_year}. "
+                        f"Please upload the correct file for the {_job_year} reporting period."
+                    )
+    except Exception:
+        pass  # Don't block upload if year check itself fails
+
     ds_map, auto_resolution, auto_ds_warnings = _resolve_scope_dataset_map(int(job_id))
     warnings.extend(auto_ds_warnings)
     details["datasets_by_scope"] = ds_map
