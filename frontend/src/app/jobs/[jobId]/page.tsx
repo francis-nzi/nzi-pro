@@ -532,6 +532,14 @@ type UploadValidationResult = {
   raw?: string;
 };
 
+type ImportConflict = {
+  scope: string;
+  original_id: string;
+  report_label: string;
+  existing_qty: number;
+  upload_qty: number | null;
+};
+
 type ReportMetadataField = {
   key: string;
   label: string;
@@ -812,6 +820,8 @@ export default function JobDetailPage() {
   const [uploadStatus, setUploadStatus] = useState<string>("");
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadResult, setUploadResult] = useState<UploadValidationResult | null>(null);
+  const [importConflicts, setImportConflicts] = useState<ImportConflict[]>([]);
+  const [importConflictAcknowledged, setImportConflictAcknowledged] = useState(false);
 
   // Job details editing state
   const [jobTitle, setJobTitle] = useState<string>("");
@@ -1935,7 +1945,7 @@ export default function JobDetailPage() {
     }
   }
 
-  async function importValidatedRows() {
+  async function importValidatedRows(skipConflictCheck = false) {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
 
     if (selectedSiteId === "All") {
@@ -1948,14 +1958,43 @@ export default function JobDetailPage() {
       return;
     }
 
+    // Preflight conflict check (unless user already acknowledged)
+    if (!skipConflictCheck && !importConflictAcknowledged) {
+      setBusy(true);
+      setUploadStatus("Checking for conflicts...");
+      try {
+        const preflightRes = await fetch(`${baseUrl}/jobs/${jobId}/excel-import-preflight`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ site_id: Number(selectedSiteId), rows_ready: uploadResult.rows_ready }),
+        });
+        if (preflightRes.ok) {
+          const preflightJson = await preflightRes.json().catch(() => null);
+          const conflicts: ImportConflict[] = preflightJson?.conflicts ?? [];
+          if (conflicts.length > 0) {
+            setImportConflicts(conflicts);
+            setUploadStatus("");
+            setBusy(false);
+            return; // Show conflict warning — user must acknowledge
+          }
+        }
+      } catch (_e) {
+        // If preflight fails, proceed anyway
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    setImportConflicts([]);
+    setImportConflictAcknowledged(false);
     setBusy(true);
     setUploadStatus("Importing rows...");
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/excel-import`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ site_id: Number(selectedSiteId), rows_ready: uploadResult.rows_ready }),
       });
 
@@ -2813,6 +2852,8 @@ export default function JobDetailPage() {
                           setUploadFile(f);
                           setUploadResult(null);
                           setUploadStatus("");
+                          setImportConflicts([]);
+                          setImportConflictAcknowledged(false);
                         }}
                       />
                     </div>
@@ -2829,7 +2870,7 @@ export default function JobDetailPage() {
                   <div className="flex justify-end">
                     <Button
                       variant="outline"
-                      onClick={importValidatedRows}
+                      onClick={() => void importValidatedRows()}
                       disabled={
                         busy ||
                         selectedSiteId === "All" ||
@@ -2842,6 +2883,56 @@ export default function JobDetailPage() {
                   </div>
 
                   {uploadStatus ? <div className="text-sm text-muted-foreground">{uploadStatus}</div> : null}
+
+                  {importConflicts.length > 0 ? (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm space-y-3">
+                      <div className="font-medium text-amber-800">
+                        ⚠️ {importConflicts.length} row{importConflicts.length > 1 ? "s" : ""} already have data entered — uploading will overwrite their quantities.
+                      </div>
+                      <div className="max-h-48 overflow-y-auto rounded border border-amber-200 bg-white">
+                        <table className="w-full text-xs">
+                          <thead className="bg-amber-50 sticky top-0">
+                            <tr className="border-b border-amber-200">
+                              <th className="p-2 text-left">Scope</th>
+                              <th className="p-2 text-left">Label</th>
+                              <th className="p-2 text-right">Current Qty</th>
+                              <th className="p-2 text-right">Upload Qty</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importConflicts.map((c, idx) => (
+                              <tr key={idx} className="border-b border-amber-100">
+                                <td className="p-2">{c.scope}</td>
+                                <td className="p-2">{c.report_label}</td>
+                                <td className="p-2 text-right font-mono text-amber-700">{c.existing_qty.toLocaleString()}</td>
+                                <td className="p-2 text-right font-mono">{c.upload_qty?.toLocaleString() ?? "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setImportConflicts([])}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-amber-600 hover:bg-amber-700 text-white"
+                          onClick={() => {
+                            setImportConflictAcknowledged(true);
+                            setImportConflicts([]);
+                            void importValidatedRows(true);
+                          }}
+                        >
+                          Overwrite and import
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {uploadResult ? (
                     <div className="space-y-3">

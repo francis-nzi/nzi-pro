@@ -2270,6 +2270,59 @@ def update_job_scope_config(
     return {"ok": True, "job_id": int(job_id)}
 
 
+@app.post("/jobs/{job_id}/excel-import-preflight")
+def job_excel_import_preflight(
+    job_id: int,
+    payload: dict[str, object] = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """
+    Returns rows that would overwrite an existing scope row that already has
+    a non-zero qty. The frontend uses this to warn the user before importing.
+    """
+    site_id_raw = payload.get("site_id")
+    rows_ready = payload.get("rows_ready")
+    if site_id_raw is None or not isinstance(rows_ready, list):
+        raise HTTPException(status_code=400, detail="site_id and rows_ready are required")
+    try:
+        site_id = int(site_id_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="site_id must be an integer")
+
+    conflicts = []
+    try:
+        with get_conn() as con:
+            for r in rows_ready:
+                if not isinstance(r, dict):
+                    continue
+                scope = str(r.get("scope") or "").strip()
+                original_id = str(r.get("original_id") or "").strip()
+                if not scope or not original_id:
+                    continue
+                existing = con.execute(
+                    """
+                    SELECT row_id, qty, report_label
+                    FROM job_scope_rows
+                    WHERE job_id=%s AND site_id=%s AND scope=%s AND original_id=%s
+                      AND COALESCE(enabled, TRUE) = TRUE
+                    LIMIT 1
+                    """,
+                    [int(job_id), site_id, scope, original_id],
+                ).fetchone()
+                if existing and existing[1] is not None and float(existing[1]) != 0:
+                    conflicts.append({
+                        "scope": scope,
+                        "original_id": original_id,
+                        "report_label": r.get("report_label") or (str(existing[2]) if existing[2] else original_id),
+                        "existing_qty": float(existing[1]),
+                        "upload_qty": float(r["qty"]) if r.get("qty") is not None else None,
+                    })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Preflight check failed: {e}")
+
+    return {"conflicts": conflicts}
+
+
 @app.post("/jobs/{job_id}/excel-import")
 def job_excel_import(
     job_id: int,
