@@ -1242,16 +1242,18 @@ def rollforward_emission_register(
 
             previous_job_id = int(previous_job["job_id"])
 
-            # Fetch current job's active dataset per scope so we can re-lookup
-            # factors at the current year's rates rather than carrying forward
-            # stale values from the previous year.
-            _scope_dataset_rows = con.execute(
-                "SELECT scope, dataset_id FROM job_scope_config WHERE job_id=%s AND dataset_id IS NOT NULL",
-                [int(job_id)],
-            ).fetchall()
-            current_dataset_by_scope: dict[str, int] = {
-                str(r[0]).strip(): int(r[1]) for r in (_scope_dataset_rows or []) if r[0] and r[1]
-            }
+            # Resolve current job's active dataset per scope using the same
+            # automatic year-based picker the rest of the app uses.
+            try:
+                from services.dataset_selector import resolve_dataset_resolution
+                _resolution = resolve_dataset_resolution(int(job_id))
+                current_dataset_by_scope: dict[str, int] = {
+                    str(s): int(d)
+                    for s, d in (_resolution.get("scope_primary_datasets") or {}).items()
+                    if d is not None
+                }
+            except Exception:
+                current_dataset_by_scope = {}
 
             group_rows = con.execute(
                 """
@@ -1380,6 +1382,31 @@ def rollforward_emission_register(
                 if not source_name:
                     continue
 
+                # Prefer source-row original_id; fall back to group-level
+                effective_original_id = original_id or (group_meta or {}).get("original_id")
+                effective_uom = uom or (group_meta or {}).get("uom")
+
+                # Re-lookup factor at current year's rates using the automatic
+                # year-based dataset for this scope.
+                _current_ds = current_dataset_by_scope.get(scope)
+                if _current_ds and effective_original_id:
+                    _refreshed = _lookup_factor_from_reference(con, _current_ds, scope, effective_original_id)
+                    if _refreshed:
+                        effective_dataset_id = _current_ds
+                        effective_factor_db_id = _refreshed["db_id"]
+                        effective_factor = _refreshed["factor"]
+                        effective_ghg_unit = _refreshed["ghg_unit"]
+                    else:
+                        effective_dataset_id = _current_ds
+                        effective_factor_db_id = factor_db_id
+                        effective_factor = factor
+                        effective_ghg_unit = ghg_unit
+                else:
+                    effective_dataset_id = dataset_id
+                    effective_factor_db_id = factor_db_id
+                    effective_factor = factor
+                    effective_ghg_unit = ghg_unit
+
                 if _register_source_exists(
                     con,
                     job_id=int(job_id),
@@ -1394,36 +1421,43 @@ def rollforward_emission_register(
                     asset_identifier=asset_identifier,
                     employee_name=employee_name,
                 ):
+                    # Row already exists — refresh factor fields to current year
+                    # rates but leave qty and user-entered data untouched.
+                    con.execute(
+                        """
+                        UPDATE job_emission_sources
+                        SET dataset_id=%s,
+                            factor_db_id=%s,
+                            factor=%s,
+                            ghg_unit=%s,
+                            calc_tco2e = CASE
+                                WHEN COALESCE(qty, 0) <> 0
+                                THEN qty * %s * COALESCE(apply_pct, 100) / 100.0
+                                ELSE calc_tco2e
+                            END
+                        WHERE job_id=%s
+                          AND lower(COALESCE(source_type,''))=lower(%s)
+                          AND COALESCE(group_id,-1)=COALESCE(%s,-1)
+                          AND lower(COALESCE(source_name,''))=lower(%s)
+                          AND COALESCE(site_id,-1)=COALESCE(%s,-1)
+                          AND lower(COALESCE(scope,''))=lower(%s)
+                          AND lower(COALESCE(category,''))=lower(COALESCE(%s,''))
+                          AND lower(COALESCE(source_subtype,''))=lower(COALESCE(%s,''))
+                          AND lower(COALESCE(original_id,''))=lower(COALESCE(%s,''))
+                          AND lower(COALESCE(asset_identifier,''))=lower(COALESCE(%s,''))
+                          AND lower(COALESCE(employee_name,''))=lower(COALESCE(%s,''))
+                        """,
+                        [
+                            effective_dataset_id, effective_factor_db_id,
+                            effective_factor, effective_ghg_unit,
+                            effective_factor,  # for calc_tco2e recalculation
+                            int(job_id), source_type_value, group_id, source_name,
+                            site_id, scope, category, source_subtype,
+                            original_id, asset_identifier, employee_name,
+                        ],
+                    )
                     skipped_sources += 1
                     continue
-
-                # Prefer source-row original_id; fall back to group-level
-                effective_original_id = original_id or (group_meta or {}).get("original_id")
-                effective_uom = uom or (group_meta or {}).get("uom")
-
-                # Re-lookup factor at current year's rates using the current
-                # job's active dataset for this scope.
-                _current_ds = current_dataset_by_scope.get(scope)
-                if _current_ds and effective_original_id:
-                    _refreshed = _lookup_factor_from_reference(con, _current_ds, scope, effective_original_id)
-                    if _refreshed:
-                        effective_dataset_id = _current_ds
-                        effective_factor_db_id = _refreshed["db_id"]
-                        effective_factor = _refreshed["factor"]
-                        effective_ghg_unit = _refreshed["ghg_unit"]
-                    else:
-                        # Factor not found in new dataset — preserve original_id
-                        # so the user can see what needs updating, but flag dataset
-                        effective_dataset_id = _current_ds
-                        effective_factor_db_id = factor_db_id
-                        effective_factor = factor
-                        effective_ghg_unit = ghg_unit
-                else:
-                    # No dataset mapping available; carry forward as-is
-                    effective_dataset_id = dataset_id
-                    effective_factor_db_id = factor_db_id
-                    effective_factor = factor
-                    effective_ghg_unit = ghg_unit
 
                 calc_tco2e = 0.0
                 merged_detail_json = {
