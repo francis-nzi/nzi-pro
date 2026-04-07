@@ -1242,6 +1242,17 @@ def rollforward_emission_register(
 
             previous_job_id = int(previous_job["job_id"])
 
+            # Fetch current job's active dataset per scope so we can re-lookup
+            # factors at the current year's rates rather than carrying forward
+            # stale values from the previous year.
+            _scope_dataset_rows = con.execute(
+                "SELECT scope, dataset_id FROM job_scope_config WHERE job_id=%s AND dataset_id IS NOT NULL",
+                [int(job_id)],
+            ).fetchall()
+            current_dataset_by_scope: dict[str, int] = {
+                str(r[0]).strip(): int(r[1]) for r in (_scope_dataset_rows or []) if r[0] and r[1]
+            }
+
             group_rows = con.execute(
                 """
                 SELECT group_id, scope, category, group_type, group_name, site_id, rollup_method,
@@ -1292,6 +1303,19 @@ def rollforward_emission_register(
                 ghg_unit = str(row[11] or "").strip() or None
                 uom = str(row[12] or "").strip() or None
                 notes = str(row[13] or "").strip() or None
+
+                # Re-lookup factor at current year's rates
+                _current_ds = current_dataset_by_scope.get(scope)
+                if _current_ds and original_id:
+                    _refreshed = _lookup_factor_from_reference(con, _current_ds, scope, original_id)
+                    if _refreshed:
+                        dataset_id = _current_ds
+                        factor_db_id = _refreshed["db_id"]
+                        factor = _refreshed["factor"]
+                        ghg_unit = _refreshed["ghg_unit"]
+                    else:
+                        dataset_id = _current_ds
+
                 group_id, created = _ensure_register_group(
                     con,
                     job_id=int(job_id),
@@ -1373,24 +1397,33 @@ def rollforward_emission_register(
                     skipped_sources += 1
                     continue
 
-                effective_dataset_id = _safe_int((group_meta or {}).get("dataset_id")) if group_meta else None
-                effective_factor_db_id = _safe_int((group_meta or {}).get("factor_db_id")) if group_meta else None
-                effective_original_id = (group_meta or {}).get("original_id") or original_id
-                effective_factor = _safe_float((group_meta or {}).get("factor")) if group_meta else None
-                effective_ghg_unit = (group_meta or {}).get("ghg_unit") or ghg_unit
-                effective_uom = (group_meta or {}).get("uom") or uom
-                if effective_dataset_id is None:
+                # Prefer source-row original_id; fall back to group-level
+                effective_original_id = original_id or (group_meta or {}).get("original_id")
+                effective_uom = uom or (group_meta or {}).get("uom")
+
+                # Re-lookup factor at current year's rates using the current
+                # job's active dataset for this scope.
+                _current_ds = current_dataset_by_scope.get(scope)
+                if _current_ds and effective_original_id:
+                    _refreshed = _lookup_factor_from_reference(con, _current_ds, scope, effective_original_id)
+                    if _refreshed:
+                        effective_dataset_id = _current_ds
+                        effective_factor_db_id = _refreshed["db_id"]
+                        effective_factor = _refreshed["factor"]
+                        effective_ghg_unit = _refreshed["ghg_unit"]
+                    else:
+                        # Factor not found in new dataset — preserve original_id
+                        # so the user can see what needs updating, but flag dataset
+                        effective_dataset_id = _current_ds
+                        effective_factor_db_id = factor_db_id
+                        effective_factor = factor
+                        effective_ghg_unit = ghg_unit
+                else:
+                    # No dataset mapping available; carry forward as-is
                     effective_dataset_id = dataset_id
-                if effective_factor_db_id is None:
                     effective_factor_db_id = factor_db_id
-                if effective_original_id is None:
-                    effective_original_id = original_id
-                if effective_factor is None:
                     effective_factor = factor
-                if effective_ghg_unit is None:
                     effective_ghg_unit = ghg_unit
-                if effective_uom is None:
-                    effective_uom = uom
 
                 calc_tco2e = 0.0
                 merged_detail_json = {
