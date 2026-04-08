@@ -8,7 +8,6 @@ from core.database import get_conn
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
-TEAM_ROLES = {"admin", "consultant", "readonly", "crm", "qa", "support"}
 FEEDBACK_TYPES = {"wishlist", "bug", "business_dev"}
 
 
@@ -20,10 +19,6 @@ def _require_team_user(user: dict) -> str:
     actor = _actor_identifier(user)
     if not actor:
         raise HTTPException(status_code=401, detail="Missing authenticated user")
-
-    role = str(user.get("role") or "").strip().lower()
-    if role not in TEAM_ROLES:
-        raise HTTPException(status_code=403, detail="Team member role required")
     return actor
 
 
