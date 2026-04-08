@@ -27,6 +27,7 @@ export const workspaceTabs: Array<{ key: WorkspaceTabKey; label: string; countBa
   { key: "outputs", label: "Outputs" },
   { key: "report", label: "Report" },
   { key: "analysis", label: "Analysis" },
+  { key: "insights", label: "Insights" },
   { key: "communications", label: "Communications" },
   { key: "financial", label: "Financial" },
 ];
@@ -58,6 +59,7 @@ export const workspaceSubtabs: Record<WorkspaceTabKey, WorkspaceSubtab[]> = {
     { key: "export", label: "Export" },
   ],
   analysis: [{ key: "lca", label: "Life Cycle Analysis" }],
+  insights: [{ key: "dashboard", label: "Dashboard" }],
   communications: [
     { key: "timeline", label: "Timeline" },
     { key: "inbox", label: "Inbox" },
