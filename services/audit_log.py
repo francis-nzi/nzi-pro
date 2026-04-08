@@ -177,7 +177,17 @@ def record_audit_event(
     after: Any = None,
     metadata: Any = None,
 ) -> int | None:
-    ensure_audit_log_table(con)
+    # Run DDL (CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS) in a
+    # separate autocommit connection.  Calling DDL on the caller's `con` when
+    # it is a non-autocommit (transactional) connection aborts the whole
+    # transaction in PostgreSQL if any statement fails, even when the Python
+    # exception is silently caught.
+    try:
+        from core.database import get_conn as _get_conn
+        with _get_conn() as _ddl_con:
+            ensure_audit_log_table(_ddl_con)
+    except Exception:
+        pass
     context = request_ui_context(request)
     diff = _compute_diff(before, after)
     row = con.execute(
