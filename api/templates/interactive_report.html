@@ -925,16 +925,16 @@
             {% set _d1 = (_scope1_pct * 3.6)|round(2) %}
             {% set _d2 = ((_scope1_pct + _scope2_pct) * 3.6)|round(2) %}
             <div class="exec-donut-summary no-break">
-                <div class="exec-donut" style="background: conic-gradient(#4B74C3 0deg {{ _d1 }}deg, #EB7F2F {{ _d1 }}deg {{ _d2 }}deg, #70AD47 {{ _d2 }}deg 360deg);">
+                <div class="exec-donut" style="background: conic-gradient(#0f766e 0deg {{ _d1 }}deg, #0891b2 {{ _d1 }}deg {{ _d2 }}deg, #38bdf8 {{ _d2 }}deg 360deg);">
                     <div class="exec-donut-center">
                         <div class="exec-donut-value">{{ '{:,.2f}'.format(scope_totals.Total) }}</div>
                         <div class="exec-donut-unit">tCO2e</div>
                     </div>
                 </div>
                 <div class="exec-legend">
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#0f766e;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#0891b2;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#38bdf8;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct }}%)</span></div>
                 </div>
             </div>
 
@@ -1112,34 +1112,31 @@
               }
               var canvas = document.getElementById('pathwayChart');
               if (!canvas) return;
-              var script = document.createElement('script');
-              script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-              script.onload = function() {
-                new Chart(canvas, {
-                  type: 'line',
-                  data: {
-                    labels: years,
-                    datasets: [
-                      { label: 'Scope 1', data: pathway(s1Base), borderColor: '#dc2626', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
-                      { label: 'Scope 2', data: pathway(s2Base), borderColor: '#ea580c', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
-                      { label: 'Scope 3', data: pathway(s3Base), borderColor: '#16a34a', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
-                    ]
-                  },
-                  options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                      legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
-                      tooltip: { mode: 'index', intersect: false }
-                    },
-                    scales: {
-                      x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
-                      y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } },
-                           title: { display: true, text: 'tCO2e', font: { size: 10 } } }
+              new Chart(canvas, {
+                type: 'line',
+                data: {
+                  labels: years.map(String),
+                  datasets: [
+                    { label: 'Scope 1', data: pathway(s1Base), borderColor: '#0f766e', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                    { label: 'Scope 2', data: pathway(s2Base), borderColor: '#0891b2', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                    { label: 'Scope 3', data: pathway(s3Base), borderColor: '#38bdf8', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                  ]
+                },
+                options: {
+                  responsive: true, maintainAspectRatio: false,
+                  plugins: {
+                    legend: { position: 'top', labels: { boxWidth: 10, font: { size: 11 }, usePointStyle: true } },
+                    tooltip: { mode: 'index', intersect: false,
+                      callbacks: { label: function(c){ return c.dataset.label + ': ' + c.parsed.y.toFixed(2) + ' tCO2e'; } }
                     }
+                  },
+                  scales: {
+                    x: { type: 'category', grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
+                    y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } },
+                         title: { display: true, text: 'tCO2e', font: { size: 10 } } }
                   }
-                });
-              };
-              document.head.appendChild(script);
+                }
+              });
             })();
             </script>
 
@@ -1425,16 +1422,16 @@
             {% set _d1_s5 = (_scope1_pct_s5 * 3.6)|round(2) %}
             {% set _d2_s5 = ((_scope1_pct_s5 + _scope2_pct_s5) * 3.6)|round(2) %}
             <div class="exec-donut-summary no-break">
-                <div class="exec-donut" style="background: conic-gradient(#4B74C3 0deg {{ _d1_s5 }}deg, #EB7F2F {{ _d1_s5 }}deg {{ _d2_s5 }}deg, #70AD47 {{ _d2_s5 }}deg 360deg);">
+                <div class="exec-donut" style="background: conic-gradient(#0f766e 0deg {{ _d1_s5 }}deg, #0891b2 {{ _d1_s5 }}deg {{ _d2_s5 }}deg, #38bdf8 {{ _d2_s5 }}deg 360deg);">
                     <div class="exec-donut-center">
                         <div class="exec-donut-value">{{ '{:,.2f}'.format(scope_totals.Total) }}</div>
                         <div class="exec-donut-unit">tCO2e</div>
                     </div>
                 </div>
                 <div class="exec-legend">
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#4B74C3;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct_s5 }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#EB7F2F;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct_s5 }}%)</span></div>
-                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#70AD47;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#0f766e;"></span><span>Scope 1: {{ '{:,.2f}'.format(scope_totals['Scope 1']) }} tCO2e ({{ _scope1_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#0891b2;"></span><span>Scope 2: {{ '{:,.2f}'.format(scope_totals['Scope 2']) }} tCO2e ({{ _scope2_pct_s5 }}%)</span></div>
+                    <div class="exec-legend-row"><span class="exec-legend-swatch" style="background:#38bdf8;"></span><span>Scope 3: {{ '{:,.2f}'.format(scope_totals['Scope 3']) }} tCO2e ({{ _scope3_pct_s5 }}%)</span></div>
                 </div>
             </div>
 
@@ -1579,7 +1576,7 @@
             {% endif %}
 
             {% set has_activity_bar = assets.activity_bar is defined and assets.activity_bar | length > 0 %}
-            {% set activity_palette = ['#4B74C3', '#EB7F2F', '#70AD47', '#8E44AD', '#00ACC1', '#8D6E63'] %}
+            {% set activity_palette = ['#0ea5e9', '#14b8a6', '#f97316', '#8b5cf6', '#22c55e', '#ef4444', '#64748b', '#eab308'] %}
             {% set _activity_total = namespace(value=0) %}
             {% for _v in activity_values %}
                 {% set _activity_total.value = _activity_total.value + (_v|float) %}
@@ -1619,12 +1616,40 @@
                 </div>
             </div>
 
-            {% if has_activity_bar %}
-            <div class="chart-container no-break mt-20">
-                <div class="chart-wrapper" style="text-align: center;">
-                    <img src="data:image/png;base64,{{ assets.activity_bar }}" alt="Activity Bar Chart" class="report-chart-bar">
-                </div>
+            {% if activity_labels and activity_values %}
+            <div class="chart-container no-break mt-20" style="position:relative;height:{{ [activity_labels|length * 44 + 60, 200]|max }}px;">
+              <canvas id="activityBarChart"></canvas>
             </div>
+            <script>
+            (function() {
+              var labels = {{ activity_labels | tojson }};
+              var values = {{ activity_values | tojson }};
+              var palette = ['#0ea5e9','#14b8a6','#f97316','#8b5cf6','#22c55e','#ef4444','#64748b','#eab308'];
+              var colors = labels.map(function(_,i){ return palette[i % palette.length]; });
+              var canvas = document.getElementById('activityBarChart');
+              if (!canvas) return;
+              new Chart(canvas, {
+                type: 'bar',
+                data: {
+                  labels: labels,
+                  datasets: [{ data: values, backgroundColor: colors, borderRadius: 4, borderSkipped: false }]
+                },
+                options: {
+                  indexAxis: 'y',
+                  responsive: true, maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: function(c){ return ' ' + c.parsed.x.toFixed(2) + ' tCO2e'; } } }
+                  },
+                  scales: {
+                    x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } },
+                         title: { display: true, text: 'tCO2e', font: { size: 11 } } },
+                    y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+                  }
+                }
+              });
+            })();
+            </script>
             {% endif %}
 
             {% if energy_commentary or business_travel_commentary or employee_commuting_commentary or pgs_commentary or other_commentary %}
