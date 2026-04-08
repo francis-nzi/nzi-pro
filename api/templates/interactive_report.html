@@ -141,6 +141,13 @@
         /* ============================================
            PRINT-ONLY STYLES (PDF Export)
            ============================================ */
+        .screen-only { display: block; }
+        .print-only { display: none; }
+        @media print {
+          .screen-only { display: none !important; }
+          .print-only { display: block !important; }
+        }
+
         @media print {
             @page {
                 size: A4;
@@ -865,13 +872,15 @@
         <!-- COVER PAGE -->
         <div class="cover-page page-break">
             <!-- Net Zero International Logo -->
-            <img class="cover-logo" src="{{ nzi_logo_src or '/uploads/system/nzi-logo.png' }}" alt="Net Zero International">
+            {% if nzi_logo_src %}
+            <img class="cover-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
+            {% endif %}
             <!-- Report Title from job data -->
             <h1 class="cover-title">{{ job_data.title or 'Carbon Reduction Plan' }}</h1>
-            
+
             <!-- Client Logo (if available) -->
-            {% if job_data.client_logo_url %}
-            <img class="cover-client-logo" src="{{ job_data.client_logo_url }}" alt="{{ job_data.client_name }}">
+            {% if client_logo_src %}
+            <img class="cover-client-logo" src="{{ client_logo_src }}" alt="{{ job_data.client_name }}">
             {% endif %}
                      
             <div class="cover-info">
@@ -1002,9 +1011,16 @@
             </p>
             
             <div class="footer-note">
-                <strong>Report Validity:</strong> This report is valid for the specified reporting period only. 
+                <strong>Report Validity:</strong> This report is valid for the specified reporting period only.
                 Any changes to the underlying data or emissions factors may result in revised calculations.
             </div>
+
+            {% set executive_summary_tv = tv.get('executive_summary') %}
+            {% if executive_summary_tv %}
+            <h3>Executive Summary</h3>
+            <p>{{ executive_summary_tv }}</p>
+            {% endif %}
+
             <div class="page-break"></div>
 
             <!-- 2. NET ZERO COMMITMENT -->
@@ -1012,8 +1028,7 @@
             {% set commitment_statement = tv.get('commitment_statement') %}
             {% set baseline_year_tv = tv.get('baseline_year') %}
             {% set target_year_tv = tv.get('target_year') %}
-            {% set executive_summary_tv = tv.get('executive_summary') %}
-            
+
             {% if commitment_statement %}
             <p>{{ commitment_statement }}</p>
             {% else %}
@@ -1023,18 +1038,13 @@
                 environmental sustainability.
             </p>
             {% endif %}
-            
+
             <p><strong>We commit to the following:</strong></p>
             <ul style="margin-left: 20px; margin-bottom: 15px;">
                 <li>For our company to achieve Net Zero we aim to achieve target reduction in emissions, as set out below.</li>
                 <li>To set realistic short- and long-term targets that are designed to achieve our Net Zero commitments.</li>
                 <li>To report the total Greenhouse Gas emissions of our business, at a minimum, on an annual basis.</li>
             </ul>
-
-            {% if executive_summary_tv %}
-            <h3>Executive Summary</h3>
-            <p>{{ executive_summary_tv }}</p>
-            {% endif %}
 
             {% set commitment_commentary_text = tv.get('commitment_commentary') or report_metadata.get('commitment_commentary') %}
             {% if commitment_commentary_text %}
@@ -1067,13 +1077,71 @@
                 </tbody>
             </table>
 
-            {% if assets and assets.get('reduction_pathway_2050') %}
+            {% set _nz_year = target_year_tv | int if target_year_tv else target_data.get('net_zero_target_year', 2050) | int %}
+            {% set _base_year = target_data.get('baseline_year', job_data.reporting_year) | int %}
+            {% set _s1 = scope_totals['Scope 1'] | float %}
+            {% set _s2 = scope_totals['Scope 2'] | float %}
+            {% set _s3 = scope_totals['Scope 3'] | float %}
             <div class="pathway-card no-break mt-20">
-                <div class="pathway-image-container">
-                    <img src="data:image/png;base64,{{ assets.get('reduction_pathway_2050', '') }}" alt="Reduction Pathway to Net Zero 2050" class="pathway-image">
-                </div>
+              <h3 style="margin:0 0 8px;font-size:13px;color:#374151;">Emissions Reduction Pathway to {{ _nz_year }}</h3>
+              <!-- Screen: Chart.js interactive chart -->
+              <div class="screen-only" style="height:320px;position:relative;">
+                <canvas id="pathwayChart" style="width:100%;height:100%;"></canvas>
+              </div>
+              <!-- Print/PDF: static PNG fallback -->
+              {% if assets and assets.get('reduction_pathway_2050') %}
+              <div class="print-only">
+                <img src="data:image/png;base64,{{ assets.get('reduction_pathway_2050', '') }}" alt="Reduction Pathway to Net Zero 2050" class="pathway-image">
+              </div>
+              {% endif %}
             </div>
-            {% endif %}
+            <script>
+            (function() {
+              var baseYear = {{ _base_year }};
+              var nzYear = {{ _nz_year }};
+              var s1Base = {{ _s1 }};
+              var s2Base = {{ _s2 }};
+              var s3Base = {{ _s3 }};
+              var years = [];
+              for (var y = baseYear; y <= nzYear; y++) years.push(y);
+              function pathway(base) {
+                return years.map(function(y) {
+                  var frac = (y - baseYear) / (nzYear - baseYear);
+                  return Math.max(0, +(base * (1 - frac)).toFixed(2));
+                });
+              }
+              var canvas = document.getElementById('pathwayChart');
+              if (!canvas) return;
+              var script = document.createElement('script');
+              script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+              script.onload = function() {
+                new Chart(canvas, {
+                  type: 'line',
+                  data: {
+                    labels: years,
+                    datasets: [
+                      { label: 'Scope 1', data: pathway(s1Base), borderColor: '#dc2626', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
+                      { label: 'Scope 2', data: pathway(s2Base), borderColor: '#ea580c', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
+                      { label: 'Scope 3', data: pathway(s3Base), borderColor: '#16a34a', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.1 },
+                    ]
+                  },
+                  options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                      legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                      tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                      x: { grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
+                      y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } },
+                           title: { display: true, text: 'tCO2e', font: { size: 10 } } }
+                    }
+                  }
+                });
+              };
+              document.head.appendChild(script);
+            })();
+            </script>
 
             <div class="page-break"></div>
 

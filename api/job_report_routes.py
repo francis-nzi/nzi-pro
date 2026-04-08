@@ -143,13 +143,54 @@ _SYSTEM_LOGO_PATH = (
 
 
 def _get_nzi_logo_src() -> str:
-    """Return NZI logo as data URI, with URL fallback if file is unavailable."""
+    """Return NZI logo as data URI. Checks DB first (redeploy-safe), falls back to filesystem."""
+    # 1. Try database (logo uploaded via Admin → System Settings)
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                "SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN (%s, %s)",
+                ["nzi_logo_b64", "nzi_logo_mime"],
+            ).fetchall()
+            values = {str(r[0] or ""): r[1] for r in rows}
+            logo_b64 = values.get("nzi_logo_b64") or ""
+            mime = str(values.get("nzi_logo_mime") or "image/png").strip()
+            if logo_b64:
+                return f"data:{mime};base64,{logo_b64}"
+    except Exception:
+        pass
+    # 2. Try local file (dev / first-run before any upload)
     try:
         if _SYSTEM_LOGO_PATH.exists():
             return "data:image/png;base64," + base64.b64encode(_SYSTEM_LOGO_PATH.read_bytes()).decode("ascii")
     except Exception:
         pass
-    return "/uploads/system/nzi-logo.png"
+    return ""
+
+
+def _get_client_logo_src(logo_url: str | None) -> str:
+    """Return client logo as data URI or absolute URL. Returns empty string if unavailable."""
+    if not logo_url:
+        return ""
+    logo_url = str(logo_url).strip()
+    # External URL — use directly
+    if logo_url.startswith("http://") or logo_url.startswith("https://"):
+        return logo_url
+    # Relative path to uploaded file — try to read and base64-encode
+    try:
+        from pathlib import Path as _Path
+        project_root = _Path(__file__).resolve().parents[1]
+        # Strip leading slash for path join
+        rel = logo_url.lstrip("/")
+        file_path = project_root / "frontend" / "public" / rel
+        if file_path.exists():
+            suffix = file_path.suffix.lower()
+            mime_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp"}
+            mime = mime_map.get(suffix, "image/png")
+            return f"data:{mime};base64," + base64.b64encode(file_path.read_bytes()).decode("ascii")
+    except Exception:
+        pass
+    return logo_url
 
 
 def _normalize_render_value(value):
@@ -1413,6 +1454,7 @@ def get_job_data(job_id: int):
             'client_name': job_row[8],
             'industry': job_row[9],
             'logo_url': job_row[10],
+            'client_logo_url': job_row[10],  # alias used by interactive_report.html
             'description': job_row[11],
             'net_zero_year': job_row[12],
             'interim_year': job_row[13],
@@ -3963,6 +4005,7 @@ def generate_html_report(
             report_metadata=report_metadata,
             job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
+            client_logo_src=_get_client_logo_src(job_data.get("logo_url")),
             render_values=render_values,
             render_template=render_meta,
             target_data=target_data,
