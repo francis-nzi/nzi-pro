@@ -10,6 +10,72 @@ from api.auth import _current_user
 router = APIRouter()
 
 
+@router.post("/import-iea-electricity-2025")
+def import_iea_electricity_2025(_user: dict[str, str] = Depends(_current_user)):
+    """
+    Import IEA 2025 country electricity emission factors (Scope 2).
+    Factors are kgCO2e/kWh. Safe to run multiple times — upserts existing rows.
+    """
+    try:
+        import import_iea_2025_electricity as iea
+        from core.database import get_conn
+
+        with get_conn(autocommit=False) as con:
+            dataset_id = iea._ensure_dataset(con)
+            inserted = 0
+            skipped = 0
+
+            for country, factor in iea.IEA_FACTORS:
+                original_id = country
+                report_label = f"Electricity {country}"
+
+                existing = con.execute(
+                    "SELECT db_id FROM factor_lookup WHERE dataset_id=%s AND scope=%s AND original_id=%s LIMIT 1",
+                    [dataset_id, "Scope 2", original_id],
+                ).fetchone()
+
+                if existing:
+                    con.execute(
+                        """UPDATE factor_lookup
+                           SET factor=%s, file_name=%s, year=%s,
+                               level_1=%s, level_2=%s, column_text=%s,
+                               uom=%s, ghg_unit=%s, source=%s, report_label=%s
+                           WHERE db_id=%s""",
+                        [factor, iea.FILE_NAME, iea.DATASET_YEAR,
+                         "Electricity Generation", country, f"Electricity - {country}",
+                         "kWh", "kgCO2e", "IEA 2025", report_label,
+                         int(existing[0])],
+                    )
+                    skipped += 1
+                else:
+                    con.execute(
+                        """INSERT INTO factor_lookup
+                           (dataset_id, file_name, year, original_id, scope,
+                            level_1, level_2, level_3, level_4, column_text,
+                            uom, ghg_unit, factor, source, region, currency,
+                            method, valid_from, valid_to, report_label)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s,%s,%s,NULL,NULL,NULL,NULL,NULL,%s)""",
+                        [dataset_id, iea.FILE_NAME, iea.DATASET_YEAR,
+                         original_id, "Scope 2",
+                         "Electricity Generation", country,
+                         f"Electricity - {country}",
+                         "kWh", "kgCO2e", factor, "IEA 2025", report_label],
+                    )
+                    inserted += 1
+
+        return {
+            "ok": True,
+            "dataset_id": dataset_id,
+            "inserted": inserted,
+            "updated": skipped,
+            "total_countries": len(iea.IEA_FACTORS),
+            "message": f"IEA 2025 electricity factors: {inserted} inserted, {skipped} updated",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IEA import failed: {e}")
+
+
 @router.post("/import-sample-dataset")
 def import_sample_dataset(_user: dict[str, str] = Depends(_current_user)):
     """
