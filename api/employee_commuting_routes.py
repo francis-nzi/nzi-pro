@@ -1172,21 +1172,34 @@ def _is_commuting_unique_violation(exc: Exception) -> bool:
 
 
 def _disable_existing_commuting_rows(con, job_id: int, site_id: int | None) -> int:
-    rows = con.execute(
-        """
-        UPDATE job_scope_rows
-        SET enabled = FALSE, updated_at = NOW()
-        WHERE job_id = %s
-          AND COALESCE(data_source, '') = %s
-          AND (
-                (%s IS NULL AND site_id IS NULL)
-             OR (%s IS NOT NULL AND site_id = %s)
-          )
-          AND enabled = TRUE
-        RETURNING row_id
-        """,
-        [int(job_id), COMMUTING_DATA_SOURCE, site_id, site_id, site_id],
-    ).fetchall()
+    # Build separate queries per site_id nullability — psycopg3 cannot infer
+    # the type of a bare `%s IS NULL` expression (IndeterminateDatatype).
+    if site_id is None:
+        rows = con.execute(
+            """
+            UPDATE job_scope_rows
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE job_id = %s
+              AND COALESCE(data_source, '') = %s
+              AND site_id IS NULL
+              AND enabled = TRUE
+            RETURNING row_id
+            """,
+            [int(job_id), COMMUTING_DATA_SOURCE],
+        ).fetchall()
+    else:
+        rows = con.execute(
+            """
+            UPDATE job_scope_rows
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE job_id = %s
+              AND COALESCE(data_source, '') = %s
+              AND site_id = %s
+              AND enabled = TRUE
+            RETURNING row_id
+            """,
+            [int(job_id), COMMUTING_DATA_SOURCE, int(site_id)],
+        ).fetchall()
     return len(rows or [])
 
 
@@ -1623,21 +1636,32 @@ def _update_manual_commuting_row(con, job_id: int, source_id: int, row: dict[str
 
 
 def _disable_existing_manual_commuting_rows(con, job_id: int, site_id: int | None) -> int:
-    rows = con.execute(
-        """
-        UPDATE job_emission_sources
-        SET enabled = FALSE, updated_at = NOW()
-        WHERE job_id = %s
-          AND source_type = %s
-          AND (
-                (%s IS NULL AND site_id IS NULL)
-             OR (%s IS NOT NULL AND site_id = %s)
-          )
-          AND enabled = TRUE
-        RETURNING source_id
-        """,
-        [int(job_id), "employee_commuting", site_id, site_id, site_id],
-    ).fetchall()
+    if site_id is None:
+        rows = con.execute(
+            """
+            UPDATE job_emission_sources
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE job_id = %s
+              AND source_type = %s
+              AND site_id IS NULL
+              AND enabled = TRUE
+            RETURNING source_id
+            """,
+            [int(job_id), "employee_commuting"],
+        ).fetchall()
+    else:
+        rows = con.execute(
+            """
+            UPDATE job_emission_sources
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE job_id = %s
+              AND source_type = %s
+              AND site_id = %s
+              AND enabled = TRUE
+            RETURNING source_id
+            """,
+            [int(job_id), "employee_commuting", int(site_id)],
+        ).fetchall()
     return len(rows or [])
 
 
