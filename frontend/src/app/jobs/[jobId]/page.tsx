@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -17,24 +17,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import JobDataEntry from "@/components/JobDataEntry";
-import IntensityMetrics from "@/components/IntensityMetrics";
-import DataOutput from "@/components/DataOutput";
-import JobCustomDataset from "@/components/JobCustomDataset";
-import JobCustomFactors from "@/components/JobCustomFactors";
-import JobSourceRegister from "@/components/JobSourceRegister";
-import SpendDataCollection from "@/components/SpendDataCollection";
-import EmployeeCommutingData from "@/components/EmployeeCommutingData";
-import JobActions from "@/components/JobActions";
-import JobReportNew from "@/components/JobReportNew";
-import JobReporting from "@/components/JobReporting";
-import JobLca from "@/components/JobLca";
-import JobTimeEntries from "@/components/JobTimeEntries";
-import JobFiles from "@/components/JobFiles";
-import JobFinancial from "@/components/JobFinancial";
-import JobCommunications from "@/components/JobCommunications";
-import ClientTimeline from "@/components/ClientTimeline";
-import CustomFields from "@/components/CustomFields";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
 import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
@@ -52,6 +34,77 @@ import {
 function apiBaseUrl(): string {
   return "/api/backend";
 }
+
+function LazyTabPanel({ title, description }: { title: string; description: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-6 text-sm text-muted-foreground">
+          <div className="font-medium text-slate-700">Loading section</div>
+          <div className="mt-1">{description}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const JobDataEntry = dynamic(() => import("@/components/JobDataEntry"), {
+  loading: () => <LazyTabPanel title="Data Entry" description="Loading the data entry workspace..." />,
+});
+const IntensityMetrics = dynamic(() => import("@/components/IntensityMetrics"), {
+  loading: () => <LazyTabPanel title="Intensity Metrics" description="Loading intensity metrics..." />,
+});
+const DataOutput = dynamic(() => import("@/components/DataOutput"), {
+  loading: () => <LazyTabPanel title="Data Output" description="Loading output summaries..." />,
+});
+const JobCustomDataset = dynamic(() => import("@/components/JobCustomDataset"), {
+  loading: () => <LazyTabPanel title="Custom Dataset" description="Loading custom dataset tools..." />,
+});
+const JobCustomFactors = dynamic(() => import("@/components/JobCustomFactors"), {
+  loading: () => <LazyTabPanel title="Job-Only Factors" description="Loading job-only factors..." />,
+});
+const JobSourceRegister = dynamic(() => import("@/components/JobSourceRegister"), {
+  loading: () => <LazyTabPanel title="Source Register" description="Loading register data..." />,
+});
+const SpendDataCollection = dynamic(() => import("@/components/SpendDataCollection"), {
+  loading: () => <LazyTabPanel title="Spend Data" description="Loading spend data collection..." />,
+});
+const EmployeeCommutingData = dynamic(() => import("@/components/EmployeeCommutingData"), {
+  loading: () => <LazyTabPanel title="Employee Commuting" description="Loading commuting data..." />,
+});
+const JobActions = dynamic(() => import("@/components/JobActions"), {
+  loading: () => <LazyTabPanel title="Actions" description="Loading action recommendations..." />,
+});
+const JobReportNew = dynamic(() => import("@/components/JobReportNew"), {
+  loading: () => <LazyTabPanel title="Report (New)" description="Loading report editor..." />,
+});
+const JobReporting = dynamic(() => import("@/components/JobReporting"), {
+  loading: () => <LazyTabPanel title="Reporting" description="Loading legacy reporting..." />,
+});
+const JobLca = dynamic(() => import("@/components/JobLca"), {
+  loading: () => <LazyTabPanel title="Life Cycle Analysis" description="Loading life cycle analysis..." />,
+});
+const JobTimeEntries = dynamic(() => import("@/components/JobTimeEntries"), {
+  loading: () => <LazyTabPanel title="Time Entries" description="Loading time entries..." />,
+});
+const JobFiles = dynamic(() => import("@/components/JobFiles"), {
+  loading: () => <LazyTabPanel title="Files" description="Loading job files..." />,
+});
+const JobFinancial = dynamic(() => import("@/components/JobFinancial"), {
+  loading: () => <LazyTabPanel title="Financial" description="Loading financial sections..." />,
+});
+const JobCommunications = dynamic(() => import("@/components/JobCommunications"), {
+  loading: () => <LazyTabPanel title="Communications" description="Loading communications..." />,
+});
+const ClientTimeline = dynamic(() => import("@/components/ClientTimeline"), {
+  loading: () => <LazyTabPanel title="CRM Timeline" description="Loading CRM activity..." />,
+});
+const CustomFields = dynamic(() => import("@/components/CustomFields"), {
+  loading: () => <LazyTabPanel title="Custom Fields" description="Loading custom fields..." />,
+});
 
 const MONTH_MAP: Record<string, number> = {
   January: 1, February: 2, March: 3, April: 4,
@@ -100,6 +153,7 @@ type JobWorkspaceGroup = {
   label: string;
   defaultTab: string;
   subtabs: WorkspaceSubtab[];
+  href?: string;
 };
 
 const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
@@ -153,6 +207,12 @@ const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     subtabs: [{ key: "lca", label: "Life Cycle Analysis" }],
   },
   {
+    key: "insights",
+    label: "Insights",
+    defaultTab: "insights",
+    subtabs: [],
+  },
+  {
     key: "communications",
     label: "Communications",
     defaultTab: "communications-timeline",
@@ -203,6 +263,7 @@ const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
   "report-new": "report",
   reporting: "report",
   lca: "analysis",
+  insights: "insights",
   "communications-timeline": "communications",
   "communications-inbox": "communications",
   "communications-notes": "communications",
@@ -844,6 +905,9 @@ export default function JobDetailPage() {
   const [reportMetadataApiUnavailable, setReportMetadataApiUnavailable] = useState<boolean>(false);
   const [reportMetadataEnergyFactors, setReportMetadataEnergyFactors] =
     useState<EnergyEmissionFactorDetails | null>(null);
+  const [loadingSetupMilestones, setLoadingSetupMilestones] = useState<boolean>(false);
+  const [loadingScopeConfig, setLoadingScopeConfig] = useState<boolean>(false);
+  const [loadingReportMetadata, setLoadingReportMetadata] = useState<boolean>(false);
 
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
   const ownerLabel = (crmName || job?.crm_name || "Unassigned").trim() || "Unassigned";
@@ -1345,16 +1409,12 @@ export default function JobDetailPage() {
       setError("");
 
       try {
-        const [jRes, sRes, tRes, dRes, scRes, statusRes, teamRes, mtRes, mcRes] = await Promise.all([
+        const [jRes, sRes, tRes, statusRes, teamRes] = await Promise.all([
           fetch(`${baseUrl}/jobs/${jobId}`),
           fetch(`${baseUrl}/jobs/${jobId}/sites`),
           fetch(`${baseUrl}/job-templates`),
-          fetch(`${baseUrl}/datasets`),
-          fetch(`${baseUrl}/jobs/${jobId}/scope-config`),
           fetch(`${baseUrl}/admin/lookups/job_statuses_lookup`),
           fetch(`${baseUrl}/admin/users`),
-          fetch(`${baseUrl}/milestone-templates`),
-          fetch(`${baseUrl}/jobs/${jobId}/milestone-template-completions`),
         ]);
 
         if (!jRes.ok) {
@@ -1365,12 +1425,8 @@ export default function JobDetailPage() {
         const jJson = (await jRes.json()) as Job;
         const sJson = sRes.ok ? ((await sRes.json()) as JobSitesResponse) : null;
         const tJson = tRes.ok ? ((await tRes.json()) as JobTemplatesResponse) : null;
-        const dJson = dRes.ok ? ((await dRes.json()) as DatasetsResponse) : null;
-        const scJson = scRes.ok ? ((await scRes.json()) as JobScopeConfigResponse) : null;
         const statusJson = statusRes.ok ? await statusRes.json() : null;
         const teamJson = teamRes.ok ? await teamRes.json() : null;
-        const mtJson = mtRes.ok ? ((await mtRes.json()) as MilestoneTemplatesResponse) : null;
-        const mcJson = mcRes.ok ? ((await mcRes.json()) as MilestoneTemplateCompletionsResponse) : null;
 
         if (cancelled) return;
 
@@ -1434,51 +1490,17 @@ export default function JobDetailPage() {
         // Set lookup data
         if (statusJson?.items) setJobStatuses(statusJson.items);
         if (teamJson?.items) setTeamMembers(teamJson.items);
-        if (mtJson?.templates) setMilestoneTemplates(mtJson.templates);
-        setMilestoneTemplateCompletions(Array.isArray(mcJson?.items) ? mcJson.items : []);
         
         // Set selected milestone template
         if (jJson.milestone_template_id) {
           setSelectedMilestoneTemplateId(String(jJson.milestone_template_id));
-        } else if (mtJson?.templates) {
-          // Default to the default template if job doesn't have one
-          const defaultTemplate = mtJson.templates.find((t) => t.is_default);
-          if (defaultTemplate) {
-            setSelectedMilestoneTemplateId(String(defaultTemplate.template_id));
-          }
         }
-
-        setDatasets(dJson?.items ?? []);
-
-        const effectiveItems = scJson?.items ?? [];
-        const legacyItems = scJson?.legacy_items ?? effectiveItems;
-
-        setScopeConfigMode(scJson?.mode || "legacy");
-        setScopeConfigWarnings(
-          Array.isArray(scJson?.warnings) ? scJson.warnings.map((w) => String(w)) : []
-        );
-        setScopeAutoResolution(scJson?.auto_resolution ?? null);
-        setScopeEffectiveDatasetIds(scopeMapFromItems(effectiveItems));
-        setScopeDatasetIds(scopeMapFromItems(legacyItems));
-        setAdditionalDatasetIds(
-          Array.isArray(scJson?.additional_dataset_ids)
-            ? scJson.additional_dataset_ids.map((id) => String(id))
-            : []
-        );
 
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
         setJob(null);
         setSites([]);
-        setDatasets([]);
-        setScopeDatasetIds({ ...EMPTY_SCOPE_MAP });
-        setScopeEffectiveDatasetIds({ ...EMPTY_SCOPE_MAP });
-        setAdditionalDatasetIds([]);
-        setScopeConfigMode("legacy");
-        setScopeConfigWarnings([]);
-        setScopeAutoResolution(null);
-        setMilestoneTemplateCompletions([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1490,6 +1512,101 @@ export default function JobDetailPage() {
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMilestoneResources() {
+      if (activeWorkspaceSubtab !== "setup-overview" || !Number.isFinite(jobId) || jobId <= 0) return;
+      if (milestoneTemplates.length > 0 && milestoneTemplateCompletions.length > 0) return;
+
+      setLoadingSetupMilestones(true);
+      try {
+        const [mtRes, mcRes] = await Promise.all([
+          fetch(`${baseUrl}/milestone-templates`),
+          fetch(`${baseUrl}/jobs/${jobId}/milestone-template-completions`),
+        ]);
+        if (cancelled) return;
+        if (mtRes.ok) {
+          const mtJson = (await mtRes.json()) as MilestoneTemplatesResponse;
+          setMilestoneTemplates(Array.isArray(mtJson.templates) ? mtJson.templates : []);
+          if (!selectedMilestoneTemplateId) {
+            if (job?.milestone_template_id) {
+              setSelectedMilestoneTemplateId(String(job.milestone_template_id));
+            } else {
+              const defaultTemplate = mtJson.templates?.find((t) => t.is_default);
+              if (defaultTemplate) {
+                setSelectedMilestoneTemplateId(String(defaultTemplate.template_id));
+              }
+            }
+          }
+        }
+        if (mcRes.ok) {
+          const mcJson = (await mcRes.json()) as MilestoneTemplateCompletionsResponse;
+          setMilestoneTemplateCompletions(Array.isArray(mcJson.items) ? mcJson.items : []);
+        }
+      } finally {
+        if (!cancelled) setLoadingSetupMilestones(false);
+      }
+    }
+
+    void loadMilestoneResources();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSetupSubtab, activeWorkspaceSubtab, baseUrl, job?.milestone_template_id, jobId, milestoneTemplates.length, milestoneTemplateCompletions.length, selectedMilestoneTemplateId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadScopeConfigResources() {
+      if (activeWorkspaceSubtab !== "setup-overview" || !showAdvancedDatasetConfig) return;
+      if (datasets.length > 0 && scopeConfigMode !== "legacy") return;
+      if (!Number.isFinite(jobId) || jobId <= 0) return;
+
+      setLoadingScopeConfig(true);
+      try {
+        const [dRes, scRes] = await Promise.all([
+          fetch(`${baseUrl}/datasets`),
+          fetch(`${baseUrl}/jobs/${jobId}/scope-config`),
+        ]);
+        if (cancelled) return;
+
+        if (dRes.ok) {
+          const dJson = (await dRes.json()) as DatasetsResponse;
+          setDatasets(dJson?.items ?? []);
+        }
+
+        if (scRes.ok) {
+          const scJson = (await scRes.json()) as JobScopeConfigResponse;
+          const effectiveItems = scJson?.items ?? [];
+          const legacyItems = scJson?.legacy_items ?? effectiveItems;
+
+          setScopeConfigMode(scJson?.mode || "legacy");
+          setScopeConfigWarnings(
+            Array.isArray(scJson?.warnings) ? scJson.warnings.map((w) => String(w)) : []
+          );
+          setScopeAutoResolution(scJson?.auto_resolution ?? null);
+          setScopeEffectiveDatasetIds(scopeMapFromItems(effectiveItems));
+          setScopeDatasetIds(scopeMapFromItems(legacyItems));
+          setAdditionalDatasetIds(
+            Array.isArray(scJson?.additional_dataset_ids)
+              ? scJson.additional_dataset_ids.map((id) => String(id))
+              : []
+          );
+        }
+      } finally {
+        if (!cancelled) setLoadingScopeConfig(false);
+      }
+    }
+
+    void loadScopeConfigResources();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSetupSubtab, activeWorkspaceSubtab, baseUrl, datasets.length, jobId, scopeConfigMode, showAdvancedDatasetConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1533,8 +1650,11 @@ export default function JobDetailPage() {
     }
 
     async function loadReportMetadata() {
+      if (activeSetupSubtab !== "setup-report-variables") return;
       if (!Number.isFinite(jobId) || jobId <= 0) return;
+      if (reportMetadataFields.length > 0) return;
 
+      setLoadingReportMetadata(true);
       try {
         const res = await fetch(`${baseUrl}/jobs/${jobId}/report-metadata`);
         if (!res.ok) {
@@ -1587,15 +1707,17 @@ export default function JobDetailPage() {
         setReportMetadataStatus(
           `Unable to load report metadata endpoint (${(e as Error).message}). Showing fallback fields only.`
         );
+      } finally {
+        if (!cancelled) setLoadingReportMetadata(false);
       }
     }
 
-    loadReportMetadata();
+    void loadReportMetadata();
 
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, jobId]);
+  }, [activeSetupSubtab, activeWorkspaceSubtab, baseUrl, jobId, reportMetadataFields.length]);
 
   async function saveReportMetadata() {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
@@ -1979,7 +2101,7 @@ export default function JobDetailPage() {
             return; // Show conflict warning — user must acknowledge
           }
         }
-      } catch (_e) {
+      } catch {
         // If preflight fails, proceed anyway
       } finally {
         setBusy(false);
@@ -2082,6 +2204,25 @@ export default function JobDetailPage() {
     }
   }
 
+  const isSetupOverview = activeWorkspaceSubtab === "setup-overview";
+  const isSetupCustomFields = activeWorkspaceSubtab === "setup-custom-fields";
+  const isSetupReportVariables = activeWorkspaceSubtab === "setup-report-variables";
+  const activeWorkspaceSubtabsWithRoutes = useMemo(
+    () =>
+      activeWorkspaceSubtabs.map((subtab) => {
+        if (subtab.href) return subtab;
+        const routeHrefByKey: Record<string, string> = {
+          "data-entry": `/jobs/${jobId}/data-entry`,
+          "report-new": `/jobs/${jobId}/report-new`,
+          "communications-timeline": `/jobs/${jobId}/communications-timeline`,
+          "financial-quotes": `/jobs/${jobId}/financial-quotes`,
+          lca: `/jobs/${jobId}/lca`,
+        };
+        return routeHrefByKey[subtab.key] ? { ...subtab, href: routeHrefByKey[subtab.key] } : subtab;
+      }),
+    [activeWorkspaceSubtabs, jobId]
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -2102,18 +2243,24 @@ export default function JobDetailPage() {
               tabs={JOB_WORKSPACE_GROUPS.map((group) => ({
                 key: group.key,
                 label: group.label,
+                href: group.key === "insights" ? `/jobs/${jobId}/insights` : undefined,
               }))}
               onTabChange={handleWorkspaceGroupChange}
             />
             <JobWorkspaceSubtabs
               activeSubtab={activeWorkspaceSubtab}
-              subtabs={activeWorkspaceSubtabs}
+              subtabs={activeWorkspaceSubtabsWithRoutes}
               onSubtabChange={handleWorkspaceSubtabChange}
             />
           </div>
 
           <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
+              {loadingScopeConfig || loadingReportMetadata ? (
+                <div className="text-sm text-muted-foreground">
+                  Loading setup resources for the active section...
+                </div>
+              ) : null}
               <div className="grid gap-6 md:grid-cols-2">
                 <Card id="job-details-section">
             <CardHeader>
@@ -2357,11 +2504,14 @@ export default function JobDetailPage() {
               {(job?.data_collection_due || job?.first_draft_due || job?.final_report_due || additionalMilestoneItems.length > 0) && (() => {
                 const [milestone1Name, milestone2Name, milestone3Name] = getMilestoneNames();
                 return (
-                  <Card>
+                    <Card>
                     <CardHeader>
                       <CardTitle>Project Milestones</CardTitle>
                     </CardHeader>
                     <CardContent>
+                {loadingSetupMilestones ? (
+                  <div className="text-sm text-muted-foreground">Loading milestone templates...</div>
+                ) : (
                 <div className="space-y-4">
                   {job?.data_collection_due && (
                     <MilestoneRow
@@ -2458,6 +2608,7 @@ export default function JobDetailPage() {
                     </div>
                   )}
                     </div>
+                )}
                     </CardContent>
                   </Card>
                 );
@@ -2466,7 +2617,7 @@ export default function JobDetailPage() {
 
 
 
-              <Card id="custom-fields-section">
+              <Card id="custom-fields-section" className={isSetupCustomFields ? undefined : "hidden"}>
                 <CardHeader>
                   <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
                 </CardHeader>
@@ -2480,7 +2631,7 @@ export default function JobDetailPage() {
               </Card>
 
               {/* Job Report Variables */}
-              <Card id="report-variables-section">
+              <Card id="report-variables-section" className={isSetupReportVariables ? undefined : "hidden"}>
                 <CardHeader>
                   <CardTitle>Job Report Variables</CardTitle>
                 </CardHeader>
@@ -2569,7 +2720,7 @@ export default function JobDetailPage() {
               </Card>
 
               {/* Scope Dataset Configuration */}
-              <Card>
+              <Card className={isSetupOverview ? undefined : "hidden"}>
                 <CardHeader>
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1">

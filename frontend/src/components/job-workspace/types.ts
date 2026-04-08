@@ -9,6 +9,7 @@ export type WorkspaceGroupKey =
   | "outputs"
   | "report"
   | "analysis"
+  | "insights"
   | "communications"
   | "financial"
   | "admin";
@@ -18,6 +19,7 @@ export type WorkspaceTab = {
   label: string;
   countBadge?: string | number;
   disabled?: boolean;
+  href?: string;
 };
 
 export type WorkspaceTabKey = WorkspaceGroupKey;
@@ -27,6 +29,7 @@ export type WorkspaceSubtab = {
   label: string;
   countBadge?: string | number;
   disabled?: boolean;
+  href?: string;
 };
 
 export type WorkspaceEmissionsSummaryData = {
