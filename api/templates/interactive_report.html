@@ -1099,6 +1099,8 @@
             (function() {
               var baseYear = {{ _base_year }};
               var nzYear = {{ _nz_year }};
+              var interimYear = {{ target_data.get('interim_target_year', 2030) | int }};
+              var interimPct = {{ target_data.get('interim_pct', 50) | int }};
               var s1Base = {{ _s1 }};
               var s2Base = {{ _s2 }};
               var s3Base = {{ _s3 }};
@@ -1112,14 +1114,71 @@
               }
               var canvas = document.getElementById('pathwayChart');
               if (!canvas) return;
+
+              // Custom plugin: draws baseline + net-zero reference lines and interim annotation
+              var refLinePlugin = {
+                id: 'refLines',
+                afterDraw: function(chart) {
+                  var ctx = chart.ctx;
+                  var xScale = chart.scales.x;
+                  var yScale = chart.scales.y;
+                  if (!xScale || !yScale) return;
+                  var labels = chart.data.labels;
+                  var top = yScale.top, bottom = yScale.bottom;
+                  ctx.save();
+
+                  // Baseline year — dotted black vertical
+                  var bIdx = labels.indexOf(String(baseYear));
+                  if (bIdx >= 0) {
+                    var bx = xScale.getPixelForValue(bIdx);
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeStyle = '#374151';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(bx, top); ctx.lineTo(bx, bottom); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+                    ctx.fillText('Baseline ' + baseYear, bx + 4, top + 13);
+                  }
+
+                  // Net zero year — dashed green vertical
+                  var nzIdx = labels.indexOf(String(nzYear));
+                  if (nzIdx >= 0) {
+                    var nx = xScale.getPixelForValue(nzIdx);
+                    ctx.setLineDash([6, 3]);
+                    ctx.strokeStyle = '#16a34a';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(nx, top); ctx.lineTo(nx, bottom); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#16a34a'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+                    ctx.fillText('Net Zero ' + nzYear, nx - 4, bottom - 6);
+                  }
+
+                  // Interim target annotation (label + arrow)
+                  var iIdx = labels.indexOf(String(interimYear));
+                  if (iIdx >= 0 && interimPct) {
+                    var ix = xScale.getPixelForValue(iIdx);
+                    var totalBase = s1Base + s2Base + s3Base;
+                    var totalAtInterim = totalBase * (1 - interimPct / 100);
+                    var iy = yScale.getPixelForValue(totalAtInterim);
+                    ctx.fillStyle = '#374151'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+                    ctx.fillText(interimPct + '%', ix, iy - 16);
+                    ctx.strokeStyle = '#374151'; ctx.lineWidth = 1; ctx.setLineDash([]);
+                    ctx.beginPath(); ctx.moveTo(ix, iy - 12); ctx.lineTo(ix, iy - 4); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(ix - 3, iy - 8); ctx.lineTo(ix, iy - 4); ctx.lineTo(ix + 3, iy - 8); ctx.stroke();
+                  }
+                  ctx.restore();
+                }
+              };
+
               new Chart(canvas, {
                 type: 'line',
+                plugins: [refLinePlugin],
                 data: {
                   labels: years.map(String),
                   datasets: [
-                    { label: 'Scope 1', data: pathway(s1Base), borderColor: '#0f766e', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
-                    { label: 'Scope 2', data: pathway(s2Base), borderColor: '#0891b2', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
-                    { label: 'Scope 3', data: pathway(s3Base), borderColor: '#38bdf8', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                    { label: 'Scope 1', data: pathway(s1Base), borderColor: '#3b82f6', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                    { label: 'Scope 2', data: pathway(s2Base), borderColor: '#f97316', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
+                    { label: 'Scope 3', data: pathway(s3Base), borderColor: '#22c55e', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, pointHoverRadius: 5, tension: 0 },
                   ]
                 },
                 options: {
@@ -1133,7 +1192,7 @@
                   scales: {
                     x: { type: 'category', grid: { color: '#f1f5f9' }, ticks: { maxTicksLimit: 10, font: { size: 10 } } },
                     y: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } },
-                         title: { display: true, text: 'tCO2e', font: { size: 10 } } }
+                         title: { display: true, text: 'Emissions (tCO2e)', font: { size: 10 } } }
                   }
                 }
               });
@@ -1576,7 +1635,7 @@
             {% endif %}
 
             {% set has_activity_bar = assets.activity_bar is defined and assets.activity_bar | length > 0 %}
-            {% set activity_palette = ['#0ea5e9', '#14b8a6', '#f97316', '#8b5cf6', '#22c55e', '#ef4444', '#64748b', '#eab308'] %}
+            {% set activity_palette = ['#4E79A7', '#76B7B2', '#F28E2B', '#B07AA1', '#59A14F', '#E15759', '#9C755F', '#EDC948'] %}
             {% set _activity_total = namespace(value=0) %}
             {% for _v in activity_values %}
                 {% set _activity_total.value = _activity_total.value + (_v|float) %}
@@ -1624,7 +1683,7 @@
             (function() {
               var labels = {{ activity_labels | tojson }};
               var values = {{ activity_values | tojson }};
-              var palette = ['#0ea5e9','#14b8a6','#f97316','#8b5cf6','#22c55e','#ef4444','#64748b','#eab308'];
+              var palette = ['#4E79A7','#76B7B2','#F28E2B','#B07AA1','#59A14F','#E15759','#9C755F','#EDC948'];
               var colors = labels.map(function(_,i){ return palette[i % palette.length]; });
               var canvas = document.getElementById('activityBarChart');
               if (!canvas) return;
