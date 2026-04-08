@@ -56,6 +56,7 @@ def _ensure_job_files_table(con) -> None:
     con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_item_id VARCHAR")
     con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_web_url TEXT")
     con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_path TEXT")
+    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS notes TEXT")
 
 
 def _mime_type_for_filename(filename: str) -> str:
@@ -265,7 +266,8 @@ def list_job_files(
             query = """
                 SELECT file_id, job_id, row_id, file_type, file_name, file_path,
                        file_size, mime_type, description, uploaded_by, uploaded_at,
-                       storage_provider, external_item_id, external_web_url, external_path
+                       storage_provider, external_item_id, external_web_url, external_path,
+                       notes
                 FROM job_files
                 WHERE job_id = %s
             """
@@ -299,6 +301,7 @@ def list_job_files(
                         "external_item_id": row["external_item_id"],
                         "external_web_url": row["external_web_url"],
                         "external_path": row["external_path"],
+                        "notes": row["notes"] if "notes" in row and row["notes"] is not None else None,
                     }
                 )
 
@@ -316,6 +319,7 @@ async def upload_job_file(
     file_type: str = Form("client_provided"),
     row_id: Optional[int] = Form(None),
     description: str = Form(""),
+    notes: str = Form(""),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """Upload a file for a job."""
@@ -345,9 +349,10 @@ async def upload_job_file(
                 """
                 INSERT INTO job_files (
                     job_id, row_id, file_type, file_name, file_path, file_size, mime_type,
-                    description, uploaded_by, storage_provider, external_item_id, external_web_url, external_path
+                    description, uploaded_by, storage_provider, external_item_id, external_web_url, external_path,
+                    notes
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING file_id
                 """,
                 [
@@ -364,6 +369,7 @@ async def upload_job_file(
                     file_meta.get("external_item_id"),
                     file_meta.get("external_web_url"),
                     file_meta.get("external_path"),
+                    notes or None,
                 ],
             ).fetchone()
             file_id = int(result[0])
@@ -390,6 +396,7 @@ def update_job_file(
     file_id: int,
     row_id: Optional[int] = Body(None),
     description: Optional[str] = Body(None),
+    notes: Optional[str] = Body(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """Update file metadata (link to row_id, update description)."""
@@ -419,6 +426,9 @@ def update_job_file(
             if description is not None:
                 updates.append("description = %s")
                 params.append(description)
+            if notes is not None:
+                updates.append("notes = %s")
+                params.append(notes or None)
             if not updates:
                 return {"ok": True, "message": "No changes to update"}
 
