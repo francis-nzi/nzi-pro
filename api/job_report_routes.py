@@ -59,6 +59,8 @@ from api.job_data_output_routes import _load_data_output_rows, _build_scope_summ
 
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
+# Production mode when a real key is configured; test mode (watermarked) otherwise
+_DOCRAPTOR_TEST_MODE = (DOCRAPTOR_API_KEY == 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
 
 ACTIVITY_GROUP_ORDER = [
     'Energy',
@@ -2704,6 +2706,190 @@ def _docx_add_variable_sections(
                 run_value.font.size = DocxPt(10)
 
 
+def _apply_docx_brand_styles(doc) -> None:
+    """Apply NZI brand colours and typography to a python-docx Document object."""
+    try:
+        from docx.shared import Pt, RGBColor
+        from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+
+        # Brand palette
+        BRAND_GREEN = RGBColor(0x14, 0x53, 0x2d)   # deep forest green
+        BRAND_LIGHT = RGBColor(0x1F, 0x7A, 0x46)   # lighter green
+        TEXT_MAIN   = RGBColor(0x0F, 0x17, 0x2A)   # near-black
+        TEXT_MUTED  = RGBColor(0x47, 0x55, 0x69)   # slate
+
+        # Title (Heading 0) — for the cover title
+        title_style = doc.styles['Title']
+        title_style.font.name = 'Aptos'
+        title_style.font.size = Pt(28)
+        title_style.font.bold = True
+        title_style.font.color.rgb = TEXT_MAIN
+        title_style.paragraph_format.space_after = Pt(6)
+
+        # Heading 1 — brand green, 16pt
+        h1 = doc.styles['Heading 1']
+        h1.font.name = 'Aptos'
+        h1.font.size = Pt(16)
+        h1.font.bold = True
+        h1.font.color.rgb = BRAND_GREEN
+        h1.paragraph_format.space_before = Pt(18)
+        h1.paragraph_format.space_after = Pt(4)
+
+        # Heading 2 — lighter green, 13pt
+        h2 = doc.styles['Heading 2']
+        h2.font.name = 'Aptos'
+        h2.font.size = Pt(13)
+        h2.font.bold = True
+        h2.font.color.rgb = BRAND_LIGHT
+        h2.paragraph_format.space_before = Pt(12)
+        h2.paragraph_format.space_after = Pt(3)
+
+        # Normal body text
+        normal = doc.styles['Normal']
+        normal.font.name = 'Aptos'
+        normal.font.size = Pt(10)
+        normal.font.color.rgb = TEXT_MAIN
+        normal.paragraph_format.space_after = Pt(4)
+
+    except Exception:
+        pass  # If styling fails for any reason, continue with unstyled doc
+
+
+def _docx_shade_table_header(table) -> None:
+    """Apply NZI green shading and white text to the first row of a table."""
+    try:
+        from docx.shared import RGBColor, Pt
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+
+        header_row = table.rows[0]
+        for cell in header_row.cells:
+            # Set background fill
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            shd = OxmlElement('w:shd')
+            shd.set(qn('w:val'), 'clear')
+            shd.set(qn('w:color'), 'auto')
+            shd.set(qn('w:fill'), '14532d')
+            tcPr.append(shd)
+            # Set text colour and weight
+            for para in cell.paragraphs:
+                for run in para.runs:
+                    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    run.font.bold = True
+                    run.font.size = Pt(9)
+                if not para.runs and para.text:
+                    run = para.add_run(para.text)
+                    para.clear()
+                    run = para.add_run(para.text)
+                    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+                    run.font.bold = True
+    except Exception:
+        pass
+
+
+def _docx_add_cover_page(doc, job_data: dict, generation_date: str, template_name: str, report_metadata: dict) -> None:
+    """Insert a branded cover page as the first content of the document."""
+    try:
+        from docx.shared import Pt, RGBColor, Cm
+        from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+
+        BRAND_GREEN = RGBColor(0x14, 0x53, 0x2d)
+        TEXT_MUTED  = RGBColor(0x47, 0x55, 0x69)
+
+        # Logo / brand name line
+        brand_p = doc.add_paragraph()
+        brand_p.paragraph_format.space_before = Pt(0)
+        brand_run = brand_p.add_run("NZI INSIGHTS PRO")
+        brand_run.font.name = 'Aptos'
+        brand_run.font.size = Pt(8)
+        brand_run.font.bold = True
+        brand_run.font.color.rgb = BRAND_GREEN
+        brand_run.font.all_caps = True
+
+        # Report title
+        client_name = str(job_data.get('client_name') or 'Client')
+        reporting_year = str(job_data.get('reporting_year') or '')
+        title_text = f"{client_name} Carbon Emissions Report"
+        if reporting_year:
+            title_text += f"\n{reporting_year}"
+        title_p = doc.add_paragraph()
+        title_p.paragraph_format.space_before = Pt(24)
+        title_p.paragraph_format.space_after = Pt(6)
+        title_run = title_p.add_run(title_text)
+        title_run.font.name = 'Aptos'
+        title_run.font.size = Pt(26)
+        title_run.font.bold = True
+        title_run.font.color.rgb = RGBColor(0x0F, 0x17, 0x2A)
+
+        # Subtitle / period
+        rm = report_metadata or {}
+        period = str(rm.get('current_reporting_period_label') or
+                     ((job_data.get('period_start') or '') + ' – ' + (job_data.get('period_end') or '')))
+        sub_p = doc.add_paragraph()
+        sub_run = sub_p.add_run(period.strip(' –'))
+        sub_run.font.name = 'Aptos'
+        sub_run.font.size = Pt(12)
+        sub_run.font.color.rgb = TEXT_MUTED
+        sub_p.paragraph_format.space_after = Pt(18)
+
+        # Divider rule
+        hr_p = doc.add_paragraph('─' * 60)
+        hr_p.runs[0].font.color.rgb = BRAND_GREEN
+        hr_p.runs[0].font.size = Pt(8)
+        hr_p.paragraph_format.space_after = Pt(12)
+
+        # Metadata grid (2-column table, borderless)
+        meta_entries = [
+            ("Job Number",       str(job_data.get('job_number') or '-')),
+            ("Reporting Year",   str(job_data.get('reporting_year') or '-')),
+            ("Generated",        generation_date),
+            ("Template",         template_name or '-'),
+            ("Consultant",       str(rm.get('consultant_name') or '-')),
+            ("Client Signee",    str(rm.get('client_signee_name') or '-')),
+        ]
+        meta_table = doc.add_table(rows=len(meta_entries), cols=2)
+        meta_table.style = 'Table Grid'
+        for i, (label, value) in enumerate(meta_entries):
+            meta_table.cell(i, 0).text = label
+            meta_table.cell(i, 1).text = value
+            for cell in meta_table.rows[i].cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        run.font.name = 'Aptos'
+                        run.font.size = Pt(10)
+                    if cell == meta_table.rows[i].cells[0]:
+                        for run in para.runs:
+                            run.font.bold = True
+                            run.font.color.rgb = TEXT_MUTED
+
+        # Page break after cover
+        doc.add_page_break()
+
+    except Exception:
+        # Cover creation failed — continue with body content
+        doc.add_page_break()
+
+
+def _docx_embed_chart(doc, base64_str: str, title: str = "", width_cm: float = 14.0) -> None:
+    """Decode a base64 PNG chart and embed it as an image in the document."""
+    if not base64_str:
+        return
+    try:
+        import base64 as _b64
+        import io as _io
+        from docx.shared import Cm
+
+        img_bytes = _b64.b64decode(base64_str)
+        img_stream = _io.BytesIO(img_bytes)
+        if title:
+            p = doc.add_paragraph(title)
+            p.runs[0].bold = True if p.runs else None
+        doc.add_picture(img_stream, width=Cm(width_cm))
+    except Exception:
+        pass
+
+
 def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | None):
     """Resolve template/version selection with assignment validation."""
     selected_template = None
@@ -4460,7 +4646,7 @@ def generate_professional_pdf(
         try:
             pdf_bytes = doc_api.create_doc(
                 {
-                    "test": True,  # test mode (watermarked)
+                    "test": _DOCRAPTOR_TEST_MODE,
                     "document_content": html_content,
                     "document_type": "pdf",
                     "name": f"job-{job_id}-emissions-report.pdf",
@@ -4604,31 +4790,16 @@ def generate_job_report_docx(
             is_crp = ("crp" in template_hint) or ("carbon_reduction" in template_hint)
 
             doc = DocxDocument()
+            _apply_docx_brand_styles(doc)
 
-            heading = doc.add_heading(
-                str(
-                    render_values.get("report_title")
-                    or template_variables.get("report_title")
-                    or f"Emissions Report – {job_data.get('client_name') or 'Client'}"
-                ),
-                level=0,
+            # Cover page
+            _docx_add_cover_page(
+                doc,
+                job_data=job_data,
+                generation_date=generation_date,
+                template_name=template_name,
+                report_metadata=report_metadata,
             )
-            if WD_PARAGRAPH_ALIGNMENT is not None:
-                heading.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-
-            subtitle = doc.add_paragraph(
-                f"Job {job_data.get('job_number') or job_id} • Reporting year {job_data.get('reporting_year') or 'N/A'}"
-            )
-            if WD_PARAGRAPH_ALIGNMENT is not None:
-                subtitle.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-
-            doc.add_paragraph(f"Generated: {generation_date}")
-
-            meta_p = doc.add_paragraph(
-                f"Template: {template_name or selected_template.get('template_key') or selected_template.get('template_id')}"
-            )
-            if version_number is not None:
-                meta_p.add_run(f" (v{version_number})")
 
             if is_crp:
                 _docx_add_section_heading(doc, "Carbon Reduction Plan Summary", level=1)
@@ -4662,14 +4833,88 @@ def generate_job_report_docx(
                     p.add_run(f"{label}: ").bold = True
                     p.add_run(value)
 
+            # ── Section: Narrative ──────────────────────────────────────────
+            if is_crp:
+                doc.add_heading("Carbon Reduction Plan", level=1)
+                crp_fields = [
+                    ("Executive Summary", template_variables.get("executive_summary")),
+                    ("Commitment Statement", template_variables.get("commitment_statement")),
+                    ("Reduction Targets", template_variables.get("reduction_targets")),
+                    ("Reduction Projects", template_variables.get("reduction_projects")),
+                ]
+                for label, raw in crp_fields:
+                    value = _format_template_value(raw, "textarea")
+                    if not value:
+                        continue
+                    p = doc.add_paragraph()
+                    p.add_run(f"{label}: ").bold = True
+                    p.add_run(value)
+            elif is_annual:
+                doc.add_heading("Report Narrative", level=1)
+                annual_fields = [
+                    ("Introduction", template_variables.get("introduction")),
+                    ("Methodology", template_variables.get("methodology")),
+                    ("Key Findings", template_variables.get("key_findings")),
+                    ("Recommendations", template_variables.get("recommendations")),
+                    ("Conclusion", template_variables.get("conclusion")),
+                ]
+                for label, raw in annual_fields:
+                    value = _format_template_value(raw, "textarea")
+                    if not value:
+                        continue
+                    p = doc.add_paragraph()
+                    p.add_run(f"{label}: ").bold = True
+                    p.add_run(value)
+
+            # ── Section: Charts ─────────────────────────────────────────────
+            snapshot_assets = snapshot_payload.get("assets") or {}
+            scope_chart = (snapshot_assets.get("total_emissions") or
+                           snapshot_assets.get("scope_breakdown") or
+                           snapshot_payload.get("scope_chart_base64") or "")
+            activity_chart = (snapshot_assets.get("activity_breakdown") or
+                              snapshot_payload.get("activity_chart_base64") or "")
+            if scope_chart or activity_chart:
+                doc.add_heading("Emissions Charts", level=1)
+                _docx_embed_chart(doc, scope_chart, "Scope Profile (tCO₂e)")
+                _docx_embed_chart(doc, activity_chart, "Activity Profile (tCO₂e)")
+
+            # ── Section: Emissions Summary ──────────────────────────────────
+            doc.add_heading("Emissions Summary", level=1)
+            summary_table = doc.add_table(rows=1, cols=3)
+            summary_table.style = "Table Grid"
+            for col, hdr in enumerate(["Scope", "tCO₂e", "% of Total"]):
+                summary_table.cell(0, col).text = hdr
+            _docx_shade_table_header(summary_table)
+            s1 = scope_totals.get('Scope 1', 0.0)
+            s2 = scope_totals.get('Scope 2', 0.0)
+            s3 = scope_totals.get('Scope 3', 0.0)
+            total = scope_totals.get('Total', 0.0)
+            for scope_label, val in [("Scope 1", s1), ("Scope 2", s2), ("Scope 3", s3), ("Total", total)]:
+                rc = summary_table.add_row().cells
+                rc[0].text = scope_label
+                rc[1].text = f"{val:,.2f}"
+                rc[2].text = f"{(val / total * 100):.1f}%" if total > 0 else "0.0%"
+
+            # ── Section: Activity Group Totals ──────────────────────────────
+            doc.add_heading("Activity Group Totals", level=1)
+            group_table = doc.add_table(rows=1, cols=2)
+            group_table.style = "Table Grid"
+            group_table.cell(0, 0).text = "Activity Group"
+            group_table.cell(0, 1).text = "tCO₂e"
+            _docx_shade_table_header(group_table)
+            for group in ACTIVITY_GROUP_ORDER:
+                rc = group_table.add_row().cells
+                rc[0].text = group
+                rc[1].text = f"{activity_totals.get(group, 0.0):,.2f}"
+
+            # ── Section: Planned Actions ────────────────────────────────────
             if job_actions.get("items"):
                 doc.add_heading("Planned Actions", level=1)
                 actions_table = doc.add_table(rows=1, cols=4)
                 actions_table.style = "Table Grid"
-                action_headers = ["Term", "Action", "Category", "Description"]
-                for col, header in enumerate(action_headers):
-                    actions_table.cell(0, col).text = header
-
+                for col, hdr in enumerate(["Term", "Action", "Category", "Description"]):
+                    actions_table.cell(0, col).text = hdr
+                _docx_shade_table_header(actions_table)
                 for item in job_actions.get("items", []):
                     row_cells = actions_table.add_row().cells
                     row_cells[0].text = str(item.get("action_term_label") or item.get("action_term") or "")
@@ -4677,61 +4922,24 @@ def generate_job_report_docx(
                     row_cells[2].text = str(item.get("action_category") or "")
                     row_cells[3].text = str(item.get("description") or "")
 
-            doc.add_heading("Summary", level=1)
-            summary_table = doc.add_table(rows=4, cols=2)
-            summary_table.style = "Table Grid"
-            summary_rows = [
-                ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.2f} tCO₂e"),
-                ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.2f} tCO₂e"),
-                ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.2f} tCO₂e"),
-                ("Total", f"{scope_totals.get('Total', 0.0):,.2f} tCO₂e"),
-            ]
-            for idx, (label, value) in enumerate(summary_rows):
-                summary_table.cell(idx, 0).text = label
-                summary_table.cell(idx, 1).text = value
-
-            doc.add_heading("Activity Group Totals", level=1)
-            group_table = doc.add_table(rows=max(1, len(ACTIVITY_GROUP_ORDER)), cols=2)
-            group_table.style = "Table Grid"
-            for idx, group in enumerate(ACTIVITY_GROUP_ORDER):
-                group_table.cell(idx, 0).text = group
-                group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.2f} tCO₂e"
-
-            _docx_add_variable_sections(doc, template_variables, template_var_meta)
-
-            metadata_rows = [
-                (key, report_metadata.get(key))
-                for key in report_metadata.keys()
-                if report_metadata.get(key) not in (None, "")
-            ]
-            if metadata_rows:
-                doc.add_heading("Report Metadata", level=1)
-                meta_table = doc.add_table(rows=1, cols=2)
-                meta_table.style = "Table Grid"
-                meta_table.cell(0, 0).text = "Field"
-                meta_table.cell(0, 1).text = "Value"
-                for key, value in metadata_rows:
-                    row_cells = meta_table.add_row().cells
-                    row_cells[0].text = str(key).replace("_", " ").title()
-                    row_cells[1].text = _stringify_render_value(value)
-
+            # ── Section: Top Activity Rows ──────────────────────────────────
             if activity_details:
-                doc.add_heading("Top Activity Rows", level=1)
-                details_table = doc.add_table(rows=1, cols=7)
+                doc.add_heading("Top Emission Drivers", level=1)
+                details_table = doc.add_table(rows=1, cols=5)
                 details_table.style = "Table Grid"
-                headers = ["Group", "Emission Type", "Scope", "Source Family", "Group / Asset", "Factor ID", "tCO₂e"]
-                for col, header in enumerate(headers):
-                    details_table.cell(0, col).text = header
-
+                for col, hdr in enumerate(["Activity Group", "Emission Type", "Scope", "Confidence", "tCO₂e"]):
+                    details_table.cell(0, col).text = hdr
+                _docx_shade_table_header(details_table)
                 for row in activity_details[:50]:
                     cells = details_table.add_row().cells
                     cells[0].text = str(row.get("activity_group") or "")
-                    cells[1].text = str(row.get("emission_type") or "")
+                    cells[1].text = str(row.get("emission_type") or row.get("report_label") or "")
                     cells[2].text = str(row.get("scope") or "")
-                    cells[3].text = str(row.get("source_family") or "")
-                    cells[4].text = str(row.get("reference_label") or row.get("group_name") or row.get("asset_identifier") or row.get("source_name") or "")
-                    cells[5].text = str(row.get("factor_id") or row.get("factor_db_id") or row.get("original_id") or "")
-                    cells[6].text = f"{float(row.get('emissions') or 0.0):,.2f}"
+                    cells[3].text = str(row.get("data_confidence") or "M")
+                    cells[4].text = f"{float(row.get('emissions') or 0.0):,.2f}"
+
+            # ── Section: Additional template variable sections ──────────────
+            _docx_add_variable_sections(doc, template_variables, template_var_meta)
 
             output = io.BytesIO()
             doc.save(output)

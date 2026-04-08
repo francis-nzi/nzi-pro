@@ -81,12 +81,35 @@
       color: #fff;
     }
 
+    .cover-logo {
+      height: 38px;
+      width: auto;
+      margin-bottom: 5mm;
+      display: block;
+      object-fit: contain;
+    }
+
+    .cover-client-logo {
+      height: 28px;
+      width: auto;
+      max-width: 60mm;
+      object-fit: contain;
+      display: block;
+    }
+
     .cover-brand {
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-size: 8.8pt;
       opacity: 0.92;
+    }
+
+    .cover-brand-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 5mm;
     }
 
     .cover-title {
@@ -352,6 +375,56 @@
       font-weight: 700;
     }
 
+    /* Table of Contents */
+    .toc {
+      margin-top: 8mm;
+    }
+
+    .toc-title {
+      font-size: 18pt;
+      font-weight: 760;
+      margin: 0 0 5mm;
+      color: var(--ink);
+    }
+
+    .toc-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .toc-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 3mm;
+      padding: 2.5mm 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toc-section-num {
+      font-size: 8.5pt;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      min-width: 14mm;
+    }
+
+    .toc-section-name {
+      flex: 1;
+      font-size: 11pt;
+      font-weight: 600;
+    }
+
+    .toc-dots {
+      flex: 0 0 auto;
+      color: var(--line);
+      font-size: 9pt;
+      letter-spacing: 2px;
+    }
+
     @media print {
       .report { max-width: none; padding: 0; }
       .card, .cover, .chart-box, table, tr, td, th { break-inside: avoid; }
@@ -386,10 +459,32 @@
   {% set has_targets = assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim")) %}
   {% set has_activity_bar = assets and assets.get("activity_bar") %}
 
+  {% set has_toc = true %}
+  {% set toc_sections = [
+    ("1", "Executive Dashboard"),
+    ("2", "Performance Story"),
+    ("3", "Methodology, Data Quality and Governance"),
+  ] %}
+  {% if has_targets %}{% set toc_sections = toc_sections + [("4", "Target Pathways")] %}{% endif %}
+  {% set toc_sections = toc_sections + [("5", "Recommendations and Sign-off")] %}
+
   <div class="report">
     <section class="cover">
       <div class="cover-hero">
-        <div class="cover-brand">NZI Insights Pro</div>
+        <div class="cover-brand-row">
+          <div>
+            {% if nzi_logo_src %}
+              <img class="cover-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
+            {% else %}
+              <div class="cover-brand">NZI Insights Pro</div>
+            {% endif %}
+          </div>
+          {% if render_values.get("client_logo_src") %}
+          <div>
+            <img class="cover-client-logo" src="{{ render_values.get('client_logo_src') }}" alt="{{ job_data.client_name or 'Client' }} logo">
+          </div>
+          {% endif %}
+        </div>
         <h1 class="cover-title">{{ title }}</h1>
         <p class="cover-subtitle">{{ job_data.client_name or "Client" }}{% if job_data.reporting_year %} • Reporting year {{ job_data.reporting_year }}{% endif %}</p>
       </div>
@@ -421,7 +516,33 @@
           </div>
         </div>
       </div>
-      <div class="cover-foot">Confidential. Professional management report for emissions governance and decision support.</div>
+      <div class="cover-foot">
+        Confidential &mdash; Professional management report for emissions governance and decision support.
+        {% if nzi_logo_src %}<span style="float:right;opacity:0.6;font-size:8pt">Prepared by Net Zero International</span>{% endif %}
+      </div>
+    </section>
+
+    <div class="page-break"></div>
+
+    <!-- Table of Contents -->
+    <section class="section">
+      <div class="title-row">
+        <div>
+          <p class="eyebrow">Contents</p>
+          <h2 class="toc-title">Table of Contents</h2>
+        </div>
+      </div>
+      <div class="card toc">
+        <ul class="toc-list">
+          {% for num, name in toc_sections %}
+          <li class="toc-item">
+            <span class="toc-section-num">{{ num }}</span>
+            <span class="toc-section-name">{{ name }}</span>
+            <span class="toc-dots">· · · · · · · · · · · · · · · · · · · ·</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
     </section>
 
     <div class="page-break"></div>
@@ -760,35 +881,46 @@
       <div class="title-row">
         <div>
           <p class="eyebrow">Appendix</p>
-          <h2 class="h2">Template Variables Coverage</h2>
+          <h2 class="h2">Report Information</h2>
         </div>
       </div>
-      <p class="lead">All saved non-empty template variables are listed below to confirm report coverage.</p>
-      <div class="card">
-        <table>
-          <thead>
-            <tr>
-              <th>Variable Key</th>
-              <th>Value</th>
-            </tr>
-          </thead>
+
+      <div class="card stack">
+        <h3 class="chart-title">About This Report</h3>
+        <p>This report was prepared by Net Zero International using the NZI Insights Pro platform. Emissions have been calculated in accordance with recognised greenhouse gas accounting principles and published conversion factors.</p>
+        <table class="meta-table">
           <tbody>
-            {% set ns = namespace(non_empty_count=0) %}
-            {% for k, v in tv.items() %}
-              {% if v is not none and (v|string)|trim != "" %}
-                {% set ns.non_empty_count = ns.non_empty_count + 1 %}
-                <tr>
-                  <td><code>{{ k }}</code></td>
-                  <td>{{ v }}</td>
-                </tr>
-              {% endif %}
-            {% endfor %}
-            {% if ns.non_empty_count == 0 %}
-            <tr><td colspan="2">No saved template variables found.</td></tr>
-            {% endif %}
+            <tr><td>Job Reference</td><td>{{ job_data.job_number or "-" }}</td></tr>
+            <tr><td>Client</td><td>{{ job_data.client_name or "-" }}</td></tr>
+            <tr><td>Reporting Year</td><td>{{ job_data.reporting_year or "-" }}</td></tr>
+            <tr><td>Reporting Period</td><td>{{ period_label }}</td></tr>
+            <tr><td>Generation Date</td><td>{{ generation_date }}</td></tr>
+            <tr><td>Datasets</td><td>{{ rm.get("datasets_names") or "See Methodology section" }}</td></tr>
+            <tr><td>Consultant</td><td>{{ rm.get("consultant_name") or "-" }}</td></tr>
           </tbody>
         </table>
       </div>
+
+      {% set ns = namespace(non_empty_count=0) %}
+      {% for k, v in tv.items() %}{% if v is not none and (v|string)|trim != "" %}{% set ns.non_empty_count = ns.non_empty_count + 1 %}{% endif %}{% endfor %}
+      {% if ns.non_empty_count > 0 %}
+      <div class="card" style="margin-top:4mm">
+        <h3 class="chart-title">Narrative Content Coverage</h3>
+        <table>
+          <thead><tr><th>Section</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for k, v in tv.items() %}
+            {% if v is not none and (v|string)|trim != "" %}
+            <tr>
+              <td>{{ k | replace("_", " ") | title }}</td>
+              <td><span class="badge bh">Provided</span></td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
     </section>
   </div>
 </body>
