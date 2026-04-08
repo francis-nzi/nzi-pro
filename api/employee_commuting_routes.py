@@ -1818,6 +1818,8 @@ async def commit_employee_commuting_upload(
     except HTTPException:
         raise
     except Exception as exc:
+        import traceback
+        err_detail = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
         if _is_commuting_unique_violation(exc):
             raise HTTPException(
                 status_code=409,
@@ -1826,7 +1828,7 @@ async def commit_employee_commuting_upload(
                     "Use Replace previous commuting import, or clear the existing commuting rows for this site and try again."
                 ),
             ) from exc
-        raise
+        raise HTTPException(status_code=500, detail=err_detail) from exc
 
     return {
         "ok": True,
