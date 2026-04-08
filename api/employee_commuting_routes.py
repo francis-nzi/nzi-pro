@@ -1750,9 +1750,15 @@ async def commit_employee_commuting_upload(
     if not raw:
         raise HTTPException(status_code=400, detail="Empty upload")
 
+    # Run DDL migrations in a separate autocommit connection so they cannot
+    # abort the transactional block below (PostgreSQL marks a transaction as
+    # "aborted" when any statement inside it fails, even if the exception is
+    # silently caught by try/except).
+    with get_conn() as _schema_con:
+        _ensure_job_scope_rows_schema(_schema_con)
+
     try:
         with get_conn(autocommit=False) as con:
-            _ensure_job_scope_rows_schema(con)
             meta = _job_meta(con, int(job_id))
             validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
             parsed_rows = _parse_template(raw)
