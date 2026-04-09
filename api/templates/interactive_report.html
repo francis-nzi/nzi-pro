@@ -1084,16 +1084,9 @@
             {% set _s3 = scope_totals['Scope 3'] | float %}
             <div class="pathway-card no-break mt-20">
               <h3 style="margin:0 0 8px;font-size:13px;color:#374151;">Emissions Reduction Pathway to {{ _nz_year }}</h3>
-              <!-- Screen: Chart.js interactive chart -->
-              <div class="screen-only" style="height:320px;position:relative;">
+              <div style="height:320px;position:relative;">
                 <canvas id="pathwayChart" style="width:100%;height:100%;"></canvas>
               </div>
-              <!-- Print/PDF: static PNG fallback -->
-              {% if assets and assets.get('reduction_pathway_2050') %}
-              <div class="print-only">
-                <img src="data:image/png;base64,{{ assets.get('reduction_pathway_2050', '') }}" alt="Reduction Pathway to Net Zero 2050" class="pathway-image">
-              </div>
-              {% endif %}
             </div>
             <script>
             (function() {
