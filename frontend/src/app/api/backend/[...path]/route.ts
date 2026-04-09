@@ -40,18 +40,27 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const qs = req.nextUrl.search || "";
     const subPath = path.join("/");
     const target = `${backendBase()}/${subPath}${qs}`;
+    const probeRedirect = req.nextUrl.searchParams.get("probe_redirect") === "1";
 
     const body = method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
     const res = await fetch(target, {
       method,
       headers: forwardHeaders(req),
       body,
+      redirect: probeRedirect ? "manual" : "follow",
     });
 
     const payload = await res.arrayBuffer();
     const outHeaders = new Headers();
     const contentType = res.headers.get("content-type");
     if (contentType) outHeaders.set("content-type", contentType);
+    if (probeRedirect) {
+      outHeaders.set("x-proxy-probe-status", String(res.status));
+      const location = res.headers.get("location");
+      if (location) {
+        outHeaders.set("x-proxy-probe-location", location);
+      }
+    }
 
     return new NextResponse(payload, {
       status: res.status,

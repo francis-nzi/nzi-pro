@@ -17,6 +17,10 @@ function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 }
 
+function xeroProxyBaseUrl(): string {
+  return "/api/backend";
+}
+
 type CompanyProfileField = {
   key: string;
   label: string;
@@ -78,7 +82,6 @@ export default function SystemSettingsPage() {
   const [xeroScope, setXeroScope] = useState("accounting.contacts accounting.transactions offline_access");
   const [xeroInvoiceId, setXeroInvoiceId] = useState("");
   const [xeroRedirectUri, setXeroRedirectUri] = useState("");
-  const [xeroStartUrl, setXeroStartUrl] = useState("");
   const xeroHeaderBadge = xeroConnection?.status === "connected"
     ? { label: "Xero Connected", variant: "default" as const }
     : xeroConnection?.status === "configured"
@@ -122,7 +125,7 @@ export default function SystemSettingsPage() {
     setXeroLoading(true);
     setXeroError("");
     try {
-      const res = await fetch(`${baseUrl}/xero/status`, { credentials: "include" });
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/status`, { credentials: "include" });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (payload as { detail?: unknown }).detail;
@@ -148,22 +151,21 @@ export default function SystemSettingsPage() {
     } finally {
       setXeroLoading(false);
     }
-  }, [baseUrl]);
+  }, []);
 
   const loadXeroOAuthConfig = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/xero/oauth/config`, { credentials: "include" });
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/oauth/config`, { credentials: "include" });
       const payload = (await res.json().catch(() => ({}))) as XeroOAuthConfig;
       if (!res.ok) {
         return;
       }
       setXeroRedirectUri(String(payload.redirect_uri || ""));
       setXeroScope(String(payload.scope || "accounting.contacts accounting.transactions offline_access"));
-      setXeroStartUrl(String(payload.start_url || "/xero/oauth/start"));
     } catch {
       // Keep the panel usable even if config fetch fails.
     }
-  }, [baseUrl]);
+  }, []);
 
   useEffect(() => {
     void loadSettings();
@@ -294,7 +296,7 @@ export default function SystemSettingsPage() {
     setXeroError("");
     setXeroStatus("Saving Xero connection...");
     try {
-      const res = await fetch(`${baseUrl}/xero/connect`, {
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -330,7 +332,7 @@ export default function SystemSettingsPage() {
     setXeroError("");
     setXeroStatus("Testing Xero connection...");
     try {
-      const res = await fetch(`${baseUrl}/xero/test`, { method: "POST", credentials: "include" });
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/test`, { method: "POST", credentials: "include" });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (payload as { detail?: unknown }).detail;
@@ -360,7 +362,7 @@ export default function SystemSettingsPage() {
     setXeroError("");
     setXeroStatus("Disconnecting Xero...");
     try {
-      const res = await fetch(`${baseUrl}/xero/disconnect`, {
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/disconnect`, {
         method: "POST",
         credentials: "include",
       });
@@ -390,7 +392,7 @@ export default function SystemSettingsPage() {
     setXeroError("");
     setXeroStatus(mode === "sync" ? "Syncing invoice to Xero..." : "Resyncing invoice from Xero...");
     try {
-      const res = await fetch(`${baseUrl}/xero/invoices/${invoiceId}/${mode === "sync" ? "sync" : "resync"}`, {
+      const res = await fetch(`${xeroProxyBaseUrl()}/xero/invoices/${invoiceId}/${mode === "sync" ? "sync" : "resync"}`, {
         method: "POST",
         credentials: "include",
       });
@@ -611,13 +613,9 @@ export default function SystemSettingsPage() {
                 The app will start Xero authorization from the button below and finish the callback automatically.
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                {xeroStartUrl ? (
-                  <Button asChild disabled={xeroLoading}>
-                    <Link href={`${baseUrl}${xeroStartUrl}`}>Connect with Xero (OAuth)</Link>
-                  </Button>
-                ) : (
-                  <Button disabled>Connect with Xero (OAuth)</Button>
-                )}
+                <Button asChild disabled={xeroLoading}>
+                  <Link href="/admin/settings/xero/connect">Connect with Xero (OAuth)</Link>
+                </Button>
                 <Button variant="outline" onClick={() => void loadXeroOAuthConfig()} disabled={xeroLoading}>
                   Refresh OAuth Config
                 </Button>
