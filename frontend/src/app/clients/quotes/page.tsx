@@ -24,12 +24,21 @@ type QuoteListItem = {
   updated_at: string | null;
 };
 
+type ClientPickerItem = {
+  client_db_id: number;
+  client_name: string | null;
+};
+
 export default function QuotesPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const [items, setItems] = useState<QuoteListItem[]>([]);
+  const [clients, setClients] = useState<ClientPickerItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clientsLoading, setClientsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [clientsError, setClientsError] = useState("");
   const [q, setQ] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +66,32 @@ export default function QuotesPage() {
     };
   }, [baseUrl]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadClients() {
+      setClientsLoading(true);
+      setClientsError("");
+      try {
+        const res = await fetch(`${baseUrl}/clients?limit=200`, { credentials: "include" });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          throw new Error(`Failed to load clients (${res.status})${t ? `: ${t}` : ""}`);
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setClients(Array.isArray(json.items) ? json.items : []);
+      } catch (e) {
+        if (!cancelled) setClientsError((e as Error).message);
+      } finally {
+        if (!cancelled) setClientsLoading(false);
+      }
+    }
+    loadClients();
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
+
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return items;
@@ -67,6 +102,8 @@ export default function QuotesPage() {
         .includes(query)
     );
   }, [items, q]);
+
+  const addQuoteHref = selectedClientId ? `/clients/${selectedClientId}/quotes/new` : "";
 
   return (
     <div className="min-h-screen bg-background">
@@ -79,11 +116,42 @@ export default function QuotesPage() {
             { label: "Quotes" },
           ]}
           actions={
-            <Button variant="outline" asChild>
-              <Link href="/clients">Back to Clients</Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+                disabled={clientsLoading}
+              >
+                <option value="">{clientsLoading ? "Loading clients..." : "Select client for new quote..."}</option>
+                {clients.map((client) => (
+                  <option key={client.client_db_id} value={String(client.client_db_id)}>
+                    {client.client_name || `Client ${client.client_db_id}`}
+                  </option>
+                ))}
+              </select>
+              {addQuoteHref ? (
+                <Button asChild>
+                  <Link href={addQuoteHref}>+ Add Quote</Link>
+                </Button>
+              ) : (
+                <Button disabled>+ Add Quote</Button>
+              )}
+              <Button variant="outline" asChild>
+                <Link href="/clients">Back to Clients</Link>
+              </Button>
+            </div>
           }
         />
+
+        <div className="mb-4 rounded-md border bg-muted/30 px-4 py-3 text-sm">
+          <div className="font-medium">Create a new quote</div>
+          <div className="text-muted-foreground">
+            Select a client, then use the add quote button to open the quote builder.
+          </div>
+        </div>
+
+        {clientsError ? <div className="mb-4 text-sm text-destructive">{clientsError}</div> : null}
 
         <Card>
           <CardHeader>
@@ -138,4 +206,3 @@ export default function QuotesPage() {
     </div>
   );
 }
-

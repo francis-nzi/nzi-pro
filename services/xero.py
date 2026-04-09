@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import secrets
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
@@ -16,7 +17,9 @@ from services.audit_log import fetch_row_dict
 
 XERO_CONNECTION_KEY = "default"
 XERO_API_BASE = "https://api.xero.com/api.xro/2.0"
+XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
 XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
+XERO_CONNECTIONS_URL = "https://api.xero.com/connections"
 XERO_DEFAULT_AUTH_TYPE = "custom_connection"
 XERO_DEFAULT_SCOPE = "accounting.contacts accounting.transactions offline_access"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
@@ -85,6 +88,37 @@ def _json_request(
         raise HTTPException(status_code=502, detail=f"Xero request failed: {detail}") from exc
     except URLError as exc:
         raise HTTPException(status_code=502, detail=f"Xero request failed: {exc.reason}") from exc
+
+
+def _form_request(
+    method: str,
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+    payload: Mapping[str, Any] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    req_headers = {"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}
+    if headers:
+        req_headers.update({str(k): str(v) for k, v in headers.items() if str(v or "").strip()})
+    body = urlencode({str(k): str(v) for k, v in (payload or {}).items() if v is not None}).encode("utf-8")
+    req = Request(url, data=body, headers=req_headers, method=method.upper())
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw.strip() else {}
+    except HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+        detail = raw.strip() or exc.reason or f"HTTP {exc.code}"
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                detail = parsed
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail=f"Xero token request failed: {detail}") from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Xero token request failed: {exc.reason}") from exc
 
 
 def _ensure_schema(con) -> None:
@@ -285,6 +319,71 @@ def _client_credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
+def _redirect_uri() -> str:
+    uri = _env("XERO_REDIRECT_URI")
+    if uri:
+        return uri
+    raise HTTPException(status_code=500, detail="Xero redirect URI is not configured")
+
+
+def _oauth_state() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def build_oauth_authorize_url(*, state: str | None = None) -> tuple[str, str]:
+    client_id, _client_secret = _client_credentials()
+    redirect_uri = _redirect_uri()
+    scope = str(_env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
+    auth_state = state or _oauth_state()
+    params = urlencode(
+        {
+            "response_type": "code",
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "scope": scope,
+            "state": auth_state,
+        }
+    )
+    return f"{XERO_AUTH_URL}?{params}", auth_state
+
+
+def _exchange_authorization_code(code: str) -> dict[str, Any]:
+    client_id, client_secret = _client_credentials()
+    redirect_uri = _redirect_uri()
+    basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    return _form_request(
+        "POST",
+        XERO_TOKEN_URL,
+        headers={
+            "Authorization": f"Basic {basic}",
+        },
+        payload={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+        },
+    )
+
+
+def _connections_from_access_token(access_token: str) -> list[dict[str, Any]]:
+    response = _json_request(
+        "GET",
+        XERO_CONNECTIONS_URL,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+    if isinstance(response, list):
+        return [dict(item) for item in response if isinstance(item, Mapping)]
+    if isinstance(response, dict):
+        items = response.get("items")
+        if isinstance(items, list):
+            return [dict(item) for item in items if isinstance(item, Mapping)]
+    return []
+
+
 def _refresh_token(connection: Mapping[str, Any]) -> dict[str, Any]:
     token = str(connection.get("access_token") or "").strip()
     expires_at = str(connection.get("expires_at") or "").strip()
@@ -340,6 +439,43 @@ def _refresh_token(connection: Mapping[str, Any]) -> dict[str, Any]:
     if parsed.get("scope"):
         updated["scope"] = str(parsed.get("scope") or "").strip()
     return updated
+
+
+def complete_oauth_connection(*, code: str) -> dict[str, Any]:
+    if not str(code or "").strip():
+        raise HTTPException(status_code=400, detail="Missing OAuth code")
+    with get_conn() as con:
+        _ensure_schema(con)
+        token_result = _exchange_authorization_code(str(code).strip())
+        access_token = str(token_result.get("access_token") or "").strip()
+        if not access_token:
+            raise HTTPException(status_code=502, detail="Xero token response did not include an access token")
+        refresh_token = str(token_result.get("refresh_token") or "").strip() or None
+        scope = str(token_result.get("scope") or _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
+        expires_at = (_now() + timedelta(seconds=max(int(token_result.get("expires_in") or 1800) - 60, 60))).isoformat(sep=" ")
+        connections = _connections_from_access_token(access_token)
+        connection_item = connections[0] if connections else {}
+        tenant_id = str(connection_item.get("tenantId") or connection_item.get("tenant_id") or "").strip() or None
+        org_name = str(connection_item.get("tenantName") or connection_item.get("org_name") or connection_item.get("name") or "").strip() or None
+        updated = save_xero_connection(
+            {
+                "integration_type": "oauth2",
+                "tenant_id": tenant_id,
+                "org_name": org_name,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at,
+                "scope": scope,
+                "status": "connected",
+                "last_tested_at": _now(),
+                "last_error": None,
+            }
+        )
+        if tenant_id:
+            updated["tenant_id"] = tenant_id
+        if org_name:
+            updated["org_name"] = org_name
+        return {"ok": True, "connection": updated, "connections": connections, "token": token_result}
 
 
 def _xero_headers(connection: Mapping[str, Any]) -> dict[str, str]:

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,8 +29,33 @@ type CompanyProfileResponse = {
   fields: CompanyProfileField[];
 };
 
+type XeroConnection = {
+  connection_key?: string | null;
+  integration_type?: string | null;
+  tenant_id?: string | null;
+  org_name?: string | null;
+  access_token?: string | null;
+  refresh_token?: string | null;
+  expires_at?: string | null;
+  scope?: string | null;
+  status?: string | null;
+  last_tested_at?: string | null;
+  last_error?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+type XeroOAuthConfig = {
+  redirect_uri?: string | null;
+  scope?: string | null;
+  start_url?: string | null;
+};
+
 export default function SystemSettingsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const searchParams = useSearchParams();
   const confirmAction = useConfirmDialog();
 
   const [nziLogoFile, setNziLogoFile] = useState<string | null>(null);
@@ -41,12 +68,26 @@ export default function SystemSettingsPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [xeroConnection, setXeroConnection] = useState<XeroConnection | null>(null);
+  const [xeroLoading, setXeroLoading] = useState(false);
+  const [xeroStatus, setXeroStatus] = useState("");
+  const [xeroError, setXeroError] = useState("");
+  const [xeroIntegrationType, setXeroIntegrationType] = useState("custom_connection");
+  const [xeroTenantId, setXeroTenantId] = useState("");
+  const [xeroOrgName, setXeroOrgName] = useState("");
+  const [xeroScope, setXeroScope] = useState("accounting.contacts accounting.transactions offline_access");
+  const [xeroInvoiceId, setXeroInvoiceId] = useState("");
+  const [xeroRedirectUri, setXeroRedirectUri] = useState("");
+  const [xeroStartUrl, setXeroStartUrl] = useState("");
+  const xeroHeaderBadge = xeroConnection?.status === "connected"
+    ? { label: "Xero Connected", variant: "default" as const }
+    : xeroConnection?.status === "configured"
+      ? { label: "Xero Configured", variant: "secondary" as const }
+      : xeroConnection?.status === "error"
+        ? { label: "Xero Error", variant: "destructive" as const }
+        : { label: "Xero Disconnected", variant: "outline" as const };
 
-  useEffect(() => {
-    void loadSettings();
-  }, [baseUrl]);
-
-  async function loadSettings() {
+  const loadSettings = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -75,7 +116,74 @@ export default function SystemSettingsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [baseUrl]);
+
+  const loadXeroStatus = useCallback(async () => {
+    setXeroLoading(true);
+    setXeroError("");
+    try {
+      const res = await fetch(`${baseUrl}/xero/status`, { credentials: "include" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Failed to load Xero status");
+      }
+      const connection = (payload as { connection?: XeroConnection | null }).connection ?? null;
+      setXeroConnection(connection);
+      setXeroIntegrationType(String(connection?.integration_type || "custom_connection"));
+      setXeroTenantId(String(connection?.tenant_id || ""));
+      setXeroOrgName(String(connection?.org_name || ""));
+      setXeroScope(String(connection?.scope || "accounting.contacts accounting.transactions offline_access"));
+      setXeroStatus(
+        connection?.status === "connected"
+          ? "Xero is connected."
+          : connection?.status === "configured"
+            ? "Xero is configured but not yet connected."
+            : "Xero is not connected."
+      );
+    } catch (e) {
+      setXeroError((e as Error).message);
+      setXeroConnection(null);
+      setXeroStatus("");
+    } finally {
+      setXeroLoading(false);
+    }
+  }, [baseUrl]);
+
+  const loadXeroOAuthConfig = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/xero/oauth/config`, { credentials: "include" });
+      const payload = (await res.json().catch(() => ({}))) as XeroOAuthConfig;
+      if (!res.ok) {
+        return;
+      }
+      setXeroRedirectUri(String(payload.redirect_uri || ""));
+      setXeroScope(String(payload.scope || "accounting.contacts accounting.transactions offline_access"));
+      setXeroStartUrl(String(payload.start_url || "/xero/oauth/start"));
+    } catch {
+      // Keep the panel usable even if config fetch fails.
+    }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    void loadSettings();
+    void loadXeroStatus();
+    void loadXeroOAuthConfig();
+  }, [loadSettings, loadXeroOAuthConfig, loadXeroStatus]);
+
+  useEffect(() => {
+    const xeroResult = searchParams.get("xero");
+    if (!xeroResult) return;
+    if (xeroResult === "connected") {
+      setStatus("Xero connected successfully.");
+      return;
+    }
+    if (xeroResult === "oauth_start") {
+      setStatus("Starting Xero OAuth flow...");
+      return;
+    }
+    setError(`Xero: ${xeroResult}`);
+  }, [searchParams]);
 
   function setProfileValue(key: string, value: string) {
     setProfile((prev) => ({ ...prev, [key]: value }));
@@ -181,6 +289,126 @@ export default function SystemSettingsPage() {
     }
   }
 
+  async function saveXeroConnection() {
+    setXeroLoading(true);
+    setXeroError("");
+    setXeroStatus("Saving Xero connection...");
+    try {
+      const res = await fetch(`${baseUrl}/xero/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          integration_type: xeroIntegrationType,
+          tenant_id: xeroTenantId,
+          org_name: xeroOrgName,
+          scope: xeroScope,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Failed to save Xero connection");
+      }
+      setXeroConnection((payload as { connection?: XeroConnection | null }).connection ?? null);
+      if ((payload as { ok?: boolean }).ok) {
+        setXeroStatus("Xero connection saved and tested successfully.");
+      } else {
+        setXeroStatus("Xero connection saved, but the connection test returned an error.");
+      }
+      await loadXeroStatus();
+    } catch (e) {
+      setXeroError((e as Error).message);
+      setXeroStatus("");
+    } finally {
+      setXeroLoading(false);
+    }
+  }
+
+  async function testXeroConnection() {
+    setXeroLoading(true);
+    setXeroError("");
+    setXeroStatus("Testing Xero connection...");
+    try {
+      const res = await fetch(`${baseUrl}/xero/test`, { method: "POST", credentials: "include" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Xero test failed");
+      }
+      const orgName = String((payload as { Name?: string; name?: string }).Name || (payload as { Name?: string; name?: string }).name || "");
+      setXeroStatus(orgName ? `Xero connection test passed for ${orgName}.` : "Xero connection test passed.");
+      await loadXeroStatus();
+    } catch (e) {
+      setXeroError((e as Error).message);
+      setXeroStatus("");
+    } finally {
+      setXeroLoading(false);
+    }
+  }
+
+  async function disconnectXero() {
+    const confirmed = await confirmAction({
+      title: "Disconnect Xero?",
+      description: "This will clear the saved Xero connection details from the app.",
+      confirmLabel: "Disconnect",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setXeroLoading(true);
+    setXeroError("");
+    setXeroStatus("Disconnecting Xero...");
+    try {
+      const res = await fetch(`${baseUrl}/xero/disconnect`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Failed to disconnect Xero");
+      }
+      await loadXeroStatus();
+      setXeroStatus("Xero disconnected.");
+    } catch (e) {
+      setXeroError((e as Error).message);
+      setXeroStatus("");
+    } finally {
+      setXeroLoading(false);
+    }
+  }
+
+  async function syncXeroInvoice(mode: "sync" | "resync") {
+    const invoiceId = Number(xeroInvoiceId);
+    if (!Number.isFinite(invoiceId) || invoiceId <= 0) {
+      setXeroError("Enter a valid invoice ID first.");
+      return;
+    }
+
+    setXeroLoading(true);
+    setXeroError("");
+    setXeroStatus(mode === "sync" ? "Syncing invoice to Xero..." : "Resyncing invoice from Xero...");
+    try {
+      const res = await fetch(`${baseUrl}/xero/invoices/${invoiceId}/${mode === "sync" ? "sync" : "resync"}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Invoice sync failed");
+      }
+      const invoiceNumber = String((payload as { invoice?: { invoice_number?: string | null } }).invoice?.invoice_number || invoiceId);
+      setXeroStatus(`Invoice ${invoiceNumber} synced with Xero.`);
+    } catch (e) {
+      setXeroError((e as Error).message);
+      setXeroStatus("");
+    } finally {
+      setXeroLoading(false);
+    }
+  }
+
   const logoUrl = nziLogoFile ? `${baseUrl}/system-settings/logo/file?v=${logoVersion}` : null;
 
   return (
@@ -188,7 +416,10 @@ export default function SystemSettingsPage() {
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-[#F26624]">System Settings</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-bold text-[#F26624]">System Settings</h1>
+              <Badge variant={xeroHeaderBadge.variant}>{xeroHeaderBadge.label}</Badge>
+            </div>
             <p className="mt-1 text-muted-foreground">Configure global company identity and document settings.</p>
           </div>
           <Button variant="secondary" asChild>
@@ -299,6 +530,141 @@ export default function SystemSettingsPage() {
                 Accepted formats: PNG, JPG, SVG. Maximum file size: 5MB.
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Xero Integration</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="text-sm text-muted-foreground">
+              Configure the saved Xero connection here, then test or sync invoices without leaving the app.
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="xeroIntegrationType">Integration Type</Label>
+                <Input
+                  id="xeroIntegrationType"
+                  className="mt-2"
+                  value={xeroIntegrationType}
+                  onChange={(e) => setXeroIntegrationType(e.target.value)}
+                  placeholder="custom_connection"
+                />
+              </div>
+              <div>
+                <Label htmlFor="xeroTenantId">Tenant ID</Label>
+                <Input
+                  id="xeroTenantId"
+                  className="mt-2"
+                  value={xeroTenantId}
+                  onChange={(e) => setXeroTenantId(e.target.value)}
+                  placeholder="Xero tenant id"
+                />
+              </div>
+              <div>
+                <Label htmlFor="xeroOrgName">Organisation Name</Label>
+                <Input
+                  id="xeroOrgName"
+                  className="mt-2"
+                  value={xeroOrgName}
+                  onChange={(e) => setXeroOrgName(e.target.value)}
+                  placeholder="Company name in Xero"
+                />
+              </div>
+              <div>
+                <Label htmlFor="xeroScope">Scope</Label>
+                <Input
+                  id="xeroScope"
+                  className="mt-2"
+                  value={xeroScope}
+                  onChange={(e) => setXeroScope(e.target.value)}
+                  placeholder="accounting.contacts accounting.transactions offline_access"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-4 text-sm">
+              <div className="font-medium">Current status</div>
+              <div className="mt-1 text-muted-foreground">
+                {xeroConnection?.status ? `Status: ${xeroConnection.status}` : "No saved connection yet."}
+              </div>
+              <div className="mt-1 text-muted-foreground">
+                {xeroConnection?.last_error ? `Last error: ${xeroConnection.last_error}` : "No recent connection errors."}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                The app still needs `XERO_CLIENT_ID` and `XERO_CLIENT_SECRET` in the environment for OAuth token requests.
+                The tenant ID is captured automatically after the OAuth callback completes.
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-background p-4 text-sm">
+              <div className="font-medium">OAuth 2.0 setup</div>
+              <div className="mt-1 text-muted-foreground">
+                In the Xero app, use this exact redirect URI:
+              </div>
+              <div className="mt-2 rounded border bg-muted/50 px-3 py-2 font-mono text-xs break-all">
+                {xeroRedirectUri || "Loading redirect URI..."}
+              </div>
+              <div className="mt-2 text-muted-foreground">
+                The app will start Xero authorization from the button below and finish the callback automatically.
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {xeroStartUrl ? (
+                  <Button asChild disabled={xeroLoading}>
+                    <Link href={`${baseUrl}${xeroStartUrl}`}>Connect with Xero (OAuth)</Link>
+                  </Button>
+                ) : (
+                  <Button disabled>Connect with Xero (OAuth)</Button>
+                )}
+                <Button variant="outline" onClick={() => void loadXeroOAuthConfig()} disabled={xeroLoading}>
+                  Refresh OAuth Config
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void loadXeroStatus()} disabled={xeroLoading}>
+                Refresh Status
+              </Button>
+              <Button variant="secondary" onClick={() => void testXeroConnection()} disabled={xeroLoading}>
+                Test Connection
+              </Button>
+              <Button variant="secondary" onClick={() => void saveXeroConnection()} disabled={xeroLoading}>
+                Save and Test
+              </Button>
+              <Button variant="destructive" onClick={() => void disconnectXero()} disabled={xeroLoading}>
+                Disconnect
+              </Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+              <div>
+                <Label htmlFor="xeroInvoiceId">Invoice ID to sync</Label>
+                <Input
+                  id="xeroInvoiceId"
+                  className="mt-2"
+                  value={xeroInvoiceId}
+                  onChange={(e) => setXeroInvoiceId(e.target.value)}
+                  placeholder="e.g. 1234"
+                />
+              </div>
+              <div className="self-end">
+                <Button onClick={() => void syncXeroInvoice("sync")} disabled={xeroLoading}>
+                  Sync Invoice
+                </Button>
+              </div>
+              <div className="self-end">
+                <Button variant="outline" onClick={() => void syncXeroInvoice("resync")} disabled={xeroLoading}>
+                  Resync Invoice
+                </Button>
+              </div>
+            </div>
+
+            {xeroStatus ? <div className="rounded-md bg-muted p-3 text-sm">{xeroStatus}</div> : null}
+            {xeroError ? <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{xeroError}</div> : null}
+            {xeroLoading ? <div className="text-sm text-muted-foreground">Working...</div> : null}
           </CardContent>
         </Card>
       </div>

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,15 @@ type InvoiceLine = {
   vat_rate_id: number | null;
   vat_rate_pct: number;
   notes: string;
+};
+
+type XeroInvoiceInfo = {
+  xero_invoice_id: string;
+  xero_invoice_number: string;
+  xero_status: string;
+  xero_sync_status: string;
+  xero_synced_at: string | null;
+  xero_sync_error: string;
 };
 
 function newLine(): InvoiceLine {
@@ -84,6 +94,7 @@ export default function InvoiceDetailPage() {
   const [quoteId, setQuoteId] = useState<string>("");
   const [currencyCode, setCurrencyCode] = useState("GBP");
   const [lines, setLines] = useState<InvoiceLine[]>([newLine()]);
+  const [xeroInfo, setXeroInfo] = useState<XeroInvoiceInfo | null>(null);
 
   const [items, setItems] = useState<LookupItem[]>([]);
   const [vatRates, setVatRates] = useState<LookupVatRate[]>([]);
@@ -125,6 +136,14 @@ export default function InvoiceDetailPage() {
         setQuoteId(inv.quote_id != null ? String(inv.quote_id) : "");
         setCurrencyCode(String(inv.currency_code || "GBP").toUpperCase());
         setEmailTo(String(inv.contact_email || ""));
+        setXeroInfo({
+          xero_invoice_id: String(inv.xero_invoice_id || ""),
+          xero_invoice_number: String(inv.xero_invoice_number || ""),
+          xero_status: String(inv.xero_status || ""),
+          xero_sync_status: String(inv.xero_sync_status || "pending"),
+          xero_synced_at: inv.xero_synced_at || null,
+          xero_sync_error: String(inv.xero_sync_error || ""),
+        });
         setItems(Array.isArray(lookups.items) ? lookups.items : []);
         setVatRates(Array.isArray(lookups.vat_rates) ? lookups.vat_rates : []);
 
@@ -169,6 +188,24 @@ export default function InvoiceDetailPage() {
   const subtotal = lines.reduce((acc, line) => acc + lineAmount(line), 0);
   const vat = lines.reduce((acc, line) => acc + lineAmount(line) * ((line.vat_rate_pct || 0) / 100), 0);
   const total = subtotal + vat;
+  const xeroLinked = Boolean(xeroInfo?.xero_invoice_id);
+  const xeroSyncStatus = (xeroInfo?.xero_sync_status || "pending").toLowerCase();
+  const xeroBadgeVariant =
+    xeroLinked && xeroSyncStatus === "synced"
+      ? "default"
+      : xeroLinked && xeroSyncStatus === "failed"
+        ? "destructive"
+        : "secondary";
+  const xeroBadgeLabel = xeroLinked
+    ? `${xeroInfo?.xero_invoice_number || `Xero ${xeroInfo?.xero_invoice_id}`}`
+    : "Not synced to Xero";
+  const xeroHeaderLabel = xeroLinked
+    ? xeroSyncStatus === "synced"
+      ? "Xero Synced"
+      : xeroSyncStatus === "failed"
+        ? "Xero Sync Failed"
+        : "Xero Linked"
+    : "Xero Not Synced";
 
   function updateLine(key: string, patch: Partial<InvoiceLine>) {
     setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
@@ -332,17 +369,43 @@ export default function InvoiceDetailPage() {
             { label: "Invoice" },
           ]}
           actions={
-            <>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={xeroBadgeVariant as "default" | "secondary" | "destructive" | "outline"}>
+                {xeroHeaderLabel}
+              </Badge>
+              <Badge variant={xeroBadgeVariant as "default" | "secondary" | "destructive" | "outline"}>{xeroBadgeLabel}</Badge>
               <Button variant="outline" asChild>
                 <Link href={`/clients/${clientId}?section=financial`}>Back to Financial</Link>
               </Button>
-            </>
+            </div>
           }
         />
 
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading invoice...</div> : null}
         {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {status ? <div className="mb-4 text-sm text-green-700">{status}</div> : null}
+
+        {xeroInfo ? (
+          <div className="mb-4 rounded-md border bg-muted/30 px-4 py-3 text-sm">
+            <div className="font-medium">Xero status</div>
+            <div className="mt-1 text-muted-foreground">
+              {xeroLinked
+                ? `Linked to Xero invoice ${xeroInfo.xero_invoice_number || xeroInfo.xero_invoice_id} with sync status ${xeroInfo.xero_sync_status || "pending"}.`
+                : "This invoice has not been synced to Xero yet."}
+            </div>
+            {xeroInfo.xero_status ? (
+              <div className="mt-1 text-muted-foreground">Xero record status: {xeroInfo.xero_status}</div>
+            ) : null}
+            {xeroInfo.xero_synced_at ? (
+              <div className="mt-1 text-muted-foreground">
+                Last synced: {new Date(xeroInfo.xero_synced_at).toLocaleString("en-GB")}
+              </div>
+            ) : null}
+            {xeroInfo.xero_sync_error ? (
+              <div className="mt-1 text-destructive">Last error: {xeroInfo.xero_sync_error}</div>
+            ) : null}
+          </div>
+        ) : null}
 
         <Card className="mb-6">
           <CardContent className="pt-6">

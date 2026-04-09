@@ -13,6 +13,7 @@ import CustomFields from "@/components/CustomFields";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -267,6 +268,25 @@ function ClientDetailPageContent() {
       notes: "",
     },
   ]);
+
+  const xeroInvoiceBadge = useMemo(() => {
+    if (invoices.length === 0) {
+      return { label: "Xero: No invoices", variant: "outline" as const };
+    }
+    const synced = invoices.filter((inv) => String((inv as { xero_sync_status?: string }).xero_sync_status || "").toLowerCase() === "synced").length;
+    const failed = invoices.filter((inv) => String((inv as { xero_sync_status?: string }).xero_sync_status || "").toLowerCase() === "failed").length;
+    const linked = invoices.filter((inv) => Boolean((inv as { xero_invoice_id?: string }).xero_invoice_id)).length;
+    if (failed > 0) {
+      return { label: `Xero: ${failed} failed`, variant: "destructive" as const };
+    }
+    if (synced > 0) {
+      return { label: `Xero: ${synced} synced`, variant: "default" as const };
+    }
+    if (linked > 0) {
+      return { label: `Xero: ${linked} linked`, variant: "secondary" as const };
+    }
+    return { label: "Xero: Not synced", variant: "outline" as const };
+  }, [invoices]);
 
   async function reloadContacts() {
     const contactsRes = await fetch(`${baseUrl}/clients/${clientId}/contacts`, { credentials: "include" });
@@ -1139,9 +1159,10 @@ function ClientDetailPageContent() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Quotes ({quotes.length})</CardTitle>
-              <div className="flex gap-2">
-                <Button size="sm" asChild><Link href={`/clients/${clientId}/quotes/new`}>+ Add Quote</Link></Button>
-                <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/quotes`}>All Quotes</Link></Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={xeroInvoiceBadge.variant}>{xeroInvoiceBadge.label}</Badge>
+                <Button size="sm" asChild><Link href={`/clients/${clientId}/quotes/new`}>+ Create Quote</Link></Button>
+                <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/quotes`}>View All Quotes</Link></Button>
               </div>
             </div>
           </CardHeader>
@@ -1163,13 +1184,16 @@ function ClientDetailPageContent() {
                         <div className="text-right font-semibold">{currencyFmt.format(Number(q.total || 0))} {q.currency_code || ""}</div>
                         <Button variant="outline" size="sm" onClick={() => void loadQuoteLinesToDraft(q.quote_id)}>Use Lines</Button>
                         <Button variant="outline" size="sm" onClick={() => void convertQuoteToInvoice(q.quote_id)}>Convert</Button>
-                        <Button variant="outline" size="sm" asChild><Link href={`/clients/${clientId}/quotes/new?quoteId=${q.quote_id}`}>Open</Link></Button>
+                        <Button variant="outline" size="sm" asChild><Link href={`/clients/${clientId}/quotes/new?quoteId=${q.quote_id}`}>Open Quote</Link></Button>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+            <div className="mt-3 text-xs text-muted-foreground">
+              Xero badges here reflect invoice sync status for this client, since quotes are converted to invoices before Xero sync.
+            </div>
           </CardContent>
         </Card>
         ) : null}
@@ -1441,7 +1465,7 @@ function ClientDetailPageContent() {
             <>
               <Button asChild><Link href={`/jobs/new?clientId=${clientId}`}>+ Add Job</Link></Button>
               <Button variant="secondary" asChild><Link href={`/clients/${clientId}/edit`}>Edit Client</Link></Button>
-              <Button variant="secondary" asChild><Link href={`/clients/${clientId}/quotes/new`}>Add Quote</Link></Button>
+              <Button variant="secondary" asChild><Link href={`/clients/${clientId}/quotes/new`}>Create Quote</Link></Button>
               <Button variant="outline" asChild><Link href="/clients">Back to Clients</Link></Button>
             </>
           }
