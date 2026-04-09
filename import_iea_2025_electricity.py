@@ -2,13 +2,15 @@
 """
 Import IEA 2025 Country Electricity Emission Factors into factor_lookup.
 
+Creates one dataset per country, each containing a single Scope 2
+electricity emission factor (kgCO2e/kWh).
+
 Source: IEA (2025)
-Units: kgCO2e/kWh (already in kgCO2e — no conversion required)
+Units: kgCO2e/kWh
 Scope: Scope 2
-Dataset: "2025-IEA-Electricity" (country = Global)
 """
 
-from core.database import get_conn, db_backend
+from core.database import get_conn
 
 # IEA 2025 electricity emission factors — kgCO2e per kWh
 IEA_FACTORS = [
@@ -70,39 +72,42 @@ IEA_FACTORS = [
     ("Viet Nam",                    0.5584),
 ]
 
-DATASET_NAME   = "2025-IEA-Electricity"
 DATASET_SOURCE = "IEA"
 DATASET_YEAR   = 2025
 FILE_NAME      = "IEA-2025-Electricity-Factors.csv"
 
 
-def _ensure_dataset(con) -> int:
-    """Return existing dataset_id or create new one."""
+def _ensure_country_dataset(con, country: str) -> int:
+    """Return existing dataset_id for this country or create a new one."""
+    dataset_name = f"IEA Electricity 2025 - {country}"
     row = con.execute(
         """
         SELECT dataset_id FROM datasets
         WHERE name=%s AND source=%s AND year=%s
         ORDER BY dataset_id DESC LIMIT 1
         """,
-        [DATASET_NAME, DATASET_SOURCE, DATASET_YEAR],
+        [dataset_name, DATASET_SOURCE, DATASET_YEAR],
     ).fetchone()
     if row:
         return int(row[0])
 
     new_row = con.execute(
         """
-        INSERT INTO datasets (name, source, analysis_type, country, region, currency, year, version, license, notes)
-        VALUES (%s, %s, %s, %s, NULL, NULL, %s, %s, NULL, %s)
+        INSERT INTO datasets (name, source, analysis_type, country, year, version,
+                              valid_from, valid_to, notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING dataset_id
         """,
         [
-            DATASET_NAME,
+            dataset_name,
             DATASET_SOURCE,
             "Activity",
-            "Global",
+            country,
             DATASET_YEAR,
-            str(DATASET_YEAR),
-            "IEA 2025 CO2 emission intensity of electricity generation, by country",
+            "v1",
+            "2025-01-01",
+            "2025-12-31",
+            f"IEA 2025 CO2 emission intensity of electricity generation for {country}",
         ],
     ).fetchone()
     return int(new_row[0])
@@ -110,24 +115,20 @@ def _ensure_dataset(con) -> int:
 
 def run():
     with get_conn(autocommit=False) as con:
-        dataset_id = _ensure_dataset(con)
-        print(f"Dataset ID: {dataset_id} ({DATASET_NAME})")
-
-        inserted = 0
-        skipped = 0
+        inserted_datasets = 0
+        inserted_factors  = 0
+        updated_factors   = 0
 
         for country, factor in IEA_FACTORS:
-            original_id = country
-            report_label = f"Electricity {country}"
+            dataset_id = _ensure_country_dataset(con, country)
 
-            # Upsert: update if exists, insert if not
             existing = con.execute(
                 """
                 SELECT db_id FROM factor_lookup
                 WHERE dataset_id=%s AND scope=%s AND original_id=%s
                 LIMIT 1
                 """,
-                [dataset_id, "Scope 2", original_id],
+                [dataset_id, "Scope 2", country],
             ).fetchone()
 
             if existing:
@@ -135,42 +136,44 @@ def run():
                     """
                     UPDATE factor_lookup
                     SET factor=%s, file_name=%s, year=%s,
-                        level_1=%s, level_2=%s, column_text=%s,
+                        category=%s, level_1=%s, level_2=%s, column_text=%s,
                         uom=%s, ghg_unit=%s, source=%s, report_label=%s
                     WHERE db_id=%s
                     """,
                     [
                         factor, FILE_NAME, DATASET_YEAR,
-                        "Electricity Generation", country, f"Electricity - {country}",
+                        "Electricity Generation", "Electricity Generation", country,
+                        f"Electricity - {country}",
                         "kWh", "kgCO2e", "IEA 2025",
-                        report_label,
+                        f"Electricity {country}",
                         int(existing[0]),
                     ],
                 )
-                skipped += 1
+                updated_factors += 1
             else:
                 con.execute(
                     """
                     INSERT INTO factor_lookup
                     (dataset_id, file_name, year, original_id, scope,
-                     level_1, level_2, level_3, level_4, column_text,
+                     category, level_1, level_2, level_3, level_4, column_text,
                      uom, ghg_unit, factor, source, region, currency,
                      method, valid_from, valid_to, report_label)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s,%s,%s,NULL,NULL,NULL,NULL,NULL,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s,%s,%s,%s,NULL,NULL,NULL,'2025-01-01','2025-12-31',%s)
                     """,
                     [
                         dataset_id, FILE_NAME, DATASET_YEAR,
-                        original_id, "Scope 2",
-                        "Electricity Generation", country,
+                        country, "Scope 2",
+                        "Electricity Generation", "Electricity Generation", country,
                         f"Electricity - {country}",
-                        "kWh", "kgCO2e", factor,
-                        "IEA 2025",
-                        report_label,
+                        "kWh", "kgCO2e", factor, "IEA 2025",
+                        f"Electricity {country}",
                     ],
                 )
-                inserted += 1
+                inserted_factors  += 1
+                inserted_datasets += 1
 
-        print(f"Done: {inserted} inserted, {skipped} updated")
+        print(f"Done: {inserted_datasets} datasets created, "
+              f"{inserted_factors} factors inserted, {updated_factors} updated")
         print(f"Total countries: {len(IEA_FACTORS)}")
 
 
