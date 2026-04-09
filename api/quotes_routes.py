@@ -116,6 +116,12 @@ def _ensure_quote_tables(con) -> None:
           total DOUBLE PRECISION DEFAULT 0,
           status VARCHAR DEFAULT 'Draft',
           notes TEXT,
+          xero_invoice_id VARCHAR,
+          xero_invoice_number VARCHAR,
+          xero_status VARCHAR,
+          xero_sync_status VARCHAR DEFAULT 'pending',
+          xero_synced_at TIMESTAMP,
+          xero_sync_error TEXT,
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         )
@@ -124,6 +130,12 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_date DATE")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_paid DOUBLE PRECISION DEFAULT 0")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS job_id INTEGER")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_invoice_id VARCHAR")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_invoice_number VARCHAR")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_status VARCHAR")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_status VARCHAR DEFAULT 'pending'")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMP")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_error TEXT")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS invoice_email_log (
@@ -155,6 +167,7 @@ def _ensure_quote_tables(con) -> None:
         )
         """
     )
+    con.execute("CREATE INDEX IF NOT EXISTS invoices_xero_invoice_idx ON invoices (xero_invoice_id)")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_other_costs (
@@ -439,6 +452,7 @@ def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
         """
         SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
+               xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status, xero_synced_at, xero_sync_error,
                created_at, updated_at
         FROM invoices
         WHERE invoice_id = %s
@@ -487,8 +501,14 @@ def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
         "notes": str(row[12] or ""),
         "paid_date": row[13].isoformat() if row[13] else None,
         "amount_paid": round(_safe_float(row[14]), 2),
-        "created_at": row[15].isoformat() if row[15] else None,
-        "updated_at": row[16].isoformat() if row[16] else None,
+        "xero_invoice_id": str(row[15] or "") if row[15] is not None else "",
+        "xero_invoice_number": str(row[16] or "") if row[16] is not None else "",
+        "xero_status": str(row[17] or "") if row[17] is not None else "",
+        "xero_sync_status": str(row[18] or "") if row[18] is not None else "pending",
+        "xero_synced_at": row[19].isoformat() if row[19] else None,
+        "xero_sync_error": str(row[20] or "") if row[20] is not None else "",
+        "created_at": row[21].isoformat() if row[21] else None,
+        "updated_at": row[22].isoformat() if row[22] else None,
         "attention": attention,
         "bill_to": bill_to,
         "job_number": job_number,
@@ -1597,6 +1617,7 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
                 """
                 SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                        currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
+                       xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status, xero_synced_at, xero_sync_error,
                        created_at, updated_at
                 FROM invoices
                 WHERE client_db_id = %s
@@ -1632,6 +1653,12 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
                             "notes": str(r.get("notes") or ""),
                             "paid_date": r.get("paid_date").isoformat() if r.get("paid_date") else None,
                             "amount_paid": round(_safe_float(r.get("amount_paid"), 0.0), 2),
+                            "xero_invoice_id": str(r.get("xero_invoice_id") or ""),
+                            "xero_invoice_number": str(r.get("xero_invoice_number") or ""),
+                            "xero_status": str(r.get("xero_status") or ""),
+                            "xero_sync_status": str(r.get("xero_sync_status") or "pending"),
+                            "xero_synced_at": r.get("xero_synced_at").isoformat() if r.get("xero_synced_at") else None,
+                            "xero_sync_error": str(r.get("xero_sync_error") or ""),
                             "created_at": r.get("created_at").isoformat() if r.get("created_at") else None,
                             "updated_at": r.get("updated_at").isoformat() if r.get("updated_at") else None,
                             "line_count": len(lines),
@@ -1651,6 +1678,7 @@ def list_job_invoices(job_id: int, _user: dict = Depends(_current_user)):
                 """
                 SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                        currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
+                       xero_invoice_id, xero_invoice_number, xero_status, xero_sync_status, xero_synced_at, xero_sync_error,
                        created_at, updated_at
                 FROM invoices
                 WHERE job_id = %s
@@ -1686,6 +1714,12 @@ def list_job_invoices(job_id: int, _user: dict = Depends(_current_user)):
                             "notes": str(r.get("notes") or ""),
                             "paid_date": r.get("paid_date").isoformat() if r.get("paid_date") else None,
                             "amount_paid": round(_safe_float(r.get("amount_paid"), 0.0), 2),
+                            "xero_invoice_id": str(r.get("xero_invoice_id") or ""),
+                            "xero_invoice_number": str(r.get("xero_invoice_number") or ""),
+                            "xero_status": str(r.get("xero_status") or ""),
+                            "xero_sync_status": str(r.get("xero_sync_status") or "pending"),
+                            "xero_synced_at": r.get("xero_synced_at").isoformat() if r.get("xero_synced_at") else None,
+                            "xero_sync_error": str(r.get("xero_sync_error") or ""),
                             "created_at": r.get("created_at").isoformat() if r.get("created_at") else None,
                             "updated_at": r.get("updated_at").isoformat() if r.get("updated_at") else None,
                             "line_count": len(lines),
@@ -2092,9 +2126,13 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            exists = con.execute("SELECT invoice_id FROM invoices WHERE invoice_id = %s", [int(invoice_id)]).fetchone()
+            exists = con.execute(
+                "SELECT invoice_id, xero_invoice_id FROM invoices WHERE invoice_id = %s",
+                [int(invoice_id)],
+            ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
+            xero_invoice_id = str(exists[1] or "").strip() if len(exists) > 1 else ""
 
             updates = []
             params: list[Any] = []
@@ -2140,6 +2178,11 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
             if not updates:
                 raise HTTPException(status_code=400, detail="No updates provided")
 
+            if xero_invoice_id:
+                updates.append("xero_sync_status = %s")
+                params.append("needs_resync")
+                updates.append("xero_sync_error = %s")
+                params.append(None)
             updates.append("updated_at = NOW()")
             params.append(int(invoice_id))
             con.execute(f"UPDATE invoices SET {', '.join(updates)} WHERE invoice_id = %s", params)
@@ -2159,6 +2202,7 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
             con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
+            con.execute("DELETE FROM xero_invoice_links WHERE invoice_id = %s", [int(invoice_id)])
             con.execute("DELETE FROM invoices WHERE invoice_id = %s", [int(invoice_id)])
         return {"ok": True, "invoice_id": int(invoice_id)}
     except HTTPException:
