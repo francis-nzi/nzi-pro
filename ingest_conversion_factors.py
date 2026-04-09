@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
 
@@ -17,6 +19,22 @@ class DatasetReplacementBlocked(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+@dataclass
+class WorkbookImportSummary:
+    dataset_id: int
+    year: int
+    sheet_name: str
+    total_rows: int
+    accepted_rows: int
+    updated_rows: int
+    inserted_rows: int
+    deleted_rows: int
+    blocked_rows: int
+    rejected_rows: int
+    rejected_details: list[dict[str, Any]]
+    years_seen: list[int]
 
 
 def _norm_col(c: str) -> str:
@@ -209,6 +227,69 @@ def _table_exists(con, table_name: str) -> bool:
     return bool(row)
 
 
+def _ensure_factor_lookup_schema() -> None:
+    """Ensure workbook-friendly columns exist before importing."""
+    with get_conn() as con:
+        con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS category VARCHAR")
+        con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS ghg_unit VARCHAR")
+        con.execute("ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS report_label VARCHAR")
+
+
+def _normalize_dataset_name(name: str) -> str:
+    return " ".join(str(name or "").strip().lower().split())
+
+
+def _resolve_uk_dataset_id(con, year: int) -> int:
+    rows = con.execute(
+        """
+        SELECT dataset_id, name, source, analysis_type, country, year, archived
+        FROM datasets
+        WHERE year = %s
+          AND COALESCE(archived, FALSE) = FALSE
+        ORDER BY
+            CASE WHEN lower(coalesce(country, '')) IN ('united kingdom', 'uk') THEN 0 ELSE 1 END,
+            CASE WHEN lower(coalesce(analysis_type, '')) LIKE '%%activity%%spend%%' THEN 0 ELSE 1 END,
+            dataset_id
+        """,
+        [int(year)],
+    ).fetchall()
+    if not rows:
+        raise RuntimeError(f"No dataset found for year {year}")
+
+    preferred = {
+        _normalize_dataset_name(f"UK Activity & Spend {year}"),
+        _normalize_dataset_name(f"DESNZ Activity UK {year}"),
+        _normalize_dataset_name(f"UK Activity {year}"),
+    }
+    for dataset_id, name, source, analysis_type, country, ds_year, archived in rows:
+        if _normalize_dataset_name(name) in preferred:
+            return int(dataset_id)
+    return int(rows[0][0])
+
+
+def _sheet_year_from_name(sheet_name: str) -> int | None:
+    try:
+        return int(str(sheet_name or "").strip().split()[0])
+    except Exception:
+        return None
+
+
+def _read_workbook_sheets(path: Path) -> list[tuple[str, pd.DataFrame]]:
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheets: list[tuple[str, pd.DataFrame]] = []
+    for ws in workbook.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+        headers = [str(c).replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "").strip() if c is not None else "" for c in rows[0]]
+        data_rows = [list(r) for r in rows[1:] if not all(v is None for v in r)]
+        if not data_rows:
+            continue
+        df = pd.DataFrame(data_rows, columns=headers)
+        sheets.append((ws.title, df))
+    return sheets
+
+
 def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None) -> dict[str, Any]:
     # Be forgiving with uploaded CSVs from different source systems by
     # autodetecting the separator and cleaning up header artifacts.
@@ -219,11 +300,13 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
     c_year = _pick(cols, "Year", "year", "reporting year")
     c_id = _pick(cols, "ID", "Code", "Original ID", "original_id", "original id", "factor id")
     c_scope = _pick(cols, "Scope", "scope", "emissions scope")
-    c_l1 = _pick(cols, "Level 1", "Category", "level_1", "level 1")
+    c_category = _pick(cols, "Category", "category")
+    c_l1 = _pick(cols, "Level 1", "level_1", "level 1")
     c_l2 = _pick(cols, "Level 2", "Subcategory", "level_2", "level 2")
     c_l3 = _pick(cols, "Level 3", "Detail", "level_3", "level 3")
     c_l4 = _pick(cols, "Level 4", "level_4", "level 4")
     c_text = _pick(cols, "Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")
+    c_report_label = _pick(cols, "Report Label", "report_label", "report label")
     c_uom = _pick(cols, "UOM", "Unit", "Units", "uom", "unit of measure")
     c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")
     c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")
@@ -308,7 +391,70 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
             )
             continue
 
-        col_text = _synth_column_text(r, c_text, c_l1, c_l2, c_l3, c_l4)
+        category = None
+        if c_category:
+            category = r.get(c_category)
+            if category is not None and not (isinstance(category, float) and pd.isna(category)):
+                category = str(category).strip()
+                if not category or category.lower() == "nan":
+                    category = None
+
+        l1 = None
+        if c_l1:
+            l1 = r.get(c_l1)
+            if l1 is not None and not (isinstance(l1, float) and pd.isna(l1)):
+                l1 = str(l1).strip()
+                if not l1 or l1.lower() == "nan":
+                    l1 = None
+
+        # Backward compatibility: if a file only has one of the two fields,
+        # preserve that value in the missing field rather than dropping it.
+        if category is None and l1 is not None:
+            category = l1
+        if l1 is None and category is not None:
+            l1 = category
+
+        l2 = None
+        if c_l2:
+            l2 = r.get(c_l2)
+            if l2 is not None and not (isinstance(l2, float) and pd.isna(l2)):
+                l2 = str(l2).strip()
+                if not l2 or l2.lower() == "nan":
+                    l2 = None
+        l3 = None
+        if c_l3:
+            l3 = r.get(c_l3)
+            if l3 is not None and not (isinstance(l3, float) and pd.isna(l3)):
+                l3 = str(l3).strip()
+                if not l3 or l3.lower() == "nan":
+                    l3 = None
+        l4 = None
+        if c_l4:
+            l4 = r.get(c_l4)
+            if l4 is not None and not (isinstance(l4, float) and pd.isna(l4)):
+                l4 = str(l4).strip()
+                if not l4 or l4.lower() == "nan":
+                    l4 = None
+
+        report_label = None
+        if c_report_label:
+            report_label = r.get(c_report_label)
+            if report_label is not None and not (isinstance(report_label, float) and pd.isna(report_label)):
+                report_label = str(report_label).strip()
+                if not report_label or report_label.lower() == "nan":
+                    report_label = None
+        col_text = _synth_column_text(r, c_text, c_category, c_l2, c_l3, c_l4)
+        if not report_label:
+            report_label = col_text or None
+        if not report_label:
+            report_label_parts = []
+            for part in (category, l1, l2, l3, l4):
+                if part and part.lower() != "nan":
+                    report_label_parts.append(part)
+            if report_label_parts:
+                report_label = " ".join(report_label_parts)
+        if not col_text:
+            col_text = report_label or ""
         uom = r.get(c_uom) if c_uom else None
         ghg_unit = _norm_ghg_unit(r.get(c_ghg) if c_ghg else None)
         years_seen.add(int(yr))
@@ -350,21 +496,6 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
         if not row_source:
             row_source = source if source else ""
 
-        # Synthesize report_label from level_1, level_2, level_3
-        l1 = str(r.get(c_l1)).strip() if c_l1 and r.get(c_l1) is not None else None
-        l2 = str(r.get(c_l2)).strip() if c_l2 and r.get(c_l2) is not None else None
-        l3 = str(r.get(c_l3)).strip() if c_l3 and r.get(c_l3) is not None else None
-        
-        report_label_parts = []
-        if l1 and l1.lower() != "nan":
-            report_label_parts.append(l1)
-        if l2 and l2.lower() != "nan" and l2 != l1:
-            report_label_parts.append(l2)
-        if l3 and l3.lower() != "nan" and l3 != l2:
-            report_label_parts.append(l3)
-        
-        report_label = " ".join(report_label_parts) if report_label_parts else None
-
         rows.append(
             [
                 int(dataset_id),
@@ -375,7 +506,7 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
                 l1,
                 l2,
                 l3,
-                (str(r.get(c_l4)).strip() if c_l4 and r.get(c_l4) is not None else None),
+                l4,
                 col_text,
                 (str(uom).strip() if uom is not None else None),
                 ghg_unit,
@@ -399,6 +530,221 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
         "rejected_details": rejected_rows,
         "years_seen": sorted(years_seen),
     }
+
+
+def _parse_conversion_factor_workbook(path: Path) -> list[dict[str, Any]]:
+    """Parse a year-split workbook into per-sheet factor rows."""
+    workbook_sheets = _read_workbook_sheets(path)
+    if not workbook_sheets:
+        raise RuntimeError(f"{path.name}: no usable sheets found")
+
+    summaries: list[dict[str, Any]] = []
+    with get_conn() as con:
+        for sheet_name, df in workbook_sheets:
+            sheet_year = _sheet_year_from_name(sheet_name)
+            if sheet_year is None:
+                continue
+
+            dataset_id = _resolve_uk_dataset_id(con, sheet_year)
+            cols = {_norm_col(c): c for c in df.columns}
+
+            c_id = _pick(cols, "ID", "Code", "Original ID", "original_id", "original id", "factor id")
+            c_scope = _pick(cols, "Scope", "scope", "emissions scope")
+            c_category = _pick(cols, "Category", "category")
+            c_l1 = _pick(cols, "Level 1", "level_1", "level 1")
+            c_l2 = _pick(cols, "Level 2", "Subcategory", "level_2", "level 2")
+            c_l3 = _pick(cols, "Level 3", "Detail", "level_3", "level 3")
+            c_l4 = _pick(cols, "Level 4", "level_4", "level 4")
+            c_text = _pick(cols, "Column Text", "Description", "Name", "Activity", "column_text", "column text", "activity name")
+            c_report_label = _pick(cols, "Report Label", "report_label", "report label")
+            c_uom = _pick(cols, "UOM", "Unit", "Units", "uom", "unit of measure")
+            c_ghg = _pick(cols, "GHG Unit", "GHGUnit", "GHG/Unit", "GHG Unit per", "ghg_unit", "ghg unit", "co2 unit")
+            c_fac = _pick(cols, "Factor", "GHG Conversion Factor", "GHG Conversion Factor 2025", "GHG conversion factor", "kgCO2e per unit", "kgCO2e per gbp", "factor")
+            c_method = _pick(cols, "Method", "method", "calculation method")
+            c_valid_from = _pick(cols, "Valid From", "ValidFrom", "valid_from", "valid from")
+            c_valid_to = _pick(cols, "Valid To", "ValidTo", "valid_to", "valid to")
+            c_source = _pick(cols, "Source", "source")
+
+            if c_fac is None or c_id is None or c_scope is None:
+                raise RuntimeError(
+                    f"{path.name} / {sheet_name}: missing required columns (need Scope, ID, Factor). Found: {list(df.columns)}"
+                )
+
+            rows: list[list[Any]] = []
+            rejected_rows: list[dict[str, Any]] = []
+            years_seen: set[int] = set()
+            duplicate_keys_seen: set[tuple[int, str]] = set()
+
+            for idx, r in df.iterrows():
+                row_number = int(idx) + 2
+                rejection_reasons: list[str] = []
+
+                try:
+                    factor = float(r[c_fac])
+                except Exception:
+                    factor = None
+                    rejection_reasons.append("Invalid factor value")
+
+                oid = _norm_original_id(r[c_id])
+                scope = _norm_scope(r[c_scope])
+                if oid is None:
+                    rejection_reasons.append("Missing original ID")
+                if scope is None:
+                    rejection_reasons.append("Missing scope")
+
+                yr = int(sheet_year)
+                years_seen.add(yr)
+
+                if factor is not None and oid is not None and scope is not None:
+                    dedupe_key = (yr, str(oid))
+                    if dedupe_key in duplicate_keys_seen:
+                        rejection_reasons.append("Duplicate year/original_id in upload")
+                    duplicate_keys_seen.add(dedupe_key)
+
+                if rejection_reasons:
+                    rejected_rows.append(
+                        {
+                            "sheet_name": sheet_name,
+                            "row_number": row_number,
+                            "original_id": oid,
+                            "scope": scope,
+                            "reason": "; ".join(rejection_reasons),
+                        }
+                    )
+                    continue
+
+                category = None
+                if c_category:
+                    category = r.get(c_category)
+                    if category is not None and not (isinstance(category, float) and pd.isna(category)):
+                        category = str(category).strip()
+                        if not category or category.lower() == "nan":
+                            category = None
+
+                l1 = None
+                if c_l1:
+                    l1 = r.get(c_l1)
+                    if l1 is not None and not (isinstance(l1, float) and pd.isna(l1)):
+                        l1 = str(l1).strip()
+                        if not l1 or l1.lower() == "nan":
+                            l1 = None
+
+                l2 = None
+                if c_l2:
+                    l2 = r.get(c_l2)
+                    if l2 is not None and not (isinstance(l2, float) and pd.isna(l2)):
+                        l2 = str(l2).strip()
+                        if not l2 or l2.lower() == "nan":
+                            l2 = None
+                l3 = None
+                if c_l3:
+                    l3 = r.get(c_l3)
+                    if l3 is not None and not (isinstance(l3, float) and pd.isna(l3)):
+                        l3 = str(l3).strip()
+                        if not l3 or l3.lower() == "nan":
+                            l3 = None
+                l4 = None
+                if c_l4:
+                    l4 = r.get(c_l4)
+                    if l4 is not None and not (isinstance(l4, float) and pd.isna(l4)):
+                        l4 = str(l4).strip()
+                        if not l4 or l4.lower() == "nan":
+                            l4 = None
+
+                report_label = None
+                if c_report_label:
+                    report_label = r.get(c_report_label)
+                    if report_label is not None and not (isinstance(report_label, float) and pd.isna(report_label)):
+                        report_label = str(report_label).strip()
+                        if not report_label or report_label.lower() == "nan":
+                            report_label = None
+
+                col_text = _synth_column_text(r, c_text, c_category, c_l2, c_l3, c_l4)
+                if not report_label:
+                    report_label = col_text or None
+                if not col_text:
+                    col_text = report_label or ""
+
+                uom = r.get(c_uom) if c_uom else None
+                ghg_unit = _norm_ghg_unit(r.get(c_ghg) if c_ghg else None)
+
+                method = None
+                if c_method:
+                    mv = r.get(c_method)
+                    if mv is not None and not (isinstance(mv, float) and pd.isna(mv)):
+                        ms = str(mv).strip()
+                        if ms and ms.lower() != "nan":
+                            method = ms
+
+                valid_from = None
+                if c_valid_from:
+                    vf = r.get(c_valid_from)
+                    if vf is not None and not (isinstance(vf, float) and pd.isna(vf)):
+                        try:
+                            dt = pd.to_datetime(vf, dayfirst=True, errors="coerce")
+                            valid_from = None if pd.isna(dt) else dt.date()
+                        except Exception:
+                            valid_from = None
+
+                valid_to = None
+                if c_valid_to:
+                    vt = r.get(c_valid_to)
+                    if vt is not None and not (isinstance(vt, float) and pd.isna(vt)):
+                        try:
+                            dt = pd.to_datetime(vt, dayfirst=True, errors="coerce")
+                            valid_to = None if pd.isna(dt) else dt.date()
+                        except Exception:
+                            valid_to = None
+
+                row_source = None
+                if c_source:
+                    src_val = r.get(c_source)
+                    if src_val is not None and not (isinstance(src_val, float) and pd.isna(src_val)):
+                        row_source = str(src_val).strip()
+                if not row_source:
+                    row_source = "DESNZ & DEFRA"
+
+                rows.append(
+                    [
+                        int(dataset_id),
+                        path.name,
+                        int(yr),
+                        oid,
+                        scope,
+                        category,
+                        l1,
+                        l2,
+                        l3,
+                        l4,
+                        col_text,
+                        (str(uom).strip() if uom is not None else None),
+                        ghg_unit,
+                        float(factor),
+                        row_source,
+                        "UK",
+                        "GBP",
+                        method,
+                        valid_from,
+                        valid_to,
+                        report_label,
+                    ]
+                )
+
+            summaries.append(
+                {
+                    "sheet_name": sheet_name,
+                    "year": int(sheet_year),
+                    "dataset_id": int(dataset_id),
+                    "rows": rows,
+                    "total_rows": int(len(df.index)),
+                    "accepted_rows": len(rows),
+                    "rejected_rows": len(rejected_rows),
+                    "rejected_details": rejected_rows,
+                    "years_seen": sorted(years_seen),
+                }
+            )
+
+    return summaries
 
 
 def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[str, int]:
@@ -430,6 +776,364 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
         summary["lca_inventory_items"] = int(row[0] or 0)
 
     return {k: v for k, v in summary.items() if v > 0}
+
+
+def _apply_factor_rows(
+    *,
+    path: Path,
+    dataset_id: int,
+    rows: list[list[Any]],
+    replace: bool,
+    incoming_keys: set[tuple[int, str, str]],
+) -> dict[str, Any]:
+    inserted_rows = 0
+    updated_rows = 0
+    deleted_rows = 0
+    blocked_rows = 0
+
+    with get_conn(autocommit=False) as con:
+        if db_backend() == "postgres":
+            raw = con._conn  # type: ignore[attr-defined]
+            with raw.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TEMP TABLE tmp_factor_import (
+                        dataset_id INTEGER,
+                        file_name VARCHAR,
+                        year INTEGER,
+                        original_id VARCHAR,
+                        scope VARCHAR,
+                        category VARCHAR,
+                        level_1 VARCHAR,
+                        level_2 VARCHAR,
+                        level_3 VARCHAR,
+                        level_4 VARCHAR,
+                        column_text VARCHAR,
+                        uom VARCHAR,
+                        ghg_unit VARCHAR,
+                        factor NUMERIC,
+                        source VARCHAR,
+                        region VARCHAR,
+                        currency VARCHAR,
+                        method VARCHAR,
+                        valid_from DATE,
+                        valid_to DATE,
+                        report_label VARCHAR
+                    ) ON COMMIT DROP
+                    """
+                )
+                cur.executemany(
+                    """
+                    INSERT INTO tmp_factor_import (
+                        dataset_id, file_name, year, original_id, scope,
+                        category, level_1, level_2, level_3, level_4, column_text,
+                        uom, ghg_unit, factor, source, region, currency,
+                        method, valid_from, valid_to, report_label
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    rows,
+                )
+                if replace:
+                    existing_rows = cur.execute(
+                        """
+                        SELECT db_id, year, scope, original_id
+                        FROM factor_lookup
+                        WHERE dataset_id = %s
+                        """,
+                        [dataset_id],
+                    ).fetchall()
+                    stale_ids = [
+                        int(db_id)
+                        for db_id, yr, scope, original_id in existing_rows
+                        if (int(yr or 0), str(scope or ""), str(original_id or "")) not in incoming_keys
+                    ]
+                    if stale_ids:
+                        referenced_ids: set[int] = set()
+                        if _table_exists(con, "job_scope_rows"):
+                            cur.execute(
+                                "SELECT DISTINCT factor_db_id FROM job_scope_rows WHERE factor_db_id = ANY(%s)",
+                                [stale_ids],
+                            )
+                            referenced_ids.update(int(r[0]) for r in cur.fetchall() if r and r[0] is not None)
+                        if _table_exists(con, "job_spend_entries"):
+                            cur.execute(
+                                "SELECT DISTINCT factor_db_id FROM job_spend_entries WHERE factor_db_id = ANY(%s)",
+                                [stale_ids],
+                            )
+                            referenced_ids.update(int(r[0]) for r in cur.fetchall() if r and r[0] is not None)
+                        if _table_exists(con, "lca_inventory_items"):
+                            cur.execute(
+                                "SELECT DISTINCT mapped_factor_db_id FROM lca_inventory_items WHERE mapped_factor_db_id = ANY(%s)",
+                                [stale_ids],
+                            )
+                            referenced_ids.update(int(r[0]) for r in cur.fetchall() if r and r[0] is not None)
+
+                        delete_ids = [db_id for db_id in stale_ids if db_id not in referenced_ids]
+                        if delete_ids:
+                            placeholders = ",".join(["%s"] * len(delete_ids))
+                            cur.execute(
+                                f"DELETE FROM factor_lookup WHERE db_id IN ({placeholders})",
+                                delete_ids,
+                            )
+                            deleted_rows = cur.rowcount or len(delete_ids)
+                        blocked_rows = len(referenced_ids)
+
+                    cur.execute(
+                        """
+                        UPDATE factor_lookup AS f
+                        SET file_name = t.file_name,
+                            category = t.category,
+                            level_1 = t.level_1,
+                            level_2 = t.level_2,
+                            level_3 = t.level_3,
+                            level_4 = t.level_4,
+                            column_text = t.column_text,
+                            uom = t.uom,
+                            ghg_unit = t.ghg_unit,
+                            factor = t.factor,
+                            source = t.source,
+                            region = t.region,
+                            currency = t.currency,
+                            method = t.method,
+                            valid_from = t.valid_from,
+                            valid_to = t.valid_to,
+                            report_label = t.report_label
+                        FROM tmp_factor_import AS t
+                        WHERE f.dataset_id = t.dataset_id
+                          AND f.year = t.year
+                          AND f.scope = t.scope
+                          AND f.original_id = t.original_id
+                        """,
+                    )
+                    updated_rows = cur.rowcount or 0
+
+                    cur.execute(
+                        """
+                        INSERT INTO factor_lookup (
+                            dataset_id, file_name, year, original_id, scope,
+                            category, level_1, level_2, level_3, level_4, column_text,
+                            uom, ghg_unit, factor, source, region, currency,
+                            method, valid_from, valid_to, report_label
+                        )
+                        SELECT
+                            t.dataset_id, t.file_name, t.year, t.original_id, t.scope,
+                            t.category, t.level_1, t.level_2, t.level_3, t.level_4, t.column_text,
+                            t.uom, t.ghg_unit, t.factor, t.source, t.region, t.currency,
+                            t.method, t.valid_from, t.valid_to, t.report_label
+                        FROM tmp_factor_import AS t
+                        LEFT JOIN factor_lookup AS f
+                          ON f.dataset_id = t.dataset_id
+                         AND f.year = t.year
+                         AND f.scope = t.scope
+                         AND f.original_id = t.original_id
+                        WHERE f.db_id IS NULL
+                        """,
+                    )
+                    inserted_rows = max(0, len(rows) - updated_rows)
+                else:
+                    # Non-replace mode still updates matching rows and inserts missing ones.
+                    cur.execute(
+                        """
+                        UPDATE factor_lookup AS f
+                        SET file_name = t.file_name,
+                            category = t.category,
+                            level_1 = t.level_1,
+                            level_2 = t.level_2,
+                            level_3 = t.level_3,
+                            level_4 = t.level_4,
+                            column_text = t.column_text,
+                            uom = t.uom,
+                            ghg_unit = t.ghg_unit,
+                            factor = t.factor,
+                            source = t.source,
+                            region = t.region,
+                            currency = t.currency,
+                            method = t.method,
+                            valid_from = t.valid_from,
+                            valid_to = t.valid_to,
+                            report_label = t.report_label
+                        FROM tmp_factor_import AS t
+                        WHERE f.dataset_id = t.dataset_id
+                          AND f.year = t.year
+                          AND f.scope = t.scope
+                          AND f.original_id = t.original_id
+                        """,
+                    )
+                    updated_rows = cur.rowcount or 0
+                    cur.execute(
+                        """
+                        INSERT INTO factor_lookup (
+                            dataset_id, file_name, year, original_id, scope,
+                            category, level_1, level_2, level_3, level_4, column_text,
+                            uom, ghg_unit, factor, source, region, currency,
+                            method, valid_from, valid_to, report_label
+                        )
+                        SELECT
+                            t.dataset_id, t.file_name, t.year, t.original_id, t.scope,
+                            t.category, t.level_1, t.level_2, t.level_3, t.level_4, t.column_text,
+                            t.uom, t.ghg_unit, t.factor, t.source, t.region, t.currency,
+                            t.method, t.valid_from, t.valid_to, t.report_label
+                        FROM tmp_factor_import AS t
+                        LEFT JOIN factor_lookup AS f
+                          ON f.dataset_id = t.dataset_id
+                         AND f.year = t.year
+                         AND f.scope = t.scope
+                         AND f.original_id = t.original_id
+                        WHERE f.db_id IS NULL
+                        """,
+                    )
+                    inserted_rows = max(0, len(rows) - updated_rows)
+        else:
+            # DuckDB fallback keeps the older row-by-row path.
+            for params in rows:
+                (
+                    p_dataset_id,
+                    p_file_name,
+                    p_year,
+                    p_original_id,
+                    p_scope,
+                    p_category,
+                    p_level_1,
+                    p_level_2,
+                    p_level_3,
+                    p_level_4,
+                    p_column_text,
+                    p_uom,
+                    p_ghg_unit,
+                    p_factor,
+                    p_source,
+                    p_region,
+                    p_currency,
+                    p_method,
+                    p_valid_from,
+                    p_valid_to,
+                    p_report_label,
+                ) = params
+                existing = con.execute(
+                    """
+                    SELECT db_id
+                    FROM factor_lookup
+                    WHERE dataset_id = ?
+                      AND year = ?
+                      AND scope = ?
+                      AND original_id = ?
+                    ORDER BY db_id
+                    LIMIT 1
+                    """,
+                    [p_dataset_id, p_year, p_scope, p_original_id],
+                ).fetchone()
+                if replace and existing:
+                    con.execute(
+                        """
+                        UPDATE factor_lookup
+                        SET file_name = ?,
+                            category = ?,
+                            level_1 = ?,
+                            level_2 = ?,
+                            level_3 = ?,
+                            level_4 = ?,
+                            column_text = ?,
+                            uom = ?,
+                            ghg_unit = ?,
+                            factor = ?,
+                            source = ?,
+                            region = ?,
+                            currency = ?,
+                            method = ?,
+                            valid_from = ?,
+                            valid_to = ?,
+                            report_label = ?
+                        WHERE db_id = ?
+                        """,
+                        [
+                            p_file_name,
+                            p_category,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                            int(existing[0]),
+                        ],
+                    )
+                    updated_rows += 1
+                else:
+                    con.execute(
+                        """
+                        INSERT INTO factor_lookup
+                        (dataset_id, file_name, year, original_id, scope,
+                         category, level_1, level_2, level_3, level_4, column_text,
+                         uom, ghg_unit, factor, source, region, currency,
+                         method, valid_from, valid_to, report_label)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        [
+                            p_dataset_id,
+                            p_file_name,
+                            p_year,
+                            p_original_id,
+                            p_scope,
+                            p_category,
+                            p_level_1,
+                            p_level_2,
+                            p_level_3,
+                            p_level_4,
+                            p_column_text,
+                            p_uom,
+                            p_ghg_unit,
+                            p_factor,
+                            p_source,
+                            p_region,
+                            p_currency,
+                            p_method,
+                            p_valid_from,
+                            p_valid_to,
+                            p_report_label,
+                        ],
+                    )
+                    inserted_rows += 1
+
+    return {
+        "dataset_id": int(dataset_id),
+        "inserted_rows": int(inserted_rows),
+        "updated_rows": int(updated_rows),
+        "deleted_rows": int(deleted_rows),
+        "blocked_rows": int(blocked_rows),
+    }
+
+
+def ingest_workbook_with_report(path: Path, *, replace: bool = True) -> list[dict[str, Any]]:
+    _ensure_factor_lookup_schema()
+    summaries = _parse_conversion_factor_workbook(path)
+    output: list[dict[str, Any]] = []
+    for summary in summaries:
+        rows = summary["rows"]
+        incoming_keys = {(int(r[2]), str(r[4]), str(r[3])) for r in rows}
+        applied = _apply_factor_rows(
+            path=path,
+            dataset_id=int(summary["dataset_id"]),
+            rows=rows,
+            replace=replace,
+            incoming_keys=incoming_keys,
+        )
+        summary.update(applied)
+        summary["message"] = (
+            f"{summary['sheet_name']}: {summary['accepted_rows']} accepted, "
+            f"{summary['updated_rows']} updated, {summary['inserted_rows']} inserted, "
+            f"{summary['deleted_rows']} deleted, {summary['blocked_rows']} blocked"
+        )
+        output.append(summary)
+    return output
 
 
 def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None = None) -> dict[str, Any]:
@@ -482,6 +1186,7 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                 p_year,
                 p_original_id,
                 p_scope,
+                p_category,
                 p_level_1,
                 p_level_2,
                 p_level_3,
@@ -516,12 +1221,13 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                 if replace and existing:
                     con.execute(
                         """
-                        UPDATE factor_lookup
-                        SET file_name = %s,
-                            level_1 = %s,
-                            level_2 = %s,
-                            level_3 = %s,
-                            level_4 = %s,
+                    UPDATE factor_lookup
+                    SET file_name = %s,
+                        category = %s,
+                        level_1 = %s,
+                        level_2 = %s,
+                        level_3 = %s,
+                        level_4 = %s,
                             column_text = %s,
                             uom = %s,
                             ghg_unit = %s,
@@ -537,6 +1243,7 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                         """,
                         [
                             p_file_name,
+                            p_category,
                             p_level_1,
                             p_level_2,
                             p_level_3,
@@ -558,19 +1265,20 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                 else:
                     con.execute(
                         """
-                        INSERT INTO factor_lookup
-                        (dataset_id, file_name, year, original_id, scope,
-                         level_1, level_2, level_3, level_4, column_text,
-                         uom, ghg_unit, factor, source, region, currency,
-                         method, valid_from, valid_to, report_label)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        """,
+                    INSERT INTO factor_lookup
+                    (dataset_id, file_name, year, original_id, scope,
+                     category, level_1, level_2, level_3, level_4, column_text,
+                     uom, ghg_unit, factor, source, region, currency,
+                     method, valid_from, valid_to, report_label)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
                         [
                             p_dataset_id,
                             p_file_name,
                             p_year,
                             p_original_id,
                             p_scope,
+                            p_category,
                             p_level_1,
                             p_level_2,
                             p_level_3,
@@ -605,11 +1313,12 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                 if replace and existing:
                     con.execute(
                         """
-                        UPDATE factor_lookup
-                        SET file_name = ?,
-                            level_1 = ?,
-                            level_2 = ?,
-                            level_3 = ?,
+                    UPDATE factor_lookup
+                    SET file_name = ?,
+                        category = ?,
+                        level_1 = ?,
+                        level_2 = ?,
+                        level_3 = ?,
                             level_4 = ?,
                             column_text = ?,
                             uom = ?,
@@ -626,6 +1335,7 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                         """,
                         [
                             p_file_name,
+                            p_category,
                             p_level_1,
                             p_level_2,
                             p_level_3,
@@ -647,19 +1357,20 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                 else:
                     con.execute(
                         """
-                        INSERT INTO factor_lookup
-                        (dataset_id, file_name, year, original_id, scope,
-                         level_1, level_2, level_3, level_4, column_text,
-                         uom, ghg_unit, factor, source, region, currency,
-                         method, valid_from, valid_to, report_label)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                        """,
+                    INSERT INTO factor_lookup
+                    (dataset_id, file_name, year, original_id, scope,
+                     category, level_1, level_2, level_3, level_4, column_text,
+                     uom, ghg_unit, factor, source, region, currency,
+                     method, valid_from, valid_to, report_label)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
                         [
                             p_dataset_id,
                             p_file_name,
                             p_year,
                             p_original_id,
                             p_scope,
+                            p_category,
                             p_level_1,
                             p_level_2,
                             p_level_3,
@@ -693,20 +1404,58 @@ def ingest_csv(path: Path, *, replace: bool, dataset_id: int | None = None) -> t
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingest conversion factor CSVs from assets/conversion_factors into datasets + factor_lookup")
+    parser = argparse.ArgumentParser(description="Ingest conversion factor CSVs or Excel workbooks into datasets + factor_lookup")
     parser.add_argument("--folder", default=str(Path(__file__).parent / "assets" / "conversion_factors"))
+    parser.add_argument("--workbook", default="", help="Path to a year-split Excel workbook to import")
     parser.add_argument("--replace", action="store_true", help="Delete existing factor_lookup rows for matched datasets before inserting")
+    parser.add_argument("--dry-run", action="store_true", help="Parse and validate only; do not write changes")
     args = parser.parse_args()
+
+    print(f"DB backend: {db_backend()}")
+
+    if args.workbook:
+        workbook_path = Path(args.workbook)
+        if not workbook_path.exists():
+            raise SystemExit(f"Workbook not found: {workbook_path}")
+        if workbook_path.suffix.lower() != ".xlsx":
+            raise SystemExit("Workbook imports require an .xlsx file")
+
+        if args.dry_run:
+            summaries = _parse_conversion_factor_workbook(workbook_path)
+            total_rows = 0
+            for summary in summaries:
+                total_rows += int(summary.get("accepted_rows") or 0)
+                print(
+                    f"{summary['sheet_name']}: dataset_id={summary['dataset_id']} "
+                    f"accepted={summary['accepted_rows']} rejected={summary['rejected_rows']} "
+                    f"year={summary['year']}"
+                )
+            print(f"Dry run complete. Workbook contains {total_rows} valid factor rows.")
+            return 0
+
+        summaries = ingest_workbook_with_report(workbook_path, replace=bool(args.replace))
+        total_written = 0
+        for summary in summaries:
+            total_written += int(summary.get("inserted_rows") or 0) + int(summary.get("updated_rows") or 0)
+            print(
+                f"{summary['sheet_name']}: dataset_id={summary['dataset_id']} "
+                f"accepted={summary['accepted_rows']} updated={summary['updated_rows']} "
+                f"inserted={summary['inserted_rows']} deleted={summary['deleted_rows']} "
+                f"blocked={summary['blocked_rows']}"
+                )
+            if summary.get("rejected_rows"):
+                print(f"  rejected={summary['rejected_rows']}")
+        print(f"Done. Applied {total_written} factor row changes from workbook.")
+        return 0
 
     folder = Path(args.folder)
     if not folder.exists():
         raise SystemExit(f"Folder not found: {folder}")
 
-    files = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".csv"] )
+    files = sorted([p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".csv"])
     if not files:
         raise SystemExit(f"No .csv files found in: {folder}")
 
-    print(f"DB backend: {db_backend()}")
     total = 0
     for p in files:
         ds_id, n = ingest_csv(p, replace=bool(args.replace))
