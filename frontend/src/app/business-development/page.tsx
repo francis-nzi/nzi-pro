@@ -200,6 +200,26 @@ export default function BusinessDevelopmentPage() {
   const [focusLeadId, setFocusLeadId] = useState<number | null>(null);
   const [totals, setTotals] = useState({ lead_count: 0, open_opportunities: 0, pipeline_value: 0 });
 
+  function normalizeLeadGeneratorProfile(item: any): LeadGeneratorProfile {
+    const generationMode: "market-scan" | "daily-leads" = item?.generationMode === "daily-leads" ? "daily-leads" : "market-scan";
+    return {
+      name: String(item?.name || "").trim(),
+      binDate: String(item?.binDate || "").trim(),
+      generationMode,
+      regions: String(item?.regions || "").trim(),
+      revenueMin: String(item?.revenueMin || "").trim(),
+      revenueMax: String(item?.revenueMax || "").trim(),
+      targetIndustries: String(item?.targetIndustries || "").trim(),
+      targetRoles: String(item?.targetRoles || "").trim(),
+      leadsPerService: String(item?.leadsPerService || "").trim(),
+      includeKeywords: String(item?.includeKeywords || "").trim(),
+      excludeKeywords: String(item?.excludeKeywords || "").trim(),
+      minLikelihoodScore: String(item?.minLikelihoodScore || "").trim(),
+      strictMode: Boolean(item?.strictMode),
+      serviceKeys: Array.isArray(item?.serviceKeys) ? item.serviceKeys.map((x: unknown) => String(x).trim()).filter(Boolean) : [],
+    };
+  }
+
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(LEAD_GENERATOR_PROFILES_STORAGE_KEY);
@@ -207,22 +227,7 @@ export default function BusinessDevelopmentPage() {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         const items: LeadGeneratorProfile[] = parsed
-          .map((item) => ({
-            name: String(item?.name || "").trim(),
-            binDate: String(item?.binDate || "").trim(),
-            generationMode: item?.generationMode === "daily-leads" ? "daily-leads" : "market-scan",
-            regions: String(item?.regions || "").trim(),
-            revenueMin: String(item?.revenueMin || "").trim(),
-            revenueMax: String(item?.revenueMax || "").trim(),
-            targetIndustries: String(item?.targetIndustries || "").trim(),
-            targetRoles: String(item?.targetRoles || "").trim(),
-            leadsPerService: String(item?.leadsPerService || "").trim(),
-            includeKeywords: String(item?.includeKeywords || "").trim(),
-            excludeKeywords: String(item?.excludeKeywords || "").trim(),
-            minLikelihoodScore: String(item?.minLikelihoodScore || "").trim(),
-            strictMode: Boolean(item?.strictMode),
-            serviceKeys: Array.isArray(item?.serviceKeys) ? item.serviceKeys.map((x: unknown) => String(x).trim()).filter(Boolean) : [],
-          }))
+          .map((item) => normalizeLeadGeneratorProfile(item))
           .filter((item) => item.name);
         setLeadGeneratorProfiles(items);
         if (items.length > 0) {
