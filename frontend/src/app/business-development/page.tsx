@@ -62,7 +62,7 @@ type LeadGenService = {
 };
 
 type GeneratedLead = {
-  generated_lead_id: number;
+  generated_lead_id: number | null;
   bin_date: string;
   service_key: string;
   service_name: string;
@@ -85,6 +85,23 @@ type GeneratedLead = {
   bin_reason_name?: string;
   qualification_notes?: string;
   bd_lead_id: number | null;
+};
+
+type LeadGeneratorProfile = {
+  name: string;
+  binDate: string;
+  generationMode: "market-scan" | "daily-leads";
+  regions: string;
+  revenueMin: string;
+  revenueMax: string;
+  targetIndustries: string;
+  targetRoles: string;
+  leadsPerService: string;
+  includeKeywords: string;
+  excludeKeywords: string;
+  minLikelihoodScore: string;
+  strictMode: boolean;
+  serviceKeys: string[];
 };
 
 type MarketCompany = {
@@ -135,6 +152,8 @@ type BinReason = {
 
 type BdSection = "overview" | "lead-generator" | "market-database" | "leads" | "opportunities" | "funnel-settings";
 
+const LEAD_GENERATOR_PROFILES_STORAGE_KEY = "nzi.business-development.lead-generator-profiles.v1";
+
 export default function BusinessDevelopmentPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -156,8 +175,17 @@ export default function BusinessDevelopmentPage() {
   );
   const [leadsPerService, setLeadsPerService] = useState("25");
   const [generatingLeads, setGeneratingLeads] = useState(false);
+  const [previewingLeads, setPreviewingLeads] = useState(false);
   const [enrichingLeads, setEnrichingLeads] = useState(false);
   const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
+  const [previewLeads, setPreviewLeads] = useState<GeneratedLead[]>([]);
+  const [includeKeywords, setIncludeKeywords] = useState("supplier, procurement, disclosure, decarbonisation");
+  const [excludeKeywords, setExcludeKeywords] = useState("consultancy, software, SaaS, outsourcing");
+  const [minLikelihoodScore, setMinLikelihoodScore] = useState("65");
+  const [strictMode, setStrictMode] = useState(true);
+  const [leadGeneratorProfiles, setLeadGeneratorProfiles] = useState<LeadGeneratorProfile[]>([]);
+  const [leadGeneratorProfileName, setLeadGeneratorProfileName] = useState("Mid-market sustainability leads");
+  const [selectedLeadGeneratorProfile, setSelectedLeadGeneratorProfile] = useState("");
   const [marketDatabase, setMarketDatabase] = useState<MarketDatabaseResponse>({ items: [], total: 0, limit: 50, offset: 0 });
   const [marketSearch, setMarketSearch] = useState("");
   const [marketIndustryFilter, setMarketIndustryFilter] = useState("");
@@ -171,6 +199,48 @@ export default function BusinessDevelopmentPage() {
   const [activeSection, setActiveSection] = useState<BdSection>("overview");
   const [focusLeadId, setFocusLeadId] = useState<number | null>(null);
   const [totals, setTotals] = useState({ lead_count: 0, open_opportunities: 0, pipeline_value: 0 });
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LEAD_GENERATOR_PROFILES_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const items: LeadGeneratorProfile[] = parsed
+          .map((item) => ({
+            name: String(item?.name || "").trim(),
+            binDate: String(item?.binDate || "").trim(),
+            generationMode: item?.generationMode === "daily-leads" ? "daily-leads" : "market-scan",
+            regions: String(item?.regions || "").trim(),
+            revenueMin: String(item?.revenueMin || "").trim(),
+            revenueMax: String(item?.revenueMax || "").trim(),
+            targetIndustries: String(item?.targetIndustries || "").trim(),
+            targetRoles: String(item?.targetRoles || "").trim(),
+            leadsPerService: String(item?.leadsPerService || "").trim(),
+            includeKeywords: String(item?.includeKeywords || "").trim(),
+            excludeKeywords: String(item?.excludeKeywords || "").trim(),
+            minLikelihoodScore: String(item?.minLikelihoodScore || "").trim(),
+            strictMode: Boolean(item?.strictMode),
+            serviceKeys: Array.isArray(item?.serviceKeys) ? item.serviceKeys.map((x: unknown) => String(x).trim()).filter(Boolean) : [],
+          }))
+          .filter((item) => item.name);
+        setLeadGeneratorProfiles(items);
+        if (items.length > 0) {
+          setSelectedLeadGeneratorProfile((prev) => prev || items[0].name);
+        }
+      }
+    } catch {
+      // Ignore malformed saved profiles and start clean.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LEAD_GENERATOR_PROFILES_STORAGE_KEY, JSON.stringify(leadGeneratorProfiles));
+    } catch {
+      // Ignore storage errors in private/incognito contexts.
+    }
+  }, [leadGeneratorProfiles]);
 
   const [leadForm, setLeadForm] = useState({
     lead_name: "",
@@ -508,22 +578,104 @@ export default function BusinessDevelopmentPage() {
     });
   }
 
-  async function generateAIDailyLeads() {
+  function buildLeadGeneratorPayload(previewOnly = false) {
+    return {
+      bin_date: binDate || todayIso,
+      generation_mode: generationMode,
+      regions: regions.split(",").map((x) => x.trim()).filter(Boolean),
+      revenue_min_m_gbp: Number(revenueMin || 5),
+      revenue_max_m_gbp: Number(revenueMax || 15),
+      target_industries: targetIndustries.split(",").map((x) => x.trim()).filter(Boolean),
+      target_roles: targetRoles.split(",").map((x) => x.trim()).filter(Boolean),
+      include_keywords: includeKeywords.split(",").map((x) => x.trim()).filter(Boolean),
+      exclude_keywords: excludeKeywords.split(",").map((x) => x.trim()).filter(Boolean),
+      min_likelihood_score: Number(minLikelihoodScore || 0),
+      strict_mode: strictMode,
+      leads_per_service: Number(leadsPerService || 10),
+      service_keys: serviceKeys,
+      replace_existing: true,
+      allow_fallback: false,
+      preview_only: previewOnly,
+    };
+  }
+
+  function getLeadGeneratorProfileSnapshot(nameOverride?: string): LeadGeneratorProfile {
+    return {
+      name: (nameOverride || leadGeneratorProfileName || "").trim(),
+      binDate: binDate || todayIso,
+      generationMode,
+      regions,
+      revenueMin,
+      revenueMax,
+      targetIndustries,
+      targetRoles,
+      leadsPerService,
+      includeKeywords,
+      excludeKeywords,
+      minLikelihoodScore,
+      strictMode,
+      serviceKeys: [...serviceKeys],
+    };
+  }
+
+  function applyLeadGeneratorProfile(profile: LeadGeneratorProfile) {
+    setLeadGeneratorProfileName(profile.name);
+    setBinDate(profile.binDate || todayIso);
+    setGenerationMode(profile.generationMode);
+    setRegions(profile.regions);
+    setRevenueMin(profile.revenueMin);
+    setRevenueMax(profile.revenueMax);
+    setTargetIndustries(profile.targetIndustries);
+    setTargetRoles(profile.targetRoles);
+    setLeadsPerService(profile.leadsPerService);
+    setIncludeKeywords(profile.includeKeywords);
+    setExcludeKeywords(profile.excludeKeywords);
+    setMinLikelihoodScore(profile.minLikelihoodScore);
+    setStrictMode(profile.strictMode);
+    setServiceKeys(profile.serviceKeys);
+  }
+
+  function saveLeadGeneratorProfile() {
+    const snapshot = getLeadGeneratorProfileSnapshot();
+    if (!snapshot.name) {
+      setStatus("Please enter a profile name before saving.");
+      return;
+    }
+    setLeadGeneratorProfiles((prev) => {
+      const next = [...prev.filter((item) => item.name.toLowerCase() !== snapshot.name.toLowerCase()), snapshot].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      return next;
+    });
+    setSelectedLeadGeneratorProfile(snapshot.name);
+    setStatus(`Saved lead profile "${snapshot.name}".`);
+  }
+
+  function loadLeadGeneratorProfileByName(profileName: string) {
+    const profile = leadGeneratorProfiles.find((item) => item.name === profileName);
+    if (!profile) {
+      setStatus("Select a saved profile first.");
+      return;
+    }
+    applyLeadGeneratorProfile(profile);
+    setSelectedLeadGeneratorProfile(profile.name);
+    setStatus(`Loaded lead profile "${profile.name}".`);
+  }
+
+  function deleteLeadGeneratorProfile(profileName: string) {
+    setLeadGeneratorProfiles((prev) => prev.filter((item) => item.name !== profileName));
+    setSelectedLeadGeneratorProfile((prev) => (prev === profileName ? "" : prev));
+    setStatus(`Deleted lead profile "${profileName}".`);
+  }
+
+  async function runLeadGenerator(previewOnly = false) {
     try {
-      setGeneratingLeads(true);
-      const payload = {
-        bin_date: binDate || todayIso,
-        generation_mode: generationMode,
-        regions: regions.split(",").map((x) => x.trim()).filter(Boolean),
-        revenue_min_m_gbp: Number(revenueMin || 5),
-        revenue_max_m_gbp: Number(revenueMax || 15),
-        target_industries: targetIndustries.split(",").map((x) => x.trim()).filter(Boolean),
-        target_roles: targetRoles.split(",").map((x) => x.trim()).filter(Boolean),
-        leads_per_service: Number(leadsPerService || 10),
-        service_keys: serviceKeys,
-        replace_existing: true,
-        allow_fallback: false,
-      };
+      if (previewOnly) {
+        setPreviewingLeads(true);
+      } else {
+        setGeneratingLeads(true);
+      }
+      const payload = buildLeadGeneratorPayload(previewOnly);
       const res = await fetch(`${baseUrl}/bd/lead-generator/generate`, {
         method: "POST",
         credentials: "include",
@@ -532,26 +684,43 @@ export default function BusinessDevelopmentPage() {
       });
       const txt = await res.text();
       if (!res.ok) throw new Error(`Failed to generate leads (${res.status})${txt ? `: ${txt}` : ""}`);
-      let responsePayload: { inserted_or_updated?: number; services?: Record<string, number> } = {};
+      let responsePayload: { inserted_or_updated?: number; preview_count?: number; preview_items?: GeneratedLead[]; services?: Record<string, number> } = {};
       if (txt && txt.trim()) {
         try {
-          responsePayload = JSON.parse(txt) as { inserted_or_updated?: number; services?: Record<string, number> };
+          responsePayload = JSON.parse(txt) as {
+            inserted_or_updated?: number;
+            preview_count?: number;
+            preview_items?: GeneratedLead[];
+            services?: Record<string, number>;
+          };
         } catch {
           responsePayload = {};
         }
       }
-      const inserted = Number(responsePayload?.inserted_or_updated || 0);
-      setStatus(
-        generationMode === "market-scan"
-          ? `Market scan generated: ${inserted} companies added to today's bin.`
-          : `AI daily leads generated: ${inserted} verifiable leads added to today's bin.`
-      );
-      await loadLeadBins();
-      await load();
+      if (previewOnly) {
+        const previewItems = Array.isArray(responsePayload?.preview_items) ? responsePayload.preview_items : [];
+        setPreviewLeads(previewItems);
+        setStatus(
+          generationMode === "market-scan"
+            ? `Preview complete: ${previewItems.length} companies match your criteria. Nothing was written to the bin.`
+            : `Preview complete: ${previewItems.length} criteria-matched leads were found. Nothing was written to the bin.`
+        );
+      } else {
+        const inserted = Number(responsePayload?.inserted_or_updated || 0);
+        setPreviewLeads([]);
+        setStatus(
+          generationMode === "market-scan"
+            ? `Market scan generated: ${inserted} companies matched your criteria and were added to today's bin.`
+            : `Lead generation complete: ${inserted} criteria-matched leads added to today's bin.`
+        );
+        await loadLeadBins();
+        await load();
+      }
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
       setGeneratingLeads(false);
+      setPreviewingLeads(false);
     }
   }
 
@@ -661,9 +830,14 @@ export default function BusinessDevelopmentPage() {
     return true;
   });
 
+  const visiblePreviewLeads = previewLeads.filter((item) => {
+    if (activeServiceFilter !== "all" && item.service_key !== activeServiceFilter) return false;
+    return true;
+  });
+
   const sectionButtons: { key: BdSection; label: string }[] = [
     { key: "overview", label: "Overview" },
-    { key: "lead-generator", label: "AI Lead Generator" },
+    { key: "lead-generator", label: "Lead Generator" },
     { key: "market-database", label: "Market Database" },
     { key: "leads", label: "Leads" },
     { key: "opportunities", label: "Opportunities" },
@@ -754,7 +928,7 @@ export default function BusinessDevelopmentPage() {
         {activeSection === "lead-generator" ? (
         <Card>
           <CardHeader>
-            <CardTitle>AI Lead Generator</CardTitle>
+            <CardTitle>Lead Generator</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
@@ -772,6 +946,68 @@ export default function BusinessDevelopmentPage() {
               >
                 Daily Lead Batch
               </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs text-muted-foreground">Saved Profiles</label>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    className="min-w-[240px] rounded-md border bg-background px-3 py-2 text-sm"
+                    value={selectedLeadGeneratorProfile}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setSelectedLeadGeneratorProfile(next);
+                      if (next) {
+                        loadLeadGeneratorProfileByName(next);
+                      }
+                    }}
+                  >
+                    <option value="">Select a saved profile</option>
+                    {leadGeneratorProfiles.map((profile) => (
+                      <option key={profile.name} value={profile.name}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (!selectedLeadGeneratorProfile) {
+                        setStatus("Select a saved profile first.");
+                        return;
+                      }
+                      loadLeadGeneratorProfileByName(selectedLeadGeneratorProfile);
+                    }}
+                    disabled={!leadGeneratorProfiles.length}
+                  >
+                    Load Profile
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (!selectedLeadGeneratorProfile) {
+                        setStatus("Select a saved profile first.");
+                        return;
+                      }
+                      deleteLeadGeneratorProfile(selectedLeadGeneratorProfile);
+                    }}
+                    disabled={!selectedLeadGeneratorProfile}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Profile Name</label>
+                <div className="flex gap-2">
+                  <Input value={leadGeneratorProfileName} onChange={(e) => setLeadGeneratorProfileName(e.target.value)} placeholder="Mid-market sustainability leads" />
+                  <Button type="button" onClick={saveLeadGeneratorProfile}>
+                    Save
+                  </Button>
+                </div>
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-5">
               <div className="space-y-1">
@@ -792,7 +1028,7 @@ export default function BusinessDevelopmentPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
-                  {generationMode === "market-scan" ? "Companies per scan" : "Leads / service / day"}
+                  {generationMode === "market-scan" ? "Companies per scan" : "Matches / service / day"}
                 </label>
                 <Input type="number" value={leadsPerService} onChange={(e) => setLeadsPerService(e.target.value)} />
               </div>
@@ -811,6 +1047,50 @@ export default function BusinessDevelopmentPage() {
                   placeholder="Business Development Manager, Sales Director, ESG Manager, Bid Manager"
                 />
               </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs text-muted-foreground">Include Keywords</label>
+                <Input
+                  value={includeKeywords}
+                  onChange={(e) => setIncludeKeywords(e.target.value)}
+                  placeholder="supplier, procurement, disclosure, decarbonisation"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs text-muted-foreground">Exclude Keywords</label>
+                <Input
+                  value={excludeKeywords}
+                  onChange={(e) => setExcludeKeywords(e.target.value)}
+                  placeholder="consultancy, software, outsourcing"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Minimum Score</label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={minLikelihoodScore}
+                  onChange={(e) => setMinLikelihoodScore(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={strictMode}
+                    onChange={(e) => setStrictMode(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Strict region matching
+                </label>
+              </div>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              These criteria are used by both generation modes to filter, score, and explain the leads that get added to the bin.
             </div>
 
             <div className="space-y-2">
@@ -833,13 +1113,16 @@ export default function BusinessDevelopmentPage() {
                 })}
               </div>
               <div className="text-xs text-muted-foreground">
-                Optional. In Market Scan mode, service selection is ignored and the scan is driven by revenue band, target industries and preferred contact roles.
+                Optional. In Market Scan mode, service selection is ignored and the scan is driven by your criteria, revenue band, target industries and preferred contact roles.
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button onClick={() => void generateAIDailyLeads()} disabled={generatingLeads}>
+              <Button onClick={() => void runLeadGenerator(false)} disabled={generatingLeads || previewingLeads}>
                 {generatingLeads ? "Generating..." : generationMode === "market-scan" ? "Generate Market Scan" : "Generate Daily Leads"}
+              </Button>
+              <Button variant="outline" onClick={() => void runLeadGenerator(true)} disabled={previewingLeads || generatingLeads}>
+                {previewingLeads ? "Previewing..." : "Preview Matches"}
               </Button>
               <Button variant="outline" onClick={() => void enrichVisibleLeads()} disabled={enrichingLeads || visibleGeneratedLeads.length === 0}>
                 {enrichingLeads ? "Enriching..." : "Enrich Visible Leads"}
@@ -850,9 +1133,69 @@ export default function BusinessDevelopmentPage() {
             </div>
             <div className="text-xs text-muted-foreground">
               {generationMode === "market-scan"
-                ? "Market Scan builds a broader pool of companies first, based on industry and revenue targeting. Use Enrich Visible Leads as a second pass to improve buyer-role and contact detail."
-                : "Daily Lead Batch generates a smaller, more targeted daily set using the selected criteria and optional service context."}
+                ? "Market Scan builds a broader pool of companies first, based on your criteria. Use Enrich Visible Leads as a second pass to improve buyer-role and contact detail."
+                : "Daily Lead Batch generates a smaller, more targeted set using the selected criteria, keywords, score threshold, and optional service context."}
             </div>
+
+            {previewLeads.length > 0 ? (
+              <Card className="border-dashed">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Preview Matches</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    Preview results are not written to the bin. They show what would be generated using the current criteria.
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full bg-muted px-3 py-1 text-xs">
+                      {visiblePreviewLeads.length} visible of {previewLeads.length} matched
+                    </div>
+                    <Button size="sm" onClick={() => void runLeadGenerator(false)} disabled={generatingLeads || previewingLeads}>
+                      Generate These Leads
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setPreviewLeads([])}>
+                      Clear Preview
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {visiblePreviewLeads.slice(0, 10).map((item, index) => (
+                      <div key={`${item.service_key}-${item.company_name}-${index}`} className="rounded-md border p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{item.company_name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {item.service_name} | {item.industry || "-"} | {item.city ? `${item.city}, ` : ""}{item.country || "-"}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground">Likelihood</div>
+                            <div className="font-semibold">{Number(item.likelihood_score || 0).toFixed(1)}%</div>
+                          </div>
+                        </div>
+                        <div className="mt-2 text-xs">
+                          <span className="font-medium">Contact: </span>
+                          {item.contact_name || "-"} {item.contact_role ? `(${item.contact_role})` : ""} {item.contact_email ? `| ${item.contact_email}` : ""}{" "}
+                          {item.contact_phone ? `| ${item.contact_phone}` : ""}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Why good lead: </span>
+                          {item.why_good_lead || "-"}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          <span className="font-medium">Trigger: </span>
+                          {item.trigger_reason || "-"}
+                        </div>
+                      </div>
+                    ))}
+                    {visiblePreviewLeads.length > 10 ? (
+                      <div className="text-xs text-muted-foreground">
+                        Showing first 10 preview matches. Run generation to write the full set to today&apos;s bin.
+                      </div>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
 
             {leadBinSummary.length > 0 ? (
               <div className="grid gap-2 md:grid-cols-4">

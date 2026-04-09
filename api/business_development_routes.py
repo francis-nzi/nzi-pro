@@ -949,6 +949,91 @@ def _normalize_company_key(value: Any) -> str:
     return " ".join(text.split())
 
 
+def _split_csv_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[,;\n|]+", str(value or ""))
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _leadgen_text(*parts: Any) -> str:
+    return " ".join([str(part or "").strip() for part in parts if str(part or "").strip()]).lower()
+
+
+def _matches_any_term(text: str, terms: list[str]) -> bool:
+    haystack = str(text or "").lower()
+    needles = [str(term).strip().lower() for term in terms if str(term).strip()]
+    if not needles:
+        return True
+    return any(term in haystack for term in needles)
+
+
+def _candidate_text(item: dict[str, Any], *, include_narrative: bool = True) -> str:
+    parts = [
+        item.get("company_name"),
+        item.get("industry"),
+        item.get("country"),
+        item.get("region"),
+        item.get("city"),
+        item.get("website"),
+        item.get("contact_name"),
+        item.get("contact_role"),
+        item.get("why_good_lead"),
+        item.get("trigger_reason"),
+        item.get("source_references"),
+    ]
+    if not include_narrative:
+        parts = parts[:6]
+    return _leadgen_text(*parts)
+
+
+def _criteria_filters_match(
+    item: dict[str, Any],
+    *,
+    target_industries: list[str] | None = None,
+    target_roles: list[str] | None = None,
+    regions: list[str] | None = None,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    revenue_min: float = 0,
+    revenue_max: float = 0,
+    strict_mode: bool = False,
+    include_narrative: bool = True,
+) -> bool:
+    score = _normalize_likelihood_score(item.get("likelihood_score"))
+    if score < float(min_score or 0):
+        return False
+
+    revenue = _safe_float(item.get("revenue_gbp_millions"), 0)
+    if revenue_min and revenue > 0 and revenue < revenue_min:
+        return False
+    if revenue_max and revenue > 0 and revenue > revenue_max:
+        return False
+
+    if target_industries and not _matches_target_industries(item, target_industries, include_narrative=include_narrative):
+        return False
+    if target_roles and not _matches_target_roles(item, target_roles):
+        return False
+
+    text = _candidate_text(item, include_narrative=include_narrative)
+    if regions:
+        region_terms = [term for term in regions if str(term).strip()]
+        if region_terms and strict_mode and not _matches_any_term(text, region_terms):
+            return False
+
+    include_terms = [term for term in (include_keywords or []) if str(term).strip()]
+    if include_terms and not _matches_any_term(text, include_terms):
+        return False
+
+    exclude_terms = [term for term in (exclude_keywords or []) if str(term).strip()]
+    if exclude_terms and any(term in text for term in exclude_terms):
+        return False
+
+    return True
+
+
 def _normalize_likelihood_score(value: Any) -> float:
     score = _safe_float(value, 0)
     if 0 < score <= 1:
@@ -1259,8 +1344,13 @@ def _parse_market_scan_rows(
     parsed: list[dict[str, Any]],
     *,
     target_industries: list[str],
+    regions: list[str] | None = None,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
     revenue_min: float,
     revenue_max: float,
+    min_score: float = 0,
+    strict_mode: bool = False,
     limit: int,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -1281,6 +1371,7 @@ def _parse_market_scan_rows(
             "industry": str(row.get("industry") or "").strip(),
             "country": str(row.get("country") or "").strip(),
             "city": str(row.get("city") or "").strip(),
+            "region": str(row.get("region") or "").strip(),
             "website": str(row.get("website") or "").strip(),
             "contact_name": "",
             "contact_role": "",
@@ -1293,6 +1384,18 @@ def _parse_market_scan_rows(
             "source_references": str(row.get("source_references") or "").strip(),
         }
         if not _matches_target_industries(candidate, target_industries, include_narrative=False):
+            continue
+        if not _criteria_filters_match(
+            candidate,
+            regions=regions,
+            include_keywords=include_keywords,
+            exclude_keywords=exclude_keywords,
+            min_score=min_score,
+            revenue_min=revenue_min,
+            revenue_max=revenue_max,
+            strict_mode=strict_mode,
+            include_narrative=False,
+        ):
             continue
         if _is_consultancy_competitor_candidate(candidate) or _is_unwanted_market_scan_company(candidate):
             continue
@@ -1316,6 +1419,10 @@ def _openai_generate_market_scan_leads(
     revenue_max: float,
     limit: int,
     target_industries: list[str],
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     try:
         from openai import OpenAI
@@ -1342,6 +1449,8 @@ def _openai_generate_market_scan_leads(
     for spec in batch_specs:
         if len(collected) >= target_count:
             break
+        include_text = ", ".join(include_keywords or []) or "none"
+        exclude_text = ", ".join(exclude_keywords or []) or "none"
         prompt = (
             "Return ONLY valid JSON array with up to "
             f"{per_batch} objects and keys: company_name, industry, country, city, website, revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
@@ -1353,6 +1462,10 @@ def _openai_generate_market_scan_leads(
             f"Target region: {spec['region']}\n"
             f"Target subsegment: {spec['segment']}\n"
             f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+            f"Additional include keywords: {include_text}\n"
+            f"Additional exclude keywords: {exclude_text}\n"
+            f"Minimum likelihood score: {float(min_score):.1f}\n"
+            f"Strict region matching: {'yes' if strict_mode else 'no'}\n"
             f"{spec['diversity']}\n"
             "likelihood_score must be 0-100.\n"
             "source_references must include at least 2 verifiable URLs per company, separated by ' | '.\n"
@@ -1379,8 +1492,13 @@ def _openai_generate_market_scan_leads(
         for candidate in _parse_market_scan_rows(
             parsed,
             target_industries=target_industries,
+            regions=regions,
+            include_keywords=include_keywords,
+            exclude_keywords=exclude_keywords,
             revenue_min=revenue_min,
             revenue_max=revenue_max,
+            min_score=min_score,
+            strict_mode=strict_mode,
             limit=target_count,
         ):
             key = _normalize_company_key(candidate.get("company_name"))
@@ -1410,6 +1528,10 @@ def _gemini_generate_market_scan_leads(
     revenue_max: float,
     limit: int,
     target_industries: list[str],
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     api_key = _env_value("GEMINI_API_KEY", "")
     if not api_key:
@@ -1432,6 +1554,8 @@ def _gemini_generate_market_scan_leads(
     for spec in batch_specs:
         if len(collected) >= target_count:
             break
+        include_text = ", ".join(include_keywords or []) or "none"
+        exclude_text = ", ".join(exclude_keywords or []) or "none"
         prompt = (
             "Return ONLY valid JSON array with up to "
             f"{per_batch} objects and keys: company_name, industry, country, city, website, revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
@@ -1442,6 +1566,10 @@ def _gemini_generate_market_scan_leads(
             f"Target region: {spec['region']}\n"
             f"Target subsegment: {spec['segment']}\n"
             f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
+            f"Additional include keywords: {include_text}\n"
+            f"Additional exclude keywords: {exclude_text}\n"
+            f"Minimum likelihood score: {float(min_score):.1f}\n"
+            f"Strict region matching: {'yes' if strict_mode else 'no'}\n"
             f"{spec['diversity']}\n"
             "source_references must include at least 2 verifiable URLs per company, separated by ' | '."
         )
@@ -1480,8 +1608,13 @@ def _gemini_generate_market_scan_leads(
         for candidate in _parse_market_scan_rows(
             parsed,
             target_industries=target_industries,
+            regions=regions,
+            include_keywords=include_keywords,
+            exclude_keywords=exclude_keywords,
             revenue_min=revenue_min,
             revenue_max=revenue_max,
+            min_score=min_score,
+            strict_mode=strict_mode,
             limit=target_count,
         ):
             key = _normalize_company_key(candidate.get("company_name"))
@@ -1512,6 +1645,10 @@ def _market_scan_companies_house_leads(
     regions: list[str],
     target_industries: list[str],
     limit: int,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     api_key = _env_value("COMPANIES_HOUSE_API_KEY", "")
     if not api_key:
@@ -1556,6 +1693,7 @@ def _market_scan_companies_house_leads(
                 "industry": sic_text or str(item.get("description") or "").strip(),
                 "country": "United Kingdom",
                 "city": str(item.get("address_snippet") or "").strip(),
+                "region": str(item.get("address_region") or "").strip(),
                 "website": _ch_profile_link(company_number),
                 "contact_name": "",
                 "contact_role": "",
@@ -1570,6 +1708,16 @@ def _market_scan_companies_house_leads(
             if _is_consultancy_competitor_candidate(candidate):
                 continue
             if not _matches_target_industries(candidate, target_industries):
+                continue
+            if not _criteria_filters_match(
+                candidate,
+                regions=regions,
+                include_keywords=include_keywords,
+                exclude_keywords=exclude_keywords,
+                min_score=min_score,
+                strict_mode=strict_mode,
+                include_narrative=False,
+            ):
                 continue
             candidates.append(candidate)
             if len(candidates) >= max(limit * 3, 60):
@@ -1854,6 +2002,10 @@ def _openai_generate_service_leads(
     target_industries: list[str],
     target_roles: list[str],
     allow_fallback: bool = False,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     try:
         from openai import OpenAI
@@ -1878,6 +2030,8 @@ def _openai_generate_service_leads(
         "Business Development Manager, Business Development Director, Sales Manager, "
         "Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
     )
+    include_text = ", ".join(include_keywords or []) or "none"
+    exclude_text = ", ".join(exclude_keywords or []) or "none"
     service_guidance = _service_specific_prompt_guidance(service_key)
     prompt = (
         "Return ONLY valid JSON array with exactly up to "
@@ -1940,6 +2094,7 @@ def _openai_generate_service_leads(
                     "industry": str(row.get("industry") or "").strip(),
                     "country": str(row.get("country") or "").strip(),
                     "city": str(row.get("city") or "").strip(),
+                    "region": str(row.get("region") or "").strip(),
                     "website": "",
                     "contact_name": str(row.get("contact_name") or "").strip(),
                     "contact_role": str(row.get("contact_role") or "").strip(),
@@ -1954,6 +2109,17 @@ def _openai_generate_service_leads(
                 if not _matches_target_industries(candidate, target_industries):
                     continue
                 if not _matches_target_roles(candidate, target_roles):
+                    continue
+                if not _criteria_filters_match(
+                    candidate,
+                    regions=regions,
+                    include_keywords=include_keywords,
+                    exclude_keywords=exclude_keywords,
+                    min_score=min_score,
+                    revenue_min=revenue_min,
+                    revenue_max=revenue_max,
+                    strict_mode=strict_mode,
+                ):
                     continue
                 website = str(row.get("website") or "").strip()
                 if not website or not website.lower().startswith(("http://", "https://")):
@@ -1994,6 +2160,10 @@ def _gemini_generate_service_leads(
     target_industries: list[str],
     target_roles: list[str],
     allow_fallback: bool = False,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     api_key = _env_value("GEMINI_API_KEY", "")
     if not api_key:
@@ -2046,6 +2216,8 @@ def _gemini_generate_service_leads(
         "Business Development Manager, Business Development Director, Sales Manager, "
         "Sales Director, Sustainability Manager, ESG Manager, Social Value Manager, Bid Manager"
     )
+    include_text = ", ".join(include_keywords or []) or "none"
+    exclude_text = ", ".join(exclude_keywords or []) or "none"
     service_guidance = _service_specific_prompt_guidance(service_key)
     prompt = (
         "Return ONLY valid JSON array with up to "
@@ -2059,6 +2231,10 @@ def _gemini_generate_service_leads(
         f"Revenue band (GBP millions): {revenue_min} to {revenue_max}\n"
         f"Target industries: {industries_text}\n"
         f"Preferred contact roles: {roles_text}\n"
+        f"Additional include keywords: {include_text}\n"
+        f"Additional exclude keywords: {exclude_text}\n"
+        f"Minimum likelihood score: {float(min_score):.1f}\n"
+        f"Strict region matching: {'yes' if strict_mode else 'no'}\n"
         "Prioritize leads only in the target industries.\n"
         "Prefer leads where one of the preferred contact roles can be identified.\n"
         "Prioritize likely suppliers to NHS/public sector/large enterprise procurement chains.\n"
@@ -2114,6 +2290,7 @@ def _gemini_generate_service_leads(
                     "industry": str(row.get("industry") or "").strip(),
                     "country": str(row.get("country") or "").strip(),
                     "city": str(row.get("city") or "").strip(),
+                    "region": str(row.get("region") or "").strip(),
                     "website": "",
                     "contact_name": str(row.get("contact_name") or "").strip(),
                     "contact_role": str(row.get("contact_role") or "").strip(),
@@ -2128,6 +2305,17 @@ def _gemini_generate_service_leads(
                 if not _matches_target_industries(candidate, target_industries):
                     continue
                 if not _matches_target_roles(candidate, target_roles):
+                    continue
+                if not _criteria_filters_match(
+                    candidate,
+                    regions=regions,
+                    include_keywords=include_keywords,
+                    exclude_keywords=exclude_keywords,
+                    min_score=min_score,
+                    revenue_min=revenue_min,
+                    revenue_max=revenue_max,
+                    strict_mode=strict_mode,
+                ):
                     continue
                 website = str(row.get("website") or "").strip()
                 if not website or not website.lower().startswith(("http://", "https://")):
@@ -2538,6 +2726,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
     try:
         actor = _actor(_user)
         generation_mode = str(body.get("generation_mode") or "daily-leads").strip().lower()
+        preview_only = bool(body.get("preview_only", False))
         bin_day = _to_date(body.get("bin_date"))
         leads_per_service = int(max(1, min(100, _safe_int(body.get("leads_per_service"), 25) or 25)))
         revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
@@ -2574,6 +2763,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "Social Value Manager",
                 "Bid Manager",
             ]
+        include_keywords = _split_csv_values(body.get("include_keywords") or body.get("positive_keywords"))
+        exclude_keywords = _split_csv_values(body.get("exclude_keywords") or body.get("negative_keywords"))
+        min_score = max(0.0, min(100.0, _safe_float(body.get("min_likelihood_score"), 0)))
+        strict_mode = bool(body.get("strict_mode", False))
         regions_input = body.get("regions")
         if isinstance(regions_input, list):
             regions = [str(r).strip() for r in regions_input if str(r).strip()]
@@ -2620,7 +2813,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 raise HTTPException(status_code=400, detail="No matching active services found for service_keys")
 
             scan_batch_id = 0
-            if generation_mode == "market-scan":
+            if generation_mode == "market-scan" and not preview_only:
                 scan_batch_id = _create_scan_batch(
                     con,
                     generation_mode=generation_mode,
@@ -2634,7 +2827,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     created_by=actor,
                 )
 
-            if replace_existing:
+            if replace_existing and not preview_only:
                 service_keys = [svc["service_key"] for svc in selected_services]
                 placeholder = ", ".join(["?"] * len(service_keys))
                 con.execute(
@@ -2647,10 +2840,12 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 )
 
             inserted_count = 0
+            preview_count = 0
             excluded_binned_count = 0
             excluded_competitor_count = 0
             generated_by_service: dict[str, int] = {}
             diagnostics: dict[str, str] = {}
+            preview_items: list[dict[str, Any]] = []
             for svc in selected_services:
                 service_key = svc["service_key"]
                 service_name = svc["service_name"]
@@ -2661,6 +2856,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         revenue_max=revenue_max,
                         limit=leads_per_service,
                         target_industries=target_industries,
+                        include_keywords=include_keywords,
+                        exclude_keywords=exclude_keywords,
+                        min_score=min_score,
+                        strict_mode=strict_mode,
                     )
                     if not generated:
                         generated, gemini_diag = _gemini_generate_market_scan_leads(
@@ -2669,6 +2868,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             revenue_max=revenue_max,
                             limit=leads_per_service,
                             target_industries=target_industries,
+                            include_keywords=include_keywords,
+                            exclude_keywords=exclude_keywords,
+                            min_score=min_score,
+                            strict_mode=strict_mode,
                         )
                         combined_diags = [d for d in [ai_diag, gemini_diag] if d]
                         if combined_diags:
@@ -2686,6 +2889,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         target_industries=target_industries,
                         target_roles=target_roles,
                         allow_fallback=allow_fallback,
+                        include_keywords=include_keywords,
+                        exclude_keywords=exclude_keywords,
+                        min_score=min_score,
+                        strict_mode=strict_mode,
                     )
                     if not generated:
                         generated, gemini_diag = _gemini_generate_service_leads(
@@ -2698,6 +2905,10 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             target_industries=target_industries,
                             target_roles=target_roles,
                             allow_fallback=allow_fallback,
+                            include_keywords=include_keywords,
+                            exclude_keywords=exclude_keywords,
+                            min_score=min_score,
+                            strict_mode=strict_mode,
                         )
                         combined_diags = [d for d in [ai_diag, gemini_diag] if d]
                         if combined_diags:
@@ -2718,6 +2929,37 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     if _is_consultancy_competitor_candidate(item):
                         excluded_competitor_count += 1
                         continue
+                    if preview_only:
+                        preview_item = {
+                            "generated_lead_id": None,
+                            "bin_date": bin_day.isoformat(),
+                            "service_key": service_key,
+                            "service_name": service_name,
+                            "company_name": company_name,
+                            "industry": str(item.get("industry") or "").strip(),
+                            "country": str(item.get("country") or "").strip(),
+                            "city": str(item.get("city") or "").strip(),
+                            "website": str(item.get("website") or "").strip(),
+                            "contact_name": str(item.get("contact_name") or "").strip(),
+                            "contact_role": str(item.get("contact_role") or "").strip(),
+                            "contact_email": str(item.get("contact_email") or "").strip(),
+                            "contact_phone": str(item.get("contact_phone") or "").strip(),
+                            "revenue_gbp_millions": _safe_float(item.get("revenue_gbp_millions"), 0),
+                            "likelihood_score": _safe_float(item.get("likelihood_score"), 0),
+                            "why_good_lead": str(item.get("why_good_lead") or "").strip(),
+                            "trigger_reason": str(item.get("trigger_reason") or "").strip(),
+                            "source_references": str(item.get("source_references") or "").strip(),
+                            "qualification_status": "new",
+                            "bin_reason_id": None,
+                            "bin_reason_name": None,
+                            "qualification_notes": None,
+                            "bd_lead_id": None,
+                        }
+                        preview_items.append(preview_item)
+                        preview_count += 1
+                        inserted_for_service += 1
+                        continue
+
                     market_company_id = None
                     source_provider = "ai-open-source"
                     if generation_mode == "market-scan":
@@ -2787,7 +3029,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     inserted_for_service += 1
                 generated_by_service[service_key] = inserted_for_service
 
-            if generation_mode == "market-scan":
+            if generation_mode == "market-scan" and not preview_only:
                 _finalize_scan_batch(
                     con,
                     scan_batch_id,
@@ -2795,6 +3037,28 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     diagnostics="; ".join([f"{k}: {v}" for k, v in diagnostics.items()]) if diagnostics else "",
                     status="completed" if inserted_count > 0 else "empty",
                 )
+
+        if preview_only:
+            return {
+                "ok": True,
+                "preview_only": True,
+                "bin_date": bin_day.isoformat(),
+                "services": generated_by_service,
+                "preview_count": preview_count,
+                "preview_items": preview_items,
+                "criteria": {
+                    "generation_mode": generation_mode,
+                    "regions": regions,
+                    "revenue_min_m_gbp": revenue_min,
+                    "revenue_max_m_gbp": revenue_max,
+                    "target_industries": target_industries,
+                    "target_roles": target_roles,
+                    "leads_per_service": leads_per_service,
+                },
+                "diagnostics": diagnostics,
+                "note": "Preview only. No leads were written to the bin.",
+                "generated_by": actor,
+            }
 
         if inserted_count == 0:
             if not _env_value("OPENAI_API_KEY", "") and not _env_value("GEMINI_API_KEY", ""):
