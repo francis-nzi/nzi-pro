@@ -68,11 +68,13 @@ type Factor = {
   original_id: string;
   dataset: string;
   scope: string;
+  category?: string | null;
+  level_1?: string | null;
   column_text: string;
+  report_label: string;
   factor: number;
   uom: string;
   ghg_unit: string;
-  report_label: string;
 };
 
 type UploadRejectedRow = {
@@ -80,6 +82,20 @@ type UploadRejectedRow = {
   original_id?: string | null;
   scope?: string | null;
   reason: string;
+};
+
+type WorkbookImportSheetSummary = {
+  sheet_name: string;
+  year: number;
+  dataset_id: number;
+  total_rows: number;
+  accepted_rows: number;
+  updated_rows: number;
+  inserted_rows: number;
+  deleted_rows: number;
+  blocked_rows: number;
+  rejected_rows: number;
+  message?: string;
 };
 
 export default function DatasetsPage() {
@@ -121,6 +137,11 @@ export default function DatasetsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploadRejectedRows, setUploadRejectedRows] = useState<UploadRejectedRow[]>([]);
+  const [workbookFile, setWorkbookFile] = useState<File | null>(null);
+  const [workbookUploading, setWorkbookUploading] = useState(false);
+  const [workbookProgress, setWorkbookProgress] = useState(0);
+  const [workbookStatus, setWorkbookStatus] = useState("");
+  const [workbookSheets, setWorkbookSheets] = useState<WorkbookImportSheetSummary[]>([]);
 
   useEffect(() => {
     loadDatasets();
@@ -251,6 +272,58 @@ export default function DatasetsPage() {
       setUploadStatus(`Error: ${(e as Error).message}`);
       setUploadingDatasetId(null);
       setUploadProgress(0);
+    }
+  }
+
+  async function importWorkbook() {
+    if (!workbookFile) {
+      setWorkbookStatus("Please select the workbook file");
+      return;
+    }
+
+    setWorkbookUploading(true);
+    setWorkbookProgress(0);
+    setWorkbookStatus("Uploading workbook...");
+    setWorkbookSheets([]);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", workbookFile);
+
+      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/datasets/import-conversion-factors-workbook?replace=true`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+        onProgress: ({ percent }) => setWorkbookProgress(percent),
+      });
+
+      const text = await res.text();
+      let payload: any = null;
+      try {
+        payload = JSON.parse(text);
+      } catch {}
+
+      if (!res.ok) {
+        const detail = payload?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : detail?.message || payload?.message || text;
+        setWorkbookStatus(`Import failed (${res.status}): ${message}`);
+        setWorkbookUploading(false);
+        return;
+      }
+
+      const sheets = Array.isArray(payload?.sheets) ? (payload.sheets as WorkbookImportSheetSummary[]) : [];
+      setWorkbookSheets(sheets);
+      setWorkbookStatus(payload?.message || "Workbook imported successfully.");
+      setWorkbookFile(null);
+      setWorkbookUploading(false);
+      await loadDatasets();
+    } catch (e) {
+      setWorkbookStatus(`Error: ${(e as Error).message}`);
+      setWorkbookUploading(false);
+      setWorkbookProgress(0);
     }
   }
 
@@ -731,6 +804,69 @@ export default function DatasetsPage() {
                   )}
                 </div>
               )}
+
+              <div className="mt-6 pt-6 border-t space-y-3">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">Import Conversion Workbook</div>
+                  <div className="text-xs text-muted-foreground">
+                    Upload the year-by-year DESNZ / DEFRA Excel workbook to merge UK factor data in place.
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => {
+                      setWorkbookFile(e.target.files?.[0] || null);
+                      setWorkbookStatus("");
+                      setWorkbookSheets([]);
+                    }}
+                    className="flex-1"
+                    disabled={workbookUploading}
+                  />
+                  <Button
+                    onClick={importWorkbook}
+                    disabled={!workbookFile || workbookUploading}
+                  >
+                    {workbookUploading ? "Importing..." : "Import Workbook"}
+                  </Button>
+                </div>
+                {workbookUploading ? (
+                  <UploadProgressBar value={workbookProgress} label="Importing workbook..." />
+                ) : null}
+                {workbookStatus && (
+                  <div className={`p-3 rounded-md text-sm font-medium ${
+                    workbookStatus.startsWith("Imported") || workbookStatus.startsWith("Success") || workbookStatus.startsWith("Workbook imported")
+                      ? "bg-green-100 text-green-800 border border-green-200"
+                      : workbookStatus.includes("failed") || workbookStatus.includes("Error")
+                      ? "bg-red-100 text-red-800 border border-red-200"
+                      : "bg-blue-100 text-blue-800 border border-blue-200"
+                  }`}>
+                    {workbookStatus}
+                  </div>
+                )}
+                {workbookSheets.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                    <div className="font-medium">Workbook sheet summary</div>
+                    <div className="mt-2 space-y-2">
+                      {workbookSheets.map((sheet) => (
+                        <div key={sheet.sheet_name} className="rounded-md border bg-background p-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-medium">{sheet.sheet_name}</div>
+                            <div className="text-xs text-muted-foreground">Dataset #{sheet.dataset_id}</div>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {sheet.accepted_rows} valid rows, {sheet.updated_rows} updated, {sheet.inserted_rows} inserted
+                            {sheet.deleted_rows > 0 ? `, ${sheet.deleted_rows} deleted` : ""}
+                            {sheet.blocked_rows > 0 ? `, ${sheet.blocked_rows} referenced retained` : ""}
+                            {sheet.rejected_rows > 0 ? `, ${sheet.rejected_rows} rejected` : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -900,7 +1036,9 @@ export default function DatasetsPage() {
                       <th className="p-2 text-left">ID</th>
                       <th className="p-2 text-left">Dataset</th>
                       <th className="p-2 text-left">Scope</th>
-                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left">Category</th>
+                      <th className="p-2 text-left">Level 1</th>
+                      <th className="p-2 text-left">Report Label</th>
                       <th className="p-2 text-right">Factor</th>
                       <th className="p-2 text-left">Unit</th>
                     </tr>
@@ -911,6 +1049,8 @@ export default function DatasetsPage() {
                         <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
                         <td className="p-2">{f.dataset}</td>
                         <td className="p-2">{f.scope}</td>
+                        <td className="p-2">{f.category || "-"}</td>
+                        <td className="p-2">{f.level_1 || "-"}</td>
                         <td className="p-2">{f.report_label || f.column_text}</td>
                         <td className="p-2 text-right">{f.factor}</td>
                         <td className="p-2">{f.ghg_unit}</td>

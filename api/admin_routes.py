@@ -339,7 +339,7 @@ def _ingest_csv_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -
 
 def _ingest_csv_report_for_dataset(csv_path: Path, *, replace: bool, dataset_id: int) -> dict:
     """Use the richer dataset ingest report when available."""
-    from ingest_conversion_factors import ingest_csv_with_report
+    from ingest_conversion_factors import ingest_csv_with_report, ingest_workbook_with_report
 
     signature = inspect.signature(ingest_csv_with_report)
     if "dataset_id" in signature.parameters:
@@ -2522,12 +2522,12 @@ def export_dataset(
             # Get all factors for this dataset
             df = con.execute(
                 """
-                SELECT original_id, scope, level_1, level_2, level_3, level_4,
-                       column_text, uom, ghg_unit, factor, year, 
+                SELECT original_id, scope, category, level_1, level_2, level_3, level_4,
+                       column_text, report_label, uom, ghg_unit, factor, year, 
                        valid_from, valid_to, source, region, method
                 FROM factor_lookup
                 WHERE dataset_id = %s
-                ORDER BY scope, level_1, level_2, level_3, original_id
+                ORDER BY scope, COALESCE(category, level_1), level_2, level_3, original_id
                 """,
                 [dataset_id]
             ).df()
@@ -2570,31 +2570,40 @@ def search_factors(
                 df = con.execute(
                     """
                     SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
+                           fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
                            fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE fl.dataset_id = %s AND fl.column_text ILIKE %s
+                    WHERE fl.dataset_id = %s
+                          AND (
+                              fl.column_text ILIKE %s
+                              OR COALESCE(fl.report_label, '') ILIKE %s
+                              OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
+                          )
                           AND (d.archived IS NULL OR d.archived = FALSE)
-                    ORDER BY fl.year DESC, fl.column_text
+                    ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
                     LIMIT %s
                     """,
-                    [dataset_id, f"%{q}%", limit],
+                    [dataset_id, f"%{q}%", f"%{q}%", f"%{q}%", limit],
                 ).df()
             else:
                 df = con.execute(
                     """
                     SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
+                           fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
                            fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
                     FROM factor_lookup fl
                     LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE fl.column_text ILIKE %s
+                    WHERE (
+                              fl.column_text ILIKE %s
+                              OR COALESCE(fl.report_label, '') ILIKE %s
+                              OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
+                          )
                           AND (d.archived IS NULL OR d.archived = FALSE)
-                    ORDER BY fl.year DESC, fl.column_text
+                    ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
                     LIMIT %s
                     """,
-                    [f"%{q}%", limit],
+                    [f"%{q}%", f"%{q}%", f"%{q}%", limit],
                 ).df()
         
         items = []
@@ -3459,6 +3468,60 @@ async def upload_dataset_factors(
                 },
             )
         raise HTTPException(status_code=500, detail=f"Failed to upload factors: {str(e)}")
+
+
+@router.post("/datasets/import-conversion-factors-workbook")
+async def import_conversion_factors_workbook(
+    file: UploadFile = File(...),
+    replace: bool = True,
+    _user: dict = Depends(_current_user),
+):
+    """
+    Import a year-split XLSX workbook into the existing UK datasets.
+
+    The workbook is merged in place by year, keeping referenced factor DB IDs stable.
+    """
+    tmp_path: Path | None = None
+    try:
+        if not file.filename or not str(file.filename).lower().endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
+
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".xlsx", delete=False) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            report = await run_in_threadpool(
+                ingest_workbook_with_report,
+                tmp_path,
+                replace=bool(replace),
+            )
+            totals = {
+                "accepted": sum(int(item.get("accepted_rows") or 0) for item in report),
+                "updated": sum(int(item.get("updated_rows") or 0) for item in report),
+                "inserted": sum(int(item.get("inserted_rows") or 0) for item in report),
+                "deleted": sum(int(item.get("deleted_rows") or 0) for item in report),
+                "blocked": sum(int(item.get("blocked_rows") or 0) for item in report),
+            }
+            return {
+                "ok": True,
+                "sheets": report,
+                "totals": totals,
+                "message": (
+                    f"Imported workbook: {totals['accepted']} valid rows, "
+                    f"{totals['updated']} updated, {totals['inserted']} inserted"
+                    + (f", {totals['deleted']} deleted" if totals["deleted"] else "")
+                    + (f", {totals['blocked']} referenced rows retained" if totals["blocked"] else "")
+                ),
+            }
+        finally:
+            if tmp_path and tmp_path.exists():
+                tmp_path.unlink()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to import workbook: {str(e)}")
 
 
 # =========================
