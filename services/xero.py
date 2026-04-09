@@ -21,13 +21,39 @@ XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
 XERO_TOKEN_URL = "https://identity.xero.com/connect/token"
 XERO_CONNECTIONS_URL = "https://api.xero.com/connections"
 XERO_DEFAULT_AUTH_TYPE = "custom_connection"
-XERO_DEFAULT_SCOPE = "accounting.contacts accounting.transactions offline_access"
+XERO_DEFAULT_SCOPE = "accounting.contacts accounting.invoices"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
 XERO_DEFAULT_TAX_TYPE = "NONE"
 
 
 def _env(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or "").strip()
+
+
+def _scope_value(raw: str | None = None) -> str:
+    text = str(raw if raw is not None else _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
+    if not text:
+        return XERO_DEFAULT_SCOPE
+
+    tokens: list[str] = []
+    for token in text.split():
+        token = token.strip()
+        if not token:
+            continue
+        if token.lower() == "offline_access":
+            continue
+        if token == "accounting.transactions":
+            token = "accounting.invoices"
+        if token not in tokens:
+            tokens.append(token)
+
+    if not tokens:
+        tokens = XERO_DEFAULT_SCOPE.split()
+    if "accounting.contacts" not in tokens:
+        tokens.insert(0, "accounting.contacts")
+    if "accounting.invoices" not in tokens:
+        tokens.append("accounting.invoices")
+    return " ".join(tokens)
 
 
 def _now() -> datetime:
@@ -218,7 +244,7 @@ def _connection_defaults() -> dict[str, Any]:
         "access_token": None,
         "refresh_token": None,
         "expires_at": None,
-        "scope": _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE,
+        "scope": _scope_value(),
         "status": "disconnected",
         "last_tested_at": None,
         "last_error": None,
@@ -333,7 +359,7 @@ def _oauth_state() -> str:
 def build_oauth_authorize_url(*, state: str | None = None) -> tuple[str, str]:
     client_id, _client_secret = _client_credentials()
     redirect_uri = _redirect_uri()
-    scope = str(_env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
+    scope = _scope_value()
     auth_state = state or _oauth_state()
     params = urlencode(
         {
@@ -405,7 +431,7 @@ def _refresh_token(connection: Mapping[str, Any]) -> dict[str, Any]:
     else:
         body = {
             "grant_type": "client_credentials",
-            "scope": str(connection.get("scope") or _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip(),
+            "scope": _scope_value(str(connection.get("scope") or "")),
         }
 
     basic = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
@@ -451,7 +477,7 @@ def complete_oauth_connection(*, code: str) -> dict[str, Any]:
         if not access_token:
             raise HTTPException(status_code=502, detail="Xero token response did not include an access token")
         refresh_token = str(token_result.get("refresh_token") or "").strip() or None
-        scope = str(token_result.get("scope") or _env("XERO_SCOPE", XERO_DEFAULT_SCOPE) or XERO_DEFAULT_SCOPE).strip()
+        scope = _scope_value(str(token_result.get("scope") or ""))
         expires_at = (_now() + timedelta(seconds=max(int(token_result.get("expires_in") or 1800) - 60, 60))).isoformat(sep=" ")
         connections = _connections_from_access_token(access_token)
         connection_item = connections[0] if connections else {}
