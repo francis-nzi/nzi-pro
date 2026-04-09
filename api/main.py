@@ -111,6 +111,7 @@ from api.spend_data_routes import router as spend_data_router
 from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
 from api.xero_routes import router as xero_router
+from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
 from api.permissions import assert_client_access, assert_job_access, assert_permission
@@ -382,6 +383,7 @@ app.include_router(crm_automation_router)
 app.include_router(business_development_router)
 app.include_router(lca_router)
 app.include_router(onedrive_router)
+app.include_router(dataset_import_router)
 _safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")
 _safe_startup_log("OK", f"Feedback router registered with {len(feedback_router.routes)} routes")
 
