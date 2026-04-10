@@ -320,6 +320,7 @@ app.include_router(job_custom_factors_router)
 app.include_router(job_milestone_router)
 
 # Include dataset import routes
+app.include_router(dataset_import_router)
 
 # Include custom factors routes
 app.include_router(custom_factors_router)
