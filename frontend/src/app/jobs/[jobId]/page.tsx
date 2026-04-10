@@ -876,6 +876,9 @@ export default function JobDetailPage() {
   const [scopeConfigWarnings, setScopeConfigWarnings] = useState<string[]>([]);
   const [scopeAutoResolution, setScopeAutoResolution] = useState<JobScopeAutoResolution | null>(null);
   const [showAdvancedDatasetConfig, setShowAdvancedDatasetConfig] = useState<boolean>(false);
+  const [scopeConfigReloadToken, setScopeConfigReloadToken] = useState<number>(0);
+  const [scopeCatalogCount, setScopeCatalogCount] = useState<number | null>(null);
+  const [scopeCatalogStatus, setScopeCatalogStatus] = useState<string>("");
 
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string>("");
@@ -1566,6 +1569,7 @@ export default function JobDetailPage() {
       if (!Number.isFinite(jobId) || jobId <= 0) return;
 
       setLoadingScopeConfig(true);
+      setScopeCatalogStatus("Loading dataset catalog...");
       try {
         const [dRes, scRes] = await Promise.all([
           fetch(`${baseUrl}/datasets`),
@@ -1575,7 +1579,16 @@ export default function JobDetailPage() {
 
         if (dRes.ok) {
           const dJson = (await dRes.json()) as DatasetsResponse;
-          setDatasets(dJson?.items ?? []);
+          const catalog = dJson?.items ?? [];
+          setDatasets(catalog);
+          setScopeCatalogCount(catalog.length);
+          setScopeCatalogStatus(
+            catalog.length > 0
+              ? `Loaded ${catalog.length} datasets into the job catalog.`
+              : "No datasets returned by the catalog endpoint."
+          );
+        } else {
+          setScopeCatalogStatus(`Dataset catalog request failed (${dRes.status}).`);
         }
 
         if (scRes.ok) {
@@ -1596,6 +1609,13 @@ export default function JobDetailPage() {
               : []
           );
         }
+        if (!scRes.ok) {
+          setScopeCatalogStatus((prev) =>
+            prev
+              ? `${prev} Scope config request failed (${scRes.status}).`
+              : `Scope config request failed (${scRes.status}).`
+          );
+        }
       } finally {
         if (!cancelled) setLoadingScopeConfig(false);
       }
@@ -1606,7 +1626,7 @@ export default function JobDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSetupSubtab, activeWorkspaceSubtab, baseUrl, datasets.length, jobId, scopeConfigMode, showAdvancedDatasetConfig]);
+  }, [activeSetupSubtab, activeWorkspaceSubtab, baseUrl, datasets.length, jobId, scopeConfigMode, scopeConfigReloadToken, showAdvancedDatasetConfig]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2815,13 +2835,32 @@ export default function JobDetailPage() {
                   <div className="rounded-md border p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-medium">Additional Datasets For This Job</div>
-                      <div className="text-xs text-muted-foreground">
-                        {additionalDatasetIds.length} selected
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs text-muted-foreground">
+                          {additionalDatasetIds.length} selected
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setScopeConfigReloadToken((prev) => prev + 1)}
+                          disabled={loadingScopeConfig}
+                        >
+                          {loadingScopeConfig ? "Reloading..." : "Reload catalog"}
+                        </Button>
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Select any extra datasets the client needs for this job in addition to the default scope datasets.
                     </div>
+                    {scopeCatalogStatus ? (
+                      <div className="rounded border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        {scopeCatalogStatus}
+                        {Number.isFinite(scopeCatalogCount ?? NaN)
+                          ? ` (${scopeCatalogCount} total)`
+                          : ""}
+                      </div>
+                    ) : null}
                     <div className="max-h-52 space-y-2 overflow-auto pr-1">
                       {datasets
                         .filter((ds) => !ds.archived)
