@@ -972,25 +972,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return true;
   });
 
-  const filteredFactors = templateFactors.filter((factor) => {
-    if (factorScopeFilter !== "All" && factor.scope !== factorScopeFilter) return false;
-    if (factorSearchQuery) {
-      return multiTokenMatch(factorSearchQuery, [
-        factorDisplayTitle(factor),
-        factorDisplaySubtitle(factor),
-        factor.category,
-        factor.original_id,
-        factor.level_1,
-        factor.level_2,
-        factor.level_3,
-        factor.level_4,
-        factor.column_text,
-        factor.source,
-      ]);
-    }
-    return true;
-  });
-
   const filteredPreviousYearRows = previousYearRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (searchQuery) {
@@ -1760,6 +1741,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               <div>Label: {row.report_label || "-"}</div>
                               <div>Qty: {row.qty?.toFixed(2) || "0.00"}</div>
                               <div>Updated: {row.updated_at || "-"}</div>
+                              <div className="mt-2">
+                                <Button variant="outline" size="sm" onClick={() => void deleteRow(row.row_id)}>
+                                  Delete row
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1891,7 +1877,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </div>
               ) : (
                 <div className="divide-y">
-                  {filteredFactors.map((factor, index) => {
+                  {templateFactors.map((factor, index) => {
                     const alreadyAdded = isFactorAdded(factor.original_id);
                     const isAdding = addingFactorId === factor.original_id;
                     const uniqueKey = `${factor.original_id}_${factor.dataset_id}_${factor.factor_db_id}_${index}`;
