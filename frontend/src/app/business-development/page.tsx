@@ -80,11 +80,31 @@ type GeneratedLead = {
   why_good_lead: string;
   trigger_reason: string;
   source_references: string;
+  source_provider?: string;
+  score_breakdown?: ScoreBreakdown | null;
   qualification_status: "new" | "funnel" | "binned";
   bin_reason_id?: number | null;
   bin_reason_name?: string;
   qualification_notes?: string;
   bd_lead_id: number | null;
+};
+
+type ScoreBreakdownComponent = {
+  key: string;
+  label: string;
+  points: number;
+  note: string;
+};
+
+type ScoreBreakdown = {
+  base_score: number;
+  bonus_points: number;
+  source_provider: string;
+  source_weight: number;
+  source_adjustment: number;
+  adjusted_score: number;
+  summary: string;
+  components: ScoreBreakdownComponent[];
 };
 
 type LeadGeneratorProfile = {
@@ -101,6 +121,9 @@ type LeadGeneratorProfile = {
   excludeKeywords: string;
   minLikelihoodScore: string;
   strictMode: boolean;
+  sourceWeightOpenWeb: string;
+  sourceWeightCompaniesHouse: string;
+  sourceWeightFallback: string;
   serviceKeys: string[];
 };
 
@@ -154,6 +177,85 @@ type BdSection = "overview" | "lead-generator" | "market-database" | "leads" | "
 
 const LEAD_GENERATOR_PROFILES_STORAGE_KEY = "nzi.business-development.lead-generator-profiles.v1";
 
+const LEAD_GENERATOR_PROFILE_TEMPLATES: LeadGeneratorProfile[] = [
+  {
+    name: "Construction Mid-Market",
+    binDate: "",
+    generationMode: "market-scan",
+    regions: "United Kingdom",
+    revenueMin: "5",
+    revenueMax: "50",
+    targetIndustries: "Construction, Civil Engineering, Fit-Out",
+    targetRoles: "Bid Manager, Commercial Director, Operations Director, Sustainability Manager",
+    leadsPerService: "25",
+    includeKeywords: "supplier, procurement, tender, carbon reduction plan",
+    excludeKeywords: "consultancy, software, SaaS, outsourcing",
+    minLikelihoodScore: "68",
+    strictMode: true,
+    sourceWeightOpenWeb: "1.1",
+    sourceWeightCompaniesHouse: "1.0",
+    sourceWeightFallback: "0.75",
+    serviceKeys: ["market-targeting"],
+  },
+  {
+    name: "Healthcare Supply Chain",
+    binDate: "",
+    generationMode: "daily-leads",
+    regions: "United Kingdom, Ireland",
+    revenueMin: "5",
+    revenueMax: "40",
+    targetIndustries: "Healthcare, Medical Supplies, Care, Facilities Management",
+    targetRoles: "Procurement Manager, Estates Director, Sustainability Manager, Commercial Director",
+    leadsPerService: "20",
+    includeKeywords: "NHS, supplier, disclosure, emissions, tender",
+    excludeKeywords: "consultancy, software, outsourcing",
+    minLikelihoodScore: "66",
+    strictMode: false,
+    sourceWeightOpenWeb: "1.0",
+    sourceWeightCompaniesHouse: "1.1",
+    sourceWeightFallback: "0.8",
+    serviceKeys: [],
+  },
+  {
+    name: "Logistics Carbon Pressure",
+    binDate: "",
+    generationMode: "market-scan",
+    regions: "United Kingdom, Europe",
+    revenueMin: "10",
+    revenueMax: "100",
+    targetIndustries: "Logistics, Transport, Freight, Warehousing",
+    targetRoles: "Operations Director, Fleet Manager, Sustainability Manager, Commercial Director",
+    leadsPerService: "25",
+    includeKeywords: "fleet, emissions, decarbonisation, customer reporting, supplier",
+    excludeKeywords: "consultancy, software, outsourcing",
+    minLikelihoodScore: "70",
+    strictMode: true,
+    sourceWeightOpenWeb: "1.1",
+    sourceWeightCompaniesHouse: "1.0",
+    sourceWeightFallback: "0.7",
+    serviceKeys: ["market-targeting"],
+  },
+  {
+    name: "Public Sector Suppliers",
+    binDate: "",
+    generationMode: "daily-leads",
+    regions: "United Kingdom",
+    revenueMin: "3",
+    revenueMax: "35",
+    targetIndustries: "Construction, Cleaning, Catering, Facilities Management, Logistics",
+    targetRoles: "Bid Manager, Procurement Manager, Commercial Director, Sustainability Manager",
+    leadsPerService: "20",
+    includeKeywords: "tender, framework, supplier, carbon reduction, procurement",
+    excludeKeywords: "consultancy, software, outsourcing",
+    minLikelihoodScore: "67",
+    strictMode: false,
+    sourceWeightOpenWeb: "1.0",
+    sourceWeightCompaniesHouse: "1.15",
+    sourceWeightFallback: "0.75",
+    serviceKeys: [],
+  },
+];
+
 export default function BusinessDevelopmentPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -183,6 +285,9 @@ export default function BusinessDevelopmentPage() {
   const [excludeKeywords, setExcludeKeywords] = useState("consultancy, software, SaaS, outsourcing");
   const [minLikelihoodScore, setMinLikelihoodScore] = useState("65");
   const [strictMode, setStrictMode] = useState(true);
+  const [sourceWeightOpenWeb, setSourceWeightOpenWeb] = useState("1.0");
+  const [sourceWeightCompaniesHouse, setSourceWeightCompaniesHouse] = useState("1.1");
+  const [sourceWeightFallback, setSourceWeightFallback] = useState("0.75");
   const [leadGeneratorProfiles, setLeadGeneratorProfiles] = useState<LeadGeneratorProfile[]>([]);
   const [leadGeneratorProfileName, setLeadGeneratorProfileName] = useState("Mid-market sustainability leads");
   const [selectedLeadGeneratorProfile, setSelectedLeadGeneratorProfile] = useState("");
@@ -216,6 +321,9 @@ export default function BusinessDevelopmentPage() {
       excludeKeywords: String(item?.excludeKeywords || "").trim(),
       minLikelihoodScore: String(item?.minLikelihoodScore || "").trim(),
       strictMode: Boolean(item?.strictMode),
+      sourceWeightOpenWeb: String(item?.sourceWeightOpenWeb || item?.sourceWeightOpen || "1.0").trim(),
+      sourceWeightCompaniesHouse: String(item?.sourceWeightCompaniesHouse || item?.sourceWeightCompanies || "1.1").trim(),
+      sourceWeightFallback: String(item?.sourceWeightFallback || item?.sourceWeightFallbackCandidate || "0.75").trim(),
       serviceKeys: Array.isArray(item?.serviceKeys) ? item.serviceKeys.map((x: unknown) => String(x).trim()).filter(Boolean) : [],
     };
   }
@@ -596,6 +704,9 @@ export default function BusinessDevelopmentPage() {
       exclude_keywords: excludeKeywords.split(",").map((x) => x.trim()).filter(Boolean),
       min_likelihood_score: Number(minLikelihoodScore || 0),
       strict_mode: strictMode,
+      source_weight_open_web: Number(sourceWeightOpenWeb || 1),
+      source_weight_companies_house: Number(sourceWeightCompaniesHouse || 1),
+      source_weight_fallback: Number(sourceWeightFallback || 1),
       leads_per_service: Number(leadsPerService || 10),
       service_keys: serviceKeys,
       replace_existing: true,
@@ -619,6 +730,9 @@ export default function BusinessDevelopmentPage() {
       excludeKeywords,
       minLikelihoodScore,
       strictMode,
+      sourceWeightOpenWeb,
+      sourceWeightCompaniesHouse,
+      sourceWeightFallback,
       serviceKeys: [...serviceKeys],
     };
   }
@@ -637,7 +751,22 @@ export default function BusinessDevelopmentPage() {
     setExcludeKeywords(profile.excludeKeywords);
     setMinLikelihoodScore(profile.minLikelihoodScore);
     setStrictMode(profile.strictMode);
+    setSourceWeightOpenWeb(profile.sourceWeightOpenWeb);
+    setSourceWeightCompaniesHouse(profile.sourceWeightCompaniesHouse);
+    setSourceWeightFallback(profile.sourceWeightFallback);
     setServiceKeys(profile.serviceKeys);
+  }
+
+  function loadLeadGeneratorTemplate(templateName: string) {
+    const template = LEAD_GENERATOR_PROFILE_TEMPLATES.find((item) => item.name === templateName);
+    if (!template) {
+      setStatus("Template not found.");
+      return;
+    }
+    applyLeadGeneratorProfile(template);
+    setSelectedLeadGeneratorProfile("");
+    setLeadGeneratorProfileName(template.name);
+    setStatus(`Loaded template "${template.name}".`);
   }
 
   function saveLeadGeneratorProfile() {
@@ -855,6 +984,17 @@ export default function BusinessDevelopmentPage() {
     return Array.from(new Set(matches.map((m) => m.trim())));
   }
 
+  function formatScoreBreakdown(breakdown?: ScoreBreakdown | null): string {
+    if (!breakdown) return "Unavailable";
+    const parts = [
+      `Base ${Number(breakdown.base_score || 0).toFixed(1)}`,
+      `Bonus ${Number(breakdown.bonus_points || 0).toFixed(1)}`,
+      `Source ${breakdown.source_provider || "open_web"} x${Number(breakdown.source_weight || 1).toFixed(2)}`,
+      `Final ${Number(breakdown.adjusted_score || 0).toFixed(1)}`,
+    ];
+    return parts.join(" | ");
+  }
+
   function openLeadInSection(leadId: number | null | undefined) {
     if (!leadId) return;
     setActiveSection("leads");
@@ -951,6 +1091,25 @@ export default function BusinessDevelopmentPage() {
               >
                 Daily Lead Batch
               </Button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Sector Templates</div>
+              <div className="flex flex-wrap gap-2">
+                {LEAD_GENERATOR_PROFILE_TEMPLATES.map((template) => (
+                  <Button
+                    key={template.name}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadLeadGeneratorTemplate(template.name)}
+                  >
+                    {template.name}
+                  </Button>
+                ))}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Templates give you a fast starting point. Load one, review the criteria, then save it as a reusable profile if it fits your campaign.
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-2">
@@ -1094,8 +1253,31 @@ export default function BusinessDevelopmentPage() {
               </div>
             </div>
 
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Open Web Weight</label>
+                <Input type="number" step="0.05" min="0.5" max="1.5" value={sourceWeightOpenWeb} onChange={(e) => setSourceWeightOpenWeb(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Companies House Weight</label>
+                <Input
+                  type="number"
+                  step="0.05"
+                  min="0.5"
+                  max="1.5"
+                  value={sourceWeightCompaniesHouse}
+                  onChange={(e) => setSourceWeightCompaniesHouse(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Fallback Weight</label>
+                <Input type="number" step="0.05" min="0.5" max="1.5" value={sourceWeightFallback} onChange={(e) => setSourceWeightFallback(e.target.value)} />
+              </div>
+            </div>
+
             <div className="text-xs text-muted-foreground">
-              These criteria are used by both generation modes to filter, score, and explain the leads that get added to the bin.
+              These criteria are used by both generation modes to filter, score, and explain the leads that get added to the bin. Source weighting nudges the final score
+              toward better evidence sources.
             </div>
 
             <div className="space-y-2">
@@ -1190,6 +1372,23 @@ export default function BusinessDevelopmentPage() {
                           <span className="font-medium">Trigger: </span>
                           {item.trigger_reason || "-"}
                         </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          <span className="font-medium">Source: </span>
+                          {item.source_provider || "open_web"}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          <span className="font-medium">Score breakdown: </span>
+                          {formatScoreBreakdown(item.score_breakdown)}
+                        </div>
+                        {item.score_breakdown?.components?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {item.score_breakdown.components.map((component) => (
+                              <span key={component.key} className="rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                                {component.label}: +{Number(component.points || 0).toFixed(1)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
                     {visiblePreviewLeads.length > 10 ? (
@@ -1271,6 +1470,23 @@ export default function BusinessDevelopmentPage() {
                     </div>
                     <div className="mt-2 text-xs"><span className="font-medium">Why good lead: </span>{item.why_good_lead || "-"}</div>
                     <div className="text-xs"><span className="font-medium">Trigger: </span>{item.trigger_reason || "-"}</div>
+                    <div className="text-xs">
+                      <span className="font-medium">Source: </span>
+                      {item.source_provider || "open_web"}
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-medium">Score breakdown: </span>
+                      {formatScoreBreakdown(item.score_breakdown)}
+                    </div>
+                    {item.score_breakdown?.components?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {item.score_breakdown.components.map((component) => (
+                          <span key={component.key} className="rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+                            {component.label}: +{Number(component.points || 0).toFixed(1)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="text-xs">
                       <span className="font-medium">Evidence: </span>
                       {extractUrls(item.source_references).length > 0 ? (

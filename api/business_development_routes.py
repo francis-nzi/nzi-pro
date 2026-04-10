@@ -585,6 +585,7 @@ def _ensure_tables(con) -> None:
           why_good_lead TEXT,
           trigger_reason TEXT,
           source_references TEXT,
+          score_breakdown_json TEXT,
           qualification_status VARCHAR NOT NULL DEFAULT 'new',
           bin_reason_id INTEGER,
           bin_reason_name VARCHAR,
@@ -613,6 +614,7 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS why_good_lead TEXT")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS trigger_reason TEXT")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS source_references TEXT")
+    con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS score_breakdown_json TEXT")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS qualification_status VARCHAR NOT NULL DEFAULT 'new'")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS bin_reason_id INTEGER")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS bin_reason_name VARCHAR")
@@ -731,6 +733,13 @@ def _serialize_opportunity(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_generated_lead(row: dict[str, Any]) -> dict[str, Any]:
+    breakdown_raw = row.get("score_breakdown_json")
+    score_breakdown: dict[str, Any] | None = None
+    if breakdown_raw:
+        try:
+            score_breakdown = json.loads(str(breakdown_raw))
+        except Exception:
+            score_breakdown = None
     return {
         "generated_lead_id": int(_safe_int(row.get("generated_lead_id"), 0) or 0),
         "bin_date": str(row.get("bin_date")) if row.get("bin_date") else None,
@@ -749,6 +758,8 @@ def _serialize_generated_lead(row: dict[str, Any]) -> dict[str, Any]:
         "why_good_lead": _safe_str(row.get("why_good_lead"), ""),
         "trigger_reason": _safe_str(row.get("trigger_reason"), ""),
         "source_references": _safe_str(row.get("source_references"), ""),
+        "score_breakdown": score_breakdown,
+        "source_provider": _safe_str(row.get("source_provider"), ""),
         "qualification_status": _safe_str(row.get("qualification_status"), "new") or "new",
         "bin_reason_id": _safe_int(row.get("bin_reason_id"), None),
         "bin_reason_name": _safe_str(row.get("bin_reason_name"), ""),
@@ -1034,6 +1045,116 @@ def _criteria_filters_match(
     return True
 
 
+def _parse_source_weighting(body: dict[str, Any]) -> dict[str, float]:
+    source_weighting = {
+        "open_web": 1.0,
+        "companies_house": 1.05,
+        "fallback": 0.85,
+    }
+    raw = body.get("source_weighting")
+    if isinstance(raw, dict):
+        for key in source_weighting:
+            source_weighting[key] = max(0.5, min(1.5, _safe_float(raw.get(key), source_weighting[key])))
+    for key, body_key in (
+        ("open_web", "source_weight_open_web"),
+        ("companies_house", "source_weight_companies_house"),
+        ("fallback", "source_weight_fallback"),
+    ):
+        if body_key in body:
+            source_weighting[key] = max(0.5, min(1.5, _safe_float(body.get(body_key), source_weighting[key])))
+    return source_weighting
+
+
+def _source_provider_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"companies_house", "companies-house", "ch"}:
+        return "companies_house"
+    if text in {"fallback", "placeholder", "synthetic"}:
+        return "fallback"
+    return "open_web"
+
+
+def _score_breakdown_for_candidate(
+    item: dict[str, Any],
+    *,
+    target_industries: list[str],
+    target_roles: list[str],
+    regions: list[str],
+    include_keywords: list[str] | None,
+    exclude_keywords: list[str] | None,
+    revenue_min: float,
+    revenue_max: float,
+    strict_mode: bool,
+    source_weighting: dict[str, float],
+) -> tuple[float, dict[str, Any]]:
+    base_score = _normalize_likelihood_score(item.get("likelihood_score"))
+    components: list[dict[str, Any]] = []
+    bonus = 0.0
+
+    if _matches_target_industries(item, target_industries, include_narrative=True):
+        components.append({"key": "industry_fit", "label": "Industry fit", "points": 8.0, "note": "Matches target industries."})
+        bonus += 8.0
+
+    if regions:
+        region_text = _candidate_text(item, include_narrative=False)
+        region_match = _matches_any_term(region_text, regions)
+        if region_match:
+            region_points = 8.0 if strict_mode else 5.0
+            components.append({"key": "geography_fit", "label": "Geography fit", "points": region_points, "note": "Matches the selected geography."})
+            bonus += region_points
+        elif not strict_mode:
+            components.append({"key": "geography_soft_fit", "label": "Geography soft fit", "points": 2.0, "note": "Close to the selected geography."})
+            bonus += 2.0
+
+    revenue = _safe_float(item.get("revenue_gbp_millions"), 0)
+    if revenue > 0 and revenue_min <= revenue <= revenue_max:
+        revenue_points = 6.0
+        components.append({"key": "revenue_fit", "label": "Revenue fit", "points": revenue_points, "note": "Within the requested revenue band."})
+        bonus += revenue_points
+
+    if target_roles and _matches_target_roles(item, target_roles):
+        role_points = 6.0
+        components.append({"key": "role_fit", "label": "Buyer role fit", "points": role_points, "note": "Relevant buyer or influencer role found."})
+        bonus += role_points
+
+    candidate_text = _candidate_text(item, include_narrative=True)
+    include_terms = [term for term in (include_keywords or []) if str(term).strip()]
+    if include_terms and _matches_any_term(candidate_text, include_terms):
+        keyword_points = 4.0
+        components.append({"key": "keyword_match", "label": "Keyword match", "points": keyword_points, "note": "Matches user-supplied trigger keywords."})
+        bonus += keyword_points
+
+    source_refs = str(item.get("source_references") or "").strip()
+    source_points = 0.0
+    if source_refs:
+        url_count = len(re.findall(r"https?://", source_refs))
+        if url_count >= 2:
+            source_points = 4.0
+            components.append({"key": "source_evidence", "label": "Source evidence", "points": source_points, "note": f"{url_count} verifiable URLs referenced."})
+        else:
+            source_points = 2.0
+            components.append({"key": "source_evidence", "label": "Source evidence", "points": source_points, "note": "At least one verifiable source is available."})
+    bonus += source_points
+
+    source_provider = _source_provider_key(item.get("source_provider"))
+    source_weight = max(0.5, min(1.5, _safe_float(source_weighting.get(source_provider), 1.0)))
+    source_adjustment = round((source_weight - 1.0) * 20.0, 1)
+
+    adjusted_score = round(min(100.0, max(0.0, base_score * 0.7 + bonus + source_adjustment)), 1)
+    summary_parts = [f"Base {base_score:.1f}", f"Bonus {bonus:.1f}", f"Source {source_provider} x{source_weight:.2f}", f"Final {adjusted_score:.1f}"]
+    breakdown = {
+        "base_score": base_score,
+        "bonus_points": round(bonus, 1),
+        "source_provider": source_provider,
+        "source_weight": round(source_weight, 2),
+        "source_adjustment": source_adjustment,
+        "adjusted_score": adjusted_score,
+        "summary": " | ".join(summary_parts),
+        "components": components,
+    }
+    return adjusted_score, breakdown
+
+
 def _normalize_likelihood_score(value: Any) -> float:
     score = _safe_float(value, 0)
     if 0 < score <= 1:
@@ -1263,6 +1384,7 @@ def _leadgen_fallback(
                 ),
                 "trigger_reason": "Likely supplier to large organizations where CRP/disclosure evidence is increasingly required.",
                 "source_references": " | ".join(research_refs),
+                "source_provider": "fallback",
             }
         )
     return results[:limit]
@@ -1382,6 +1504,7 @@ def _parse_market_scan_rows(
             "why_good_lead": str(row.get("why_good_lead") or "").strip(),
             "trigger_reason": str(row.get("trigger_reason") or "").strip(),
             "source_references": str(row.get("source_references") or "").strip(),
+            "source_provider": "open_web",
         }
         if not _matches_target_industries(candidate, target_industries, include_narrative=False):
             continue
@@ -1704,6 +1827,7 @@ def _market_scan_companies_house_leads(
                 "why_good_lead": "Broad market-scan match based on Companies House sector signals. Revenue and contacts still need qualification.",
                 "trigger_reason": "Fits current industry targeting and should be reviewed for buyer role relevance.",
                 "source_references": _ch_profile_link(company_number),
+                "source_provider": "companies_house",
             }
             if _is_consultancy_competitor_candidate(candidate):
                 continue
@@ -1978,6 +2102,7 @@ def _companies_house_leads(
                         f"https://find-and-update.company-information.service.gov.uk/search/companies?q={quote_plus(title)} | "
                         "https://www.gov.uk/government/publications/procurement-policy-note-0621-taking-account-of-carbon-reduction-plans-ppn-0621"
                     ),
+                    "source_provider": "companies_house",
                 }
             )
             if len(candidates) >= limit * 2:
@@ -2105,6 +2230,7 @@ def _openai_generate_service_leads(
                     "why_good_lead": str(row.get("why_good_lead") or "").strip(),
                     "trigger_reason": str(row.get("trigger_reason") or "").strip(),
                     "source_references": str(row.get("source_references") or "").strip(),
+                    "source_provider": "open_web",
                 }
                 if not _matches_target_industries(candidate, target_industries):
                     continue
@@ -2301,6 +2427,7 @@ def _gemini_generate_service_leads(
                     "why_good_lead": str(row.get("why_good_lead") or "").strip(),
                     "trigger_reason": str(row.get("trigger_reason") or "").strip(),
                     "source_references": str(row.get("source_references") or "").strip(),
+                    "source_provider": "open_web",
                 }
                 if not _matches_target_industries(candidate, target_industries):
                     continue
@@ -2767,6 +2894,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
         exclude_keywords = _split_csv_values(body.get("exclude_keywords") or body.get("negative_keywords"))
         min_score = max(0.0, min(100.0, _safe_float(body.get("min_likelihood_score"), 0)))
         strict_mode = bool(body.get("strict_mode", False))
+        source_weighting = _parse_source_weighting(body)
         regions_input = body.get("regions")
         if isinstance(regions_input, list):
             regions = [str(r).strip() for r in regions_input if str(r).strip()]
@@ -2929,6 +3057,22 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     if _is_consultancy_competitor_candidate(item):
                         excluded_competitor_count += 1
                         continue
+                    source_provider = _source_provider_key(item.get("source_provider"))
+                    adjusted_score, score_breakdown = _score_breakdown_for_candidate(
+                        item,
+                        target_industries=target_industries,
+                        target_roles=target_roles,
+                        regions=regions,
+                        include_keywords=include_keywords,
+                        exclude_keywords=exclude_keywords,
+                        revenue_min=revenue_min,
+                        revenue_max=revenue_max,
+                        strict_mode=strict_mode,
+                        source_weighting=source_weighting,
+                    )
+                    item["source_provider"] = source_provider
+                    item["likelihood_score"] = adjusted_score
+                    item["score_breakdown"] = score_breakdown
                     if preview_only:
                         preview_item = {
                             "generated_lead_id": None,
@@ -2949,6 +3093,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             "why_good_lead": str(item.get("why_good_lead") or "").strip(),
                             "trigger_reason": str(item.get("trigger_reason") or "").strip(),
                             "source_references": str(item.get("source_references") or "").strip(),
+                            "score_breakdown": score_breakdown,
+                            "source_provider": source_provider,
                             "qualification_status": "new",
                             "bin_reason_id": None,
                             "bin_reason_name": None,
@@ -2961,7 +3107,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                         continue
 
                     market_company_id = None
-                    source_provider = "ai-open-source"
+                    source_provider = source_provider or "open_web"
                     if generation_mode == "market-scan":
                         market_company_id = _upsert_market_company(
                             con,
@@ -2977,11 +3123,11 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                           bin_date, service_key, company_name, industry, country, city, website,
                           contact_name, contact_role, contact_email, contact_phone,
                           revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason,
-                          source_references, qualification_status, qualified_by, qualified_at,
+                          source_references, score_breakdown_json, qualification_status, qualified_by, qualified_at,
                           qualification_notes, bd_lead_id, market_company_id, scan_batch_id,
                           source_provider, created_at, updated_at
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, NULL, NULL, NULL, ?, ?, ?, NOW(), NOW())
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, NULL, NULL, NULL, ?, ?, ?, NOW(), NOW())
                         ON CONFLICT (bin_date, service_key, company_name) DO UPDATE SET
                           industry = excluded.industry,
                           country = excluded.country,
@@ -2996,6 +3142,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                           why_good_lead = excluded.why_good_lead,
                           trigger_reason = excluded.trigger_reason,
                           source_references = excluded.source_references,
+                          score_breakdown_json = excluded.score_breakdown_json,
                           market_company_id = excluded.market_company_id,
                           scan_batch_id = excluded.scan_batch_id,
                           source_provider = excluded.source_provider,
@@ -3018,6 +3165,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             str(item.get("why_good_lead") or "").strip() or None,
                             str(item.get("trigger_reason") or "").strip() or None,
                             str(item.get("source_references") or "").strip() or None,
+                            json.dumps(score_breakdown, ensure_ascii=False),
                             market_company_id,
                             scan_batch_id or None,
                             source_provider,
@@ -3054,6 +3202,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     "target_industries": target_industries,
                     "target_roles": target_roles,
                     "leads_per_service": leads_per_service,
+                    "source_weighting": source_weighting,
                 },
                 "diagnostics": diagnostics,
                 "note": "Preview only. No leads were written to the bin.",
@@ -3083,15 +3232,16 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "previously_binned": excluded_binned_count,
                 "consultancy_competitor": excluded_competitor_count,
             },
-            "criteria": {
-                "generation_mode": generation_mode,
-                "regions": regions,
-                "revenue_min_m_gbp": revenue_min,
-                "revenue_max_m_gbp": revenue_max,
-                "target_industries": target_industries,
-                "target_roles": target_roles,
-                "leads_per_service": leads_per_service,
-            },
+                "criteria": {
+                    "generation_mode": generation_mode,
+                    "regions": regions,
+                    "revenue_min_m_gbp": revenue_min,
+                    "revenue_max_m_gbp": revenue_max,
+                    "target_industries": target_industries,
+                    "target_roles": target_roles,
+                    "leads_per_service": leads_per_service,
+                    "source_weighting": source_weighting,
+                },
             "note": "Leads are AI-generated candidates and should be team-qualified before outreach.",
             "suggestions": [
                 "Add paid data providers (procurement feeds, LinkedIn/Snov/RocketReach) for stronger contact quality.",
@@ -3140,7 +3290,7 @@ def enrich_generated_leads(body: dict = Body(default={}), _user: dict = Depends(
                 SELECT generated_lead_id, company_name, industry, country, city, website,
                        contact_name, contact_role, contact_email, contact_phone,
                        revenue_gbp_millions, likelihood_score, why_good_lead,
-                       trigger_reason, source_references
+                       trigger_reason, source_references, score_breakdown_json, source_provider
                 FROM bd_ai_generated_leads
                 WHERE bin_date = ?
                   AND lower(coalesce(qualification_status, 'new')) = 'new'
