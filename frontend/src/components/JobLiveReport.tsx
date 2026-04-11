@@ -253,6 +253,7 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const periodStart = job?.reporting_period_start ? new Date(job.reporting_period_start).toLocaleDateString("en-GB") : "";
   const periodEnd = job?.reporting_period_end ? new Date(job.reporting_period_end).toLocaleDateString("en-GB") : "";
   const reportYear = job?.reporting_year ?? new Date().getFullYear();
+  const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
 
   return (
     <div className="live-report-root space-y-6 bg-white text-slate-950">
@@ -332,7 +333,32 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
             </div>
           </section>
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <Card className="live-report-section print:break-inside-avoid">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Detailed report narrative</CardTitle>
+                <p className="text-sm text-slate-500">
+                  This is the HTML report output used for the detailed sections, narrative, and print/export view.
+                </p>
+              </div>
+              <Button asChild variant="outline" className="no-print">
+                <Link href={htmlReportUrl} target="_blank" rel="noreferrer">
+                  Open HTML report
+                </Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-hidden rounded-2xl border bg-white">
+                <iframe
+                  title="Detailed HTML report preview"
+                  src={htmlReportUrl}
+                  className="h-[1200px] w-full border-0 bg-white"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-6 xl:grid-cols-2 print:grid-cols-1">
             <Card className="live-report-section print:break-inside-avoid">
               <CardHeader>
                 <CardTitle>Scope breakdown</CardTitle>
@@ -378,7 +404,7 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
             </Card>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] print:grid-cols-1">
             <Card className="live-report-section print:break-inside-avoid">
               <CardHeader>
                 <CardTitle>Activity mix</CardTitle>
@@ -514,6 +540,7 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
               .live-report-root {
                 color: #0f172a !important;
                 background: white !important;
+                max-width: none !important;
               }
 
               .live-report-section,
@@ -525,6 +552,28 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
 
               .live-report-section {
                 margin-bottom: 1rem;
+                width: 100% !important;
+                max-width: 100% !important;
+              }
+
+              .live-report-section .recharts-responsive-container,
+              .live-report-section .recharts-wrapper,
+              .live-report-section .recharts-surface,
+              .live-report-section svg {
+                width: 100% !important;
+                max-width: 100% !important;
+                overflow: visible !important;
+              }
+
+              .live-report-section .recharts-legend-wrapper {
+                position: static !important;
+                width: 100% !important;
+                margin-top: 0.5rem !important;
+              }
+
+              .live-report-section .recharts-cartesian-axis-tick-value,
+              .live-report-section .recharts-polar-angle-axis-tick-value {
+                font-size: 10px !important;
               }
 
               .live-report-root .rounded-3xl {
@@ -532,12 +581,13 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
               }
 
               @page {
-                margin: 12mm;
+                margin: 10mm;
               }
 
               body {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
+                background: white !important;
               }
             }
           `}</style>
