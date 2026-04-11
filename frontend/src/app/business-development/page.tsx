@@ -298,8 +298,8 @@ export default function BusinessDevelopmentPage() {
   const [marketPage, setMarketPage] = useState(1);
   const [leadBinSummary, setLeadBinSummary] = useState<LeadBinSummary[]>([]);
   const [binReasons, setBinReasons] = useState<BinReason[]>([]);
-  const [binReasonByLead, setBinReasonByLead] = useState<Record<number, string>>({});
-  const [binNoteByLead, setBinNoteByLead] = useState<Record<number, string>>({});
+  const [binReasonByLead, setBinReasonByLead] = useState<Record<string, string>>({});
+  const [binNoteByLead, setBinNoteByLead] = useState<Record<string, string>>({});
   const [activeServiceFilter, setActiveServiceFilter] = useState("all");
   const [activeSection, setActiveSection] = useState<BdSection>("overview");
   const [focusLeadId, setFocusLeadId] = useState<number | null>(null);
@@ -413,8 +413,8 @@ export default function BusinessDevelopmentPage() {
     setBinReasonByLead((prev) => {
       const next = { ...prev };
       for (const row of items) {
-        const leadId = Number(row?.generated_lead_id || 0);
-        if (!leadId) continue;
+        const leadId = String(Number(row?.generated_lead_id || 0));
+        if (leadId === "0") continue;
         const reasonId = row?.bin_reason_id;
         if ((reasonId ?? null) !== null && reasonId !== undefined) {
           next[leadId] = String(reasonId);
@@ -897,9 +897,10 @@ export default function BusinessDevelopmentPage() {
   async function qualifyAIGeneratedLead(generatedLeadId: number, action: "funnel" | "binned") {
     try {
       setStatus(action === "funnel" ? "Sending lead to funnel..." : "Binning lead...");
-      const selectedReasonId = binReasonByLead[generatedLeadId] || "";
+      const generatedLeadKey = String(generatedLeadId);
+      const selectedReasonId = binReasonByLead[generatedLeadKey] || "";
       const selectedReason = binReasons.find((r) => String(r.bin_reason_id) === String(selectedReasonId));
-      const selectedNote = (binNoteByLead[generatedLeadId] || "").trim();
+      const selectedNote = (binNoteByLead[generatedLeadKey] || "").trim();
       if (action === "binned" && !selectedReasonId) {
         throw new Error("Please select a bin reason before binning this lead.");
       }
@@ -1436,8 +1437,12 @@ export default function BusinessDevelopmentPage() {
               {visibleGeneratedLeads.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No generated leads in this bin yet.</div>
               ) : (
-                visibleGeneratedLeads.map((item) => (
-                  <div key={item.generated_lead_id} className="rounded-md border p-3">
+                visibleGeneratedLeads.map((item) => {
+                  const generatedLeadId = item.generated_lead_id;
+                  const generatedLeadKey =
+                    generatedLeadId !== null && generatedLeadId !== undefined ? String(generatedLeadId) : "";
+                  return (
+                  <div key={item.generated_lead_id ?? item.company_name} className="rounded-md border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-medium">{item.company_name}</div>
@@ -1506,14 +1511,14 @@ export default function BusinessDevelopmentPage() {
                       {item.qualification_status === "binned" && item.bin_reason_name ? (
                         <div className="text-xs text-muted-foreground">Reason: {item.bin_reason_name}</div>
                       ) : null}
-                      {item.qualification_status === "new" ? (
+                      {item.qualification_status === "new" && generatedLeadId !== null && generatedLeadId !== undefined ? (
                         <>
                           <select
                             className="rounded border px-2 py-1 text-xs"
-                            value={binReasonByLead[item.generated_lead_id] || ""}
-                            onChange={(e) =>
-                              setBinReasonByLead((prev) => ({ ...prev, [item.generated_lead_id]: e.target.value }))
-                            }
+                            value={binReasonByLead[generatedLeadKey] || ""}
+                             onChange={(e) =>
+                               setBinReasonByLead((prev) => ({ ...prev, [generatedLeadKey]: e.target.value }))
+                             }
                           >
                             <option value="">Bin reason...</option>
                             {binReasons.map((reason) => (
@@ -1523,24 +1528,24 @@ export default function BusinessDevelopmentPage() {
                             ))}
                           </select>
                           {(() => {
-                            const selectedReasonId = binReasonByLead[item.generated_lead_id] || "";
+                            const selectedReasonId = binReasonByLead[generatedLeadKey] || "";
                             const selectedReason = binReasons.find((r) => String(r.bin_reason_id) === String(selectedReasonId));
                             if (selectedReason?.name?.toLowerCase() !== "other") return null;
                             return (
                               <Input
                                 className="max-w-xs"
                                 placeholder="Reason note"
-                                value={binNoteByLead[item.generated_lead_id] || ""}
+                                value={binNoteByLead[generatedLeadKey] || ""}
                                 onChange={(e) =>
-                                  setBinNoteByLead((prev) => ({ ...prev, [item.generated_lead_id]: e.target.value }))
+                                  setBinNoteByLead((prev) => ({ ...prev, [generatedLeadKey]: e.target.value }))
                                 }
                               />
                             );
                           })()}
-                          <Button size="sm" onClick={() => void qualifyAIGeneratedLead(item.generated_lead_id, "funnel")}>
+                          <Button size="sm" onClick={() => void qualifyAIGeneratedLead(generatedLeadId, "funnel")}>
                             Send to Funnel
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => void qualifyAIGeneratedLead(item.generated_lead_id, "binned")}>
+                          <Button size="sm" variant="outline" onClick={() => void qualifyAIGeneratedLead(generatedLeadId, "binned")}>
                             Bin
                           </Button>
                         </>
@@ -1555,7 +1560,8 @@ export default function BusinessDevelopmentPage() {
                       ) : null}
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </CardContent>

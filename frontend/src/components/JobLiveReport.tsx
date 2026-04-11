@@ -227,16 +227,16 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const reportMetadata = data?.report_metadata ?? {};
   const targetData = data?.target_data ?? {};
 
-  const reportTitle = firstText(templateVariables.report_title, reportMetadata.report_title, job.title, "Carbon Reduction Plan");
+  const reportTitle = firstText(templateVariables.report_title, reportMetadata.report_title, job?.title, "Carbon Reduction Plan");
   const executiveSummaryText = firstText(
     templateVariables.executive_summary,
     reportMetadata.commitment_commentary,
-    `This report presents the greenhouse gas emissions for ${job.client_name ?? "the client"} for the reporting period.`,
+    `This report presents the greenhouse gas emissions for ${job?.client_name ?? "the client"} for the reporting period.`,
   );
   const commitmentStatement = firstText(
     templateVariables.commitment_statement,
     reportMetadata.commitment_commentary,
-    `${job.client_name ?? "The organisation"} is committed to achieving Net Zero emissions by ${targetData.net_zero_target_year ?? 2050}.`,
+    `${job?.client_name ?? "The organisation"} is committed to achieving Net Zero emissions by ${targetData.net_zero_target_year ?? 2050}.`,
   );
   const activityNarrativeIntro = firstText(templateVariables.activity_narrative_intro, reportMetadata.activity_commentary);
   const reductionTargetsNarrative = firstText(templateVariables.reduction_targets, reportMetadata.emissions_reduction_targets_commentary);
@@ -256,6 +256,8 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
         jobId: job.job_id,
+        jobNumber: job.job_number ?? `J${String(job.job_id).padStart(6, "0")}`,
+        jobTitle: job.title ?? "Job",
         clientName: job.client_name ?? "Client",
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
@@ -361,7 +363,7 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const targetMilestones = [
     {
       label: "Baseline year",
-      value: getDisplayValue(targetData.baseline_year, job.reporting_year ?? "N/A"),
+      value: getDisplayValue(targetData.baseline_year, String(job?.reporting_year ?? "N/A")),
       hint: "Reference year used for the target pathway.",
     },
     {

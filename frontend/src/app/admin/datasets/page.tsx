@@ -811,6 +811,16 @@ export default function DatasetsPage() {
                   <div className="text-xs text-muted-foreground">
                     Upload the year-by-year DESNZ / DEFRA Excel workbook to merge UK factor data in place.
                   </div>
+                  <div className="text-xs text-muted-foreground">
+                    Expected filename:{" "}
+                    <a
+                      href="/downloads/DESNZ%20DEFRA%20Conversion%20Factors%202019-2025.xlsx"
+                      className="font-medium text-primary underline underline-offset-2"
+                      download
+                    >
+                      DESNZ DEFRA Conversion Factors 2019-2025.xlsx
+                    </a>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Input

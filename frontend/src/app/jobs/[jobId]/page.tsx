@@ -1566,7 +1566,7 @@ export default function JobDetailPage() {
       setLoadingScopeConfig(true);
       setScopeCatalogStatus("Loading dataset catalog...");
       try {
-        const dRes = await fetch(apiUrl("/admin/datasets?include_archived=true"), {
+        const dRes = await fetch(`${baseUrl}/admin/datasets?include_archived=true`, {
           credentials: "include",
           headers: withAuditHeaders(),
         });
