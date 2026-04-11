@@ -81,6 +81,7 @@ from api.custom_factors_routes import router as custom_factors_router
 from api.client_dashboard_routes import router as client_dashboard_router
 from api.client_reporting_routes import router as client_reporting_router
 from api.job_intensity_routes import router as job_intensity_router
+from api.job_live_report_routes import router as job_live_report_router
 from api.main_dashboard_routes import router as main_dashboard_router
 from api.job_data_output_routes import router as job_data_output_router
 from api.job_report_routes import router as job_report_router
@@ -333,6 +334,9 @@ app.include_router(client_reporting_router)
 
 # Include job intensity routes
 app.include_router(job_intensity_router)
+
+# Include live report routes
+app.include_router(job_live_report_router)
 
 # Include main dashboard routes
 app.include_router(main_dashboard_router)

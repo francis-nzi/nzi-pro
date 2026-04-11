@@ -1212,12 +1212,7 @@ export default function JobDetailPage() {
   const derivedEnergyMetadataValues = useMemo(
     () =>
       calculateDerivedEnergyEmissionFields(reportMetadataValues, reportMetadataEnergyFactors),
-    [
-      reportMetadataValues["energy_consumption_uk_kwh"],
-      reportMetadataValues["energy_consumption_non_uk_kwh"],
-      reportMetadataValues["renewable_energy_kwh"],
-      reportMetadataEnergyFactors,
-    ]
+    [reportMetadataValues, reportMetadataEnergyFactors]
   );
 
   useEffect(() => {
@@ -1263,8 +1258,8 @@ export default function JobDetailPage() {
         scopeConfigMode !== "automatic" ? "manual mapping mode" : null,
       ]
         .filter(Boolean)
-        .join(" • ")
-    : "Automatic dataset resolution is active. Advanced overrides are hidden unless needed.";
+        .join(" | ")
+    : "Automatic dataset resolution is active. Additional job datasets are hidden unless needed.";
 
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
     const inputId = `${idPrefix}-${field.key}`;
@@ -2756,7 +2751,7 @@ export default function JobDetailPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1">
-                      <CardTitle>Advanced Dataset Overrides</CardTitle>
+                      <CardTitle>Additional Job Datasets</CardTitle>
                       <div className="text-sm text-muted-foreground">
                         {datasetOverrideSummary}
                       </div>
@@ -2765,7 +2760,7 @@ export default function JobDetailPage() {
                       variant="outline"
                       onClick={() => setShowAdvancedDatasetConfig((prev) => !prev)}
                     >
-                      {showAdvancedDatasetConfig ? "Hide Advanced Overrides" : "Show Advanced Overrides"}
+                      {showAdvancedDatasetConfig ? "Hide Job Datasets" : "Show Job Datasets"}
                     </Button>
                   </div>
                 </CardHeader>
@@ -2815,9 +2810,44 @@ export default function JobDetailPage() {
                     ) : null}
                   </div>
 
-                  <div className="text-sm text-muted-foreground">
-                    Configure the fallback dataset per scope. In automatic mode, effective datasets are shown below and used first.
-                  </div>
+                    <div className="text-sm text-muted-foreground">
+                      Add any extra datasets this job needs in addition to the automatically resolved scope datasets.
+                    </div>
+
+                    {additionalDatasetIds.length > 0 ? (
+                      <div className="rounded-md border p-3 space-y-2">
+                        <div className="text-sm font-medium">Selected additional datasets</div>
+                        <div className="flex flex-wrap gap-2">
+                          {additionalDatasetIds
+                            .map((id) => datasets.find((d) => String(d.dataset_id) === id))
+                            .filter((ds): ds is Dataset => Boolean(ds))
+                            .map((ds) => (
+                              <div
+                                key={`selected-extra-${ds.dataset_id}`}
+                                className="flex items-center gap-2 rounded border bg-background px-3 py-2 text-xs"
+                              >
+                                <div>
+                                  <div className="font-medium">{ds.name || `Dataset ${ds.dataset_id}`}</div>
+                                  <div className="text-muted-foreground">
+                                    {ds.country || "Unknown"} | {ds.year || "n/a"} | {ds.analysis_type || "n/a"}
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setAdditionalDatasetIds((prev) => prev.filter((x) => x !== String(ds.dataset_id)));
+                                    setStatus("");
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                   {scopeConfigMode === "automatic" ? (
                     <div className="rounded-md border p-3 space-y-2">
@@ -2875,7 +2905,6 @@ export default function JobDetailPage() {
                     ) : null}
                     <div className="max-h-52 space-y-2 overflow-auto pr-1">
                       {datasets
-                        .filter((ds) => !ds.archived)
                         .sort((a, b) => {
                           const ay = Number(a.year || 0);
                           const by = Number(b.year || 0);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -1293,6 +1294,9 @@ export default function JobReportNew({
               </div>
 
               <div className="flex flex-wrap gap-3">
+                <Button asChild variant="outline">
+                  <Link href={`/jobs/${jobId}/report-live`}>Open live report</Link>
+                </Button>
                 <Button onClick={openPreviewModal} className="gap-2">
                   <FileText className="h-4 w-4" />
                   Preview & Export

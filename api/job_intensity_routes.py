@@ -12,21 +12,44 @@ from api.auth import _current_user
 router = APIRouter()
 
 
+def _load_job_intensity_metrics(job_id: int, *, con=None) -> dict:
+    """Load the JSONB intensity_metrics payload for a job."""
+    if con is None:
+        with get_conn() as managed:
+            return _load_job_intensity_metrics(int(job_id), con=managed)
+
+    result = con.execute(
+        "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+        [int(job_id)]
+    ).fetchone()
+    if not result or result[0] is None:
+        return {}
+
+    metrics = result[0]
+    if isinstance(metrics, dict):
+        return metrics
+    if isinstance(metrics, str):
+        try:
+            parsed = json.loads(metrics)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
 @router.get("/jobs/{job_id}/intensity-metrics")
 def get_job_intensity_metrics(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Get intensity metrics for a job"""
     try:
         with get_conn() as con:
             result = con.execute(
-                "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+                "SELECT 1 FROM jobs WHERE job_id = %s",
                 [int(job_id)]
             ).fetchone()
-            
             if not result:
                 raise HTTPException(status_code=404, detail="Job not found")
-            
-            metrics = result[0] if result[0] else {}
-            
+            metrics = _load_job_intensity_metrics(int(job_id), con=con)
             return {
                 "job_id": int(job_id),
                 "metrics": metrics
