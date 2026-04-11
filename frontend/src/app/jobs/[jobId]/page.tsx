@@ -1571,10 +1571,10 @@ export default function JobDetailPage() {
       setLoadingScopeConfig(true);
       setScopeCatalogStatus("Loading dataset catalog...");
       try {
-        const [dRes, scRes] = await Promise.all([
-          fetch(`${baseUrl}/datasets`),
-          fetch(`${baseUrl}/jobs/${jobId}/scope-config`),
-        ]);
+        const dRes = await fetch(apiUrl("/admin/datasets?include_archived=true"), {
+          credentials: "include",
+          headers: withAuditHeaders(),
+        });
         if (cancelled) return;
 
         if (dRes.ok) {
@@ -1590,35 +1590,47 @@ export default function JobDetailPage() {
         } else {
           setScopeCatalogStatus(`Dataset catalog request failed (${dRes.status}).`);
         }
-
-        if (scRes.ok) {
-          const scJson = (await scRes.json()) as JobScopeConfigResponse;
-          const effectiveItems = scJson?.items ?? [];
-          const legacyItems = scJson?.legacy_items ?? effectiveItems;
-
-          setScopeConfigMode(scJson?.mode || "legacy");
-          setScopeConfigWarnings(
-            Array.isArray(scJson?.warnings) ? scJson.warnings.map((w) => String(w)) : []
-          );
-          setScopeAutoResolution(scJson?.auto_resolution ?? null);
-          setScopeEffectiveDatasetIds(scopeMapFromItems(effectiveItems));
-          setScopeDatasetIds(scopeMapFromItems(legacyItems));
-          setAdditionalDatasetIds(
-            Array.isArray(scJson?.additional_dataset_ids)
-              ? scJson.additional_dataset_ids.map((id) => String(id))
-              : []
-          );
-        }
-        if (!scRes.ok) {
-          setScopeCatalogStatus((prev) =>
-            prev
-              ? `${prev} Scope config request failed (${scRes.status}).`
-              : `Scope config request failed (${scRes.status}).`
-          );
-        }
       } finally {
         if (!cancelled) setLoadingScopeConfig(false);
       }
+
+      void (async () => {
+        try {
+          const scRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-config`);
+          if (cancelled) return;
+
+          if (scRes.ok) {
+            const scJson = (await scRes.json()) as JobScopeConfigResponse;
+            const effectiveItems = scJson?.items ?? [];
+            const legacyItems = scJson?.legacy_items ?? effectiveItems;
+
+            setScopeConfigMode(scJson?.mode || "legacy");
+            setScopeConfigWarnings(
+              Array.isArray(scJson?.warnings) ? scJson.warnings.map((w) => String(w)) : []
+            );
+            setScopeAutoResolution(scJson?.auto_resolution ?? null);
+            setScopeEffectiveDatasetIds(scopeMapFromItems(effectiveItems));
+            setScopeDatasetIds(scopeMapFromItems(legacyItems));
+            setAdditionalDatasetIds(
+              Array.isArray(scJson?.additional_dataset_ids)
+                ? scJson.additional_dataset_ids.map((id) => String(id))
+                : []
+            );
+          } else {
+            setScopeCatalogStatus((prev) =>
+              prev
+                ? `${prev} Scope config request failed (${scRes.status}).`
+                : `Scope config request failed (${scRes.status}).`
+            );
+          }
+        } catch {
+          if (!cancelled) {
+            setScopeCatalogStatus((prev) =>
+              prev ? `${prev} Scope config request failed.` : "Scope config request failed."
+            );
+          }
+        }
+      })();
     }
 
     void loadScopeConfigResources();
@@ -2471,7 +2483,7 @@ export default function JobDetailPage() {
                   <SelectContent>
                     {templates.filter(t => t.is_active).map((t) => (
                       <SelectItem key={t.job_template_id} value={String(t.job_template_id)}>
-                        {(t.template_key ?? "template") + (t.template_name ? ` — ${t.template_name}` : "")}
+                        {(t.template_key ?? "template") + (t.template_name ? ` - ${t.template_name}` : "")}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2922,7 +2934,7 @@ export default function JobDetailPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__none__">None</SelectItem>
-                            {datasets.filter(ds => !ds.archived).map((ds) => (
+                            {datasets.map((ds) => (
                               <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
                                 {ds.name} ({ds.year})
                               </SelectItem>
