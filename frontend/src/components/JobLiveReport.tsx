@@ -59,6 +59,7 @@ type LiveReportData = {
     summary_sentence?: string | null;
   };
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
+  template_variables?: Record<string, unknown>;
   summary?: {
     current_total?: number | null;
     benchmark_total?: number | null;
@@ -71,8 +72,10 @@ type LiveReportData = {
       report_label?: string | null;
       data_source?: string | null;
       reference_label?: string | null;
-    } | null;
+      } | null;
   };
+  target_data?: Record<string, unknown>;
+  report_metadata?: Record<string, unknown>;
 };
 
 type JobLiveReportProps = {
@@ -101,6 +104,53 @@ function safeText(value: unknown, fallback = "N/A"): string {
   return text.length > 0 ? text : fallback;
 }
 
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    const text = safeText(value, "").trim();
+    if (text.length > 0 && text !== "N/A") {
+      return text;
+    }
+  }
+  return "";
+}
+
+function splitCommaList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => safeText(item, "")).filter(Boolean);
+  }
+  const raw = safeText(value, "").trim();
+  if (!raw) return [];
+  return raw
+    .split(/[,\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getDisplayValue(value: unknown, fallback = "N/A"): string {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text.length > 0 ? text : fallback;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => safeText(item, "")).filter(Boolean).join(", ") || fallback;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return fallback;
+    return entries
+      .map(([key, item]) => `${key}: ${safeText(item, "")}`)
+      .filter((line) => !line.endsWith(": "))
+      .join(" | ") || fallback;
+  }
+  return fallback;
+}
+
 function liveActionItemLabel(item: LiveActionItem): string {
   const candidates = [item.action_name, item.action_term_label, item.description, item.action_term];
   for (const candidate of candidates) {
@@ -110,6 +160,18 @@ function liveActionItemLabel(item: LiveActionItem): string {
     }
   }
   return "Action";
+}
+
+function formatDateDisplay(value: unknown): string {
+  const raw = safeText(value, "");
+  if (!raw) {
+    return "N/A";
+  }
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString("en-GB");
+  }
+  return raw;
 }
 
 export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
@@ -159,9 +221,37 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const job = data?.job_data ?? null;
   const scopeTotals = useMemo(() => data?.scope_totals ?? {}, [data?.scope_totals]);
   const benchmarkTotals = useMemo(() => data?.benchmark_totals ?? {}, [data?.benchmark_totals]);
-  const categories = useMemo(() => data?.categories ?? [], [data?.categories]);
   const intensityMetrics = data?.intensity_metrics ?? {};
   const jobActions = data?.job_actions?.grouped ?? [];
+  const templateVariables = data?.template_variables ?? {};
+  const reportMetadata = data?.report_metadata ?? {};
+  const targetData = data?.target_data ?? {};
+
+  const reportTitle = firstText(templateVariables.report_title, reportMetadata.report_title, job.title, "Carbon Reduction Plan");
+  const executiveSummaryText = firstText(
+    templateVariables.executive_summary,
+    reportMetadata.commitment_commentary,
+    `This report presents the greenhouse gas emissions for ${job.client_name ?? "the client"} for the reporting period.`,
+  );
+  const commitmentStatement = firstText(
+    templateVariables.commitment_statement,
+    reportMetadata.commitment_commentary,
+    `${job.client_name ?? "The organisation"} is committed to achieving Net Zero emissions by ${targetData.net_zero_target_year ?? 2050}.`,
+  );
+  const activityNarrativeIntro = firstText(templateVariables.activity_narrative_intro, reportMetadata.activity_commentary);
+  const reductionTargetsNarrative = firstText(templateVariables.reduction_targets, reportMetadata.emissions_reduction_targets_commentary);
+  const reductionProjectsNarrative = firstText(templateVariables.reduction_projects);
+  const dataConfidenceNarrative = firstText(reportMetadata.data_confidence_commentary);
+  const intensityNarrative = firstText(reportMetadata.intensity_commentary);
+  const methodologiesUsed = splitCommaList(reportMetadata.methodologies_used);
+  const datasetsUsed = splitCommaList(reportMetadata.datasets_names);
+  const glossaryTerms = splitCommaList(targetData.glossary_terms);
+  const consultantName = firstText(reportMetadata.consultant_name, templateVariables.signatory_name);
+  const consultantPosition = firstText(reportMetadata.consultant_position);
+  const consultantSignatureDate = firstText(reportMetadata.consultant_signature_date);
+  const clientSigneeName = firstText(reportMetadata.client_signee_name);
+  const clientSigneePosition = firstText(reportMetadata.client_signee_position);
+  const clientSignatureDate = firstText(reportMetadata.client_signature_date);
 
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
@@ -199,18 +289,6 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
     [scopeTotals],
   );
 
-  const benchmarkChartData = useMemo(
-    () => [
-      { name: "Current", value: toNumber(scopeTotals.Total ?? scopeTotals.total ?? data?.summary?.current_total ?? 0), fill: "#2563eb" },
-      {
-        name: "Benchmark",
-        value: toNumber(benchmarkTotals.Total ?? benchmarkTotals.total ?? data?.summary?.benchmark_total ?? 0),
-        fill: "#f97316",
-      },
-    ],
-    [benchmarkTotals, data?.summary?.benchmark_total, data?.summary?.current_total, scopeTotals],
-  );
-
   const activityChartData = useMemo(() => {
     const order = data?.activity_group_order ?? [];
     const totals = data?.activity_totals ?? {};
@@ -220,18 +298,6 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
       fill: data?.activity_group_colors?.[group] ?? "#64748b",
     }));
   }, [data?.activity_group_colors, data?.activity_group_order, data?.activity_totals]);
-
-  const topCategories = useMemo(() => {
-    return [...categories]
-      .map((item) => ({
-        category: safeText(item.category, "Uncategorized"),
-        scope: safeText(item.scope, ""),
-        emissions: toNumber(item.emissions),
-        report_label: safeText(item.report_label, ""),
-      }))
-      .sort((a, b) => b.emissions - a.emissions)
-      .slice(0, 6);
-  }, [categories]);
 
   const liveSummary = data?.summary ?? null;
   const currentTotal = liveSummary?.current_total ?? toNumber(scopeTotals.Total ?? scopeTotals.total ?? 0);
@@ -254,6 +320,83 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const periodEnd = job?.reporting_period_end ? new Date(job.reporting_period_end).toLocaleDateString("en-GB") : "";
   const reportYear = job?.reporting_year ?? new Date().getFullYear();
   const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
+  const selectedDatasets = splitCommaList(reportMetadata.datasets_names);
+  const reportSections = [
+    { id: "executive-summary", label: "1. Executive Summary" },
+    { id: "net-zero-commitment", label: "2. Net Zero Commitment" },
+    { id: "background-information", label: "3. Background Information" },
+    { id: "carbon-emissions-overview", label: "4. Carbon Emissions Overview" },
+    { id: "analysis-by-scope", label: "5. Analysis by Scope" },
+    { id: "emissions-by-activity", label: "6. Emissions by Activity" },
+    { id: "intensity-analysis", label: "7. Intensity Metric Analysis" },
+    { id: "emissions-reduction-targets", label: "8. Emissions Reduction Targets" },
+    { id: "carbon-reduction-actions", label: "9. Carbon Reduction Actions" },
+    { id: "secr-data", label: "10. SECR Emissions Data" },
+    { id: "standards-methodology", label: "11. Standards and Methodology Used" },
+    { id: "data-quality", label: "12. Data Quality / Confidence" },
+    { id: "declaration-signoff", label: "13. Declaration and Sign Off" },
+    { id: "glossary", label: "14. Glossary" },
+  ];
+  const scopeRows = [
+    {
+      label: "Scope 1",
+      current: toNumber(scopeTotals["Scope 1"] ?? scopeTotals.scope_1 ?? 0),
+      benchmark: toNumber(benchmarkTotals["Scope 1"] ?? benchmarkTotals.scope_1 ?? 0),
+    },
+    {
+      label: "Scope 2",
+      current: toNumber(scopeTotals["Scope 2"] ?? scopeTotals.scope_2 ?? 0),
+      benchmark: toNumber(benchmarkTotals["Scope 2"] ?? benchmarkTotals.scope_2 ?? 0),
+    },
+    {
+      label: "Scope 3",
+      current: toNumber(scopeTotals["Scope 3"] ?? scopeTotals.scope_3 ?? 0),
+      benchmark: toNumber(benchmarkTotals["Scope 3"] ?? benchmarkTotals.scope_3 ?? 0),
+    },
+  ].map((row) => ({
+    ...row,
+    delta: row.current - row.benchmark,
+    deltaPct: row.benchmark > 0 ? ((row.current - row.benchmark) / row.benchmark) * 100.0 : null,
+  }));
+  const targetMilestones = [
+    {
+      label: "Baseline year",
+      value: getDisplayValue(targetData.baseline_year, job.reporting_year ?? "N/A"),
+      hint: "Reference year used for the target pathway.",
+    },
+    {
+      label: "Interim target year",
+      value: getDisplayValue(targetData.interim_target_year, "2030"),
+      hint: "Shorter-term reduction milestone.",
+    },
+    {
+      label: "Interim reduction",
+      value: `${getDisplayValue(targetData.interim_pct, "50")}%`,
+      hint: "Reduction expected by the interim milestone.",
+    },
+    {
+      label: "Net zero target year",
+      value: getDisplayValue(targetData.net_zero_target_year, "2050"),
+      hint: "Target year for net zero delivery.",
+    },
+    {
+      label: "Net zero reduction",
+      value: `${getDisplayValue(targetData.target_pct, "90")}%`,
+      hint: "Overall reduction expected by net zero.",
+    },
+  ];
+  const reportMetadataRows = [
+    { label: "Company number", value: reportMetadata.company_number },
+    { label: "Registered address", value: reportMetadata.registered_address },
+    { label: "Employee number", value: reportMetadata.employee_number },
+    { label: "Premises owned", value: reportMetadata.premises_owned },
+    { label: "Premises leased", value: reportMetadata.premises_leased },
+    { label: "Vehicles owned", value: reportMetadata.vehicles_owned },
+    { label: "Vehicles leased", value: reportMetadata.vehicles_leased },
+    { label: "Operational control", value: reportMetadata.operational_control },
+    { label: "Financial control", value: reportMetadata.financial_control },
+    { label: "Equity share", value: reportMetadata.equity_share },
+  ].filter((item) => safeText(item.value, "").length > 0);
 
   return (
     <div className="live-report-root space-y-6 bg-white text-slate-950">
@@ -336,9 +479,9 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
           <Card className="live-report-section print:break-inside-avoid">
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
-                <CardTitle>Detailed report narrative</CardTitle>
+                <CardTitle>Detailed report structure</CardTitle>
                 <p className="text-sm text-slate-500">
-                  This is the HTML report output used for the detailed sections, narrative, and print/export view.
+                  This page mirrors the HTML report sections so the live browser view reads like the final client deliverable.
                 </p>
               </div>
               <Button asChild variant="outline" className="no-print">
@@ -347,29 +490,155 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
                 </Link>
               </Button>
             </CardHeader>
-            <CardContent>
-              <div className="overflow-hidden rounded-2xl border bg-white">
-                <iframe
-                  title="Detailed HTML report preview"
-                  src={htmlReportUrl}
-                  className="h-[1200px] w-full border-0 bg-white"
-                />
+            <CardContent className="space-y-6">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {reportSections.map((section) => (
+                  <a
+                    key={section.id}
+                    href={`#${section.id}`}
+                    className="rounded-xl border bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                  >
+                    {section.label}
+                  </a>
+                ))}
+              </div>
+
+              <div id="report-structure" className="grid gap-6 xl:grid-cols-2">
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500">1. Executive Summary</div>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{executiveSummaryText}</p>
+                  <table className="mt-4 w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-slate-500">
+                        <th className="py-2 pr-3">Scope</th>
+                        <th className="py-2 pr-3 text-right">Current</th>
+                        <th className="py-2 pr-3 text-right">Benchmark</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scopeRows.map((row) => (
+                        <tr key={`exec-${row.label}`} className="border-b last:border-b-0">
+                          <td className="py-2 pr-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(row.current)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(row.benchmark)}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t font-semibold text-slate-900">
+                        <td className="py-2 pr-3">Total</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(currentTotal)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums">{formatNumber(benchmarkTotal)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500">2. Net Zero Commitment</div>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">{commitmentStatement}</p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {targetMilestones.slice(0, 4).map((item) => (
+                      <div key={`commit-${item.label}`} className="rounded-xl border bg-white p-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</div>
+                        <div className="mt-1 font-semibold text-slate-900">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500">3. Background Information</div>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <div><strong>Report title:</strong> {reportTitle}</div>
+                    <div><strong>Reporting period:</strong> {periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : "Reporting period not set"}</div>
+                    <div><strong>Selected datasets:</strong> {selectedDatasets.length > 0 ? `${selectedDatasets.length} selected` : "None selected"}</div>
+                    <div><strong>Job status:</strong> {job.status ?? "Draft"}</div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.22em] text-slate-500">11. Standards and Methodology Used</div>
+                  <div className="mt-3 space-y-3">
+                    {methodologiesUsed.length > 0 ? (
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">Methodologies used</div>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                          {methodologiesUsed.slice(0, 6).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {datasetsUsed.length > 0 ? (
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">Datasets used</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {datasetsUsed.slice(0, 8).map((item) => (
+                            <Badge key={item} variant="secondary" className="bg-white">
+                              {item}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
 
           <div className="grid gap-6 xl:grid-cols-2 print:grid-cols-1">
-            <Card className="live-report-section print:break-inside-avoid">
+            <Card className="live-report-section print:break-inside-avoid" id="carbon-emissions-overview">
               <CardHeader>
-                <CardTitle>Scope breakdown</CardTitle>
+                <CardTitle>4. Carbon Emissions Overview</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  {executiveSummaryText} The current reporting cycle uses the selected live datasets and the latest available
+                  activity data to present a current-year view alongside the benchmark period for comparison.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Current total</div>
+                    <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(currentTotal)}</div>
+                    <div className="text-xs text-slate-500">tCO2e for the reporting year</div>
+                  </div>
+                  <div className="rounded-2xl border bg-slate-50 p-4">
+                    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Benchmark</div>
+                    <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(benchmarkTotal)}</div>
+                    <div className="text-xs text-slate-500">tCO2e benchmark comparison</div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-white p-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Reporting period</div>
+                      <div className="mt-1 font-medium text-slate-900">
+                        {periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : "Reporting period not set"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Selected datasets</div>
+                      <div className="mt-1 font-medium text-slate-900">
+                        {selectedDatasets.length > 0 ? `${selectedDatasets.length} datasets selected` : "No additional datasets selected"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="live-report-section print:break-inside-avoid" id="analysis-by-scope">
+              <CardHeader>
+                <CardTitle>5. Analysis by Scope</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[320px] w-full">
+                <p className="text-sm leading-6 text-slate-700">
+                  The total calculated emissions are broken down by scope below. This mirrors the HTML report logic and is intended
+                  to give a clear view of which scope is carrying the largest burden in the reporting period.
+                </p>
+                <div className="mt-4 h-[280px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
                       <Legend />
-                      <Pie data={scopeChartData} dataKey="value" nameKey="name" outerRadius={110} innerRadius={60} paddingAngle={3}>
+                      <Pie data={scopeChartData} dataKey="value" nameKey="name" outerRadius={100} innerRadius={55} paddingAngle={3}>
                         {scopeChartData.map((entry, index) => (
                           <Cell key={entry.name} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
                         ))}
@@ -377,45 +646,54 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card className="live-report-section print:break-inside-avoid">
-              <CardHeader>
-                <CardTitle>Current vs benchmark</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[320px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={benchmarkChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
-                      <Bar dataKey="value" radius={[10, 10, 0, 0]}>
-                        {benchmarkChartData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.fill} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="mt-4 overflow-hidden rounded-2xl border bg-white">
+                  <table className="w-full border-collapse text-sm">
+                    <thead className="bg-slate-50 text-left text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Scope</th>
+                        <th className="px-4 py-3 text-right">Current</th>
+                        <th className="px-4 py-3 text-right">Benchmark</th>
+                        <th className="px-4 py-3 text-right">Change</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scopeRows.map((row) => (
+                        <tr key={row.label} className="border-t">
+                          <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
+                          <td className="px-4 py-3 text-right tabular-nums">{formatNumber(row.current)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums">{formatNumber(row.benchmark)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums">
+                            {row.delta >= 0 ? "+" : ""}
+                            {formatNumber(row.delta)}
+                            {row.deltaPct !== null ? ` (${row.deltaPct >= 0 ? "+" : ""}${row.deltaPct.toFixed(1)}%)` : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  Reported Scope 3 values may shift as further source data becomes available in future years.
+                </p>
               </CardContent>
             </Card>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] print:grid-cols-1">
-            <Card className="live-report-section print:break-inside-avoid">
+            <Card className="live-report-section print:break-inside-avoid" id="emissions-by-activity">
               <CardHeader>
-                <CardTitle>Activity mix</CardTitle>
+                <CardTitle>6. Emissions by Activity</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="h-[360px] w-full">
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  {activityNarrativeIntro || "The activity mix below shows which operational categories are driving emissions across the reporting period."}
+                </p>
+                <div className="h-[340px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={activityChartData} layout="vertical" margin={{ top: 10, right: 20, left: 8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" />
-                      <YAxis type="category" dataKey="name" width={150} />
+                      <YAxis type="category" dataKey="name" width={160} />
                       <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
                       <Bar dataKey="value" radius={[0, 10, 10, 0]}>
                         {activityChartData.map((entry) => (
@@ -425,34 +703,207 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {activityChartData.map((entry) => (
+                    <div key={entry.name} className="rounded-xl border bg-slate-50 p-3">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{entry.name}</div>
+                      <div className="mt-1 text-lg font-semibold tabular-nums">{formatNumber(entry.value)}</div>
+                      <div className="text-xs text-slate-500">tCO2e contribution</div>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 
-            <Card className="live-report-section print:break-inside-avoid">
+            <Card className="live-report-section print:break-inside-avoid" id="intensity-analysis">
               <CardHeader>
-                <CardTitle>Top categories</CardTitle>
+                <CardTitle>7. Intensity Metric Analysis</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {topCategories.length > 0 ? (
-                    topCategories.map((item) => (
-                      <div key={`${item.category}-${item.scope}`} className="rounded-2xl border bg-slate-50 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-medium text-slate-900">{item.category}</div>
-                            <div className="text-xs text-slate-500">{item.scope || "Unscoped"}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-lg font-semibold tabular-nums">{formatNumber(item.emissions)}</div>
-                            <div className="text-xs text-slate-500">tCO2e</div>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  {intensityNarrative || "Intensity metrics help normalise emissions to business activity and make comparisons more meaningful over time."}
+                </p>
+                {Object.keys(intensityMetrics).length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                    {Object.entries(intensityMetrics).map(([key, metric]) => {
+                      const label = safeText(metric?.label, key);
+                      const value = toNumber(metric?.value);
+                      const divider = toNumber(metric?.divider || 1) || 1;
+                      const intensity = value > 0 ? (currentTotal / value) * divider : 0;
+                      return (
+                        <div key={key} className="rounded-2xl border bg-white p-4 shadow-sm">
+                          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
+                          <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(intensity)}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {formatNumber(value, 0)} units per {formatNumber(divider, 0)}
                           </div>
                         </div>
-                        {item.report_label ? <div className="mt-2 text-xs text-slate-500">{item.report_label}</div> : null}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
+                    No intensity metrics saved for this job yet.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2 print:grid-cols-1">
+            <Card className="live-report-section print:break-inside-avoid" id="emissions-reduction-targets">
+              <CardHeader>
+                <CardTitle>8. Emissions Reduction Targets</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  {reductionTargetsNarrative || "The target pathway is structured around an interim reduction milestone and a longer-term net zero year."}
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {targetMilestones.map((item) => (
+                    <div key={item.label} className="rounded-2xl border bg-slate-50 p-4">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</div>
+                      <div className="mt-1 text-xl font-semibold text-slate-900">{item.value}</div>
+                      <div className="mt-1 text-xs text-slate-500">{item.hint}</div>
+                    </div>
+                  ))}
+                </div>
+                {reductionProjectsNarrative ? <p className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-700">{reductionProjectsNarrative}</p> : null}
+              </CardContent>
+            </Card>
+
+            <Card className="live-report-section print:break-inside-avoid" id="carbon-reduction-actions">
+              <CardHeader>
+                <CardTitle>9. Carbon Reduction Actions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {jobActions.length > 0 ? (
+                  <div className="grid gap-4">
+                    {jobActions.map((group) => (
+                      <div key={group.term || group.label} className="rounded-2xl border bg-slate-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-semibold text-slate-900">{group.label}</div>
+                            <div className="text-xs text-slate-500">{group.hint}</div>
+                          </div>
+                          <Badge variant="outline" className="bg-white">
+                            {group.count ?? 0}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {(group.items || []).slice(0, 4).map((item, index) => (
+                            <div key={`${group.term || group.label}-${index}`} className="rounded-lg border bg-white px-3 py-2 text-sm text-slate-700">
+                              {liveActionItemLabel(item as LiveActionItem)}
+                            </div>
+                          ))}
+                          {(group.items || []).length === 0 ? (
+                            <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-sm text-slate-500">No actions in this group.</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
+                    No action plan items available.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2 print:grid-cols-1">
+            <Card className="live-report-section print:break-inside-avoid" id="secr-data">
+              <CardHeader>
+                <CardTitle>10. SECR Emissions Data</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  The following fields summarise the organisation details used to support SECR-style disclosures and the reporting boundary.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {reportMetadataRows.length > 0 ? (
+                    reportMetadataRows.map((row) => (
+                      <div key={row.label} className="rounded-xl border bg-slate-50 p-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{row.label}</div>
+                        <div className="mt-1 text-sm font-medium text-slate-900">{getDisplayValue(row.value)}</div>
                       </div>
                     ))
                   ) : (
                     <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
-                      No category breakdown available yet.
+                      No SECR metadata has been saved for this job yet.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="live-report-section print:break-inside-avoid" id="data-quality">
+              <CardHeader>
+                <CardTitle>12. Data Quality / Confidence</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm leading-6 text-slate-700">
+                  {dataConfidenceNarrative || "Data quality notes are used to explain the sources, assumptions, and confidence level behind the reported values."}
+                </p>
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Datasets referenced</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {datasetsUsed.length > 0 ? (
+                      datasetsUsed.slice(0, 10).map((item) => (
+                        <Badge key={item} variant="secondary" className="bg-white">
+                          {item}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-500">No datasets referenced yet.</span>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2 print:grid-cols-1">
+            <Card className="live-report-section print:break-inside-avoid" id="declaration-signoff">
+              <CardHeader>
+                <CardTitle>13. Declaration and Sign Off</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Consultant</div>
+                  <div className="mt-2 text-base font-semibold text-slate-900">{consultantName || "N/A"}</div>
+                  <div className="text-sm text-slate-600">{consultantPosition || "Consultant position not set"}</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    Signature date: {consultantSignatureDate ? formatDateDisplay(consultantSignatureDate) : "Not set"}
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Client signee</div>
+                  <div className="mt-2 text-base font-semibold text-slate-900">{clientSigneeName || "N/A"}</div>
+                  <div className="text-sm text-slate-600">{clientSigneePosition || "Client position not set"}</div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    Signature date: {clientSignatureDate ? formatDateDisplay(clientSignatureDate) : "Not set"}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="live-report-section print:break-inside-avoid" id="glossary">
+              <CardHeader>
+                <CardTitle>14. Glossary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {glossaryTerms.length > 0 ? (
+                    glossaryTerms.slice(0, 16).map((term) => (
+                      <Badge key={term} variant="outline" className="bg-white">
+                        {term}
+                      </Badge>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
+                      No glossary terms have been saved for this report.
                     </div>
                   )}
                 </div>
@@ -460,74 +911,28 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
             </Card>
           </div>
 
-          <Card className="live-report-section print:break-inside-avoid">
+          <Card className="live-report-section print:break-inside-avoid" id="appendix">
             <CardHeader>
-              <CardTitle>Intensity metrics</CardTitle>
+              <CardTitle>15. Appendix</CardTitle>
             </CardHeader>
-            <CardContent>
-              {Object.keys(intensityMetrics).length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {Object.entries(intensityMetrics).map(([key, metric]) => {
-                    const label = safeText(metric?.label, key);
-                    const value = toNumber(metric?.value);
-                    const divider = toNumber(metric?.divider || 1) || 1;
-                    const intensity = value > 0 ? currentTotal / value * divider : 0;
-
-                    return (
-                      <div key={key} className="rounded-2xl border bg-white p-4 shadow-sm">
-                        <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
-                        <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(intensity)}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {formatNumber(value, 0)} units per {formatNumber(divider, 0)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
-                  No intensity metrics saved for this job yet.
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="live-report-section print:break-inside-avoid">
-            <CardHeader>
-              <CardTitle>Action plan</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {jobActions.length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {jobActions.map((group) => (
-                    <div key={group.term || group.label} className="rounded-2xl border bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-semibold text-slate-900">{group.label}</div>
-                          <div className="text-xs text-slate-500">{group.hint}</div>
-                        </div>
-                        <Badge variant="outline" className="bg-white">
-                          {group.count ?? 0}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {(group.items || []).slice(0, 4).map((item, index) => (
-                          <div key={`${group.term || group.label}-${index}`} className="rounded-lg border bg-white px-3 py-2 text-sm text-slate-700">
-                            {liveActionItemLabel(item as LiveActionItem)}
-                          </div>
-                        ))}
-                        {(group.items || []).length === 0 ? (
-                          <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-sm text-slate-500">No actions in this group.</div>
-                        ) : null}
-                      </div>
+            <CardContent className="space-y-4">
+              <p className="text-sm leading-6 text-slate-700">
+                The appendix contains the supporting datasets and references used in this reporting cycle. It is intended to provide
+                traceability back to the source data and any selected job-level additions.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {datasetsUsed.length > 0 ? (
+                  datasetsUsed.slice(0, 12).map((item) => (
+                    <div key={`appendix-${item}`} className="rounded-xl border bg-slate-50 p-3 text-sm text-slate-700">
+                      {item}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
-                  No action plan items available.
-                </div>
-              )}
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
+                    No appendix datasets were selected.
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

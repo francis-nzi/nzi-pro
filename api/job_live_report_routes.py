@@ -17,11 +17,15 @@ from api.job_report_routes import (
     ACTIVITY_GROUP_COLORS,
     ACTIVITY_GROUP_ORDER,
     _build_activity_grouping,
+    _get_job_assigned_template_selection,
     get_benchmark_emissions,
     get_emissions_by_category,
     get_job_data,
+    get_job_target_data,
+    _get_template_variable_values_for_render,
     get_scope_totals,
 )
+from api.report_template_routes import _get_job_report_metadata
 from services.report_actions import get_job_report_actions_payload
 
 router = APIRouter()
@@ -63,6 +67,19 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
     intensity_metrics = _load_job_intensity_metrics(int(job_id))
     job_actions = get_job_report_actions_payload(int(job_id))
+    target_data = get_job_target_data(int(job_id))
+    report_metadata = _get_job_report_metadata(int(job_id))
+    template_selection = _get_job_assigned_template_selection(int(job_id))
+    template_variables: dict[str, Any] = {}
+    if template_selection and template_selection.get("template_id") is not None:
+        try:
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(template_selection["template_id"]),
+                int(template_selection["version_id"]) if template_selection.get("version_id") is not None else None,
+            )
+        except Exception:
+            template_variables = {}
 
     current_total = _coerce_float(scope_totals.get("Total"))
     benchmark_total = _coerce_float(benchmark_totals.get("Total"))
@@ -83,6 +100,9 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "activity_group_colors": ACTIVITY_GROUP_COLORS,
         "job_actions": job_actions,
         "intensity_metrics": intensity_metrics,
+        "target_data": target_data,
+        "report_metadata": report_metadata,
+        "template_variables": template_variables,
         "summary": {
             "current_total": current_total,
             "benchmark_total": benchmark_total,
