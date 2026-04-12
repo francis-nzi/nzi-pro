@@ -7,11 +7,14 @@ browser report page can render directly, including print-friendly charts.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 
 from api.auth import _current_user
+from core.database import get_conn
 from api.job_intensity_routes import _load_job_intensity_metrics
 from api.job_report_routes import (
     ACTIVITY_GROUP_COLORS,
@@ -26,6 +29,8 @@ from api.job_report_routes import (
     get_scope_totals,
 )
 from api.report_template_routes import _get_job_report_metadata
+from services.emissions_reporting import load_combined_emissions_summary_rows
+from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
 
 router = APIRouter()
@@ -54,6 +59,89 @@ def _summarize_category(categories: list[dict[str, Any]]) -> dict[str, Any] | No
     }
 
 
+def _frontend_base_url(request: Request) -> str:
+    explicit = str(os.getenv("FRONTEND_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+def _playwright_headers(request: Request) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    cookie = str(request.headers.get("cookie") or "").strip()
+    if cookie:
+        headers["cookie"] = cookie
+    authorization = str(request.headers.get("authorization") or "").strip()
+    if authorization:
+        headers["authorization"] = authorization
+    x_user = str(request.headers.get("x-user") or "").strip()
+    if x_user:
+        headers["x-user"] = x_user
+    x_user_email = str(request.headers.get("x-user-email") or "").strip()
+    if x_user_email:
+        headers["x-user-email"] = x_user_email
+    return headers
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        return int(float(value))
+    except Exception:
+        return None
+
+
+def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
+    jobs_df = con.execute(
+        """
+        SELECT job_id
+        FROM jobs
+        WHERE client_db_id = %s
+          AND reporting_year IS NOT NULL
+        ORDER BY reporting_year ASC, job_id ASC
+        """,
+        [int(client_db_id)],
+    ).df()
+    if jobs_df is None or getattr(jobs_df, "empty", True):
+        return []
+
+    job_ids = [int(job_id) for job_id in jobs_df["job_id"].tolist() if _coerce_int(job_id) is not None]
+    if not job_ids:
+        return []
+
+    emissions_df = load_combined_emissions_summary_rows(con, job_ids)
+    if emissions_df is None or getattr(emissions_df, "empty", True):
+        return []
+
+    if "dashboard_year" not in emissions_df.columns:
+        return []
+
+    emissions_df = emissions_df.copy()
+    emissions_df["dashboard_year_norm"] = emissions_df["dashboard_year"].apply(_coerce_int)
+    emissions_df = emissions_df[emissions_df["dashboard_year_norm"].notna()]
+    if emissions_df.empty:
+        return []
+
+    grouped = emissions_df.groupby(["dashboard_year_norm", "scope"])["emissions"].sum().reset_index()
+    years = sorted({int(year) for year in emissions_df["dashboard_year_norm"].tolist() if _coerce_int(year) is not None})
+    yearly_emissions: list[dict[str, Any]] = []
+    for year in years:
+        year_rows = grouped[grouped["dashboard_year_norm"] == year]
+        yearly_emissions.append(
+            {
+                "year": int(year),
+                "scope1": float(year_rows[year_rows["scope"] == "Scope 1"]["emissions"].sum()),
+                "scope2": float(year_rows[year_rows["scope"] == "Scope 2"]["emissions"].sum()),
+                "scope3": float(year_rows[year_rows["scope"] == "Scope 3"]["emissions"].sum()),
+                "total": float(year_rows["emissions"].sum()),
+            }
+        )
+    return yearly_emissions
+
+
 @router.get("/jobs/{job_id}/live-report-data")
 def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_current_user)) -> dict[str, Any]:
     """Return the live report payload for the browser report page."""
@@ -69,6 +157,8 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     job_actions = get_job_report_actions_payload(int(job_id))
     target_data = get_job_target_data(int(job_id))
     report_metadata = _get_job_report_metadata(int(job_id))
+    with get_conn() as con:
+      yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
     template_selection = _get_job_assigned_template_selection(int(job_id))
     template_variables: dict[str, Any] = {}
     if template_selection and template_selection.get("template_id") is not None:
@@ -100,6 +190,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "activity_group_colors": ACTIVITY_GROUP_COLORS,
         "job_actions": job_actions,
         "intensity_metrics": intensity_metrics,
+        "yearly_emissions": yearly_emissions,
         "target_data": target_data,
         "report_metadata": report_metadata,
         "template_variables": template_variables,
@@ -111,3 +202,64 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
             "top_category": _summarize_category(categories),
         },
     }
+
+
+def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
+    from playwright.sync_api import sync_playwright
+
+    frontend_base = _frontend_base_url(request)
+    report_url = f"{frontend_base}/jobs/{int(job_id)}/report-live?print=1"
+    ensure_playwright_browser()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(
+            viewport={"width": 1440, "height": 2200},
+            extra_http_headers=_playwright_headers(request),
+        )
+        try:
+            page = context.new_page()
+            page.goto(report_url, wait_until="networkidle")
+            page.locator(".live-report-section").first.wait_for(state="visible", timeout=60000)
+            page.wait_for_timeout(1200)
+            page.emulate_media(media="print")
+            return page.pdf(
+                format="A4",
+                print_background=True,
+                margin={
+                    "top": "10mm",
+                    "right": "10mm",
+                    "bottom": "10mm",
+                    "left": "10mm",
+                },
+            )
+        finally:
+            context.close()
+            browser.close()
+
+
+@router.get("/jobs/{job_id}/report-live-pdf")
+def get_job_live_report_pdf(
+    job_id: int,
+    request: Request,
+    _user: dict[str, str] = Depends(_current_user),
+) -> Response:
+    job_data = get_job_data(int(job_id))
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    try:
+        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render live report PDF: {exc}") from exc
+
+    job_number = str(job_data.get("job_number") or f"job-{job_id}").strip() or f"job-{job_id}"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{job_number}-live-report.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )

@@ -7,7 +7,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -59,6 +58,13 @@ type LiveReportData = {
     summary_sentence?: string | null;
   };
   intensity_metrics?: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
+  yearly_emissions?: Array<{
+    year?: number | null;
+    scope1?: number | null;
+    scope2?: number | null;
+    scope3?: number | null;
+    total?: number | null;
+  }>;
   template_variables?: Record<string, unknown>;
   summary?: {
     current_total?: number | null;
@@ -81,6 +87,7 @@ type LiveReportData = {
 type JobLiveReportProps = {
   jobId: number;
   baseUrl: string;
+  printMode?: boolean;
 };
 type LiveActionItem = Record<string, unknown>;
 
@@ -174,11 +181,11 @@ function formatDateDisplay(value: unknown): string {
   return raw;
 }
 
-export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
+export default function JobLiveReport({ jobId, baseUrl, printMode = false }: JobLiveReportProps) {
   const [data, setData] = useState<LiveReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [refreshIndex, setRefreshIndex] = useState(0);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,7 +223,7 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, jobId, refreshIndex]);
+  }, [baseUrl, jobId]);
 
   const job = data?.job_data ?? null;
   const scopeTotals = useMemo(() => data?.scope_totals ?? {}, [data?.scope_totals]);
@@ -291,15 +298,17 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
     [scopeTotals],
   );
 
-  const activityChartData = useMemo(() => {
-    const order = data?.activity_group_order ?? [];
-    const totals = data?.activity_totals ?? {};
-    return order.map((group) => ({
-      name: group,
-      value: toNumber(totals[group] ?? 0),
-      fill: data?.activity_group_colors?.[group] ?? "#64748b",
-    }));
-  }, [data?.activity_group_colors, data?.activity_group_order, data?.activity_totals]);
+  const topCategoryData = useMemo(() => {
+    return [...(data?.categories ?? [])]
+      .map((row) => ({
+        category: safeText((row as Record<string, unknown>).report_label ?? (row as Record<string, unknown>).category, "Uncategorized"),
+        emissions: toNumber((row as Record<string, unknown>).emissions),
+        scope: safeText((row as Record<string, unknown>).scope, ""),
+      }))
+      .filter((row) => row.emissions > 0)
+      .sort((a, b) => b.emissions - a.emissions)
+      .slice(0, 6);
+  }, [data?.categories]);
 
   const liveSummary = data?.summary ?? null;
   const currentTotal = liveSummary?.current_total ?? toNumber(scopeTotals.Total ?? scopeTotals.total ?? 0);
@@ -323,13 +332,39 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
   const reportYear = job?.reporting_year ?? new Date().getFullYear();
   const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
   const selectedDatasets = splitCommaList(reportMetadata.datasets_names);
+  const downloadLiveReportPdf = async () => {
+    try {
+      setDownloadingPdf(true);
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Failed to download PDF (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `${(job?.job_number || `job-${jobId}`).replace(/[\\/:*?"<>|]+/g, "-")}-live-report.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
   const reportSections = [
     { id: "executive-summary", label: "1. Executive Summary" },
     { id: "net-zero-commitment", label: "2. Net Zero Commitment" },
     { id: "background-information", label: "3. Background Information" },
     { id: "carbon-emissions-overview", label: "4. Carbon Emissions Overview" },
     { id: "analysis-by-scope", label: "5. Analysis by Scope" },
-    { id: "emissions-by-activity", label: "6. Emissions by Activity" },
+    { id: "emissions-by-activity", label: "6. Top Emissions" },
     { id: "intensity-analysis", label: "7. Intensity Metric Analysis" },
     { id: "emissions-reduction-targets", label: "8. Emissions Reduction Targets" },
     { id: "carbon-reduction-actions", label: "9. Carbon Reduction Actions" },
@@ -402,21 +437,25 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
 
   return (
     <div className="live-report-root space-y-6 bg-white text-slate-950">
-      <div className="no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
-        <div>
-          <div className="text-xs uppercase tracking-[0.24em] text-slate-500">Live Report</div>
-          <div className="text-sm text-slate-600">Browser-friendly report with print-safe SVG charts.</div>
+      {!printMode ? (
+        <div className="no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3 shadow-sm">
+          <div>
+            <div className="text-xs uppercase tracking-[0.24em] text-slate-500">Live Report</div>
+            <div className="text-sm text-slate-600">Browser-friendly report with print-safe SVG charts.</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href={`/jobs/${jobId}/report-new`}>Back to Report Builder</Link>
+            </Button>
+            <Button variant="outline" onClick={() => window.print()} disabled={loading}>
+              Print / Save PDF
+            </Button>
+            <Button variant="secondary" onClick={downloadLiveReportPdf} disabled={loading || downloadingPdf}>
+              {downloadingPdf ? "Preparing PDF..." : "Download PDF"}
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setRefreshIndex((prev) => prev + 1)} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh"}
-          </Button>
-          <Button onClick={() => window.print()}>Print report</Button>
-          <Button asChild variant="secondary">
-            <Link href={`/jobs/${jobId}/report-new`}>Open report builder</Link>
-          </Button>
-        </div>
-      </div>
+      ) : null}
 
       {loading ? <div className="text-sm text-muted-foreground">Loading live report...</div> : null}
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div> : null}
@@ -635,44 +674,67 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
                   The total calculated emissions are broken down by scope below. This mirrors the HTML report logic and is intended
                   to give a clear view of which scope is carrying the largest burden in the reporting period.
                 </p>
-                <div className="mt-4 h-[280px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
-                      <Legend />
-                      <Pie data={scopeChartData} dataKey="value" nameKey="name" outerRadius={100} innerRadius={55} paddingAngle={3}>
-                        {scopeChartData.map((entry, index) => (
-                          <Cell key={entry.name} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="mt-4 overflow-hidden rounded-2xl border bg-white">
-                  <table className="w-full border-collapse text-sm">
-                    <thead className="bg-slate-50 text-left text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3">Scope</th>
-                        <th className="px-4 py-3 text-right">Current</th>
-                        <th className="px-4 py-3 text-right">Benchmark</th>
-                        <th className="px-4 py-3 text-right">Change</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scopeRows.map((row) => (
-                        <tr key={row.label} className="border-t">
-                          <td className="px-4 py-3 font-medium text-slate-900">{row.label}</td>
-                          <td className="px-4 py-3 text-right tabular-nums">{formatNumber(row.current)}</td>
-                          <td className="px-4 py-3 text-right tabular-nums">{formatNumber(row.benchmark)}</td>
-                          <td className="px-4 py-3 text-right tabular-nums">
-                            {row.delta >= 0 ? "+" : ""}
-                            {formatNumber(row.delta)}
-                            {row.deltaPct !== null ? ` (${row.deltaPct >= 0 ? "+" : ""}${row.deltaPct.toFixed(1)}%)` : ""}
-                          </td>
-                        </tr>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+                  <div className="relative mx-auto aspect-square w-full max-w-[480px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={scopeChartData} dataKey="value" nameKey="name" innerRadius="77%" outerRadius="96%" paddingAngle={2}>
+                          {scopeChartData.map((_, index) => (
+                            <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(val: number | string | undefined) => `${formatNumber(Number(val ?? 0))} tCO2e`} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <div className="text-center leading-none">
+                        <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
+                          {formatNumber(currentTotal)}
+                        </div>
+                        <div className="mt-2 text-[11px] text-muted-foreground">tCO2e total</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3 pt-2">
+                    {scopeChartData.map((scope, index) => {
+                      const pct = currentTotal > 0 ? (scope.value / currentTotal) * 100 : 0;
+                      return (
+                        <div key={scope.name} className="flex items-center justify-between gap-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
+                            <span>{scope.name}</span>
+                          </div>
+                          <span className="font-medium">{pct.toFixed(1)}%</span>
+                        </div>
+                      );
+                    })}
+                    <div className="mt-2 border-t pt-2">
+                      <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                        <span>Total</span>
+                        <span>
+                          {scopeChartData.reduce((acc, scope) => acc + (currentTotal > 0 ? (scope.value / currentTotal) * 100 : 0), 0).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-4 border-t pt-3">
+                      <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO2e by Scope</div>
+                      {scopeChartData.map((scope, index) => (
+                        <div key={`${scope.name}-tco2e`} className="flex items-center justify-between gap-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[index % SCOPE_COLORS.length] }} />
+                            <span>{scope.name}</span>
+                          </div>
+                          <span className="font-medium">{formatNumber(scope.value)}</span>
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                      <div className="mt-2 border-t pt-2">
+                        <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                          <span>Total</span>
+                          <span>{formatNumber(currentTotal)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <p className="mt-3 text-xs text-slate-500">
                   Reported Scope 3 values may shift as further source data becomes available in future years.
@@ -684,33 +746,29 @@ export default function JobLiveReport({ jobId, baseUrl }: JobLiveReportProps) {
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)] print:grid-cols-1">
             <Card className="live-report-section print:break-inside-avoid" id="emissions-by-activity">
               <CardHeader>
-                <CardTitle>6. Emissions by Activity</CardTitle>
+                <CardTitle>6. Top Emissions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm leading-6 text-slate-700">
-                  {activityNarrativeIntro || "The activity mix below shows which operational categories are driving emissions across the reporting period."}
+                  {activityNarrativeIntro || "The chart below shows which operational categories are driving emissions across the reporting period."}
                 </p>
-                <div className="h-[340px] w-full">
+                <div className="h-[320px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={activityChartData} layout="vertical" margin={{ top: 10, right: 20, left: 8, bottom: 0 }}>
+                    <BarChart data={topCategoryData} layout="vertical" margin={{ top: 4, right: 20, left: 24, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" />
-                      <YAxis type="category" dataKey="name" width={160} />
+                      <YAxis type="category" dataKey="category" width={140} tick={{ fontSize: 12 }} />
                       <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
-                      <Bar dataKey="value" radius={[0, 10, 10, 0]}>
-                        {activityChartData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.fill} />
-                        ))}
-                      </Bar>
+                      <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {activityChartData.map((entry) => (
-                    <div key={entry.name} className="rounded-xl border bg-slate-50 p-3">
-                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{entry.name}</div>
-                      <div className="mt-1 text-lg font-semibold tabular-nums">{formatNumber(entry.value)}</div>
-                      <div className="text-xs text-slate-500">tCO2e contribution</div>
+                  {topCategoryData.map((entry) => (
+                    <div key={entry.category} className="rounded-xl border bg-slate-50 p-3">
+                      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{entry.category}</div>
+                      <div className="mt-1 text-lg font-semibold tabular-nums">{formatNumber(entry.emissions)}</div>
+                      <div className="text-xs text-slate-500">{entry.scope || "Category emissions"}</div>
                     </div>
                   ))}
                 </div>
