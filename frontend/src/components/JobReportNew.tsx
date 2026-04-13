@@ -155,6 +155,50 @@ const SECTION_LABEL_ALIASES: Record<string, string> = {
 
 const AI_DRAFT_SECTIONS = new Set(["Executive Summary", "Emissions Overview", "Actions"]);
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isLikelyNetworkFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.trim().toLowerCase();
+  return (
+    message.includes("fetch failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("network error") ||
+    message.includes("load failed")
+  );
+}
+
+function formatFriendlyFetchError(error: unknown, fallback: string): string {
+  if (isLikelyNetworkFetchError(error)) {
+    return fallback;
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
+async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 1): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isLikelyNetworkFetchError(error)) {
+        throw error;
+      }
+      await sleep(250 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Fetch failed");
+}
+
 function toneClass(tone: ReportProfile["statusTone"]): string {
   if (tone === "ready") return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (tone === "preview") return "bg-sky-100 text-sky-800 border-sky-200";
@@ -360,6 +404,7 @@ export default function JobReportNew({
   const [draftSyncReady, setDraftSyncReady] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftGeneratingSection, setDraftGeneratingSection] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState("");
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
@@ -373,9 +418,9 @@ export default function JobReportNew({
     setError("");
     try {
       const [assignmentRes, actionsRes, versionsRes] = await Promise.all([
-        fetch(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }),
+        fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }, 1),
+        fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }, 1),
+        fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }, 1),
       ]);
 
       if (!assignmentRes.ok) {
@@ -410,7 +455,7 @@ export default function JobReportNew({
         "crp_standard";
       setSelectedKey(preferredKey);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load reporting workspace");
+      setError(formatFriendlyFetchError(err, "Failed to load reporting workspace"));
     } finally {
       setLoading(false);
     }
@@ -507,7 +552,7 @@ export default function JobReportNew({
       return;
     }
 
-    const res = await fetch(`${baseUrl}/jobs/${jobId}/report-drafts`, {
+    const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts`, {
       method: "PUT",
       credentials: "include",
       headers: {
@@ -517,7 +562,7 @@ export default function JobReportNew({
         template_key: selectedProfile.templateKey,
         sections,
       }),
-    });
+    }, 1);
     if (!res.ok) {
       const message = await res.text().catch(() => "");
       throw new Error(message || `Failed to save report drafts (${res.status})`);
@@ -536,7 +581,7 @@ export default function JobReportNew({
 
     const handle = window.setTimeout(() => {
       void syncReportDrafts().catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to save report drafts");
+        setDraftError(formatFriendlyFetchError(err, "Unable to save draft changes right now."));
       });
     }, 500);
 
@@ -555,9 +600,10 @@ export default function JobReportNew({
       }
 
       try {
-        const res = await fetch(
+        const res = await fetchWithRetry(
           `${baseUrl}/jobs/${jobId}/report-draft-context?template_key=${encodeURIComponent(selectedProfile.templateKey)}`,
-          { credentials: "include" }
+          { credentials: "include" },
+          1
         );
         if (!res.ok) {
           throw new Error(`Failed to load draft context (${res.status})`);
@@ -588,9 +634,10 @@ export default function JobReportNew({
       setServerDraftCount(0);
 
       try {
-        const res = await fetch(
+        const res = await fetchWithRetry(
           `${baseUrl}/jobs/${jobId}/report-drafts?template_key=${encodeURIComponent(selectedProfile.templateKey)}`,
-          { credentials: "include" }
+          { credentials: "include" },
+          1
         );
         if (!res.ok) {
           throw new Error(`Failed to load saved drafts (${res.status})`);
@@ -706,13 +753,13 @@ export default function JobReportNew({
     setStatus("");
     setError("");
     try {
-      const res = await fetch(
+      const res = await fetchWithRetry(
         `${baseUrl}/jobs/${jobId}/generate-report-with-assets?save_version=true&report_version_status=review`,
         {
           method: "POST",
           credentials: "include",
         }
-      );
+      , 1);
       if (!res.ok) {
         let message = `Failed to save review PDF (${res.status})`;
         try {
@@ -744,7 +791,7 @@ export default function JobReportNew({
       setStatus(`Saved review PDF as ${versionLabel}.`);
       await loadWorkspace();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save review PDF");
+      setError(formatFriendlyFetchError(err, "Failed to save review PDF"));
     } finally {
       setSavingReportVersion(false);
     }
@@ -756,14 +803,14 @@ export default function JobReportNew({
       setStatus("");
       setError("");
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/report-versions/${reportVersionId}`, {
+        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-versions/${reportVersionId}`, {
           method: "PATCH",
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ status: "final" }),
-        });
+        }, 1);
         if (!res.ok) {
           let message = `Failed to mark version final (${res.status})`;
           try {
@@ -780,7 +827,7 @@ export default function JobReportNew({
         setStatus("Saved report version marked final.");
         await loadWorkspace();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to mark version final");
+        setError(formatFriendlyFetchError(err, "Failed to mark version final"));
       } finally {
         setSavingReportVersion(false);
       }
@@ -801,7 +848,7 @@ export default function JobReportNew({
     setError("");
 
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-template-assignment`, {
+      const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-template-assignment`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -809,7 +856,7 @@ export default function JobReportNew({
           template_id: template.template_id,
           version_id: template.latest_version_id ?? null,
         }),
-      });
+      }, 1);
 
       if (!res.ok) {
         const message = await res.text().catch(() => "");
@@ -829,7 +876,7 @@ export default function JobReportNew({
       setSelectedKey(profile.key);
       setStatus(`${profile.title} - ${profile.subtitle} assigned to this job.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to assign profile");
+      setError(formatFriendlyFetchError(err, "Failed to assign profile"));
     } finally {
       setSavingTemplateId(null);
     }
@@ -839,6 +886,7 @@ export default function JobReportNew({
     setDraftNotes((prev) => ({ ...prev, [section]: value }));
     setDraftOrigins((prev) => ({ ...prev, [section]: value.trim() ? "local" : "starter" }));
     setDraftDirty(true);
+    setDraftError("");
   }
 
   function clearDraftNotes() {
@@ -846,6 +894,7 @@ export default function JobReportNew({
     setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
     setDraftDirty(true);
     setStatus("Draft canvas reset to the starter prompts.");
+    setDraftError("");
   }
 
   const generateSectionDraft = useCallback(
@@ -858,8 +907,9 @@ export default function JobReportNew({
       setDraftGeneratingSection(section);
       setStatus("");
       setError("");
+      setDraftError("");
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
+        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
           method: "POST",
           credentials: "include",
           headers: {
@@ -870,7 +920,7 @@ export default function JobReportNew({
             template_key: selectedProfile.templateKey,
             provider: "anthropic",
           }),
-        });
+        }, 1);
 
         if (!res.ok) {
           let message = `Failed to generate draft for ${section} (${res.status})`;
@@ -902,7 +952,7 @@ export default function JobReportNew({
         setDraftDirty(true);
         setStatus(`Generated an AI draft for ${section}.`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : `Failed to generate draft for ${section}`);
+        setDraftError(formatFriendlyFetchError(err, `Unable to generate draft for ${section} right now.`));
       } finally {
         setDraftGeneratingSection(null);
       }
@@ -1103,6 +1153,12 @@ export default function JobReportNew({
                 </p>
               ) : null}
             </div>
+
+            {draftError ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                {draftError}
+              </div>
+            ) : null}
 
             <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
               <div className="rounded-2xl border bg-white p-2.5">
