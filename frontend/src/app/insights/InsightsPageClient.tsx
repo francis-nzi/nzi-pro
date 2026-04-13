@@ -1,26 +1,25 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
+  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-
-import PageHeader from "@/components/PageHeader";
+import {
+  AlertTriangle, Briefcase, CheckCircle2, ChevronRight,
+  Clock, Flame, Layers, Shield, TrendingDown, TrendingUp, Users,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import StatusBadge from "@/components/StatusBadge";
+import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
+import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
@@ -320,7 +319,7 @@ const EMPTY_REPORT: ReportViewData = {
 
 const EMPTY_SAVED_REPORTS: SavedReport[] = [];
 
-const REPORT_CHART_COLORS = ["#1c5026", "#f26624", "#0f766e", "#2563eb", "#f59e0b", "#7c3aed", "#db2777", "#475569"];
+const REPORT_CHART_COLORS = MCKINSEY_DATA_COLORS;
 
 const REPORT_CHART_CONFIG: Record<string, ReportChartConfig> = {
   client_portfolio: {
@@ -382,6 +381,35 @@ const REPORT_CHART_CONFIG: Record<string, ReportChartConfig> = {
     topMetricLabel: "tCO2e",
   },
 };
+
+// ─── Visual constants ─────────────────────────────────────────────────────────
+
+const ACCENT: Record<string, { border: string; icon: string }> = {
+  blue:   { border: "border-l-blue-500",   icon: "text-blue-500" },
+  red:    { border: "border-l-red-500",    icon: "text-red-500" },
+  amber:  { border: "border-l-amber-500",  icon: "text-amber-500" },
+  green:  { border: "border-l-green-500",  icon: "text-green-500" },
+  orange: { border: "border-l-orange-500", icon: "text-orange-500" },
+  purple: { border: "border-l-purple-500", icon: "text-purple-500" },
+};
+const MS_COLORS = { green: "#16a34a", amber: "#d97706", red: "#dc2626", no_milestones: "#94a3b8" };
+const JOB_STATUS_COLORS: Record<string, string> = {
+  "Open": "#027AB1", "Data Gathering Phase": "#39BDF3", "Reporting Phase": "#F26624",
+  "Review": "#8C5AC8", "Completed": "#16a34a", "Archived": "#94a3b8", "Cancelled": "#dc2626",
+};
+
+// ─── Display helpers ──────────────────────────────────────────────────────────
+
+function gbp(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 1_000_000) return `£${Number(v / 1_000_000).toLocaleString("en-GB", { maximumFractionDigits: 1 })}M`;
+  if (a >= 1_000) return `£${Math.round(v / 1_000)}k`;
+  return `£${Math.round(v).toLocaleString("en-GB")}`;
+}
+function n(v: unknown, dp = 1): string {
+  return Number(v || 0).toLocaleString("en-GB", { maximumFractionDigits: dp });
+}
+function hrs(h: number): string { return `${n(h)}h`; }
 
 function formatNumber(value: number, digits = 1): string {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -791,6 +819,63 @@ export default function InsightsPageClient() {
     [reportView, selectedCrm, selectedIndustry, selectedYear]
   );
 
+  // ─── Chart data ───────────────────────────────────────────────────────────────
+
+  const emissionsChartData = useMemo(() =>
+    (data?.year_trend ?? []).filter(y => y.year !== null).sort((a, b) => +a.year! - +b.year!).map(y => ({ year: String(y.year), emissions: +y.total_emissions || 0 })),
+  [data]);
+
+  const milestoneDonutData = useMemo(() => [
+    { name: "On Track",      value: jobsStatus.green,         color: MS_COLORS.green },
+    { name: "Due Soon",      value: jobsStatus.amber,         color: MS_COLORS.amber },
+    { name: "Overdue",       value: jobsStatus.red,           color: MS_COLORS.red },
+    { name: "No Milestones", value: jobsStatus.no_milestones, color: MS_COLORS.no_milestones },
+  ].filter(d => d.value > 0), [jobsStatus]);
+
+  const opsMilestoneDonutData = useMemo(() => {
+    const m = operationsData.metrics;
+    return [
+      { name: "On Track",      value: m.healthy_jobs,      color: MS_COLORS.green },
+      { name: "Due Soon",      value: m.due_soon_jobs,     color: MS_COLORS.amber },
+      { name: "Overdue",       value: m.overdue_jobs,      color: MS_COLORS.red },
+      { name: "No Milestones", value: m.no_milestone_jobs, color: MS_COLORS.no_milestones },
+    ].filter(d => d.value > 0);
+  }, [operationsData]);
+
+  const industryChartData = useMemo(() =>
+    (data?.industry_breakdown ?? []).sort((a, b) => b.client_count - a.client_count).slice(0, 10).map(d => ({ name: d.industry || "Unspecified", value: d.client_count })),
+  [data]);
+
+  const topEmittersChartData = useMemo(() =>
+    (data?.top_emitting_clients ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "…" : c.client_name, emissions: +c.emissions || 0, id: c.client_id })),
+  [data]);
+
+  const jobStatusChartData = useMemo(() =>
+    (data?.job_status_breakdown ?? []).map(s => ({ name: s.status || "Unknown", value: s.count })),
+  [data]);
+
+  const timeSubjectChartData = useMemo(() =>
+    (operationsData.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "…" : d.subject, hours: +d.hours || 0 })),
+  [operationsData]);
+
+  const monthlyChartData = useMemo(() => {
+    const map = new Map<string, { month: string; invoiced: number; paid: number; quotes: number }>();
+    for (const x of financialData.monthly_invoices ?? []) map.set(x.month, { month: x.month, invoiced: +x.total_value || 0, paid: +x.paid_total || 0, quotes: 0 });
+    for (const x of financialData.monthly_quotes ?? []) { const e = map.get(x.month); if (e) e.quotes = +x.total_value || 0; else map.set(x.month, { month: x.month, invoiced: 0, paid: 0, quotes: +x.total_value || 0 }); }
+    return [...map.values()].slice(-12);
+  }, [financialData]);
+
+  const quoteDonutData = useMemo(() =>
+    (financialData.quote_status_breakdown ?? []).map((q, i) => ({ name: q.status, value: +q.total_value || 0, color: MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] })),
+  [financialData]);
+
+  const topClientsChartData = useMemo(() =>
+    (financialData.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.invoice_total || 0, id: c.client_id })),
+  [financialData]);
+
+  const crmOpts = useMemo(() => data?.available_crm ?? [], [data]);
+  const isSuperuser = selectedCrm === null;
+
   function toggleReportDrill(key: string, label: string, value: string) {
     setReportDrill((current) => {
       if (current?.key === key && current.value === value) {
@@ -961,757 +1046,630 @@ export default function InsightsPageClient() {
     return null;
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="mx-auto w-full max-w-7xl px-6 py-10 text-sm text-muted-foreground">Loading insights...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <PageHeader
-          title="Insights"
-          subtitle={overviewSubtitle(data)}
-          breadcrumbs={[{ label: "Insights" }]}
-          actions={
-            <>
-              <Button variant="outline" onClick={() => void loadInsights()}>
-                Refresh
-              </Button>
-              <Button variant="secondary" asChild>
-                <Link href="/">Back to Hub</Link>
-              </Button>
-            </>
-          }
-        />
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 space-y-5">
 
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">Reporting Year</div>
-              <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={(value) => setSelectedYear(value === ALL_FILTER_VALUE ? null : Number(value))}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All years" />
-                </SelectTrigger>
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Insights</h2>
+          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+            {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+            <span>{isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Year</span>
+            <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={v => setSelectedYear(v === ALL_FILTER_VALUE ? null : Number(v))}>
+              <SelectTrigger className="h-8 w-28 text-xs"><SelectValue placeholder="All years" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
+                {(data?.available_years ?? []).map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {(data?.available_industries ?? []).length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Industry</span>
+              <Select value={selectedIndustry ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedIndustry(v === ALL_FILTER_VALUE ? null : v)}>
+                <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="All industries" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
-                  {(data?.available_years || []).map((year) => (
-                    <SelectItem key={year} value={String(year)}>
-                      {year}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value={ALL_FILTER_VALUE}>All</SelectItem>
+                  {(data?.available_industries ?? []).map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">Industry</div>
-              <Select value={selectedIndustry ?? ALL_FILTER_VALUE} onValueChange={(value) => setSelectedIndustry(value === ALL_FILTER_VALUE ? null : value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All industries" />
-                </SelectTrigger>
+          )}
+          {teamMembers.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">CRM</span>
+              <Select value={selectedCrm ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedCrm(v === ALL_FILTER_VALUE ? null : v)}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All CRMs" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL_FILTER_VALUE}>All industries</SelectItem>
-                  {(data?.available_industries || []).map((industry) => (
-                    <SelectItem key={industry} value={industry}>
-                      {industry}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value={ALL_FILTER_VALUE}>All CRMs</SelectItem>
+                  {teamMembers.map(m => <SelectItem key={m.email} value={m.full_name || m.email}>{m.full_name || m.email}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">Client Owner</div>
-              <Select value={selectedCrm ?? ALL_FILTER_VALUE} onValueChange={(value) => setSelectedCrm(value === ALL_FILTER_VALUE ? null : value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All client owners" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER_VALUE}>All client owners</SelectItem>
-                  {teamMembers.map((member) => (
-                    <SelectItem key={member.email || member.full_name} value={member.full_name || member.email}>
-                      {member.full_name || member.email}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void loadInsights()}>Refresh</Button>
+        </div>
+      </div>
 
-        {error ? (
-          <Card className="mb-6 border-red-200">
-            <CardContent className="pt-6 text-sm text-red-600">{error}</CardContent>
-          </Card>
-        ) : null}
+      {/* ── CRM pill strip ── */}
+      {crmOpts.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">View:</span>
+          <InsightsPill active={isSuperuser} onClick={() => setSelectedCrm(null)}>All CRMs</InsightsPill>
+          {crmOpts.map(c => <InsightsPill key={c} active={selectedCrm === c} onClick={() => setSelectedCrm(selectedCrm === c ? null : c)}>{c}</InsightsPill>)}
+        </div>
+      )}
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="flex h-auto flex-wrap justify-start">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="clients">Clients</TabsTrigger>
-            <TabsTrigger value="jobs">Jobs</TabsTrigger>
-            <TabsTrigger value="financial">Financial</TabsTrigger>
-            <TabsTrigger value="operations">Operations</TabsTrigger>
-            <TabsTrigger value="reports">Reports</TabsTrigger>
-          </TabsList>
+      {error && <div className="text-sm text-red-500 py-1">{error}</div>}
 
-          <TabsContent value="overview" className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Clients</div>
-                  <div className="mt-2 text-3xl font-semibold">{data?.metrics.total_clients ?? 0}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Portfolio in current filter</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-muted-foreground">Emissions</div>
-                    {data?.metrics.yoy_change !== null && data?.metrics.yoy_change !== undefined ? (
-                      <div className={`text-xs font-medium ${Number(data.metrics.yoy_change) > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                        {Number(data.metrics.yoy_change) > 0 ? "+" : ""}
-                        {Number(data.metrics.yoy_change).toFixed(1)}%
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="mt-2 text-3xl font-semibold">{formatNumber(data?.metrics.total_emissions ?? 0)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">tCO2e in selected year</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Active Jobs</div>
-                  <div className="mt-2 text-3xl font-semibold">{data?.metrics.active_jobs ?? 0}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Live delivery workload</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Total Jobs</div>
-                  <div className="mt-2 text-3xl font-semibold">{totalJobs}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">All statuses in view</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Delivery Risk</div>
-                  <div className="mt-2 text-3xl font-semibold">{jobsStatus.red}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Jobs with overdue milestones</div>
-                </CardContent>
-              </Card>
+      {/* ── Loading skeleton ── */}
+      {loading && !data && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}><CardContent className="pt-6 pb-4"><div className="h-10 bg-muted animate-pulse rounded" /></CardContent></Card>
+          ))}
+        </div>
+      )}
+
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className="mb-1">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="clients">Clients</TabsTrigger>
+          <TabsTrigger value="jobs">Jobs</TabsTrigger>
+          <TabsTrigger value="financial">Financial</TabsTrigger>
+          <TabsTrigger value="operations">Operations</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
+        </TabsList>
+
+          {/* ══ OVERVIEW ══ */}
+          <TabsContent value="overview" className="space-y-5 pt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <InsightsKpi label="Clients"        value={data?.metrics.total_clients ?? "—"}                                                               icon={<Users className="h-4 w-4" />}        accent="blue"   sub="portfolio" />
+              <InsightsKpi label="Active Jobs"    value={operationsData.metrics.active_jobs}                                                               icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
+              <InsightsKpi label="Overdue Jobs"   value={operationsData.metrics.overdue_jobs}                                                              icon={<Flame className="h-4 w-4" />}        accent="red"    sub="milestone overdue" />
+              <InsightsKpi label="Due Soon"       value={operationsData.metrics.due_soon_jobs}                                                             icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
+              <InsightsKpi label="Emissions"      value={data ? `${n(data.metrics.total_emissions)} t` : "—"}                                             icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : undefined} />
+              <InsightsKpi label="YoY Change"     value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "—"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Emissions Trend */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Emissions Trend</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(data?.year_trend || []).length > 0 ? (
-                    (data?.year_trend || []).map((row) => (
-                      <div key={`trend-${row.year ?? "na"}`} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>{row.year ?? "Unknown"}</span>
-                          <span className="font-medium">{formatNumber(row.total_emissions)} tCO2e</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted">
-                          <div
-                            className="h-2 rounded-full bg-[#1c5026]"
-                            style={{
-                              width: `${Math.max(
-                                8,
-                                ((Number(row.total_emissions || 0) / Math.max(...(data?.year_trend || []).map((item) => Number(item.total_emissions || 0)), 1)) * 100)
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No emissions trend data yet.</div>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions Trend (tCO2e)</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {emissionsChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={emissionsChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                          <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
+                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
+                          <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${n(+v)} t`} width={64} />
+                          <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO2e`, "Emissions"]} />
+                          <Area type="monotone" dataKey="emissions" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gE)" strokeWidth={2.5} dot={{ r: 4, fill: MCKINSEY_DATA_COLORS[0] }} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
                   )}
                 </CardContent>
               </Card>
 
+              {/* Milestone Health donut */}
               <Card>
-                <CardHeader>
-                  <CardTitle>Milestone Health</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded border p-4">
-                    <div className="text-xs text-muted-foreground">Healthy</div>
-                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.green}</div>
-                  </div>
-                  <div className="rounded border p-4">
-                    <div className="text-xs text-muted-foreground">Due Soon</div>
-                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.amber}</div>
-                  </div>
-                  <div className="rounded border p-4">
-                    <div className="text-xs text-muted-foreground">Overdue</div>
-                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.red}</div>
-                  </div>
-                  <div className="rounded border p-4">
-                    <div className="text-xs text-muted-foreground">No Milestones</div>
-                    <div className="mt-1 text-2xl font-semibold">{jobsStatus.no_milestones}</div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="clients" className="space-y-6">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Industry Mix</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(data?.industry_breakdown || []).length > 0 ? (
-                    (data?.industry_breakdown || []).slice(0, 10).map((row) => (
-                      <div key={`industry-${row.industry}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span>{row.industry || "Unspecified"}</span>
-                        <span className="font-medium">{row.client_count}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No client industry mix available yet.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Top Emitting Clients</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(data?.top_emitting_clients || []).length > 0 ? (
-                    (data?.top_emitting_clients || []).map((row) => (
-                      <Link
-                        key={`client-${row.client_id}`}
-                        href={`/clients/${row.client_id}`}
-                        className="flex items-center justify-between rounded border p-3 text-sm transition-colors hover:bg-muted/40"
-                      >
-                        <span>{row.client_name || "Unknown client"}</span>
-                        <span className="font-medium">{formatNumber(row.emissions)} tCO2e</span>
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Top client emissions will appear as jobs and scope data build out.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Client Intelligence Themes</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
-                <div className="rounded border p-4">
-                  <div className="text-sm font-medium">Portfolio Mix</div>
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    Industry concentration, client ownership, benchmark coverage, and client growth patterns.
-                  </div>
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-sm font-medium">Retention & Renewals</div>
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    Upcoming renewals, dormant clients, repeat job patterns, and account risk indicators.
-                  </div>
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-sm font-medium">Client Drilldown</div>
-                  <div className="mt-2 text-sm text-muted-foreground">
-                    From portfolio view to individual client records, reporting history, and emissions performance.
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="jobs" className="space-y-6">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Job Status Breakdown</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(data?.job_status_breakdown || []).length > 0 ? (
-                    (data?.job_status_breakdown || []).map((row) => (
-                      <div key={`status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span>{row.status || "Unknown"}</span>
-                        <span className="font-medium">{row.count}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No job status data available yet.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Jobs By CRM</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(data?.jobs_per_crm || []).length > 0 ? (
-                    (data?.jobs_per_crm || []).map((row) => (
-                      <div key={`crm-${row.crm_name}`} className="rounded border p-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">{row.crm_name || "Unassigned"}</span>
-                          <span>{row.total_jobs} jobs</span>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {Object.entries(row.statuses || {}).map(([status, count]) => (
-                            <span key={`${row.crm_name}-${status}`} className={`rounded-full px-2 py-1 text-xs ${toneForStatus(status)}`}>
-                              {status}: {count}
-                            </span>
-                          ))}
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {milestoneDonutData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="flex items-center gap-4">
+                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={milestoneDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
+                              {milestoneDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="text-center"><div className="text-xl font-bold">{jobsStatus.total}</div><div className="text-[10px] text-muted-foreground">jobs</div></div>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">CRM workload will appear here as jobs are created.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Job Activity</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(data?.recent_activity || []).length > 0 ? (
-                  (data?.recent_activity || []).map((row) => (
-                    <Link
-                      key={`job-${row.job_id}`}
-                      href={`/jobs/${row.job_id}`}
-                      className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.8fr]"
-                    >
-                      <div>
-                        <div className="font-medium">{row.title || `Job ${row.job_id}`}</div>
-                        <div className="text-xs text-muted-foreground">{row.client_name || "Unknown client"}</div>
-                      </div>
-                      <div className="text-muted-foreground">{row.reporting_year || "-"}</div>
-                      <div>
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForStatus(row.status || "")}`}>
-                          {row.status || "Unknown"}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground">{formatDate(row.start_date)}</div>
-                      <div className="text-muted-foreground">{row.milestone_status || "-"}</div>
-                    </Link>
-                  ))
-                ) : (
-                  <div className="text-sm text-muted-foreground">Recent job activity will appear here as delivery work expands.</div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="financial" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Quote Value</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.quote_value_total)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.quote_count} quotes in view</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Approved Quotes</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.approved_quote_value)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Approved or signed quote value</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Invoiced</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.invoice_total)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.invoice_count} invoices in view</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Paid</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.paid_total)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.cash_realisation_pct.toFixed(1)}% cash realisation</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Outstanding</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatMoney(financialData.metrics.outstanding_total)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{financialData.metrics.overdue_invoice_count} overdue invoices</div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Financial Context</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-[1.5fr_1fr_1fr]">
-                <div className="rounded border p-4 text-sm text-muted-foreground">
-                  {hasMixedFinancialCurrencies
-                    ? `The current filters include multiple currencies (${financialCurrencies.join(", ")}), so totals are portfolio totals from stored values rather than FX-normalised reporting.`
-                    : `Financial totals are currently shown in ${financialCurrencies[0] || "GBP"} for the selected portfolio filters.`}
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-xs text-muted-foreground">Quote Conversion</div>
-                  <div className="mt-1 text-2xl font-semibold">
-                    {financialData.metrics.quote_value_total > 0
-                      ? `${((financialData.metrics.invoice_total / financialData.metrics.quote_value_total) * 100).toFixed(1)}%`
-                      : "0.0%"}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">Invoiced as a share of quoted value</div>
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-xs text-muted-foreground">Collections Risk</div>
-                  <div className="mt-1 text-2xl font-semibold">{financialData.metrics.overdue_invoice_count}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Invoices overdue and still unpaid</div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Quotes</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {quoteMonths.length > 0 ? (
-                    quoteMonths.map((row) => (
-                      <div key={`quote-month-${row.month}`} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>{row.month}</span>
-                          <span className="font-medium">
-                            {formatMoney(row.total_value)} · {row.count} quotes
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted">
-                          <div
-                            className="h-2 rounded-full bg-[#f26624]"
-                            style={{ width: `${Math.max(8, (Number(row.total_value || 0) / maxQuoteMonthValue) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Quote activity will appear here once quotes are created.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Invoices</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {invoiceMonths.length > 0 ? (
-                    invoiceMonths.map((row) => (
-                      <div key={`invoice-month-${row.month}`} className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>{row.month}</span>
-                          <span className="font-medium">
-                            {formatMoney(row.total_value)} invoiced · {formatMoney(row.paid_total)} paid
-                          </span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="h-2 rounded-full bg-muted">
-                            <div
-                              className="h-2 rounded-full bg-[#1c5026]"
-                              style={{ width: `${Math.max(8, (Number(row.total_value || 0) / maxInvoiceMonthValue) * 100)}%` }}
-                            />
+                      <div className="space-y-2.5 flex-1">
+                        {milestoneDonutData.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span>{d.name}</span></div>
+                            <span className="font-semibold">{d.value}</span>
                           </div>
-                          <div className="h-2 rounded-full bg-muted">
-                            <div
-                              className="h-2 rounded-full bg-emerald-500"
-                              style={{ width: `${Math.max(8, (Number(row.paid_total || 0) / maxInvoiceMonthValue) * 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Invoice activity will appear here once invoices are raised.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quote Status Breakdown</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(financialData.quote_status_breakdown || []).length > 0 ? (
-                    financialData.quote_status_breakdown.map((row) => (
-                      <div key={`quote-status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span>{row.status || "Unknown"}</span>
-                        <span className="font-medium">
-                          {row.count} · {formatMoney(row.total_value)}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No quote breakdown is available yet.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Invoice Status Breakdown</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(financialData.invoice_status_breakdown || []).length > 0 ? (
-                    financialData.invoice_status_breakdown.map((row) => (
-                      <div key={`invoice-status-${row.status}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span>{row.status || "Unknown"}</span>
-                        <span className="font-medium">
-                          {row.count} · {formatMoney(row.total_value)}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">No invoice breakdown is available yet.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Clients By Invoiced Value</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(financialData.top_clients_by_invoiced_total || []).length > 0 ? (
-                  financialData.top_clients_by_invoiced_total.map((row) =>
-                    row.client_id ? (
-                      <Link
-                        key={`financial-client-${row.client_id}`}
-                        href={`/clients/${row.client_id}`}
-                        className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.3fr_0.8fr_0.8fr_0.8fr]"
-                      >
-                        <div className="font-medium">{row.client_name || "Unknown client"}</div>
-                        <div className="text-muted-foreground">Invoiced {formatMoney(row.invoice_total)}</div>
-                        <div className="text-muted-foreground">Paid {formatMoney(row.paid_total)}</div>
-                        <div className="text-muted-foreground">Outstanding {formatMoney(row.outstanding_total)}</div>
-                      </Link>
-                    ) : (
-                      <div
-                        key={`financial-client-${row.client_name}`}
-                        className="grid gap-2 rounded border p-3 text-sm md:grid-cols-[1.3fr_0.8fr_0.8fr_0.8fr]"
-                      >
-                        <div className="font-medium">{row.client_name || "Unknown client"}</div>
-                        <div className="text-muted-foreground">Invoiced {formatMoney(row.invoice_total)}</div>
-                        <div className="text-muted-foreground">Paid {formatMoney(row.paid_total)}</div>
-                        <div className="text-muted-foreground">Outstanding {formatMoney(row.outstanding_total)}</div>
-                      </div>
-                    )
-                  )
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    Top clients by invoiced value will appear here as finance records are added.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="operations" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Active Jobs</div>
-                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.active_jobs}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Delivery workload in scope</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Overdue Jobs</div>
-                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.overdue_jobs}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Jobs with overdue milestones</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Due Soon</div>
-                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.due_soon_jobs}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Jobs at amber milestone risk</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Hours Logged</div>
-                  <div className="mt-2 text-3xl font-semibold">{formatNumber(operationsData.metrics.time_logged_hours, 1)}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Tracked delivery effort</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-sm text-muted-foreground">Utilisation</div>
-                  <div className="mt-2 text-3xl font-semibold">{operationsData.metrics.utilisation_pct.toFixed(1)}%</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Logged hours vs estimate</div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Delivery Context</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
-                <div className="rounded border p-4 text-sm text-muted-foreground">
-                  This slice combines milestone plans and tracked time so we can see deadline pressure, effort burn, and where delivery management attention is needed most.
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-xs text-muted-foreground">Healthy Jobs</div>
-                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.healthy_jobs}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Jobs currently on track</div>
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-xs text-muted-foreground">Upcoming Milestones</div>
-                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.upcoming_milestones_30d}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Incomplete due within 30 days</div>
-                </div>
-                <div className="rounded border p-4">
-                  <div className="text-xs text-muted-foreground">Over Estimate</div>
-                  <div className="mt-1 text-2xl font-semibold">{operationsData.metrics.jobs_over_estimate}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Jobs above estimated hours</div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Milestone Health</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(operationsData.milestone_breakdown || []).length > 0 ? (
-                    operationsData.milestone_breakdown.map((row) => (
-                      <div key={`ops-milestone-${row.key}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus(row.key)}`}>{row.status}</span>
-                        <span className="font-medium">{row.count}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Milestone health will appear here as delivery plans are assigned.</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Time By Subject</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {(operationsData.time_by_subject || []).length > 0 ? (
-                    operationsData.time_by_subject.map((row) => (
-                      <div key={`ops-subject-${row.subject}`} className="flex items-center justify-between rounded border p-3 text-sm">
-                        <span>{row.subject || "Unspecified"}</span>
-                        <span className="font-medium">{formatNumber(row.hours, 1)} hrs</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Tracked effort themes will appear here once time logs are added.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>CRM Workload</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(operationsData.crm_workload || []).length > 0 ? (
-                  operationsData.crm_workload.map((row) => (
-                    <div key={`ops-crm-${row.crm_name}`} className="rounded border p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <span className="font-medium">{row.crm_name || "Unassigned"}</span>
-                        <span>{row.total_jobs} active jobs</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("red")}`}>Overdue: {row.red_jobs}</span>
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("amber")}`}>Due Soon: {row.amber_jobs}</span>
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("green")}`}>Healthy: {row.green_jobs}</span>
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus("no_milestones")}`}>No Milestones: {row.no_milestone_jobs}</span>
-                      </div>
-                      <div className="mt-3 grid gap-3 text-sm text-muted-foreground md:grid-cols-3">
-                        <div>Logged: {formatNumber(row.logged_hours, 1)} hrs</div>
-                        <div>Estimate: {formatNumber(row.estimated_hours, 1)} hrs</div>
-                        <div>Utilisation: {row.utilisation_pct !== null ? `${row.utilisation_pct.toFixed(1)}%` : "-"}</div>
+                        ))}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-sm text-muted-foreground">CRM workload will appear here as jobs, milestones, and time logs build out.</div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent jobs */}
+            {(data?.recent_activity ?? []).length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">Recent Jobs</CardTitle>
+                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/jobs">View all</Link></Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {data!.recent_activity.map(job => (
+                    <div key={job.job_id} className="flex items-center gap-3 py-2.5 border-b last:border-0 hover:bg-accent/30 rounded px-1 transition-colors">
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
+                      <div className="flex-1 min-w-0">
+                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
+                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
+                      </div>
+                      <StatusBadge status={job.status} />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ══ CLIENTS ══ */}
+          <TabsContent value="clients" className="space-y-5 pt-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {industryChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[260px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={industryChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
+                          <Tooltip formatter={(v: unknown) => [`${v} clients`, ""]} />
+                          <Bar dataKey="value" name="Clients" radius={[0, 4, 4, 0]}>
+                            {industryChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Emitting Clients</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {topEmittersChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[260px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={topEmittersChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${n(+v)} t`} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                          <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO2e`, "Emissions"]} />
+                          <Bar dataKey="emissions" radius={[0, 4, 4, 0]}>
+                            {topEmittersChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {topEmittersChartData.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {(data?.top_emitting_clients ?? []).slice(0, 8).map(c => (
+                        <Link key={c.client_id} href={`/clients/${c.client_id}`} className="flex items-center justify-between text-xs py-1 px-1 rounded hover:bg-accent/40 transition-colors group">
+                          <span className="truncate text-muted-foreground group-hover:text-foreground">{c.client_name}</span>
+                          <span className="font-medium flex-shrink-0 ml-2">{n(c.emissions)} tCO2e <ChevronRight className="h-3 w-3 inline opacity-0 group-hover:opacity-60" /></span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* ══ JOBS ══ */}
+          <TabsContent value="jobs" className="space-y-5 pt-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Job status bar chart */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Job Status Breakdown</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {jobStatusChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={jobStatusChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} />
+                          <Tooltip formatter={(v: unknown) => [`${v} jobs`, ""]} />
+                          <Bar dataKey="value" name="Jobs" radius={[0, 4, 4, 0]}>
+                            {jobStatusChartData.map((d, i) => <Cell key={i} fill={JOB_STATUS_COLORS[d.name] ?? MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Jobs by CRM table */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs By CRM</CardTitle></CardHeader>
+                <CardContent className="pt-0 overflow-x-auto">
+                  {(data?.jobs_per_crm ?? []).length === 0 ? <InsightsEmpty /> : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-muted-foreground">
+                          <th className="text-left pb-2 font-medium">CRM</th>
+                          <th className="text-right pb-2 font-medium">Jobs</th>
+                          <th className="text-right pb-2 font-medium text-green-600">✓</th>
+                          <th className="text-right pb-2 font-medium text-amber-600">⚠</th>
+                          <th className="text-right pb-2 font-medium text-red-600">✗</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(data?.jobs_per_crm ?? []).map(row => {
+                          const g = row.statuses?.["Open"] ?? 0;
+                          const a = Object.entries(row.statuses ?? {}).filter(([k]) => k.toLowerCase().includes("gather") || k.toLowerCase().includes("report")).reduce((s, [, v]) => s + v, 0);
+                          const r = row.statuses?.["Cancelled"] ?? 0;
+                          const t = row.total_jobs || 1;
+                          return (
+                            <tr key={row.crm_name} className="border-b last:border-0">
+                              <td className="py-2.5 font-medium">{row.crm_name || "Unassigned"}</td>
+                              <td className="text-right py-2.5 text-muted-foreground">{row.total_jobs}</td>
+                              <td className="text-right py-2.5 font-medium text-green-600">{Math.round((g / t) * row.total_jobs)}</td>
+                              <td className="text-right py-2.5 font-medium text-amber-600">{a}</td>
+                              <td className="text-right py-2.5 font-medium text-red-600">{r}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent activity */}
+            {(data?.recent_activity ?? []).length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">Recent Job Activity</CardTitle>
+                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/jobs">View all</Link></Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {data!.recent_activity.map(job => (
+                    <div key={job.job_id} className="flex items-center gap-3 py-2.5 border-b last:border-0 hover:bg-accent/30 rounded px-1 transition-colors">
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
+                      <div className="flex-1 min-w-0">
+                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
+                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
+                      </div>
+                      <StatusBadge status={job.status} />
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ══ FINANCIAL ══ */}
+          <TabsContent value="financial" className="space-y-5 pt-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+              <InsightsKpi label="Quote Pipeline"  value={gbp(financialData.metrics.quote_value_total)} sub={`${financialData.metrics.quote_count} quotes`}    accent="blue"   icon={<TrendingUp className="h-4 w-4" />} />
+              <InsightsKpi label="Approved"        value={gbp(financialData.metrics.approved_quote_value)}                                                      accent="purple" icon={<CheckCircle2 className="h-4 w-4" />} sub="signed or approved" />
+              <InsightsKpi label="Invoiced"        value={gbp(financialData.metrics.invoice_total)} sub={`${financialData.metrics.invoice_count} invoices`}     accent="blue"   icon={<Layers className="h-4 w-4" />} />
+              <InsightsKpi label="Paid"            value={gbp(financialData.metrics.paid_total)} sub={`${n(financialData.metrics.cash_realisation_pct)}% realisation`} accent="green" icon={<CheckCircle2 className="h-4 w-4" />} />
+              <InsightsKpi label="Outstanding"     value={gbp(financialData.metrics.outstanding_total)} sub={`${financialData.metrics.overdue_invoice_count} overdue`} accent={financialData.metrics.overdue_invoice_count > 0 ? "red" : "orange"} icon={<Clock className="h-4 w-4" />} />
+            </div>
+
+            {/* Cash realisation bar */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Cash Realisation</CardTitle></CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(financialData.metrics.cash_realisation_pct, 100)}%`, backgroundColor: financialData.metrics.cash_realisation_pct >= 80 ? "#16a34a" : financialData.metrics.cash_realisation_pct >= 50 ? "#d97706" : "#dc2626" }} />
+                  </div>
+                  <span className="text-lg font-semibold w-14 text-right">{n(financialData.metrics.cash_realisation_pct)}%</span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Paid: {gbp(financialData.metrics.paid_total)}</span>
+                  <span>{hasMixedFinancialCurrencies ? `Multi-currency (${financialCurrencies.join(", ")})` : `Currency: ${financialCurrencies[0] || "GBP"}`}</span>
+                  <span>Invoiced: {gbp(financialData.metrics.invoice_total)}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Monthly revenue area chart */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Monthly Revenue</CardTitle></CardHeader>
+              <CardContent className="pt-0">
+                {monthlyChartData.length === 0 ? <InsightsEmpty /> : (
+                  <div className="h-[240px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={monthlyChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                        <defs>
+                          <linearGradient id="gFI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient>
+                          <linearGradient id="gFP" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16a34a" stopOpacity={0.25} /><stop offset="95%" stopColor="#16a34a" stopOpacity={0} /></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={v => gbp(+v)} width={68} />
+                        <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
+                        <Area type="monotone" dataKey="invoiced" name="Invoiced" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gFI)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="paid"     name="Paid"     stroke="#16a34a"                 fill="url(#gFP)" strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
               </CardContent>
             </Card>
 
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Quote pipeline donut */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Quote Pipeline by Status</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {quoteDonutData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="flex items-center gap-4">
+                      <div className="h-[180px] w-[180px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={quoteDonutData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
+                              {quoteDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="space-y-2 flex-1">
+                        {quoteDonutData.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: d.color }} /><span className="text-muted-foreground">{d.name}</span></div>
+                            <span className="font-medium">{gbp(d.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Top clients bar */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Clients by Revenue</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {topClientsChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[200px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={topClientsChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => gbp(+v)} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
+                          <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), "Invoiced"]} />
+                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                            {topClientsChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Invoice status breakdown */}
             <Card>
-              <CardHeader>
-                <CardTitle>Jobs Needing Attention</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(operationsData.jobs_needing_attention || []).length > 0 ? (
-                  operationsData.jobs_needing_attention.map((row) => (
-                    <Link
-                      key={`ops-job-${row.job_id}`}
-                      href={`/jobs/${row.job_id}`}
-                      className="grid gap-2 rounded border p-3 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.9fr]"
-                    >
-                      <div>
-                        <div className="font-medium">
-                          {[row.job_number, row.title].filter(Boolean).join(" · ") || `Job ${row.job_id}`}
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Invoice Status Breakdown</CardTitle></CardHeader>
+              <CardContent className="pt-0 space-y-2.5">
+                {(financialData.invoice_status_breakdown ?? []).length === 0 ? <InsightsEmpty /> :
+                  financialData.invoice_status_breakdown.map((row, i) => {
+                    const total = financialData.metrics.invoice_total || 1;
+                    const pct = (+row.total_value / total) * 100;
+                    const isOverdue = row.status.toLowerCase().includes("overdue");
+                    return (
+                      <div key={i} className="space-y-0.5">
+                        <div className="flex justify-between text-xs">
+                          <span className={`font-medium ${isOverdue ? "text-red-600" : ""}`}>{row.status}</span>
+                          <span className="text-muted-foreground">{gbp(+row.total_value || 0)} · {row.count} inv.</span>
                         </div>
-                        <div className="text-xs text-muted-foreground">{row.client_name || "Unknown client"}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{row.reason || "Attention required"}</div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: isOverdue ? "#dc2626" : MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} />
+                        </div>
                       </div>
-                      <div>
-                        <span className={`rounded-full px-2 py-1 text-xs ${toneForMilestoneStatus(row.milestone_status)}`}>
-                          {row.milestone_status || "No milestones"}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground">
-                        {row.next_due_name ? `${row.next_due_name}: ${formatDate(row.next_due_date)}` : "No next due date"}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {row.utilisation_pct !== null ? `${row.utilisation_pct.toFixed(1)}% of estimate` : `${formatNumber(row.logged_hours, 1)} hrs logged`}
-                      </div>
-                      <div className="text-muted-foreground">
-                        {row.days_to_next_due !== null && row.days_to_next_due !== undefined
-                          ? `${row.days_to_next_due} days`
-                          : row.crm_name || "-"}
-                      </div>
-                    </Link>
-                  ))
-                ) : (
-                  <div className="text-sm text-muted-foreground">Priority jobs will appear here when risk or effort signals emerge.</div>
-                )}
+                    );
+                  })}
               </CardContent>
             </Card>
           </TabsContent>
 
-          <TabsContent value="reports" className="space-y-4">
+          {/* ══ OPERATIONS ══ */}
+          <TabsContent value="operations" className="space-y-5 pt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              <InsightsKpi label="Active Jobs"    value={operationsData.metrics.active_jobs}                                                                               icon={<Briefcase className="h-4 w-4" />}     accent="blue"   />
+              <InsightsKpi label="On Track"       value={operationsData.metrics.healthy_jobs}                                                                              icon={<CheckCircle2 className="h-4 w-4" />}  accent="green"  sub="green milestone" />
+              <InsightsKpi label="Due Soon"       value={operationsData.metrics.due_soon_jobs}                                                                             icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
+              <InsightsKpi label="Overdue"        value={operationsData.metrics.overdue_jobs}                                                                              icon={<Flame className="h-4 w-4" />}         accent="red"    />
+              <InsightsKpi label="Utilisation"    value={operationsData.metrics.utilisation_pct != null ? `${n(operationsData.metrics.utilisation_pct)}%` : "—"}          icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={`${hrs(operationsData.metrics.time_logged_hours)} logged`} />
+              <InsightsKpi label="Due in 30 days" value={operationsData.metrics.upcoming_milestones_30d}                                                                   icon={<Clock className="h-4 w-4" />}         accent="orange" sub="milestones" />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Milestone health donut */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {opsMilestoneDonutData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="flex items-center gap-4">
+                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={opsMilestoneDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
+                              {opsMilestoneDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="text-center"><div className="text-xl font-bold">{operationsData.metrics.active_jobs}</div><div className="text-[10px] text-muted-foreground">jobs</div></div>
+                        </div>
+                      </div>
+                      <div className="space-y-2.5 flex-1">
+                        {opsMilestoneDonutData.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span>{d.name}</span></div>
+                            <span className="font-semibold">{d.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Time by subject bar */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Time by Subject</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {timeSubjectChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[200px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={timeSubjectChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${v}h`} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
+                          <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))}h`, "Hours"]} />
+                          <Bar dataKey="hours" radius={[0, 4, 4, 0]}>
+                            {timeSubjectChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_ACTIVITY_COLORS[i % MCKINSEY_ACTIVITY_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* CRM workload table */}
+            {operationsData.crm_workload.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">CRM Utilisation</CardTitle></CardHeader>
+                <CardContent className="pt-0 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="text-left pb-2 font-medium">CRM</th>
+                        <th className="text-right pb-2 font-medium">Jobs</th>
+                        <th className="pb-2 font-medium w-48 text-center">Health</th>
+                        <th className="text-right pb-2 font-medium">Logged</th>
+                        <th className="text-right pb-2 font-medium">Est.</th>
+                        <th className="text-right pb-2 font-medium">Util.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {operationsData.crm_workload.map(c => {
+                        const t = c.total_jobs || 1;
+                        const gp = (c.green_jobs / t) * 100;
+                        const ap = (c.amber_jobs / t) * 100;
+                        const rp = (c.red_jobs   / t) * 100;
+                        const u  = c.utilisation_pct;
+                        return (
+                          <tr key={c.crm_name} className="border-b last:border-0">
+                            <td className="py-2.5 font-medium">{c.crm_name || "Unassigned"}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.total_jobs}</td>
+                            <td className="py-2.5 px-3">
+                              <div className="h-2 rounded-full overflow-hidden bg-muted flex">
+                                {gp > 0 && <div style={{ width: `${gp}%`, backgroundColor: MS_COLORS.green }} />}
+                                {ap > 0 && <div style={{ width: `${ap}%`, backgroundColor: MS_COLORS.amber }} />}
+                                {rp > 0 && <div style={{ width: `${rp}%`, backgroundColor: MS_COLORS.red }} />}
+                              </div>
+                              <div className="flex justify-between mt-0.5 text-[10px]">
+                                <span className="text-green-600">{c.green_jobs} ✓</span>
+                                <span className="text-amber-600">{c.amber_jobs} ⚠</span>
+                                <span className="text-red-600">{c.red_jobs} ✗</span>
+                              </div>
+                            </td>
+                            <td className="text-right py-2.5 text-muted-foreground">{hrs(c.logged_hours)}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
+                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Jobs needing attention */}
+            {operationsData.jobs_needing_attention.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    Jobs Needing Attention
+                    <Badge variant="destructive" className="text-[10px] h-5 px-1.5 ml-0.5">{operationsData.jobs_needing_attention.length}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="text-left pb-2 font-medium w-3" />
+                        <th className="text-left pb-2 font-medium">Job</th>
+                        <th className="text-left pb-2 font-medium">Client</th>
+                        <th className="text-left pb-2 font-medium">CRM</th>
+                        <th className="text-left pb-2 font-medium">Next Due</th>
+                        <th className="text-right pb-2 font-medium">Days</th>
+                        <th className="text-left pb-2 font-medium pl-3">Flags</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {operationsData.jobs_needing_attention.map(job => (
+                        <tr key={job.job_id} className="border-b last:border-0 hover:bg-accent/40 transition-colors">
+                          <td className="py-2.5 pr-2"><div className={`w-2.5 h-2.5 rounded-full ${milestoneDotClass(job.milestone_status)}`} /></td>
+                          <td className="py-2.5">
+                            <Link href={`/jobs/${job.job_id}`} className="hover:underline flex items-center gap-1 group font-medium">
+                              <span className="text-muted-foreground text-xs">{job.job_number}</span>
+                              <span className="truncate max-w-[150px]">{job.title ?? `Job ${job.job_id}`}</span>
+                              <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                            </Link>
+                          </td>
+                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[110px]">{job.client_name ?? "—"}</td>
+                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name ?? "—"}</td>
+                          <td className="py-2.5 text-xs">
+                            <div className="text-muted-foreground capitalize">{job.next_due_name?.replace(/_/g, " ") ?? "—"}</div>
+                            <div className="font-medium">{job.next_due_date ? formatDate(job.next_due_date) : "—"}</div>
+                          </td>
+                          <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_next_due == null ? "text-muted-foreground" : job.days_to_next_due < 0 ? "text-red-600" : job.days_to_next_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
+                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "—"}
+                          </td>
+                          <td className="py-2.5 pl-3">
+                            <div className="flex flex-wrap gap-1">
+                              {(job.reason ?? "").split(",").map(r => r.trim()).filter(Boolean).map(r => (
+                                <span key={r} className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 whitespace-nowrap">{r}</span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ══ REPORTS ══ */}
+          <TabsContent value="reports" className="space-y-5 pt-3">
             <Card>
-              <CardHeader>
-                <CardTitle>Saved Reports</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Saved Reports</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-[1.4fr_auto_auto] md:items-end">
                   <div className="space-y-2">
@@ -1812,9 +1770,7 @@ export default function InsightsPageClient() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Starter Views</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Starter Views</CardTitle></CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 {REPORT_PRESETS.map((preset) => (
                   <button
@@ -1831,9 +1787,7 @@ export default function InsightsPageClient() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Report Builder</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Report Builder</CardTitle></CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-[1fr_auto_auto] md:items-end">
                 <div className="space-y-2">
                   <div className="text-sm text-muted-foreground">Report View</div>
@@ -1860,9 +1814,7 @@ export default function InsightsPageClient() {
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>{reportData.title || "Report"}</CardTitle>
-              </CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">{reportData.title || "Report"}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
                   <span>{reportData.description || "Reusable filtered report view for export and drilldown."}</span>
@@ -2081,7 +2033,38 @@ export default function InsightsPageClient() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
     </div>
   );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function InsightsKpi({ label, value, sub, icon, accent = "blue" }: { label: string; value: string | number; sub?: string; icon?: React.ReactNode; accent?: string }) {
+  const s = ACCENT[accent] ?? ACCENT.blue;
+  return (
+    <Card className={`border-l-4 ${s.border}`}>
+      <CardContent className="pt-4 pb-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-muted-foreground leading-tight mb-1">{label}</div>
+            <div className="text-2xl font-semibold leading-tight truncate">{value}</div>
+            {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+          </div>
+          {icon && <div className={`flex-shrink-0 mt-1 ${s.icon} opacity-60`}>{icon}</div>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InsightsPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className={`text-xs px-3 py-1 rounded-full border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}>
+      {children}
+    </button>
+  );
+}
+
+function InsightsEmpty() {
+  return <div className="py-10 text-center text-sm text-muted-foreground">No data available</div>;
 }
