@@ -81,9 +81,6 @@ const JobActions = dynamic(() => import("@/components/JobActions"), {
 const JobReportNew = dynamic(() => import("@/components/JobReportNew"), {
   loading: () => <LazyTabPanel title="Report (New)" description="Loading report editor..." />,
 });
-const JobReporting = dynamic(() => import("@/components/JobReporting"), {
-  loading: () => <LazyTabPanel title="Reporting" description="Loading legacy reporting..." />,
-});
 const JobLca = dynamic(() => import("@/components/JobLca"), {
   loading: () => <LazyTabPanel title="Life Cycle Analysis" description="Loading life cycle analysis..." />,
 });
@@ -197,7 +194,6 @@ const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     defaultTab: "report-new",
     subtabs: [
       { key: "report-new", label: "Report (New)" },
-      { key: "reporting", label: "Reporting (Legacy)" },
     ],
   },
   {
@@ -3288,12 +3284,6 @@ export default function JobDetailPage() {
               baseUrl={baseUrl}
               onOpenActions={() => setActiveTab("actions")}
             />
-          </TabsContent>
-
-          <TabsContent value="reporting" className="mt-0">
-            <div className="space-y-6">
-              <JobReporting jobId={jobId} baseUrl={baseUrl} />
-            </div>
           </TabsContent>
 
           <TabsContent value="lca" className="mt-0">
