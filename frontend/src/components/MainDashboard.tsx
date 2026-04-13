@@ -104,7 +104,7 @@ const ACCENT: Record<string, { border: string; icon: string }> = {
 
 function norm(url: string) { return String(url || "").trim().replace(/\/+$/, ""); }
 function n(v: unknown, dp = 1) { return Number(v || 0).toLocaleString("en-GB", { maximumFractionDigits: dp }); }
-function £(v: number) {
+function gbp(v: number) {
   const a = Math.abs(v);
   if (a >= 1_000_000) return `£${n(v / 1_000_000)}M`;
   if (a >= 1_000) return `£${Math.round(v / 1_000)}k`;
@@ -283,8 +283,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
               <Kpi label="Active Jobs"     value={ops?.metrics.active_jobs ?? ov?.metrics.active_jobs ?? "—"}              icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
               <Kpi label="Overdue Jobs"    value={ops?.metrics.overdue_jobs ?? mil?.red ?? "—"}                            icon={<Flame className="h-4 w-4" />}         accent="red"    sub="milestone overdue" />
               <Kpi label="Due Soon"        value={ops?.metrics.due_soon_jobs ?? mil?.amber ?? "—"}                         icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
-              <Kpi label="Outstanding"     value={fin ? £(fin.metrics.outstanding_total) : "—"}                            icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
-              <Kpi label="Quote Pipeline"  value={fin ? £(fin.metrics.quote_value_total) : "—"}                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
+              <Kpi label="Outstanding"     value={fin ? gbp(fin.metrics.outstanding_total) : "—"}                            icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
+              <Kpi label="Quote Pipeline"  value={fin ? gbp(fin.metrics.quote_value_total) : "—"}                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
               <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
             </div>
 
@@ -435,10 +435,10 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             {!fin ? <Loading /> : (
               <>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Kpi label="Quote Pipeline"  value={£(fin.metrics.quote_value_total)} sub={`${fin.metrics.quote_count} quotes`}    accent="blue"   icon={<TrendingUp className="h-4 w-4" />} />
-                  <Kpi label="Total Invoiced"  value={£(fin.metrics.invoice_total)}    sub={`${fin.metrics.invoice_count} invoices`} accent="purple" icon={<Layers className="h-4 w-4" />} />
-                  <Kpi label="Paid"            value={£(fin.metrics.paid_total)}       sub={`${n(fin.metrics.cash_realisation_pct)}% realisation`} accent="green" icon={<CheckCircle2 className="h-4 w-4" />} />
-                  <Kpi label="Outstanding"     value={£(fin.metrics.outstanding_total)} sub={`${fin.metrics.overdue_invoice_count} overdue`} accent={fin.metrics.overdue_invoice_count > 0 ? "red" : "orange"} icon={<Clock className="h-4 w-4" />} />
+                  <Kpi label="Quote Pipeline"  value={gbp(fin.metrics.quote_value_total)} sub={`${fin.metrics.quote_count} quotes`}    accent="blue"   icon={<TrendingUp className="h-4 w-4" />} />
+                  <Kpi label="Total Invoiced"  value={gbp(fin.metrics.invoice_total)}    sub={`${fin.metrics.invoice_count} invoices`} accent="purple" icon={<Layers className="h-4 w-4" />} />
+                  <Kpi label="Paid"            value={gbp(fin.metrics.paid_total)}       sub={`${n(fin.metrics.cash_realisation_pct)}% realisation`} accent="green" icon={<CheckCircle2 className="h-4 w-4" />} />
+                  <Kpi label="Outstanding"     value={gbp(fin.metrics.outstanding_total)} sub={`${fin.metrics.overdue_invoice_count} overdue`} accent={fin.metrics.overdue_invoice_count > 0 ? "red" : "orange"} icon={<Clock className="h-4 w-4" />} />
                 </div>
 
                 {/* Cash realisation */}
@@ -452,8 +452,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                       <span className="text-lg font-semibold w-14 text-right">{n(fin.metrics.cash_realisation_pct)}%</span>
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Paid: {£(fin.metrics.paid_total)}</span>
-                      <span>Invoiced: {£(fin.metrics.invoice_total)}</span>
+                      <span>Paid: {gbp(fin.metrics.paid_total)}</span>
+                      <span>Invoiced: {gbp(fin.metrics.invoice_total)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -472,8 +472,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
                             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} tickFormatter={v => £(+v)} width={64} />
-                            <Tooltip formatter={(v: unknown) => [£(+Number(v || 0)), ""]} />
+                            <YAxis tick={{ fontSize: 11 }} tickFormatter={v => gbp(+v)} width={64} />
+                            <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
                             <Area type="monotone" dataKey="invoiced" name="Invoiced" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gI)" strokeWidth={2} />
                             <Area type="monotone" dataKey="paid"     name="Paid"     stroke="#16a34a"                 fill="url(#gP)" strokeWidth={2} />
                           </AreaChart>
@@ -496,7 +496,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                                 <Pie data={quoteDonut} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
                                   {quoteDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
                                 </Pie>
-                                <Tooltip formatter={(v: unknown) => [£(+Number(v || 0)), ""]} />
+                                <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
                               </PieChart>
                             </ResponsiveContainer>
                           </div>
@@ -504,7 +504,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                             {quoteDonut.map((d, i) => (
                               <div key={i} className="flex items-center justify-between text-xs">
                                 <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: d.color }} /><span className="text-muted-foreground">{d.name}</span></div>
-                                <span className="font-medium">{£(d.value)}</span>
+                                <span className="font-medium">{gbp(d.value)}</span>
                               </div>
                             ))}
                           </div>
@@ -521,9 +521,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                         <div className="h-[200px]">
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topClients} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => £(+v)} />
+                              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => gbp(+v)} />
                               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
-                              <Tooltip formatter={(v: unknown) => [£(+Number(v || 0)), "Invoiced"]} />
+                              <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), "Invoiced"]} />
                               <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                                 {topClients.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
                               </Bar>
@@ -547,7 +547,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                         <div key={i} className="space-y-0.5">
                           <div className="flex justify-between text-xs">
                             <span className={`font-medium ${ov2 ? "text-red-600" : ""}`}>{row.status}</span>
-                            <span className="text-muted-foreground">{£(+row.total_value || 0)} · {row.count} inv.</span>
+                            <span className="text-muted-foreground">{gbp(+row.total_value || 0)} · {row.count} inv.</span>
                           </div>
                           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: ov2 ? "#dc2626" : MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} />
