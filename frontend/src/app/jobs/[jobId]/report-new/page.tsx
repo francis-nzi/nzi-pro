@@ -20,6 +20,7 @@ export default function JobReportNewPage() {
       sectionLabel="Report (New)"
       sectionHref={`/jobs/${jobId}/report-new`}
       activeGroup="report"
+      activeSubtab="report-new"
     >
       <JobReportNew jobId={jobId} baseUrl={apiBaseUrl()} onOpenActions={() => undefined} />
     </JobSectionShell>

@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 
 import JobWorkspaceHeader from "./JobWorkspaceHeader";
 import JobWorkspaceTabs from "./JobWorkspaceTabs";
-import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceTab } from "./types";
+import JobWorkspaceSubtabs from "./JobWorkspaceSubtabs";
+import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab, WorkspaceTab } from "./types";
 
 type JobSectionShellProps = {
   jobId: number;
@@ -13,6 +14,7 @@ type JobSectionShellProps = {
   sectionLabel: string;
   sectionHref?: string;
   activeGroup?: WorkspaceGroupKey;
+  activeSubtab?: string;
   children?: ReactNode;
   renderContent?: (job: Job) => ReactNode;
 };
@@ -34,12 +36,57 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
+const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
+  setup: [
+    { key: "setup-overview", label: "Setup Overview", href: "/jobs/__JOB_ID__?tab=setup" },
+    { key: "setup-custom-fields", label: "Custom Fields", href: "/jobs/__JOB_ID__?tab=setup" },
+    { key: "setup-report-variables", label: "Job Report Variables", href: "/jobs/__JOB_ID__?tab=setup" },
+  ],
+  data: [
+    { key: "data-entry", label: "Data Entry", href: "/jobs/__JOB_ID__/data-entry" },
+    { key: "employee-commuting", label: "Employee Commuting", href: "/jobs/__JOB_ID__?tab=employee-commuting" },
+    { key: "asset-register", label: "Asset Register", href: "/jobs/__JOB_ID__?tab=asset-register" },
+    { key: "business-travel", label: "Business Travel", href: "/jobs/__JOB_ID__?tab=business-travel" },
+    { key: "upload", label: "Data Upload", href: "/jobs/__JOB_ID__?tab=upload" },
+    { key: "custom-dataset", label: "Custom Dataset", href: "/jobs/__JOB_ID__?tab=custom-dataset" },
+    { key: "custom-factors", label: "Job-Only Factors", href: "/jobs/__JOB_ID__?tab=custom-factors" },
+    { key: "spend-data", label: "Spend Data", href: "/jobs/__JOB_ID__?tab=spend-data" },
+  ],
+  outputs: [
+    { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__?tab=data-output" },
+    { key: "actions", label: "Actions", href: "/jobs/__JOB_ID__?tab=actions" },
+  ],
+  report: [{ key: "report-new", label: "Report (New)", href: "/jobs/__JOB_ID__/report-new" }],
+  analysis: [{ key: "lca", label: "Life Cycle Analysis", href: "/jobs/__JOB_ID__/lca" }],
+  insights: [],
+  communications: [
+    { key: "communications-timeline", label: "Timeline", href: "/jobs/__JOB_ID__/communications-timeline" },
+    { key: "communications-inbox", label: "Inbox", href: "/jobs/__JOB_ID__?tab=communications-inbox" },
+    { key: "communications-notes", label: "Notes", href: "/jobs/__JOB_ID__?tab=communications-notes" },
+    { key: "communications-email", label: "Email", href: "/jobs/__JOB_ID__?tab=communications-email" },
+    { key: "communications-tasks", label: "Tasks", href: "/jobs/__JOB_ID__?tab=communications-tasks" },
+    { key: "communications-automation", label: "Automation", href: "/jobs/__JOB_ID__?tab=communications-automation" },
+    { key: "communications-crm", label: "CRM Timeline", href: "/jobs/__JOB_ID__?tab=communications-crm" },
+  ],
+  financial: [
+    { key: "financial-quotes", label: "Quotes", href: "/jobs/__JOB_ID__/financial-quotes" },
+    { key: "financial-invoices", label: "Invoices", href: "/jobs/__JOB_ID__?tab=financial-invoices" },
+    { key: "financial-other-costs", label: "Other Costs", href: "/jobs/__JOB_ID__?tab=financial-other-costs" },
+    { key: "financial-profit-loss", label: "Profit & Loss", href: "/jobs/__JOB_ID__?tab=financial-profit-loss" },
+  ],
+  admin: [
+    { key: "files", label: "Files", href: "/jobs/__JOB_ID__?tab=files" },
+    { key: "time", label: "Time Entries", href: "/jobs/__JOB_ID__?tab=time" },
+  ],
+};
+
 export default function JobSectionShell({
   jobId,
   baseUrl = apiBaseUrl(),
   sectionLabel,
   sectionHref,
   activeGroup,
+  activeSubtab,
   children,
   renderContent,
 }: JobSectionShellProps) {
@@ -122,7 +169,15 @@ export default function JobSectionShell({
     { key: "communications", label: "Communications", href: `/jobs/${jobId}/communications-timeline` },
     { key: "financial", label: "Financial", href: `/jobs/${jobId}/financial-quotes` },
     { key: "admin", label: "Admin", href: `/jobs/${jobId}?tab=admin` },
-  ] as const;
+  ];
+  const activeWorkspaceSubtabs = (GROUP_SUBTABS[activeWorkspaceGroup] || []).map((subtab) => ({
+    ...subtab,
+    href: subtab.href?.replaceAll("__JOB_ID__", String(jobId)),
+  }));
+  const activeWorkspaceSubtab =
+    activeSubtab ||
+    activeWorkspaceSubtabs[0]?.key ||
+    (activeWorkspaceGroup === "setup" ? "setup-overview" : "");
 
   return (
     <div className="min-h-screen bg-background">
@@ -137,6 +192,15 @@ export default function JobSectionShell({
             onTabChange={() => undefined}
           />
         </div>
+        {activeWorkspaceSubtabs.length > 0 ? (
+          <div className="mt-4">
+            <JobWorkspaceSubtabs
+              activeSubtab={activeWorkspaceSubtab}
+              subtabs={activeWorkspaceSubtabs}
+              onSubtabChange={() => undefined}
+            />
+          </div>
+        ) : null}
         {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading {sectionLabel.toLowerCase()}...</div> : null}
         {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
         {job ? <div className="mt-6">{renderContent ? renderContent(job) : children}</div> : null}

@@ -20,6 +20,7 @@ export default function JobCommunicationsTimelinePage() {
       sectionLabel="Communications"
       sectionHref={`/jobs/${jobId}/communications-timeline`}
       activeGroup="communications"
+      activeSubtab="communications-timeline"
     >
       <JobCommunications jobId={jobId} baseUrl={apiBaseUrl()} mode="timeline" />
     </JobSectionShell>

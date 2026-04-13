@@ -20,6 +20,7 @@ export default function JobDataEntryPage() {
       sectionLabel="Data Entry"
       sectionHref={`/jobs/${jobId}/data-entry`}
       activeGroup="data"
+      activeSubtab="data-entry"
     >
       <JobDataEntry jobId={jobId} />
     </JobSectionShell>

@@ -20,6 +20,7 @@ export default function JobFinancialQuotesPage() {
       sectionLabel="Financials"
       sectionHref={`/jobs/${jobId}/financial-quotes`}
       activeGroup="financial"
+      activeSubtab="financial-quotes"
       renderContent={(job) => (
         <JobFinancial jobId={jobId} clientId={job.client_db_id} jobNumber={job.job_number} baseUrl={apiBaseUrl()} mode="quotes" />
       )}
