@@ -4,12 +4,15 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import JobWorkspaceHeader from "./JobWorkspaceHeader";
-import type { JobWorkspaceJob, WorkspaceBreadcrumb } from "./types";
+import JobWorkspaceTabs from "./JobWorkspaceTabs";
+import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceTab } from "./types";
 
 type JobSectionShellProps = {
   jobId: number;
   baseUrl?: string;
   sectionLabel: string;
+  sectionHref?: string;
+  activeGroup?: WorkspaceGroupKey;
   children?: ReactNode;
   renderContent?: (job: Job) => ReactNode;
 };
@@ -35,6 +38,8 @@ export default function JobSectionShell({
   jobId,
   baseUrl = apiBaseUrl(),
   sectionLabel,
+  sectionHref,
+  activeGroup,
   children,
   renderContent,
 }: JobSectionShellProps) {
@@ -99,12 +104,25 @@ export default function JobSectionShell({
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client" },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}` },
         { label: "Jobs", href: "/jobs" },
-        { label: job.job_number ?? `Job ${job.job_id}` },
-        { label: sectionLabel },
+        { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
+        { label: sectionLabel, href: sectionHref ?? `/jobs/${job.job_id}` },
       ]
-    : [{ label: sectionLabel }];
+    : [{ label: sectionLabel, href: sectionHref ?? `/jobs/${jobId}` }];
+
+  const activeWorkspaceGroup = activeGroup || "setup";
+  const workspaceTabs: WorkspaceTab[] = [
+    { key: "setup", label: "Setup", href: `/jobs/${jobId}?tab=setup` },
+    { key: "data", label: "Data", href: `/jobs/${jobId}/data-entry` },
+    { key: "outputs", label: "Outputs", href: `/jobs/${jobId}?tab=outputs` },
+    { key: "report", label: "Report", href: `/jobs/${jobId}/report-new` },
+    { key: "analysis", label: "Analysis", href: `/jobs/${jobId}/lca` },
+    { key: "insights", label: "Insights", href: `/jobs/${jobId}/insights` },
+    { key: "communications", label: "Communications", href: `/jobs/${jobId}/communications-timeline` },
+    { key: "financial", label: "Financial", href: `/jobs/${jobId}/financial-quotes` },
+    { key: "admin", label: "Admin", href: `/jobs/${jobId}?tab=admin` },
+  ] as const;
 
   return (
     <div className="min-h-screen bg-background">
@@ -112,6 +130,13 @@ export default function JobSectionShell({
         {workspaceJob ? (
           <JobWorkspaceHeader breadcrumbs={breadcrumbs} jobId={jobId} baseUrl={baseUrl} job={workspaceJob} />
         ) : null}
+        <div className="mt-4">
+          <JobWorkspaceTabs
+            activeTab={activeWorkspaceGroup}
+            tabs={workspaceTabs}
+            onTabChange={() => undefined}
+          />
+        </div>
         {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading {sectionLabel.toLowerCase()}...</div> : null}
         {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
         {job ? <div className="mt-6">{renderContent ? renderContent(job) : children}</div> : null}

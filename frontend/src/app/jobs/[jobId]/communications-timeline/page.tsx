@@ -14,9 +14,14 @@ export default function JobCommunicationsTimelinePage() {
   const jobId = Number(params?.jobId);
 
   return (
-    <JobSectionShell jobId={jobId} baseUrl={apiBaseUrl()} sectionLabel="Communications">
+    <JobSectionShell
+      jobId={jobId}
+      baseUrl={apiBaseUrl()}
+      sectionLabel="Communications"
+      sectionHref={`/jobs/${jobId}/communications-timeline`}
+      activeGroup="communications"
+    >
       <JobCommunications jobId={jobId} baseUrl={apiBaseUrl()} mode="timeline" />
     </JobSectionShell>
   );
 }
-

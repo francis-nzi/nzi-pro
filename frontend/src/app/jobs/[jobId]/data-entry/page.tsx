@@ -14,9 +14,14 @@ export default function JobDataEntryPage() {
   const jobId = Number(params?.jobId);
 
   return (
-    <JobSectionShell jobId={jobId} baseUrl={apiBaseUrl()} sectionLabel="Data Entry">
+    <JobSectionShell
+      jobId={jobId}
+      baseUrl={apiBaseUrl()}
+      sectionLabel="Data Entry"
+      sectionHref={`/jobs/${jobId}/data-entry`}
+      activeGroup="data"
+    >
       <JobDataEntry jobId={jobId} />
     </JobSectionShell>
   );
 }
-

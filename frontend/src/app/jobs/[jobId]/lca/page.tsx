@@ -14,9 +14,14 @@ export default function JobLcaPage() {
   const jobId = Number(params?.jobId);
 
   return (
-    <JobSectionShell jobId={jobId} baseUrl={apiBaseUrl()} sectionLabel="Life Cycle Analysis">
+    <JobSectionShell
+      jobId={jobId}
+      baseUrl={apiBaseUrl()}
+      sectionLabel="Life Cycle Analysis"
+      sectionHref={`/jobs/${jobId}/lca`}
+      activeGroup="analysis"
+    >
       <JobLca jobId={jobId} baseUrl={apiBaseUrl()} />
     </JobSectionShell>
   );
 }
-

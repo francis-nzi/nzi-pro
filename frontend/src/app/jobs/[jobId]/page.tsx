@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -844,6 +844,7 @@ function formatDisplayDate(dateValue?: string | null): string {
 export default function JobDetailPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const params = useParams<{ jobId: string }>();
+  const searchParams = useSearchParams();
   const jobId = Number(params?.jobId);
 
   const [job, setJob] = useState<Job | null>(null);
@@ -863,6 +864,19 @@ export default function JobDetailPage() {
   const [totalEmissions, setTotalEmissions] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<string>("setup");
   const [activeSetupSubtab, setActiveSetupSubtab] = useState<string>("setup-overview");
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (!tabParam) return;
+    const groupMatch = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === tabParam);
+    if (groupMatch) {
+      setActiveTab(groupMatch.defaultTab);
+      return;
+    }
+    if (JOB_TAB_TO_GROUP[tabParam]) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [scopeDatasetIds, setScopeDatasetIds] = useState<Record<ScopeKey, string>>({ ...EMPTY_SCOPE_MAP });
@@ -1041,9 +1055,12 @@ export default function JobDetailPage() {
   };
   const workspaceBreadcrumbs: WorkspaceBreadcrumb[] = [
     { label: "Clients", href: "/clients" },
-    { label: clientLabel },
+    {
+      label: clientLabel,
+      href: job?.client_db_id ? `/clients/${job.client_db_id}` : "/clients",
+    },
     { label: "Jobs", href: "/jobs" },
-    { label: jobNumberLabel },
+    { label: jobNumberLabel, href: `/jobs/${jobId}` },
   ];
 
   function selectedSiteName(): string {

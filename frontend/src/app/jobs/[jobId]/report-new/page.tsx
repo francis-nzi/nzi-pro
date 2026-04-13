@@ -14,7 +14,13 @@ export default function JobReportNewPage() {
   const jobId = Number(params?.jobId);
 
   return (
-    <JobSectionShell jobId={jobId} baseUrl={apiBaseUrl()} sectionLabel="Report (New)">
+    <JobSectionShell
+      jobId={jobId}
+      baseUrl={apiBaseUrl()}
+      sectionLabel="Report (New)"
+      sectionHref={`/jobs/${jobId}/report-new`}
+      activeGroup="report"
+    >
       <JobReportNew jobId={jobId} baseUrl={apiBaseUrl()} onOpenActions={() => undefined} />
     </JobSectionShell>
   );
