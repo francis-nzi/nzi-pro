@@ -3287,7 +3287,6 @@ export default function JobDetailPage() {
               jobId={jobId}
               baseUrl={baseUrl}
               onOpenActions={() => setActiveTab("actions")}
-              onOpenLegacyReporting={() => setActiveTab("reporting")}
             />
           </TabsContent>
 

@@ -99,7 +99,6 @@ type JobReportNewProps = {
   jobId: number;
   baseUrl?: string;
   onOpenActions?: () => void;
-  onOpenLegacyReporting?: () => void;
   showEmissionsSummary?: boolean;
 };
 
@@ -347,7 +346,6 @@ export default function JobReportNew({
   jobId,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   onOpenActions,
-  onOpenLegacyReporting,
   showEmissionsSummary = false,
 }: JobReportNewProps) {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
@@ -975,9 +973,15 @@ export default function JobReportNew({
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Choose report profile</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Stage 2
+              </Badge>
+              <CardTitle>Choose report profile</CardTitle>
+            </div>
             <CardDescription>
               Start with the report family, then shape the draft and visuals around the profile.
             </CardDescription>
@@ -1062,7 +1066,12 @@ export default function JobReportNew({
 
         <Card>
           <CardHeader className="space-y-2">
-            <CardTitle>Stage 3 Draft Content</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Stage 3
+              </Badge>
+              <CardTitle>Draft Content</CardTitle>
+            </div>
             <CardDescription>
               Work one section at a time. The navigator keeps the other sections visible without forcing a long scroll.
             </CardDescription>
@@ -1188,9 +1197,10 @@ export default function JobReportNew({
             </div>
           </CardContent>
         </Card>
+        </div>
 
-        <div className="space-y-4 xl:sticky xl:top-24 self-start">
-          <Card>
+        <div className="space-y-4 self-start">
+        <Card id="stage-4-preview-export">
             <CardHeader className="space-y-2">
               <CardTitle>Stage 4 Preview & Export</CardTitle>
               <CardDescription>Quick review before you jump into preview/export.</CardDescription>
@@ -1377,9 +1387,13 @@ export default function JobReportNew({
             <Button
               onClick={() => {
                 closePreviewModal();
-                onOpenLegacyReporting?.();
+                window.setTimeout(() => {
+                  document.getElementById("stage-4-preview-export")?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  });
+                }, 0);
               }}
-              disabled={!onOpenLegacyReporting}
               className="gap-2"
             >
               <FileText className="h-4 w-4" />

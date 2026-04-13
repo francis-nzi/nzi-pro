@@ -15,8 +15,7 @@ export default function JobReportNewPage() {
 
   return (
     <JobSectionShell jobId={jobId} baseUrl={apiBaseUrl()} sectionLabel="Report (New)">
-      <JobReportNew jobId={jobId} baseUrl={apiBaseUrl()} onOpenActions={() => undefined} onOpenLegacyReporting={() => undefined} />
+      <JobReportNew jobId={jobId} baseUrl={apiBaseUrl()} onOpenActions={() => undefined} />
     </JobSectionShell>
   );
 }
-

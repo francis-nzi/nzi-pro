@@ -386,10 +386,6 @@ function WorkspacePanels({
             onTabChange("outputs");
             onSubtabChange("actions");
           }}
-          onOpenLegacyReporting={() => {
-            onTabChange("outputs");
-            onSubtabChange("report");
-          }}
         />
       </div>
     );
