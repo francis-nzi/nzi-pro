@@ -258,7 +258,7 @@ export function LiveDataPDFExport({
       <Button
         onClick={handleExportPDF}
         variant={variant}
-        size={size}
+        size={size === "md" ? "default" : size}
         className="gap-2"
       >
         <Download className="w-4 h-4" />
