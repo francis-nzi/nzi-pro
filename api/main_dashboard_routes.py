@@ -2179,6 +2179,221 @@ def _build_insights_report(
     raise HTTPException(status_code=400, detail=f"Unsupported report view: {view}")
 
 
+@router.get("/dashboard/bi-portfolio")
+def get_dashboard_bi_portfolio(
+    year: int = Query(None, description="Reporting year filter"),
+    industry: str | None = Query(None),
+    crm_owner: str | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """
+    BI-focused portfolio snapshot for business leaders.
+    Returns client portfolio health, cumulative/scope emissions, and geography.
+    """
+    import datetime as _dt
+
+    try:
+        with get_conn() as con:
+            has_clients = _table_exists(con, "clients")
+            has_jobs = _table_exists(con, "jobs")
+
+            # ── Client filters ──────────────────────────────────────────────────
+            client_where_parts: list[str] = []
+            client_params: list[object] = []
+            if industry:
+                client_where_parts.append("c.industry = ?")
+                client_params.append(industry)
+            if crm_owner:
+                client_where_parts.append("COALESCE(c.crm_owner,'Unassigned') = ?")
+                client_params.append(crm_owner)
+            client_where = ("WHERE " + " AND ".join(client_where_parts)) if client_where_parts else ""
+
+            # ── Client portfolio summary ────────────────────────────────────────
+            client_status_breakdown: list[dict] = []
+            total_clients = 0
+            active_clients = 0
+            clients_with_targets = 0
+            new_clients_this_year = 0
+
+            if has_clients:
+                status_rows = con.execute(
+                    f"""
+                    SELECT COALESCE(c.status, 'Active') AS status, COUNT(*) AS cnt
+                    FROM clients c
+                    {client_where}
+                    GROUP BY COALESCE(c.status, 'Active')
+                    ORDER BY cnt DESC
+                    """,
+                    client_params,
+                ).fetchall()
+                for row in status_rows:
+                    client_status_breakdown.append({"status": str(row[0]), "count": int(row[1])})
+                    total_clients += int(row[1])
+                    if str(row[0]).lower() == "active":
+                        active_clients = int(row[1])
+
+                targets_row = con.execute(
+                    f"""
+                    SELECT COUNT(*) FROM clients c
+                    {client_where + (" AND " if client_where_parts else "WHERE ")}net_zero_year IS NOT NULL
+                    """,
+                    client_params,
+                ).fetchone()
+                clients_with_targets = int(targets_row[0]) if targets_row else 0
+
+                current_year = year or _dt.date.today().year
+                new_clients_row = con.execute(
+                    f"""
+                    SELECT COUNT(*) FROM clients c
+                    {client_where + (" AND " if client_where_parts else "WHERE ")}
+                    EXTRACT(YEAR FROM COALESCE(c.created_at, NOW())) = ?
+                    """,
+                    client_params + [current_year],
+                ).fetchone()
+                new_clients_this_year = int(new_clients_row[0]) if new_clients_row else 0
+
+            # ── Jobs delivered / completed ──────────────────────────────────────
+            jobs_delivered_this_year = 0
+            if has_jobs:
+                job_where_parts2: list[str] = ["j.status = 'Completed'"]
+                job_params2: list[object] = []
+                _apply_client_filters(
+                    job_where_parts2, job_params2, client_alias="c",
+                    industry=industry, crm_owner=crm_owner,
+                )
+                if year:
+                    job_where_parts2.append("j.reporting_year = ?")
+                    job_params2.append(int(year))
+                job_where2 = "WHERE " + " AND ".join(job_where_parts2)
+                jd_row = con.execute(
+                    f"SELECT COUNT(*) FROM jobs j LEFT JOIN clients c ON c.db_id = j.client_db_id {job_where2}",
+                    job_params2,
+                ).fetchone()
+                jobs_delivered_this_year = int(jd_row[0]) if jd_row else 0
+
+            # ── Emissions pipeline ──────────────────────────────────────────────
+            emissions_by_country: list[dict] = []
+            emissions_by_scope: dict[str, float] = {"scope_1": 0.0, "scope_2": 0.0, "scope_3": 0.0, "other": 0.0}
+            cumulative_by_year: list[dict] = []
+            total_emissions_managed = 0.0
+            top_clients_detail: list[dict] = []
+
+            # Load ALL years (no year filter) so we can compute cumulative totals
+            all_years_jobs_df = _load_dashboard_emissions_jobs(
+                con, year=None, industry=industry, crm_owner=crm_owner,
+            )
+
+            if all_years_jobs_df is not None and not all_years_jobs_df.empty:
+                all_job_ids = [int(j) for j in all_years_jobs_df["job_id"].tolist() if j is not None]
+                scope_df = load_combined_emissions_summary_rows(con, all_job_ids)
+
+                if scope_df is not None and not scope_df.empty:
+                    scope_df = _attach_dashboard_emissions(con, scope_df)
+                    scope_df = scope_df[scope_df["emissions"] > 0].copy()
+
+                    # Merge country from jobs → clients
+                    if has_clients:
+                        country_map_rows = con.execute(
+                            """
+                            SELECT j.job_id, COALESCE(NULLIF(TRIM(c.addr_country),''), 'Unknown') AS country
+                            FROM jobs j
+                            LEFT JOIN clients c ON c.db_id = j.client_db_id
+                            WHERE j.is_crp = TRUE
+                            """
+                        ).fetchall()
+                        country_by_job = {int(r[0]): str(r[1]) for r in country_map_rows}
+                        scope_df["country"] = scope_df["job_id"].apply(
+                            lambda jid: country_by_job.get(int(jid) if jid is not None else -1, "Unknown")
+                        )
+
+                    # ── Cumulative emissions by year ───────────────────────────
+                    trend_grp = (
+                        scope_df.dropna(subset=["dashboard_year_norm"])
+                        .groupby("dashboard_year_norm")["emissions"]
+                        .sum()
+                        .reset_index()
+                        .sort_values("dashboard_year_norm")
+                    )
+                    running = 0.0
+                    for _, row in trend_grp.iterrows():
+                        annual = float(row["emissions"])
+                        running += annual
+                        cumulative_by_year.append({
+                            "year": int(row["dashboard_year_norm"]),
+                            "annual_emissions": round(annual, 2),
+                            "cumulative": round(running, 2),
+                        })
+                    total_emissions_managed = round(running, 2)
+
+                    # ── Scope breakdown (selected year or all years) ───────────
+                    year_scope_df = scope_df
+                    if year:
+                        year_scope_df = scope_df[scope_df["dashboard_year_norm"] == int(year)].copy()
+                    if "scope" in year_scope_df.columns:
+                        scope_grp = year_scope_df.groupby("scope")["emissions"].sum()
+                        for scope_key, scope_val in scope_grp.items():
+                            k = str(scope_key or "").strip().lower()
+                            if k in ("1", "scope 1", "scope1"):
+                                emissions_by_scope["scope_1"] = round(float(scope_val), 2)
+                            elif k in ("2", "scope 2", "scope2"):
+                                emissions_by_scope["scope_2"] = round(float(scope_val), 2)
+                            elif k in ("3", "scope 3", "scope3"):
+                                emissions_by_scope["scope_3"] = round(float(scope_val), 2)
+                            else:
+                                emissions_by_scope["other"] += round(float(scope_val), 2)
+
+                    # ── Emissions by country ───────────────────────────────────
+                    if "country" in scope_df.columns:
+                        country_grp = (
+                            year_scope_df.groupby("country")["emissions"]
+                            .sum()
+                            .reset_index()
+                            .sort_values("emissions", ascending=False)
+                            .head(15)
+                        )
+                        for _, row in country_grp.iterrows():
+                            emissions_by_country.append({
+                                "country": str(row["country"]),
+                                "emissions": round(float(row["emissions"]), 2),
+                            })
+
+                    # ── Top 10 clients by emissions ────────────────────────────
+                    top_df = (
+                        year_scope_df
+                        .groupby(["client_id", "client_name"], dropna=False)["emissions"]
+                        .sum()
+                        .reset_index()
+                        .sort_values("emissions", ascending=False)
+                        .head(10)
+                    )
+                    for _, row in top_df.iterrows():
+                        cid = _normalize_int_value(row.get("client_id"))
+                        top_clients_detail.append({
+                            "client_id": cid,
+                            "client_name": str(row.get("client_name") or "Unknown").strip(),
+                            "emissions": round(float(row["emissions"]), 2),
+                        })
+
+            return {
+                "portfolio": {
+                    "total_clients": total_clients,
+                    "active_clients": active_clients,
+                    "new_clients_this_year": new_clients_this_year,
+                    "clients_with_targets": clients_with_targets,
+                    "jobs_delivered": jobs_delivered_this_year,
+                    "total_emissions_managed": total_emissions_managed,
+                },
+                "client_status_breakdown": client_status_breakdown,
+                "emissions_by_country": emissions_by_country,
+                "emissions_by_scope": emissions_by_scope,
+                "cumulative_by_year": cumulative_by_year,
+                "top_clients_detail": top_clients_detail,
+            }
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.get("/dashboard/saved-reports")
 def list_dashboard_saved_reports(
     _user: dict[str, str] = Depends(_current_user),
