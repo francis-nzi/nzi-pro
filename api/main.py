@@ -85,6 +85,7 @@ from api.job_live_report_routes import router as job_live_report_router
 from api.main_dashboard_routes import router as main_dashboard_router
 from api.job_data_output_routes import router as job_data_output_router
 from api.job_report_routes import router as job_report_router
+from api.pdf_generation_routes import router as pdf_generation_router
 from api.job_files_routes import router as job_files_router
 from api.job_communications_routes import router as job_communications_router
 from api.milestone_template_routes import router as milestone_template_router
@@ -347,6 +348,9 @@ app.include_router(job_data_output_router)
 # Include job report routes
 app.include_router(job_report_router)
 
+# Include PDF generation routes (Phase 1: Async PDF)
+app.include_router(pdf_generation_router)
+
 # Include job files routes
 app.include_router(job_files_router)
 
@@ -458,7 +462,9 @@ def _job_template_paths(job_id: int) -> dict[str, str | None]:
         with get_conn() as con:
             row = con.execute(
                 """
-                SELECT jt.excel_template_path, jt.crp_template_path
+                SELECT
+                    COALESCE(jt.file_path, jt.excel_template_path) AS excel_template_path,
+                    jt.crp_template_path
                 FROM jobs j
                 LEFT JOIN job_templates jt ON jt.job_template_id = j.job_template_id
                 WHERE j.job_id=?
@@ -2537,6 +2543,9 @@ def job_excel_template(
         if period_part == "-to-":
             period_part = str(reporting_year or datetime.now().year)
 
+        paths = _job_template_paths(int(job_id))
+        reference_template_path = paths.get("excel_template_path")
+
         if template_format == "single":
             from services.generate_single_sheet_template import generate_single_sheet_template
 
@@ -2552,12 +2561,12 @@ def job_excel_template(
                 report_to="",
                 include_custom_factors=True,
                 include_prev_year=bool(include_prev_year),
+                reference_template_path=str(reference_template_path) if reference_template_path else None,
             )
             
             print(f"DEBUG: Generated filename={filename}")
         else:
             # Legacy multi-sheet template
-            paths = _job_template_paths(int(job_id))
             os.environ["NZI_EXCEL_TEMPLATE_PATH"] = str(paths.get("excel_template_path") or "")
             data, filename = build_excel_template_bytes(
                 job_id=int(job_id),
