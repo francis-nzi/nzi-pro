@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  ComposedChart, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
   AlertTriangle, Briefcase, CheckCircle2, ChevronRight,
@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/StatusBadge";
-import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
+import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS, MCKINSEY_SCOPE_COLORS } from "@/lib/chart-colors";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
@@ -168,6 +168,22 @@ type OperationsOverview = {
   }>;
 };
 
+type BiPortfolio = {
+  portfolio: {
+    total_clients: number;
+    active_clients: number;
+    new_clients_this_year: number;
+    clients_with_targets: number;
+    jobs_delivered: number;
+    total_emissions_managed: number;
+  };
+  client_status_breakdown: Array<{ status: string; count: number }>;
+  emissions_by_country: Array<{ country: string; emissions: number }>;
+  emissions_by_scope: { scope_1: number; scope_2: number; scope_3: number; other: number };
+  cumulative_by_year: Array<{ year: number; annual_emissions: number; cumulative: number }>;
+  top_clients_detail: Array<{ client_id: number | null; client_name: string; emissions: number }>;
+};
+
 type ReportColumn = {
   key: string;
   label: string;
@@ -273,6 +289,15 @@ const EMPTY_OPERATIONS: OperationsOverview = {
   time_by_subject: [],
   crm_workload: [],
   jobs_needing_attention: [],
+};
+
+const EMPTY_BI_PORTFOLIO: BiPortfolio = {
+  portfolio: { total_clients: 0, active_clients: 0, new_clients_this_year: 0, clients_with_targets: 0, jobs_delivered: 0, total_emissions_managed: 0 },
+  client_status_breakdown: [],
+  emissions_by_country: [],
+  emissions_by_scope: { scope_1: 0, scope_2: 0, scope_3: 0, other: 0 },
+  cumulative_by_year: [],
+  top_clients_detail: [],
 };
 
 const REPORT_PRESETS = [
@@ -391,6 +416,7 @@ const ACCENT: Record<string, { border: string; icon: string }> = {
   green:  { border: "border-l-green-500",  icon: "text-green-500" },
   orange: { border: "border-l-orange-500", icon: "text-orange-500" },
   purple: { border: "border-l-purple-500", icon: "text-purple-500" },
+  teal:   { border: "border-l-teal-500",   icon: "text-teal-500" },
 };
 const MS_COLORS = { green: "#16a34a", amber: "#d97706", red: "#dc2626", no_milestones: "#94a3b8" };
 const JOB_STATUS_COLORS: Record<string, string> = {
@@ -399,6 +425,12 @@ const JOB_STATUS_COLORS: Record<string, string> = {
 };
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
+
+function tco2e(v: number): string {
+  if (v >= 1_000_000) return `${n(v / 1_000_000)} Mt`;
+  if (v >= 1_000) return `${n(v / 1_000)} kt`;
+  return `${n(v)} t`;
+}
 
 function gbp(v: number): string {
   const a = Math.abs(v);
@@ -570,6 +602,7 @@ export default function InsightsPageClient() {
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
   const [financialData, setFinancialData] = useState<FinancialOverview>(EMPTY_FINANCIAL);
   const [operationsData, setOperationsData] = useState<OperationsOverview>(EMPTY_OPERATIONS);
+  const [biPortfolio, setBiPortfolio] = useState<BiPortfolio>(EMPTY_BI_PORTFOLIO);
   const [reportView, setReportView] = useState<string>("client_portfolio");
   const [reportData, setReportData] = useState<ReportViewData>(EMPTY_REPORT);
   const [savedReports, setSavedReports] = useState<SavedReport[]>(EMPTY_SAVED_REPORTS);
@@ -660,12 +693,13 @@ export default function InsightsPageClient() {
         cache: "no-store",
       };
 
-      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes] = await Promise.allSettled([
+      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes, biPortfolioRes] = await Promise.allSettled([
         fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Insights overview"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Report view"),
+        fetchJsonWithTimeout(`${baseUrl}/dashboard/bi-portfolio${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "BI portfolio"),
       ]);
 
       if (overviewRes.status !== "fulfilled") {
@@ -709,6 +743,13 @@ export default function InsightsPageClient() {
       } else {
         setReportData(EMPTY_REPORT);
       }
+
+      if (biPortfolioRes.status === "fulfilled" && biPortfolioRes.value.ok) {
+        const biJson = (await biPortfolioRes.value.json()) as BiPortfolio;
+        setBiPortfolio(biJson);
+      } else {
+        setBiPortfolio(EMPTY_BI_PORTFOLIO);
+      }
     } catch (e) {
       setError((e as Error).message);
       setData(null);
@@ -716,6 +757,7 @@ export default function InsightsPageClient() {
       setFinancialData(EMPTY_FINANCIAL);
       setOperationsData(EMPTY_OPERATIONS);
       setReportData(EMPTY_REPORT);
+      setBiPortfolio(EMPTY_BI_PORTFOLIO);
     } finally {
       setLoading(false);
     }
@@ -872,6 +914,34 @@ export default function InsightsPageClient() {
   const topClientsChartData = useMemo(() =>
     (financialData.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.invoice_total || 0, id: c.client_id })),
   [financialData]);
+
+  // ─── BI Portfolio chart data ──────────────────────────────────────────────────
+
+  const cumulativeChartData = useMemo(() =>
+    (biPortfolio.cumulative_by_year ?? []).map(d => ({ year: String(d.year), annual: +d.annual_emissions || 0, cumulative: +d.cumulative || 0 })),
+  [biPortfolio]);
+
+  const clientStatusDonutData = useMemo(() =>
+    (biPortfolio.client_status_breakdown ?? []).map((d, i) => ({ name: d.status || "Unknown", value: d.count, color: MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] })).filter(d => d.value > 0),
+  [biPortfolio]);
+
+  const scopeDonutData = useMemo(() => {
+    const s = biPortfolio.emissions_by_scope;
+    return [
+      { name: "Scope 1", value: +s.scope_1 || 0, color: MCKINSEY_SCOPE_COLORS[0] },
+      { name: "Scope 2", value: +s.scope_2 || 0, color: MCKINSEY_SCOPE_COLORS[1] },
+      { name: "Scope 3", value: +s.scope_3 || 0, color: MCKINSEY_SCOPE_COLORS[2] },
+      { name: "Other",   value: +s.other   || 0, color: "#94a3b8" },
+    ].filter(d => d.value > 0);
+  }, [biPortfolio]);
+
+  const countryChartData = useMemo(() =>
+    (biPortfolio.emissions_by_country ?? []).slice(0, 10).map(d => ({ name: d.country || "Unknown", value: +d.emissions || 0 })),
+  [biPortfolio]);
+
+  const topClientsEmissionsData = useMemo(() =>
+    (biPortfolio.top_clients_detail ?? []).slice(0, 10).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.emissions || 0, id: c.client_id })),
+  [biPortfolio]);
 
   const crmOpts = useMemo(() => data?.available_crm ?? [], [data]);
   const isSuperuser = selectedCrm === null;
@@ -1117,70 +1187,71 @@ export default function InsightsPageClient() {
         </div>
       )}
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs defaultValue="portfolio" className="w-full">
         <TabsList className="mb-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="clients">Clients</TabsTrigger>
-          <TabsTrigger value="jobs">Jobs</TabsTrigger>
+          <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+          <TabsTrigger value="emissions">Emissions</TabsTrigger>
           <TabsTrigger value="financial">Financial</TabsTrigger>
           <TabsTrigger value="operations">Operations</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
-          {/* ══ OVERVIEW ══ */}
-          <TabsContent value="overview" className="space-y-5 pt-3">
+          {/* ══ PORTFOLIO ══ */}
+          <TabsContent value="portfolio" className="space-y-5 pt-3">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <InsightsKpi label="Clients"        value={data?.metrics.total_clients ?? "—"}                                                               icon={<Users className="h-4 w-4" />}        accent="blue"   sub="portfolio" />
-              <InsightsKpi label="Active Jobs"    value={operationsData.metrics.active_jobs}                                                               icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
-              <InsightsKpi label="Overdue Jobs"   value={operationsData.metrics.overdue_jobs}                                                              icon={<Flame className="h-4 w-4" />}        accent="red"    sub="milestone overdue" />
-              <InsightsKpi label="Due Soon"       value={operationsData.metrics.due_soon_jobs}                                                             icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
-              <InsightsKpi label="Emissions"      value={data ? `${n(data.metrics.total_emissions)} t` : "—"}                                             icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : undefined} />
-              <InsightsKpi label="YoY Change"     value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "—"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
+              <InsightsKpi label="Total Clients"    value={biPortfolio.portfolio.total_clients}                                                                    icon={<Users className="h-4 w-4" />}         accent="blue"   sub="in portfolio" />
+              <InsightsKpi label="Active Clients"   value={biPortfolio.portfolio.active_clients}                                                                   icon={<Users className="h-4 w-4" />}         accent="green"  sub="currently active" />
+              <InsightsKpi label="New This Year"    value={biPortfolio.portfolio.new_clients_this_year}                                                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub="clients added" />
+              <InsightsKpi label="With Targets"     value={biPortfolio.portfolio.clients_with_targets}                                                             icon={<CheckCircle2 className="h-4 w-4" />}  accent="teal"   sub="net zero targets" />
+              <InsightsKpi label="Jobs Delivered"   value={biPortfolio.portfolio.jobs_delivered}                                                                   icon={<Briefcase className="h-4 w-4" />}     accent="blue"   sub="completed" />
+              <InsightsKpi label="Emissions Managed" value={tco2e(biPortfolio.portfolio.total_emissions_managed)}                                                  icon={<Layers className="h-4 w-4" />}        accent="orange" sub="cumulative tCO2e" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Emissions Trend */}
+              {/* Cumulative Emissions Under Management */}
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions Trend (tCO2e)</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions Under Management (tCO2e)</CardTitle></CardHeader>
                 <CardContent className="pt-0">
-                  {emissionsChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[220px]">
+                  {cumulativeChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[240px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={emissionsChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-                          <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
+                        <ComposedChart data={cumulativeChartData} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
                           <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                          <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${n(+v)} t`} width={64} />
-                          <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO2e`, "Emissions"]} />
-                          <Area type="monotone" dataKey="emissions" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gE)" strokeWidth={2.5} dot={{ r: 4, fill: MCKINSEY_DATA_COLORS[0] }} />
-                        </AreaChart>
+                          <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={v => tco2e(+v)} width={64} />
+                          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={v => tco2e(+v)} width={64} />
+                          <Tooltip formatter={(v: unknown, name?: string) => [tco2e(+Number(v || 0)), name === "annual" ? "Annual" : "Cumulative"]} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar yAxisId="left" dataKey="annual" name="Annual" fill={MCKINSEY_DATA_COLORS[1]} radius={[3, 3, 0, 0]} opacity={0.8} />
+                          <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={MCKINSEY_DATA_COLORS[4]} strokeWidth={2.5} dot={{ r: 4, fill: MCKINSEY_DATA_COLORS[4] }} />
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              {/* Milestone Health donut */}
+              {/* Client Status donut */}
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Client Portfolio Status</CardTitle></CardHeader>
                 <CardContent className="pt-0">
-                  {milestoneDonutData.length === 0 ? <InsightsEmpty /> : (
+                  {clientStatusDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
                       <div className="relative h-[180px] w-[180px] flex-shrink-0">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
-                            <Pie data={milestoneDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
-                              {milestoneDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            <Pie data={clientStatusDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
+                              {clientStatusDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
                             </Pie>
                             <Tooltip />
                           </PieChart>
                         </ResponsiveContainer>
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="text-center"><div className="text-xl font-bold">{jobsStatus.total}</div><div className="text-[10px] text-muted-foreground">jobs</div></div>
+                          <div className="text-center"><div className="text-xl font-bold">{biPortfolio.portfolio.total_clients}</div><div className="text-[10px] text-muted-foreground">clients</div></div>
                         </div>
                       </div>
                       <div className="space-y-2.5 flex-1">
-                        {milestoneDonutData.map((d, i) => (
+                        {clientStatusDonutData.map((d, i) => (
                           <div key={i} className="flex items-center justify-between text-xs">
                             <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span>{d.name}</span></div>
                             <span className="font-semibold">{d.value}</span>
@@ -1193,39 +1264,13 @@ export default function InsightsPageClient() {
               </Card>
             </div>
 
-            {/* Recent jobs */}
-            {(data?.recent_activity ?? []).length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">Recent Jobs</CardTitle>
-                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/jobs">View all</Link></Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {data!.recent_activity.map(job => (
-                    <div key={job.job_id} className="flex items-center gap-3 py-2.5 border-b last:border-0 hover:bg-accent/30 rounded px-1 transition-colors">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
-                      <div className="flex-1 min-w-0">
-                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
-                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
-                      </div>
-                      <StatusBadge status={job.status} />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          {/* ══ CLIENTS ══ */}
-          <TabsContent value="clients" className="space-y-5 pt-3">
+            {/* Clients by Industry + Top 10 Clients list */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
                 <CardContent className="pt-0">
                   {industryChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[260px]">
+                    <div className="h-[240px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={industryChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
@@ -1242,28 +1287,21 @@ export default function InsightsPageClient() {
               </Card>
 
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Emitting Clients</CardTitle></CardHeader>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">Top Clients — All Jobs</CardTitle>
+                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/clients">View all</Link></Button>
+                  </div>
+                </CardHeader>
                 <CardContent className="pt-0">
-                  {topEmittersChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[260px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={topEmittersChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${n(+v)} t`} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
-                          <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO2e`, "Emissions"]} />
-                          <Bar dataKey="emissions" radius={[0, 4, 4, 0]}>
-                            {topEmittersChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                  {topEmittersChartData.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {(data?.top_emitting_clients ?? []).slice(0, 8).map(c => (
-                        <Link key={c.client_id} href={`/clients/${c.client_id}`} className="flex items-center justify-between text-xs py-1 px-1 rounded hover:bg-accent/40 transition-colors group">
-                          <span className="truncate text-muted-foreground group-hover:text-foreground">{c.client_name}</span>
-                          <span className="font-medium flex-shrink-0 ml-2">{n(c.emissions)} tCO2e <ChevronRight className="h-3 w-3 inline opacity-0 group-hover:opacity-60" /></span>
+                  {(data?.top_emitting_clients ?? []).length === 0 ? <InsightsEmpty /> : (
+                    <div className="space-y-1">
+                      {(data?.top_emitting_clients ?? []).slice(0, 10).map((c, i) => (
+                        <Link key={c.client_id} href={`/clients/${c.client_id}`} className="flex items-center gap-2 text-xs py-1.5 px-1 rounded hover:bg-accent/40 transition-colors group">
+                          <span className="w-5 text-right text-muted-foreground flex-shrink-0">{i + 1}.</span>
+                          <span className="flex-1 truncate text-muted-foreground group-hover:text-foreground">{c.client_name}</span>
+                          <span className="font-medium flex-shrink-0">{n(c.emissions)} tCO2e</span>
+                          <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
                         </Link>
                       ))}
                     </div>
@@ -1273,22 +1311,122 @@ export default function InsightsPageClient() {
             </div>
           </TabsContent>
 
-          {/* ══ JOBS ══ */}
-          <TabsContent value="jobs" className="space-y-5 pt-3">
+          {/* ══ EMISSIONS ══ */}
+          <TabsContent value="emissions" className="space-y-5 pt-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <InsightsKpi label="Total Emissions"  value={data ? tco2e(data.metrics.total_emissions) : "—"}                                              icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : "all years"} />
+              <InsightsKpi label="YoY Change"       value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "—"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
+              <InsightsKpi label="Scope 1"          value={tco2e(biPortfolio.emissions_by_scope.scope_1)}                                                 icon={<Flame className="h-4 w-4" />}        accent="blue"   sub="direct" />
+              <InsightsKpi label="Scope 2 + 3"      value={tco2e(biPortfolio.emissions_by_scope.scope_2 + biPortfolio.emissions_by_scope.scope_3)}         icon={<Layers className="h-4 w-4" />}       accent="purple" sub="indirect + value chain" />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Job status bar chart */}
+              {/* Emissions year trend */}
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Job Status Breakdown</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Annual Emissions Trend (tCO2e)</CardTitle></CardHeader>
                 <CardContent className="pt-0">
-                  {jobStatusChartData.length === 0 ? <InsightsEmpty /> : (
+                  {emissionsChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[220px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={jobStatusChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                          <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} />
-                          <Tooltip formatter={(v: unknown) => [`${v} jobs`, ""]} />
-                          <Bar dataKey="value" name="Jobs" radius={[0, 4, 4, 0]}>
-                            {jobStatusChartData.map((d, i) => <Cell key={i} fill={JOB_STATUS_COLORS[d.name] ?? MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                        <AreaChart data={emissionsChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                          <defs><linearGradient id="gEm" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
+                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
+                          <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} tickFormatter={v => tco2e(+v)} width={68} />
+                          <Tooltip formatter={(v: unknown) => [tco2e(+Number(v || 0)), "Emissions"]} />
+                          <Area type="monotone" dataKey="emissions" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gEm)" strokeWidth={2.5} dot={{ r: 4, fill: MCKINSEY_DATA_COLORS[0] }} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Scope breakdown donut */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions by Scope</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {scopeDonutData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="flex items-center gap-4">
+                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
+                              {scopeDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                            </Pie>
+                            <Tooltip formatter={(v: unknown) => [tco2e(+Number(v || 0)), ""]} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="space-y-2.5 flex-1">
+                        {scopeDonutData.map((d, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span>{d.name}</span></div>
+                            <span className="font-semibold">{tco2e(d.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Top 10 emitting clients chart */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top 10 Clients by Emissions</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {topClientsEmissionsData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[260px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={topClientsEmissionsData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => tco2e(+v)} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                          <Tooltip formatter={(v: unknown) => [tco2e(+Number(v || 0)), "Emissions"]} />
+                          <Bar dataKey="value" name="Emissions" radius={[0, 4, 4, 0]}>
+                            {topClientsEmissionsData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                  {(biPortfolio.top_clients_detail ?? []).length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {(biPortfolio.top_clients_detail ?? []).slice(0, 10).map((c, i) => (
+                        c.client_id ? (
+                          <Link key={c.client_id} href={`/clients/${c.client_id}`} className="flex items-center gap-2 text-xs py-1 px-1 rounded hover:bg-accent/40 transition-colors group">
+                            <span className="w-5 text-right text-muted-foreground flex-shrink-0">{i + 1}.</span>
+                            <span className="flex-1 truncate text-muted-foreground group-hover:text-foreground">{c.client_name}</span>
+                            <span className="font-medium flex-shrink-0">{tco2e(c.emissions)}</span>
+                            <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                          </Link>
+                        ) : (
+                          <div key={i} className="flex items-center gap-2 text-xs py-1 px-1">
+                            <span className="w-5 text-right text-muted-foreground flex-shrink-0">{i + 1}.</span>
+                            <span className="flex-1 truncate text-muted-foreground">{c.client_name}</span>
+                            <span className="font-medium flex-shrink-0">{tco2e(c.emissions)}</span>
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Emissions by geography */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions by Geography</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {countryChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[260px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={countryChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => tco2e(+v)} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                          <Tooltip formatter={(v: unknown) => [tco2e(+Number(v || 0)), "Emissions"]} />
+                          <Bar dataKey="value" name="Emissions" radius={[0, 4, 4, 0]}>
+                            {countryChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -1296,68 +1434,7 @@ export default function InsightsPageClient() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* Jobs by CRM table */}
-              <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs By CRM</CardTitle></CardHeader>
-                <CardContent className="pt-0 overflow-x-auto">
-                  {(data?.jobs_per_crm ?? []).length === 0 ? <InsightsEmpty /> : (
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-xs text-muted-foreground">
-                          <th className="text-left pb-2 font-medium">CRM</th>
-                          <th className="text-right pb-2 font-medium">Jobs</th>
-                          <th className="text-right pb-2 font-medium text-green-600">✓</th>
-                          <th className="text-right pb-2 font-medium text-amber-600">⚠</th>
-                          <th className="text-right pb-2 font-medium text-red-600">✗</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(data?.jobs_per_crm ?? []).map(row => {
-                          const g = row.statuses?.["Open"] ?? 0;
-                          const a = Object.entries(row.statuses ?? {}).filter(([k]) => k.toLowerCase().includes("gather") || k.toLowerCase().includes("report")).reduce((s, [, v]) => s + v, 0);
-                          const r = row.statuses?.["Cancelled"] ?? 0;
-                          const t = row.total_jobs || 1;
-                          return (
-                            <tr key={row.crm_name} className="border-b last:border-0">
-                              <td className="py-2.5 font-medium">{row.crm_name || "Unassigned"}</td>
-                              <td className="text-right py-2.5 text-muted-foreground">{row.total_jobs}</td>
-                              <td className="text-right py-2.5 font-medium text-green-600">{Math.round((g / t) * row.total_jobs)}</td>
-                              <td className="text-right py-2.5 font-medium text-amber-600">{a}</td>
-                              <td className="text-right py-2.5 font-medium text-red-600">{r}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </CardContent>
-              </Card>
             </div>
-
-            {/* Recent activity */}
-            {(data?.recent_activity ?? []).length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">Recent Job Activity</CardTitle>
-                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/jobs">View all</Link></Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {data!.recent_activity.map(job => (
-                    <div key={job.job_id} className="flex items-center gap-3 py-2.5 border-b last:border-0 hover:bg-accent/30 rounded px-1 transition-colors">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
-                      <div className="flex-1 min-w-0">
-                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
-                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
-                      </div>
-                      <StatusBadge status={job.status} />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
           </TabsContent>
 
           {/* ══ FINANCIAL ══ */}
