@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException
 
 from api.auth import _current_user
-from services.permissions import user_can_access_client, user_can_access_job, user_has_permission
+from services.permissions import ADMIN_ACCESS_PERMISSION, user_can_access_client, user_can_access_job, user_has_permission
+
+__all__ = ["ADMIN_ACCESS_PERMISSION", "assert_client_access", "assert_job_access", "assert_permission", "require_permission"]
 
 
 def require_permission(permission_key: str):
