@@ -26,6 +26,8 @@ type Job = {
   reporting_year: number | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
+  benchmark_period_start?: string | null;
+  benchmark_period_end?: string | null;
   status: string | null;
   client_db_id: number;
   client_name: string | null;
@@ -136,12 +138,17 @@ export default function JobSectionShell({
         jobNumber: job.job_number ?? `Job ${job.job_id}`,
         jobTitle: job.title ?? sectionLabel,
         clientName: job.client_name ?? "Client",
+        clientDbId: job.client_db_id,
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
             ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
             : job.reporting_year
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
+        benchmarkPeriodLabel:
+          job.benchmark_period_start && job.benchmark_period_end
+            ? `${new Date(job.benchmark_period_start).toLocaleDateString("en-GB")} - ${new Date(job.benchmark_period_end).toLocaleDateString("en-GB")}`
+            : undefined,
         statusLabel: job.status ?? "Draft",
         ownerLabel: job.crm_name ?? "Unassigned",
         crmLabel: job.crm_name ?? undefined,

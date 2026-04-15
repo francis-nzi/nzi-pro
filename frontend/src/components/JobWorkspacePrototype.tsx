@@ -35,9 +35,12 @@ type JobApiRecord = {
   job_id: number;
   job_number: string | null;
   title: string | null;
+  client_db_id?: number;
   client_name: string | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
+  benchmark_period_start?: string | null;
+  benchmark_period_end?: string | null;
   status: string | null;
   crm_name?: string | null;
 };
@@ -74,7 +77,9 @@ function mapLiveJob(job: JobApiRecord): JobWorkspaceJob {
     jobNumber,
     jobTitle: title,
     clientName,
+    clientDbId: job.client_db_id ?? undefined,
     reportingPeriodLabel: formatPeriodLabel(job.reporting_period_start, job.reporting_period_end),
+    benchmarkPeriodLabel: formatPeriodLabel(job.benchmark_period_start, job.benchmark_period_end),
     statusLabel,
     ownerLabel,
     crmLabel: job.crm_name?.trim() || undefined,
@@ -203,11 +208,11 @@ export default function JobWorkspacePrototype({
   const breadcrumbs: WorkspaceBreadcrumb[] = useMemo(
     () => [
       { label: "Clients", href: "/clients" },
-      { label: jobData.clientName, href: "/clients" },
+      { label: jobData.clientName, href: jobData.clientDbId ? `/clients/${jobData.clientDbId}` : "/clients" },
       { label: "Jobs", href: "/jobs" },
-      { label: jobData.jobNumber },
+      { label: jobData.jobNumber, href: `/jobs/${jobId}` },
     ],
-    [jobData.clientName, jobData.jobNumber]
+    [jobData.clientDbId, jobData.clientName, jobData.jobNumber, jobId]
   );
 
   const subtabs = useMemo(() => workspaceSubtabs[activeTab] ?? [], [activeTab]);

@@ -403,6 +403,8 @@ type Job = {
   reporting_period_end: string | null;
   is_benchmark: boolean | null;
   status: string | null;
+  benchmark_period_start?: string | null;
+  benchmark_period_end?: string | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number;
@@ -1046,7 +1048,12 @@ export default function JobDetailPage() {
     jobNumber: jobNumberLabel,
     jobTitle: jobTitleLabel || "Job",
     clientName: clientLabel,
+    clientDbId: job?.client_db_id ?? undefined,
     reportingPeriodLabel,
+    benchmarkPeriodLabel:
+      job?.benchmark_period_start && job?.benchmark_period_end
+        ? `${new Date(job.benchmark_period_start).toLocaleDateString("en-GB")} - ${new Date(job.benchmark_period_end).toLocaleDateString("en-GB")}`
+        : undefined,
     statusLabel,
     ownerLabel,
     crmLabel: crmName || job?.crm_name || undefined,

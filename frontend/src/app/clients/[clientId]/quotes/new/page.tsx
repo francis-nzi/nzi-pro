@@ -580,7 +580,7 @@ function AddQuotePageContent() {
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
             { label: client?.client_name ?? "Client", href: `/clients/${clientId}` },
-            { label: "Add Quote" },
+            { label: "Add Quote", href: `/clients/${clientId}/quotes/new` },
           ]}
           actions={
             <div className="flex gap-2">

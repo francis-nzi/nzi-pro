@@ -2544,14 +2544,13 @@ def job_excel_template(
             period_part = str(reporting_year or datetime.now().year)
 
         paths = _job_template_paths(int(job_id))
-        reference_template_path = paths.get("excel_template_path")
 
         if template_format == "single":
             from services.generate_single_sheet_template import generate_single_sheet_template
 
             print(f"DEBUG: job_number={job_number}, client_name={client_name}, site={site}, reporting_year={reporting_year}")
 
-            data, filename = generate_single_sheet_template(
+            data, generated_filename = generate_single_sheet_template(
                 job_id=int(job_id),
                 client_name=client_name,
                 site_name=site,
@@ -2561,10 +2560,9 @@ def job_excel_template(
                 report_to="",
                 include_custom_factors=True,
                 include_prev_year=bool(include_prev_year),
-                reference_template_path=str(reference_template_path) if reference_template_path else None,
             )
             
-            print(f"DEBUG: Generated filename={filename}")
+            print(f"DEBUG: Generated filename={generated_filename}")
         else:
             # Legacy multi-sheet template
             os.environ["NZI_EXCEL_TEMPLATE_PATH"] = str(paths.get("excel_template_path") or "")
@@ -2573,6 +2571,7 @@ def job_excel_template(
                 selected_site=str(site),
                 include_prev_year=bool(include_prev_year),
             )
+        # Keep the API filename convention aligned with the upload parser and frontend fallback.
         filename = "_".join(
             [
                 _safe_name_part(job_number),

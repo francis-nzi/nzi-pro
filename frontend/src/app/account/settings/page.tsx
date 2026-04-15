@@ -366,7 +366,7 @@ export default function AccountSettingsPage() {
         <PageHeader
           title="Account Settings"
           subtitle="User profile, security, and personalization"
-          breadcrumbs={[{ label: "Account" }, { label: "Settings" }]}
+          breadcrumbs={[{ label: "Account", href: "/account" }, { label: "Settings", href: "/account/settings" }]}
         />
 
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading settings...</div> : null}
