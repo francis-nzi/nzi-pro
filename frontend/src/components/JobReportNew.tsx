@@ -973,9 +973,14 @@ export default function JobReportNew({
       <Card className="overflow-hidden border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white shadow-xl">
         <CardContent className="grid gap-4 p-4 lg:grid-cols-[1.15fr_0.85fr] lg:p-5">
           <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/80">
-              <Sparkles className="h-3.5 w-3.5" />
-              Report (New)
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/80">
+                <Sparkles className="h-3.5 w-3.5" />
+                Report (New)
+              </div>
+              <Badge variant="outline" className="border-white/20 bg-white/10 text-[11px] uppercase tracking-[0.18em] text-white/90">
+                Stage 1
+              </Badge>
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-semibold tracking-tight">Profile-first reporting workspace</h2>
@@ -1022,9 +1027,8 @@ export default function JobReportNew({
 
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <div className="space-y-6">
-        <Card>
+      <div className="space-y-6">
+        <Card className="w-full">
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -1114,7 +1118,7 @@ export default function JobReportNew({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="w-full">
           <CardHeader className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -1253,131 +1257,133 @@ export default function JobReportNew({
             </div>
           </CardContent>
         </Card>
-        </div>
 
-        <div className="space-y-4 self-start">
-        <Card id="stage-4-preview-export">
-            <CardHeader className="space-y-2">
-              <CardTitle>Stage 4 Preview & Export</CardTitle>
-              <CardDescription>Quick review before you jump into preview/export.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="bg-white">
-                    Stage 4 checkpoint
-                  </Badge>
-                  <Badge variant="outline" className="bg-white">
-                    {draftReady ? "Ready to review" : "Needs attention"}
-                  </Badge>
-                </div>
-                <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
+        <Card id="stage-4-preview-export" className="w-full">
+          <CardHeader className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Stage 4
+              </Badge>
+              <CardTitle>Preview & Export</CardTitle>
+            </div>
+            <CardDescription>Quick review before you jump into preview/export.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-white">
+                  Stage 4 checkpoint
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {draftReady ? "Ready to review" : "Needs attention"}
+                </Badge>
               </div>
+              <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
+            </div>
 
-              <div className="grid gap-2">
-                {[
-                  { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
-                  { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
-                  { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
-                  { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
-                ].map((item) => (
-                  <div key={item.label} className="flex gap-2 rounded-lg border p-2.5">
-                    <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">{item.label}</div>
-                      <div className="text-xs text-muted-foreground">{item.note}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-3">
-                <div className="flex items-start justify-between gap-3">
+            <div className="grid gap-2">
+              {[
+                { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
+                { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
+                { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
+                { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
+              ].map((item) => (
+                <div key={item.label} className="flex gap-2 rounded-lg border p-2.5">
+                  <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
                   <div>
-                    <div className="font-medium text-slate-900">Version history</div>
-                    <div className="text-xs text-muted-foreground">Recent saved PDFs and frozen previews.</div>
+                    <div className="text-sm font-medium text-slate-900">{item.label}</div>
+                    <div className="text-xs text-muted-foreground">{item.note}</div>
                   </div>
-                  <Badge variant="outline" className="bg-white">
-                    {reportVersions.length} saved
-                  </Badge>
                 </div>
-                <div className="mt-2 space-y-2">
-                  {latestReportVersion ? (
-                    <div className="rounded-lg border bg-white px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-900">
-                          {latestReportVersion.version_label || `v${latestReportVersion.version_number}`}
-                        </span>
-                        <Badge variant="outline" className="bg-slate-50">
-                          {latestReportVersion.status || "review"}
-                        </Badge>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {latestReportVersion.generated_at ? `Generated ${latestReportVersion.generated_at}` : "Recently generated"}
-                      </div>
-                      {latestReportVersion.status !== "final" ? (
-                        <div className="mt-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => markVersionFinal(latestReportVersion.report_version_id)}
-                            disabled={savingReportVersion}
-                          >
-                            Mark final
-                          </Button>
-                        </div>
-                      ) : null}
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs">
-                        {latestReportVersion.download_url ? (
-                          <a
-                            href={`${baseUrl}${latestReportVersion.download_url}`}
-                            className="text-slate-600 underline-offset-4 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Download
-                          </a>
-                        ) : null}
-                        {latestReportVersion.snapshot_url ? (
-                          <a
-                            href={`${baseUrl}${latestReportVersion.snapshot_url}`}
-                            className="text-slate-600 underline-offset-4 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Frozen preview
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-xs text-muted-foreground">
-                      No saved versions yet. Save the first review PDF when you are ready.
-                    </div>
-                  )}
-                </div>
-              </div>
+              ))}
+            </div>
 
-              <div className="flex flex-wrap gap-3">
-                <Button asChild variant="outline">
-                  <Link href={`/jobs/${jobId}/report-live`}>Open live report</Link>
-                </Button>
-                <Button onClick={openPreviewModal} className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  Preview & Export
-                </Button>
-                <Button onClick={saveReviewPdf} disabled={savingReportVersion} variant="secondary" className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  {savingReportVersion ? "Saving review PDF..." : "Save review PDF"}
-                </Button>
-                <Button variant="outline" onClick={() => onOpenActions?.()}>
-                  Review Actions
-                </Button>
+            <div className="rounded-xl border bg-slate-50 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-slate-900">Version history</div>
+                  <div className="text-xs text-muted-foreground">Recent saved PDFs and frozen previews.</div>
+                </div>
+                <Badge variant="outline" className="bg-white">
+                  {reportVersions.length} saved
+                </Badge>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+              <div className="mt-2 space-y-2">
+                {latestReportVersion ? (
+                  <div className="rounded-lg border bg-white px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-900">
+                        {latestReportVersion.version_label || `v${latestReportVersion.version_number}`}
+                      </span>
+                      <Badge variant="outline" className="bg-slate-50">
+                        {latestReportVersion.status || "review"}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {latestReportVersion.generated_at ? `Generated ${latestReportVersion.generated_at}` : "Recently generated"}
+                    </div>
+                    {latestReportVersion.status !== "final" ? (
+                      <div className="mt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => markVersionFinal(latestReportVersion.report_version_id)}
+                          disabled={savingReportVersion}
+                        >
+                          Mark final
+                        </Button>
+                      </div>
+                    ) : null}
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                      {latestReportVersion.download_url ? (
+                        <a
+                          href={`${baseUrl}${latestReportVersion.download_url}`}
+                          className="text-slate-600 underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Download
+                        </a>
+                      ) : null}
+                      {latestReportVersion.snapshot_url ? (
+                        <a
+                          href={`${baseUrl}${latestReportVersion.snapshot_url}`}
+                          className="text-slate-600 underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Frozen preview
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed bg-white px-3 py-2 text-xs text-muted-foreground">
+                    No saved versions yet. Save the first review PDF when you are ready.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Button asChild variant="outline">
+                <Link href={`/jobs/${jobId}/report-live`}>Open live report</Link>
+              </Button>
+              <Button onClick={openPreviewModal} className="gap-2">
+                <FileText className="h-4 w-4" />
+                Preview & Export
+              </Button>
+              <Button onClick={saveReviewPdf} disabled={savingReportVersion} variant="secondary" className="gap-2">
+                <FileText className="h-4 w-4" />
+                {savingReportVersion ? "Saving review PDF..." : "Save review PDF"}
+              </Button>
+              <Button variant="outline" onClick={() => onOpenActions?.()}>
+                Review Actions
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
       <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
         <DialogContent className="max-w-2xl border-slate-200 bg-white">
