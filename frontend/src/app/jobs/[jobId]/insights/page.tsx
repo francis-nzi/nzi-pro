@@ -21,6 +21,7 @@ type Job = {
   status: string | null;
   client_db_id: number;
   client_name: string | null;
+  crm_owner?: string | null;
   crm_name?: string | null;
 };
 
@@ -30,6 +31,7 @@ export default function JobInsightsPage() {
   const jobId = Number(params?.jobId);
 
   const [job, setJob] = useState<Job | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -51,7 +53,17 @@ export default function JobInsightsPage() {
           throw new Error(`Failed to load job (${res.status})`);
         }
         const json = (await res.json()) as Job;
-        if (!cancelled) setJob(json);
+        if (!cancelled) {
+          setJob(json);
+          setClientOwnerLabel("");
+        }
+        if (json.client_db_id) {
+          const clientRes = await fetch(`${baseUrl}/clients/${json.client_db_id}`, { credentials: "include" });
+          if (clientRes.ok && !cancelled) {
+            const clientJson = (await clientRes.json()) as { crm_owner?: string | null };
+            setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setJob(null);
@@ -82,7 +94,7 @@ export default function JobInsightsPage() {
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
-        ownerLabel: job.crm_name ?? "Unassigned",
+        ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: job.crm_name ?? undefined,
       }
     : null;
@@ -90,10 +102,10 @@ export default function JobInsightsPage() {
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client" },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
         { label: "Jobs", href: "/jobs" },
-        { label: job.job_number ?? `Job ${job.job_id}` },
-        { label: "Insights" },
+        { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
+        { label: "Insights", href: `/jobs/${job.job_id}/insights` },
       ]
     : [{ label: "Insights" }];
 

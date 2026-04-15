@@ -29,6 +29,7 @@ type Job = {
   status: string | null;
   client_db_id: number;
   client_name: string | null;
+  crm_owner?: string | null;
   crm_name?: string | null;
 };
 
@@ -91,6 +92,7 @@ export default function JobSectionShell({
   renderContent,
 }: JobSectionShellProps) {
   const [job, setJob] = useState<Job | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -129,6 +131,31 @@ export default function JobSectionShell({
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClientOwner() {
+      if (!job?.client_db_id) {
+        setClientOwnerLabel("");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const clientJson = (await res.json()) as { crm_owner?: string | null };
+        setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+      } catch {
+        if (!cancelled) setClientOwnerLabel("");
+      }
+    }
+
+    void loadClientOwner();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, job?.client_db_id]);
 
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
@@ -143,7 +170,7 @@ export default function JobSectionShell({
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
-        ownerLabel: job.crm_name ?? "Unassigned",
+        ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: job.crm_name ?? undefined,
       }
     : null;
@@ -151,7 +178,7 @@ export default function JobSectionShell({
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}` },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
         { label: "Jobs", href: "/jobs" },
         { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
         { label: sectionLabel, href: sectionHref ?? `/jobs/${job.job_id}` },

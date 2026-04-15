@@ -407,6 +407,7 @@ type Job = {
   milestone_template_id?: number | null;
   client_db_id: number;
   client_name: string | null;
+  crm_owner?: string | null;
   crm_name?: string | null;
   legacy_job_no?: string | null;
   start_date?: string | null;
@@ -848,6 +849,7 @@ export default function JobDetailPage() {
   const jobId = Number(params?.jobId);
 
   const [job, setJob] = useState<Job | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState<string>("");
   const [sites, setSites] = useState<JobSitesResponse["sites"]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("All");
   const [includePrevYear, setIncludePrevYear] = useState<boolean>(true);
@@ -923,7 +925,7 @@ export default function JobDetailPage() {
   const [loadingReportMetadata, setLoadingReportMetadata] = useState<boolean>(false);
 
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
-  const ownerLabel = (crmName || job?.crm_name || "Unassigned").trim() || "Unassigned";
+  const ownerLabel = (clientOwnerLabel || job?.crm_owner || "Unassigned").trim() || "Unassigned";
   const jobNumberLabel =
     (job?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() ||
     "Job";
@@ -1057,7 +1059,7 @@ export default function JobDetailPage() {
     { label: "Clients", href: "/clients" },
     {
       label: clientLabel,
-      href: job?.client_db_id ? `/clients/${job.client_db_id}` : "/clients",
+      href: job?.client_db_id ? `/clients/${job.client_db_id}?section=jobs` : "/clients",
     },
     { label: "Jobs", href: "/jobs" },
     { label: jobNumberLabel, href: `/jobs/${jobId}` },
@@ -1442,6 +1444,7 @@ export default function JobDetailPage() {
         if (cancelled) return;
 
         setJob(jJson);
+        setClientOwnerLabel("");
         
         // Initialize job details fields
         setJobTitle(jJson.title || "");
@@ -1457,6 +1460,9 @@ export default function JobDetailPage() {
           if (clientRes.ok) {
             const clientJson = await clientRes.json();
             
+            if (clientJson.crm_owner) {
+              setClientOwnerLabel(clientJson.crm_owner.trim());
+            }
             // Set currency for intensity metrics
             setClientCurrency(clientJson.currency || "GBP");
             setClientYearEndMonth(clientJson.year_end_month || "");

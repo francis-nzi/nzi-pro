@@ -31,6 +31,7 @@ type LiveJobData = {
   reporting_period_end: string | null;
   status: string | null;
   client_name: string | null;
+  crm_owner?: string | null;
   logo_url?: string | null;
   client_logo_url?: string | null;
   benchmark_year?: number | null;
@@ -183,6 +184,7 @@ function formatDateDisplay(value: unknown): string {
 
 export default function JobLiveReport({ jobId, baseUrl, printMode = false }: JobLiveReportProps) {
   const [data, setData] = useState<LiveReportData | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -224,6 +226,32 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClientOwner() {
+      const clientId = data?.job_data?.client_db_id;
+      if (!clientId) {
+        setClientOwnerLabel("");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const clientJson = (await res.json()) as { crm_owner?: string | null };
+        setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+      } catch {
+        if (!cancelled) setClientOwnerLabel("");
+      }
+    }
+
+    void loadClientOwner();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, data?.job_data?.client_db_id]);
 
   const job = data?.job_data ?? null;
   const scopeTotals = useMemo(() => data?.scope_totals ?? {}, [data?.scope_totals]);
@@ -273,7 +301,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
-        ownerLabel: "Unassigned",
+        ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: undefined,
       }
     : null;
@@ -281,10 +309,10 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client" },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
         { label: "Jobs", href: "/jobs" },
-        { label: job.job_number ?? `Job ${job.job_id}` },
-        { label: "Live Report" },
+        { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
+        { label: "Live Report", href: `/jobs/${job.job_id}/report-live` },
       ]
     : [{ label: "Live Report" }];
 

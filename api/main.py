@@ -1204,6 +1204,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
             is_benchmark_expr = "j.is_benchmark" if _col_exists("jobs", "is_benchmark") else "NULL::boolean AS is_benchmark"
             milestone_template_expr = "j.milestone_template_id" if _col_exists("jobs", "milestone_template_id") else "NULL::integer AS milestone_template_id"
             crm_name_expr = "j.crm_name" if _col_exists("jobs", "crm_name") else "NULL::text AS crm_name"
+            crm_owner_expr = "c.crm_owner" if _col_exists("clients", "crm_owner") else "NULL::text AS crm_owner"
             legacy_job_no_expr = "j.legacy_job_no" if _col_exists("jobs", "legacy_job_no") else "NULL::text AS legacy_job_no"
             job_template_expr = "j.job_template_id" if _col_exists("jobs", "job_template_id") else "NULL::integer AS job_template_id"
 
