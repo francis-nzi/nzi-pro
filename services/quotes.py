@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from core.database import db_backend, get_conn, next_id
+from services.tenancy import get_default_org_id
 
 
 @dataclass
@@ -25,8 +26,24 @@ def _default_valid_to(d: date | None) -> date:
     return base + timedelta(days=30)
 
 
-def list_quotes(client_db_id: int) -> pd.DataFrame:
+def _org_value(org_id: str | None) -> str | None:
+    value = str(org_id or "").strip()
+    return value or get_default_org_id()
+
+
+def list_quotes(client_db_id: int, org_id: str | None = None) -> pd.DataFrame:
+    org_id = _org_value(org_id)
     with get_conn() as con:
+        if org_id:
+            return con.execute(
+                """
+                SELECT quote_id, quote_date, valid_to, status, salesperson
+                FROM quotes
+                WHERE client_db_id=? AND org_id=?
+                ORDER BY quote_id DESC
+                """,
+                [int(client_db_id), org_id],
+            ).df()
         return con.execute(
             """
             SELECT quote_id, quote_date, valid_to, status, salesperson
@@ -38,23 +55,41 @@ def list_quotes(client_db_id: int) -> pd.DataFrame:
         ).df()
 
 
-def get_quote(quote_id: int) -> dict[str, Any] | None:
+def get_quote(quote_id: int, org_id: str | None = None) -> dict[str, Any] | None:
+    org_id = _org_value(org_id)
     with get_conn() as con:
-        qdf = con.execute("SELECT * FROM quotes WHERE quote_id=?", [int(quote_id)]).df()
+        if org_id:
+            qdf = con.execute("SELECT * FROM quotes WHERE quote_id=? AND org_id=?", [int(quote_id), org_id]).df()
+        else:
+            qdf = con.execute("SELECT * FROM quotes WHERE quote_id=?", [int(quote_id)]).df()
         if qdf.empty:
             return None
         quote = qdf.iloc[0].to_dict()
-        ldf = con.execute(
-            """
-            SELECT line_id, quote_id, line_type, sort_order, job_type_id, description,
-                   qty, unit_price_ex_vat, vat_rate_id, is_selected
-            FROM quote_lines
-            WHERE quote_id=?
-            ORDER BY sort_order, line_id
-            """,
-            [int(quote_id)],
-        ).df()
+        if org_id:
+            ldf = con.execute(
+                """
+                SELECT ql.line_id, ql.quote_id, ql.line_type, ql.sort_order, ql.job_type_id, ql.description,
+                       ql.qty, ql.unit_price_ex_vat, ql.vat_rate_id, ql.is_selected
+                FROM quote_lines ql
+                JOIN quotes q ON q.quote_id = ql.quote_id
+                WHERE ql.quote_id=? AND q.org_id=?
+                ORDER BY ql.sort_order, ql.line_id
+                """,
+                [int(quote_id), org_id],
+            ).df()
+        else:
+            ldf = con.execute(
+                """
+                SELECT line_id, quote_id, line_type, sort_order, job_type_id, description,
+                       qty, unit_price_ex_vat, vat_rate_id, is_selected
+                FROM quote_lines
+                WHERE quote_id=?
+                ORDER BY sort_order, line_id
+                """,
+                [int(quote_id)],
+            ).df()
         quote["lines"] = ldf
+        quote["org_id"] = str(quote.get("org_id") or org_id or "")
         return quote
 
 
@@ -68,23 +103,75 @@ def create_quote(
     currency_code: str | None,
     description: str | None,
     notes: str | None,
+    org_id: str | None = None,
 ) -> int:
     backend = db_backend()
     qd = quote_date or _today()
     vt = valid_to or _default_valid_to(qd)
+    org_id = _org_value(org_id)
 
     with get_conn() as con:
         if backend == "postgres":
-            row = con.execute(
+            if org_id:
+                row = con.execute(
+                    """
+                    INSERT INTO quotes
+                      (org_id, client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
+                       currency_code, description, notes, status)
+                    VALUES
+                      (?,?,?,?,?,?,?,?,?,?,'Draft')
+                    RETURNING quote_id
+                    """,
+                    [
+                        org_id,
+                        int(client_db_id),
+                        int(contact_id) if contact_id is not None else None,
+                        qd,
+                        vt,
+                        (salesperson or "").strip() or None,
+                        int(payment_term_id) if payment_term_id is not None else None,
+                        (currency_code or "GBP").strip().upper(),
+                        (description or "").strip() or None,
+                        (notes or "").strip() or None,
+                    ],
+                ).fetchone()
+            else:
+                row = con.execute(
+                    """
+                    INSERT INTO quotes
+                      (client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
+                       currency_code, description, notes, status)
+                    VALUES
+                      (?,?,?,?,?,?,?,?,?,'Draft')
+                    RETURNING quote_id
+                    """,
+                    [
+                        int(client_db_id),
+                        int(contact_id) if contact_id is not None else None,
+                        qd,
+                        vt,
+                        (salesperson or "").strip() or None,
+                        int(payment_term_id) if payment_term_id is not None else None,
+                        (currency_code or "GBP").strip().upper(),
+                        (description or "").strip() or None,
+                        (notes or "").strip() or None,
+                    ],
+                ).fetchone()
+            return int(row[0])
+
+        qid = next_id("quotes", "quote_id")
+        if org_id:
+            con.execute(
                 """
                 INSERT INTO quotes
-                  (client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
-                   currency_code, description, notes, status)
+                  (quote_id, org_id, client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
+                   currency_code, description, notes, status, created_at, updated_at)
                 VALUES
-                  (?,?,?,?,?,?,?,?,?,'Draft')
-                RETURNING quote_id
+                  (?,?,?,?,?,?,?,?,?,?,'Draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 [
+                    int(qid),
+                    org_id,
                     int(client_db_id),
                     int(contact_id) if contact_id is not None else None,
                     qd,
@@ -95,31 +182,29 @@ def create_quote(
                     (description or "").strip() or None,
                     (notes or "").strip() or None,
                 ],
-            ).fetchone()
-            return int(row[0])
-
-        qid = next_id("quotes", "quote_id")
-        con.execute(
-            """
-            INSERT INTO quotes
-              (quote_id, client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
-               currency_code, description, notes, status, created_at, updated_at)
-            VALUES
-              (?,?,?,?,?,?,?,?,?,?,'Draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """,
-            [
-                int(qid),
-                int(client_db_id),
-                int(contact_id) if contact_id is not None else None,
-                qd,
-                vt,
-                (salesperson or "").strip() or None,
-                int(payment_term_id) if payment_term_id is not None else None,
-                (currency_code or "GBP").strip().upper(),
-                (description or "").strip() or None,
-                (notes or "").strip() or None,
-            ],
-        )
+            )
+        else:
+            con.execute(
+                """
+                INSERT INTO quotes
+                  (quote_id, client_db_id, contact_id, quote_date, valid_to, salesperson, payment_term_id,
+                   currency_code, description, notes, status, created_at, updated_at)
+                VALUES
+                  (?,?,?,?,?,?,?,?,?,?,'Draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                [
+                    int(qid),
+                    int(client_db_id),
+                    int(contact_id) if contact_id is not None else None,
+                    qd,
+                    vt,
+                    (salesperson or "").strip() or None,
+                    int(payment_term_id) if payment_term_id is not None else None,
+                    (currency_code or "GBP").strip().upper(),
+                    (description or "").strip() or None,
+                    (notes or "").strip() or None,
+                ],
+            )
         return int(qid)
 
 

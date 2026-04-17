@@ -13,12 +13,19 @@ from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle, Par
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from api.auth import _current_user
+from api.permissions import assert_client_access, assert_job_access
 from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
+from services.tenancy import get_default_org_id, require_org
 
 router = APIRouter(tags=["quotes"])
+
+
+def _quote_org_id(user: dict | None) -> str | None:
+    org_id = str((user or {}).get("org_id") or "").strip()
+    return org_id or get_default_org_id()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -77,6 +84,7 @@ def _ensure_quote_tables(con) -> None:
         """
     )
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_number VARCHAR")
+    con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS job_number VARCHAR")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS attention VARCHAR")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS bill_to TEXT")
@@ -84,10 +92,12 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS category VARCHAR")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS unit VARCHAR")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS notes TEXT")
+    con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS amount_ex_vat DOUBLE PRECISION")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS vat_rate_pct DOUBLE PRECISION")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_by VARCHAR")
+    con.execute("ALTER TABLE quote_email_log ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS quote_email_log (
@@ -128,6 +138,7 @@ def _ensure_quote_tables(con) -> None:
         """
     )
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_date DATE")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_paid DOUBLE PRECISION DEFAULT 0")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS job_id INTEGER")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_invoice_id VARCHAR")
@@ -136,6 +147,7 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_status VARCHAR DEFAULT 'pending'")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMP")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_error TEXT")
+    con.execute("ALTER TABLE invoice_email_log ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS invoice_email_log (
@@ -194,6 +206,114 @@ def _ensure_quote_tables(con) -> None:
     )
     con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS supplier_id INTEGER")
     con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS supplier_item_id INTEGER")
+    con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+
+    try:
+        con.execute(
+            """
+            UPDATE quotes
+            SET org_id = COALESCE(org_id, (
+                SELECT c.org_id
+                FROM clients c
+                WHERE c.db_id = quotes.client_db_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE quote_lines
+            SET org_id = COALESCE(org_id, (
+                SELECT q.org_id
+                FROM quotes q
+                WHERE q.quote_id = quote_lines.quote_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE invoices
+            SET org_id = COALESCE(org_id, (
+                SELECT c.org_id
+                FROM clients c
+                WHERE c.db_id = invoices.client_db_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE invoice_lines
+            SET org_id = COALESCE(org_id, (
+                SELECT i.org_id
+                FROM invoices i
+                WHERE i.invoice_id = invoice_lines.invoice_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE quote_email_log
+            SET org_id = COALESCE(org_id, (
+                SELECT q.org_id
+                FROM quotes q
+                WHERE q.quote_id = quote_email_log.quote_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE invoice_email_log
+            SET org_id = COALESCE(org_id, (
+                SELECT i.org_id
+                FROM invoices i
+                WHERE i.invoice_id = invoice_email_log.invoice_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE job_other_costs
+            SET org_id = COALESCE(org_id, (
+                SELECT c.org_id
+                FROM jobs j
+                JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id = job_other_costs.job_id
+                LIMIT 1
+            ))
+            WHERE org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
 
 
 def _ensure_supplier_tables(con) -> None:
@@ -322,17 +442,23 @@ def _next_invoice_number(con) -> str:
     return f"I{max_num + 1:06d}"
 
 
-def _invoice_lines_for(con, invoice_id: int) -> list[dict[str, Any]]:
+def _invoice_lines_for(con, invoice_id: int, org_id: str | None = None) -> list[dict[str, Any]]:
+    org_clause = " AND i.org_id = %s" if org_id else ""
+    params: list[Any] = [int(invoice_id)]
+    if org_id:
+        params.append(str(org_id).strip())
     df = con.execute(
         """
         SELECT il.invoice_line_id, il.invoice_id, il.sort_order, il.item_id, ji.item_name, il.description, il.unit,
                qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, notes
         FROM invoice_lines il
+        JOIN invoices i ON i.invoice_id = il.invoice_id
         LEFT JOIN job_items ji ON ji.item_id = il.item_id
         WHERE il.invoice_id = %s
+        """ + org_clause + """
         ORDER BY COALESCE(il.sort_order, 0), il.invoice_line_id
         """,
-        [int(invoice_id)],
+        params,
     ).df()
     lines: list[dict[str, Any]] = []
     if df is None or df.empty:
@@ -417,7 +543,7 @@ def _other_cost_totals(items: list[dict[str, Any]]) -> dict[str, float]:
     }
 
 
-def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]]) -> None:
+def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]], org_id: str | None = None) -> None:
     con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
     for idx, line in enumerate(lines):
         qty = _safe_float(line.get("qty"), 0.0)
@@ -426,13 +552,14 @@ def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]]) -> N
         con.execute(
             """
             INSERT INTO invoice_lines (
-              invoice_id, sort_order, item_id, description, unit,
+              invoice_id, org_id, sort_order, item_id, description, unit,
               qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, notes
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 int(invoice_id),
+                str(org_id).strip() if org_id else None,
                 _safe_int(line.get("sort_order"), idx + 1),
                 _safe_int(line.get("item_id"), None),
                 str(line.get("description") or ""),
@@ -447,7 +574,11 @@ def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]]) -> N
         )
 
 
-def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
+def _serialize_invoice(con, invoice_id: int, org_id: str | None = None) -> dict[str, Any]:
+    org_clause = " AND org_id = %s" if org_id else ""
+    params: list[Any] = [int(invoice_id)]
+    if org_id:
+        params.append(str(org_id).strip())
     row = con.execute(
         """
         SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
@@ -456,12 +587,13 @@ def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
                created_at, updated_at
         FROM invoices
         WHERE invoice_id = %s
+        """ + org_clause + """
         """,
-        [int(invoice_id)],
+        params,
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    lines = _invoice_lines_for(con, int(invoice_id))
+    lines = _invoice_lines_for(con, int(invoice_id), org_id=org_id)
     if lines:
         totals = _invoice_totals_from_lines(lines)
     else:
@@ -476,8 +608,8 @@ def _serialize_invoice(con, invoice_id: int) -> dict[str, Any]:
     job_number = ""
     if quote_id is not None:
         q_row = con.execute(
-            "SELECT attention, bill_to, job_number FROM quotes WHERE quote_id = %s",
-            [int(quote_id)],
+            "SELECT attention, bill_to, job_number FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+            [int(quote_id)] + ([str(org_id).strip()] if org_id else []),
         ).fetchone()
         if q_row:
             attention = str(q_row[0] or "")
@@ -817,17 +949,23 @@ def _render_invoice_pdf_bytes(invoice: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def _serialize_quote(con, quote_id: int) -> dict[str, Any]:
+def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str, Any]:
+    quote_org_clause = " AND quotes.org_id = %s" if org_id else ""
+    line_org_clause = " AND q.org_id = %s" if org_id else ""
+    params: list[Any] = [int(quote_id)]
+    if org_id:
+        params.append(str(org_id).strip())
     q = con.execute(
         """
         SELECT quote_id, client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
                payment_term_id, pt.name AS payment_term_name, currency_code, description, notes, status, revision_of_quote_id,
-               job_number, attention, bill_to, created_at, updated_at
+               job_number, attention, bill_to, created_at, updated_at, org_id
         FROM quotes
         LEFT JOIN payment_terms_lookup pt ON pt.term_id = quotes.payment_term_id
         WHERE quote_id = %s
+        """ + quote_org_clause + """
         """,
-        [int(quote_id)],
+        params,
     ).fetchone()
     if not q:
         raise HTTPException(status_code=404, detail="Quote not found")
@@ -837,11 +975,13 @@ def _serialize_quote(con, quote_id: int) -> dict[str, Any]:
         SELECT ql.line_id, ql.quote_id, ql.line_type, ql.sort_order, ql.item_id, ji.item_name, ql.category, ql.description, ql.unit,
                qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, is_selected, notes
         FROM quote_lines ql
+        JOIN quotes q ON q.quote_id = ql.quote_id
         LEFT JOIN job_items ji ON ji.item_id = ql.item_id
         WHERE ql.quote_id = %s
+        """ + line_org_clause + """
         ORDER BY COALESCE(ql.sort_order, 0), ql.line_id
         """,
-        [int(quote_id)],
+        params,
     ).df()
 
     lines: list[dict[str, Any]] = []
@@ -894,6 +1034,7 @@ def _serialize_quote(con, quote_id: int) -> dict[str, Any]:
         "lines": lines,
         "totals": totals,
         "company_profile": get_company_profile(con),
+        "org_id": str(q[19] or "") if len(q) > 19 and q[19] is not None else str(org_id or ""),
     }
 
 
@@ -902,13 +1043,15 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             client_row = con.execute(
                 """
                 SELECT client_name, headquarters, currency
                 FROM clients
                 WHERE db_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 """,
-                [int(client_id)],
+                [int(client_id)] + ([org_id] if org_id else []),
             ).fetchone()
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
@@ -974,9 +1117,10 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
                 SELECT contact_id, full_name, email, job_title, is_primary
                 FROM client_contacts
                 WHERE client_db_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 ORDER BY is_primary DESC, full_name
                 """,
-                [int(client_id)],
+                [int(client_id)] + ([org_id] if org_id else []),
             ).df()
 
             next_quote_number = _next_quote_number(con)
@@ -1085,14 +1229,16 @@ def list_client_quotes(client_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             df = con.execute(
                 """
                 SELECT quote_id, quote_number, quote_date, valid_to, currency_code, status, updated_at, job_number
                 FROM quotes
                 WHERE client_db_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 ORDER BY quote_date DESC, quote_id DESC
                 """,
-                [int(client_id)],
+                [int(client_id)] + ([org_id] if org_id else []),
             ).df()
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
@@ -1103,8 +1249,9 @@ def list_client_quotes(client_id: int, _user: dict = Depends(_current_user)):
                         SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
                         FROM quote_lines
                         WHERE quote_id = %s
+                        """ + (" AND EXISTS (SELECT 1 FROM quotes q WHERE q.quote_id = quote_lines.quote_id AND q.org_id = %s)" if org_id else "") + """
                         """,
-                        [quote_id],
+                        [quote_id] + ([org_id] if org_id else []),
                     ).df()
                     lines = []
                     if line_df is not None and not line_df.empty:
@@ -1141,14 +1288,17 @@ def list_all_quotes(_user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             df = con.execute(
                 """
                 SELECT q.quote_id, q.client_db_id, c.client_name, q.quote_number, q.quote_date, q.valid_to,
                        q.currency_code, q.status, q.updated_at
                 FROM quotes q
                 LEFT JOIN clients c ON c.db_id = q.client_db_id
+                """ + ("WHERE c.org_id = %s" if org_id else "") + """
                 ORDER BY q.quote_date DESC, q.quote_id DESC
                 """
+                , ([org_id] if org_id else [])
             ).df()
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
@@ -1176,7 +1326,7 @@ def get_quote(quote_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            return _serialize_quote(con, int(quote_id))
+            return _serialize_quote(con, int(quote_id), org_id=_quote_org_id(_user))
     except HTTPException:
         raise
     except Exception as e:
@@ -1221,39 +1371,57 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            client_exists = con.execute(
+                "SELECT client_db_id FROM clients WHERE db_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(client_id)] + ([org_id] if org_id else []),
+            ).fetchone()
+            if not client_exists:
+                raise HTTPException(status_code=404, detail="Client not found")
             quote_date = str(body.get("quote_date") or date.today().isoformat())
             quote_number = str(body.get("quote_number") or "").strip()
             if not quote_number:
                 quote_number = _next_quote_number(con)
 
+            insert_cols = [
+                "client_db_id", "contact_id", "quote_number", "quote_date", "valid_to", "salesperson",
+                "payment_term_id", "currency_code", "description", "notes", "status", "revision_of_quote_id",
+                "job_number", "attention", "bill_to",
+            ]
+            insert_vals: list[Any] = [
+                int(client_id),
+                _safe_int(body.get("contact_id"), None),
+                quote_number,
+                quote_date,
+                str(body.get("valid_to") or "") or None,
+                str(body.get("salesperson") or ""),
+                _safe_int(body.get("payment_term_id"), 1),
+                str(body.get("currency_code") or "GBP").upper(),
+                str(body.get("description") or ""),
+                str(body.get("notes") or ""),
+                str(body.get("status") or "Draft"),
+                _safe_int(body.get("revision_of_quote_id"), None),
+                str(body.get("job_number") or ""),
+                str(body.get("attention") or ""),
+                str(body.get("bill_to") or ""),
+            ]
+            if org_id:
+                insert_cols.insert(0, "org_id")
+                insert_vals.insert(0, org_id)
+            placeholders = ", ".join(["%s"] * len(insert_vals))
             con.execute(
-                """
+                f"""
                 INSERT INTO quotes (
-                  client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
-                  payment_term_id, currency_code, description, notes, status, revision_of_quote_id,
-                  job_number, attention, bill_to, created_at, updated_at
+                  {", ".join(insert_cols)}
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES ({placeholders})
                 """,
-                [
-                    int(client_id),
-                    _safe_int(body.get("contact_id"), None),
-                    quote_number,
-                    quote_date,
-                    str(body.get("valid_to") or "") or None,
-                    str(body.get("salesperson") or ""),
-                    _safe_int(body.get("payment_term_id"), 1),
-                    str(body.get("currency_code") or "GBP").upper(),
-                    str(body.get("description") or ""),
-                    str(body.get("notes") or ""),
-                    str(body.get("status") or "Draft"),
-                    _safe_int(body.get("revision_of_quote_id"), None),
-                    str(body.get("job_number") or ""),
-                    str(body.get("attention") or ""),
-                    str(body.get("bill_to") or ""),
-                ],
+                insert_vals,
             )
-            row = con.execute("SELECT MAX(quote_id) FROM quotes WHERE client_db_id = %s", [int(client_id)]).fetchone()
+            row = con.execute(
+                "SELECT MAX(quote_id) FROM quotes WHERE client_db_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(client_id)] + ([org_id] if org_id else []),
+            ).fetchone()
             if not row or row[0] is None:
                 raise HTTPException(status_code=500, detail="Failed to create quote")
             quote_id = int(row[0])
@@ -1263,7 +1431,7 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
                 raise HTTPException(status_code=400, detail="lines must be an array")
             _write_lines(con, quote_id, lines)
 
-            return _serialize_quote(con, quote_id)
+            return _serialize_quote(con, quote_id, org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1275,7 +1443,11 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            existing = con.execute("SELECT quote_id FROM quotes WHERE quote_id = %s", [int(quote_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            existing = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Quote not found")
 
@@ -1310,7 +1482,11 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
             if updates:
                 updates.append("updated_at = NOW()")
                 params.append(int(quote_id))
-                con.execute(f"UPDATE quotes SET {', '.join(updates)} WHERE quote_id = %s", params)
+                if org_id:
+                    params.append(org_id)
+                    con.execute(f"UPDATE quotes SET {', '.join(updates)} WHERE quote_id = %s AND org_id = %s", params)
+                else:
+                    con.execute(f"UPDATE quotes SET {', '.join(updates)} WHERE quote_id = %s", params)
 
             if "lines" in body:
                 lines = body.get("lines") or []
@@ -1318,7 +1494,7 @@ def update_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_c
                     raise HTTPException(status_code=400, detail="lines must be an array")
                 _write_lines(con, int(quote_id), lines)
 
-            return _serialize_quote(con, int(quote_id))
+            return _serialize_quote(con, int(quote_id), org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1330,7 +1506,11 @@ def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            exists = con.execute("SELECT quote_id FROM quotes WHERE quote_id = %s", [int(quote_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Quote not found")
             approver = str(_user.get("email") or _user.get("user_id") or "system")
@@ -1342,10 +1522,11 @@ def approve_quote(quote_id: int, _user: dict = Depends(_current_user)):
                     approved_by = %s,
                     updated_at = NOW()
                 WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 """,
-                [approver, int(quote_id)],
+                [approver, int(quote_id)] + ([org_id] if org_id else []),
             )
-            return _serialize_quote(con, int(quote_id))
+            return _serialize_quote(con, int(quote_id), org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1357,14 +1538,16 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             q = con.execute(
                 """
                 SELECT quote_id, client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
-                       payment_term_id, currency_code, description, notes, job_number, attention, bill_to
+                       payment_term_id, currency_code, description, notes, job_number, attention, bill_to, org_id
                 FROM quotes
                 WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 """,
-                [int(quote_id)],
+                [int(quote_id)] + ([org_id] if org_id else []),
             ).fetchone()
             if not q:
                 raise HTTPException(status_code=404, detail="Quote not found")
@@ -1381,13 +1564,14 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
             con.execute(
                 """
                 INSERT INTO quotes (
-                  client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
+                  org_id, client_db_id, contact_id, quote_number, quote_date, valid_to, salesperson,
                   payment_term_id, currency_code, description, notes, status, revision_of_quote_id,
                   job_number, attention, bill_to, created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Draft', %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Draft', %s, %s, %s, %s, NOW(), NOW())
                 """,
                 [
+                    str(q[19] or org_id or "") if len(q) > 19 else (org_id or ""),
                     int(q[1]),
                     _safe_int(q[2], None),
                     new_quote_number,
@@ -1405,8 +1589,8 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
                 ],
             )
             row = con.execute(
-                "SELECT MAX(quote_id) FROM quotes WHERE client_db_id = %s",
-                [int(q[1])],
+                "SELECT MAX(quote_id) FROM quotes WHERE client_db_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(q[1])] + ([org_id] if org_id else []),
             ).fetchone()
             if not row or row[0] is None:
                 raise HTTPException(status_code=500, detail="Failed to create revised quote")
@@ -1418,9 +1602,10 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
                        qty, unit_price_ex_vat, amount_ex_vat, vat_rate_id, vat_rate_pct, is_selected, notes
                 FROM quote_lines
                 WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 ORDER BY COALESCE(sort_order, 0), line_id
                 """,
-                [int(quote_id)],
+                [int(quote_id)] + ([org_id] if org_id else []),
             ).df()
             lines: list[dict[str, Any]] = []
             if line_df is not None and not line_df.empty:
@@ -1443,7 +1628,7 @@ def revise_quote(quote_id: int, _user: dict = Depends(_current_user)):
                         }
                     )
             _write_lines(con, new_quote_id, lines)
-            return _serialize_quote(con, new_quote_id)
+            return _serialize_quote(con, new_quote_id, org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1455,7 +1640,11 @@ def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_cu
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            exists = con.execute("SELECT quote_id FROM quotes WHERE quote_id = %s", [int(quote_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT quote_id FROM quotes WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
+            ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Quote not found")
 
@@ -1467,14 +1656,14 @@ def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_cu
             sender = str(_user.get("email") or _user.get("user_id") or "system")
             con.execute(
                 """
-                INSERT INTO quote_email_log (quote_id, sent_to, subject, body, sent_by, sent_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
+                INSERT INTO quote_email_log (quote_id, org_id, sent_to, subject, body, sent_by, sent_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
                 """,
-                [int(quote_id), sent_to, subject, message, sender],
+                [int(quote_id), org_id, sent_to, subject, message, sender],
             )
             con.execute(
-                "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s",
-                [int(quote_id)],
+                "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
+                [int(quote_id)] + ([org_id] if org_id else []),
             )
             return {"ok": True, "message": "Quote email logged", "quote_id": int(quote_id), "sent_to": sent_to}
     except HTTPException:
@@ -1488,7 +1677,7 @@ def get_quote_pdf(quote_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            quote = _serialize_quote(con, int(quote_id))
+            quote = _serialize_quote(con, int(quote_id), org_id=_quote_org_id(_user))
         pdf_bytes = _render_quote_pdf_bytes(quote)
         filename = f"{quote.get('quote_number') or f'quote-{quote_id}'}.pdf"
         return Response(
@@ -1517,7 +1706,8 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
         requested_message = str(body.get("message") or "").strip()
         with get_conn() as con:
             _ensure_quote_tables(con)
-            quote = _serialize_quote(con, int(quote_id))
+            org_id = _quote_org_id(_user)
+            quote = _serialize_quote(con, int(quote_id), org_id=org_id)
             pdf_bytes = _render_quote_pdf_bytes(quote)
             sender = str(_user.get("email") or _user.get("user_id") or "system")
             email_ctx = {
@@ -1560,10 +1750,10 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
             )
             con.execute(
                 """
-                INSERT INTO quote_email_log (quote_id, sent_to, subject, body, sent_by, sent_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
+                INSERT INTO quote_email_log (quote_id, org_id, sent_to, subject, body, sent_by, sent_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
                 """,
-                [int(quote_id), to_email, rendered["subject"], rendered["body_html"], sender],
+                [int(quote_id), org_id, to_email, rendered["subject"], rendered["body_html"], sender],
             )
             if str(send_res.get("status") or "") == "sent":
                 con.execute("UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s", [int(quote_id)])
@@ -1581,14 +1771,16 @@ def quote_email_log(quote_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             df = con.execute(
                 """
                 SELECT email_log_id, sent_to, subject, body, sent_by, sent_at
                 FROM quote_email_log
                 WHERE quote_id = %s
+                """ + (" AND org_id = %s" if org_id else "") + """
                 ORDER BY sent_at DESC
                 """,
-                [int(quote_id)],
+                [int(quote_id)] + ([org_id] if org_id else []),
             ).df()
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
