@@ -1249,6 +1249,8 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
             crm_owner_expr = "c.crm_owner" if _col_exists("clients", "crm_owner") else "NULL::text AS crm_owner"
             legacy_job_no_expr = "j.legacy_job_no" if _col_exists("jobs", "legacy_job_no") else "NULL::text AS legacy_job_no"
             job_template_expr = "j.job_template_id" if _col_exists("jobs", "job_template_id") else "NULL::integer AS job_template_id"
+            has_job_types_table = _table_exists("job_types")
+            job_type_name_expr = "jt.name" if has_job_types_table else "NULL::text AS job_type"
 
             row = con.execute(
                 f"""
@@ -1257,9 +1259,11 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                        j.status, {job_template_expr}, {milestone_template_expr},
                        j.client_db_id, c.client_name,
                        {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
+                       {job_type_name_expr},
                        j.job_type_id
                 FROM jobs j
                 LEFT JOIN clients c ON c.db_id = j.client_db_id
+                {"LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id" if has_job_types_table else ""}
                 WHERE j.job_id=?
                 """,
                 [int(job_id)],
@@ -1340,6 +1344,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         start_date,
         due_date,
         legacy_job_no,
+        job_type,
         job_type_id,
     ) = row
 
@@ -1396,6 +1401,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "start_date": (str(start_date) if start_date else None),
         "due_date": (str(due_date) if due_date else None),
         "legacy_job_no": legacy_job_no,
+        "job_type": job_type,
         "job_type_id": (int(job_type_id) if job_type_id is not None else None),
         "estimated_hours": estimated_hours,
         **milestone_data,

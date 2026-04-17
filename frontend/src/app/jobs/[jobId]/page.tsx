@@ -404,6 +404,7 @@ type Job = {
   is_benchmark: boolean | null;
   status: string | null;
   job_type?: string | null;
+  job_type_id?: number | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number;
@@ -1562,6 +1563,15 @@ export default function JobDetailPage() {
       cancelled = true;
     };
   }, [baseUrl]);
+
+  useEffect(() => {
+    if (jobType) return;
+    if (!job?.job_type_id || jobTypes.length === 0) return;
+    const matched = jobTypes.find((jt) => jt.job_type_id === job.job_type_id);
+    if (matched?.name) {
+      setJobType(matched.name);
+    }
+  }, [job?.job_type_id, jobType, jobTypes]);
 
   useEffect(() => {
     let cancelled = false;
