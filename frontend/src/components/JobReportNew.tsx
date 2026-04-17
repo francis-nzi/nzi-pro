@@ -939,11 +939,11 @@ export default function JobReportNew({
               <Sparkles className="h-3.5 w-3.5" />
               Stage 1
             </div>
-            <div className="space-y-2">
-              <h2 className="text-2xl font-semibold tracking-tight">Profile-first reporting workspace</h2>
+              <div className="space-y-2">
+              <h2 className="text-2xl font-semibold tracking-tight">Stage 1 Job Context</h2>
               <p className="max-w-2xl text-sm leading-6 text-slate-200">
-                Choose the report family, shape the draft around that profile, and keep the workflow inside one
-                page instead of bouncing between screens.
+                Choose the report family, confirm the job context, and keep the workflow inside one page instead of
+                bouncing between screens.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
