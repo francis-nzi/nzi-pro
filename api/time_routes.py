@@ -7,6 +7,23 @@ from services.tenancy import get_default_org_id, require_org
 router = APIRouter()
 
 
+def _column_exists(con, table_name: str, column_name: str) -> bool:
+    try:
+        row = con.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = ?
+              AND column_name = ?
+            LIMIT 1
+            """,
+            [table_name, column_name],
+        ).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+
 def _ensure_time_tracking_schema(con) -> None:
     """Keep time tracking routes resilient in fresh environments."""
     con.execute(
@@ -79,10 +96,12 @@ def list_time_logs(
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
+            has_time_org = _column_exists(con, "time_logs", "org_id")
             where_clauses = []
             params = []
-            where_clauses.append("tl.org_id = ?")
-            params.append(org_id)
+            if has_time_org:
+                where_clauses.append("tl.org_id = ?")
+                params.append(org_id)
             
             if job_id is not None:
                 where_clauses.append("tl.job_id = ?")
@@ -162,24 +181,36 @@ def create_time_log(
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
+            has_job_org = _column_exists(con, "jobs", "org_id")
             # Verify job exists
             job_exists = con.execute(
-                "SELECT 1 FROM jobs WHERE job_id = ? AND org_id = ?",
-                [int(job_id), org_id]
+                "SELECT 1 FROM jobs WHERE job_id = ?" + (" AND org_id = ?" if has_job_org else ""),
+                [int(job_id), org_id] if has_job_org else [int(job_id)]
             ).fetchone()
             
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             
             # Insert time log
-            result = con.execute(
-                """
-                INSERT INTO time_logs (org_id, job_id, user_id, subject, work_date, minutes, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                RETURNING time_id
-                """,
-                [org_id, int(job_id), user_id, subject, work_date, int(minutes), notes]
-            ).fetchone()
+            has_time_org = _column_exists(con, "time_logs", "org_id")
+            if has_time_org:
+                result = con.execute(
+                    """
+                    INSERT INTO time_logs (org_id, job_id, user_id, subject, work_date, minutes, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    RETURNING time_id
+                    """,
+                    [org_id, int(job_id), user_id, subject, work_date, int(minutes), notes]
+                ).fetchone()
+            else:
+                result = con.execute(
+                    """
+                    INSERT INTO time_logs (job_id, user_id, subject, work_date, minutes, notes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    RETURNING time_id
+                    """,
+                    [int(job_id), user_id, subject, work_date, int(minutes), notes]
+                ).fetchone()
             
             time_id = result[0]
             
@@ -201,10 +232,11 @@ def update_time_log(
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
+            has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
-                "SELECT user_id FROM time_logs WHERE time_id = ? AND org_id = ?",
-                [int(time_id), org_id]
+                "SELECT user_id FROM time_logs WHERE time_id = ?" + (" AND org_id = ?" if has_time_org else ""),
+                [int(time_id), org_id] if has_time_org else [int(time_id)]
             ).fetchone()
             
             if not existing:
@@ -240,10 +272,16 @@ def update_time_log(
             if not updates:
                 return {"message": "No updates provided"}
             
-            con.execute(
-                f"UPDATE time_logs SET {', '.join(updates)} WHERE time_id = ? AND org_id = ?",
-                params + [int(time_id), org_id]
-            )
+            if has_time_org:
+                con.execute(
+                    f"UPDATE time_logs SET {', '.join(updates)} WHERE time_id = ? AND org_id = ?",
+                    params + [int(time_id), org_id]
+                )
+            else:
+                con.execute(
+                    f"UPDATE time_logs SET {', '.join(updates)} WHERE time_id = ?",
+                    params + [int(time_id)]
+                )
             
             return {"message": "Time log updated successfully"}
     except HTTPException:
@@ -262,10 +300,11 @@ def delete_time_log(
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
+            has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
-                "SELECT user_id FROM time_logs WHERE time_id = ? AND org_id = ?",
-                [int(time_id), org_id]
+                "SELECT user_id FROM time_logs WHERE time_id = ?" + (" AND org_id = ?" if has_time_org else ""),
+                [int(time_id), org_id] if has_time_org else [int(time_id)]
             ).fetchone()
             
             if not existing:
@@ -275,7 +314,10 @@ def delete_time_log(
             if existing[0] != _user.get("user_id"):
                 raise HTTPException(status_code=403, detail="You can only delete your own time logs")
             
-            con.execute("DELETE FROM time_logs WHERE time_id = ? AND org_id = ?", [int(time_id), org_id])
+            if has_time_org:
+                con.execute("DELETE FROM time_logs WHERE time_id = ? AND org_id = ?", [int(time_id), org_id])
+            else:
+                con.execute("DELETE FROM time_logs WHERE time_id = ?", [int(time_id)])
             
             return {"message": "Time log deleted successfully"}
     except HTTPException:
@@ -291,15 +333,20 @@ def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
-            rows = con.execute(
-                """
+            has_subject_org = _column_exists(con, "time_subjects", "org_id")
+            select_sql = """
                 SELECT subject_id, name, budget_hours
                 FROM time_subjects
-                WHERE is_active = TRUE AND org_id = ?
-                ORDER BY name
-                """
-                ,
-                [org_id]
+                WHERE is_active = TRUE
+            """
+            params: list[object] = []
+            if has_subject_org:
+                select_sql += " AND org_id = ?"
+                params.append(org_id)
+            select_sql += " ORDER BY name"
+            rows = con.execute(
+                select_sql,
+                params,
             ).df()
             
             if rows.empty:
@@ -333,20 +380,31 @@ def update_time_subject(
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
             org_id = require_org(_user)
+            has_subject_org = _column_exists(con, "time_subjects", "org_id")
             exists = con.execute(
-                "SELECT 1 FROM time_subjects WHERE subject_id = ? AND org_id = ?",
-                [int(subject_id), org_id]
+                "SELECT 1 FROM time_subjects WHERE subject_id = ?" + (" AND org_id = ?" if has_subject_org else ""),
+                [int(subject_id), org_id] if has_subject_org else [int(subject_id)]
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Time subject not found")
-            con.execute(
-                """
-                UPDATE time_subjects
-                SET budget_hours = ?
-                WHERE subject_id = ? AND org_id = ?
-                """,
-                [float(budget_hours), int(subject_id), org_id]
-            )
+            if has_subject_org:
+                con.execute(
+                    """
+                    UPDATE time_subjects
+                    SET budget_hours = ?
+                    WHERE subject_id = ? AND org_id = ?
+                    """,
+                    [float(budget_hours), int(subject_id), org_id]
+                )
+            else:
+                con.execute(
+                    """
+                    UPDATE time_subjects
+                    SET budget_hours = ?
+                    WHERE subject_id = ?
+                    """,
+                    [float(budget_hours), int(subject_id)]
+                )
             
             return {"success": True, "message": "Time subject updated successfully"}
     except Exception as e:
