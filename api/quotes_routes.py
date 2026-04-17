@@ -2024,7 +2024,11 @@ def list_job_other_costs(job_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            job_exists = con.execute("SELECT job_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            job_exists = con.execute(
+                "SELECT job_id FROM jobs WHERE job_id = %s AND org_id = %s",
+                [int(job_id), org_id],
+            ).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
 
@@ -2036,9 +2040,10 @@ def list_job_other_costs(job_id: int, _user: dict = Depends(_current_user)):
                   supplier, incurred_date, notes, created_at, updated_at
                 FROM job_other_costs
                 WHERE job_id = %s
+                  AND org_id = %s
                 ORDER BY COALESCE(incurred_date, DATE(created_at)) DESC, other_cost_id DESC
                 """,
-                [int(job_id)],
+                [int(job_id), org_id],
             ).df()
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
@@ -2062,7 +2067,11 @@ def job_other_cost_lookups(job_id: int, _user: dict = Depends(_current_user)):
         with get_conn() as con:
             _ensure_quote_tables(con)
             _ensure_supplier_tables(con)
-            job_exists = con.execute("SELECT job_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            job_exists = con.execute(
+                "SELECT job_id FROM jobs WHERE job_id = %s AND org_id = %s",
+                [int(job_id), org_id],
+            ).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             suppliers_df = con.execute(
@@ -2121,7 +2130,11 @@ def create_job_other_cost(job_id: int, body: dict = Body(...), _user: dict = Dep
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            job_exists = con.execute("SELECT job_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            job_exists = con.execute(
+                "SELECT job_id FROM jobs WHERE job_id = %s AND org_id = %s",
+                [int(job_id), org_id],
+            ).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
 
@@ -2148,13 +2161,14 @@ def create_job_other_cost(job_id: int, body: dict = Body(...), _user: dict = Dep
             con.execute(
                 """
                 INSERT INTO job_other_costs (
-                  job_id, supplier_id, supplier_item_id, cost_type, item_name, description, unit, qty, rate, amount_ex_vat,
+                  job_id, org_id, supplier_id, supplier_item_id, cost_type, item_name, description, unit, qty, rate, amount_ex_vat,
                   is_vatable, vat_rate_pct, vat_amount, total_inc_vat, supplier, incurred_date, notes
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 [
                     int(job_id),
+                    org_id,
                     supplier_id,
                     supplier_item_id,
                     cost_type,
@@ -2173,7 +2187,10 @@ def create_job_other_cost(job_id: int, body: dict = Body(...), _user: dict = Dep
                     notes,
                 ],
             )
-            row = con.execute("SELECT MAX(other_cost_id) FROM job_other_costs WHERE job_id = %s", [int(job_id)]).fetchone()
+            row = con.execute(
+                "SELECT MAX(other_cost_id) FROM job_other_costs WHERE job_id = %s AND org_id = %s",
+                [int(job_id), org_id],
+            ).fetchone()
             other_cost_id = _safe_int(row[0] if row else None, None)
             if other_cost_id is None:
                 raise HTTPException(status_code=500, detail="Failed to create other cost")
@@ -2185,8 +2202,9 @@ def create_job_other_cost(job_id: int, body: dict = Body(...), _user: dict = Dep
                   supplier, incurred_date, notes, created_at, updated_at
                 FROM job_other_costs
                 WHERE other_cost_id = %s
+                  AND org_id = %s
                 """,
-                [int(other_cost_id)],
+                [int(other_cost_id), org_id],
             ).df()
             if created_df is None or created_df.empty:
                 raise HTTPException(status_code=500, detail="Failed to load created other cost")
@@ -2202,6 +2220,7 @@ def update_job_other_cost(job_id: int, other_cost_id: int, body: dict = Body(...
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             existing_df = con.execute(
                 """
                 SELECT
@@ -2209,9 +2228,9 @@ def update_job_other_cost(job_id: int, other_cost_id: int, body: dict = Body(...
                   amount_ex_vat, is_vatable, vat_rate_pct, vat_amount, total_inc_vat,
                   supplier, incurred_date, notes, created_at, updated_at
                 FROM job_other_costs
-                WHERE other_cost_id = %s AND job_id = %s
+                WHERE other_cost_id = %s AND job_id = %s AND org_id = %s
                 """,
-                [int(other_cost_id), int(job_id)],
+                [int(other_cost_id), int(job_id), org_id],
             ).df()
             if existing_df is None or existing_df.empty:
                 raise HTTPException(status_code=404, detail="Other cost not found")
@@ -2267,7 +2286,7 @@ def update_job_other_cost(job_id: int, other_cost_id: int, body: dict = Body(...
                   incurred_date = %s,
                   notes = %s,
                   updated_at = NOW()
-                WHERE other_cost_id = %s AND job_id = %s
+                WHERE other_cost_id = %s AND job_id = %s AND org_id = %s
                 """,
                 [
                     supplier_id,
@@ -2288,6 +2307,7 @@ def update_job_other_cost(job_id: int, other_cost_id: int, body: dict = Body(...
                     notes,
                     int(other_cost_id),
                     int(job_id),
+                    org_id,
                 ],
             )
 
@@ -2299,8 +2319,9 @@ def update_job_other_cost(job_id: int, other_cost_id: int, body: dict = Body(...
                   supplier, incurred_date, notes, created_at, updated_at
                 FROM job_other_costs
                 WHERE other_cost_id = %s
+                  AND org_id = %s
                 """,
-                [int(other_cost_id)],
+                [int(other_cost_id), org_id],
             ).df()
             if updated_df is None or updated_df.empty:
                 raise HTTPException(status_code=500, detail="Failed to load updated other cost")
@@ -2316,15 +2337,16 @@ def delete_job_other_cost(job_id: int, other_cost_id: int, _user: dict = Depends
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             exists = con.execute(
-                "SELECT other_cost_id FROM job_other_costs WHERE other_cost_id = %s AND job_id = %s",
-                [int(other_cost_id), int(job_id)],
+                "SELECT other_cost_id FROM job_other_costs WHERE other_cost_id = %s AND job_id = %s AND org_id = %s",
+                [int(other_cost_id), int(job_id), org_id],
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Other cost not found")
             con.execute(
-                "DELETE FROM job_other_costs WHERE other_cost_id = %s AND job_id = %s",
-                [int(other_cost_id), int(job_id)],
+                "DELETE FROM job_other_costs WHERE other_cost_id = %s AND job_id = %s AND org_id = %s",
+                [int(other_cost_id), int(job_id), org_id],
             )
         return {"ok": True, "other_cost_id": int(other_cost_id)}
     except HTTPException:
