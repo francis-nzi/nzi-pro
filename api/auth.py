@@ -86,33 +86,16 @@ def _attach_org_id(user: Dict[str, str]) -> Dict[str, str]:
         user["org_id"] = None
         return user
 
-    default_org_id = None
     try:
         with get_conn() as con:
             row = con.execute(
                 "SELECT org_id FROM users WHERE user_id = ? LIMIT 1",
                 [user_id],
             ).fetchone()
-            if row and row[0]:
-                user["org_id"] = str(row[0])
-                return user
-
-            default_row = con.execute(
-                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
-            ).fetchone()
-            default_org_id = str(default_row[0]) if default_row and default_row[0] else None
-            if default_org_id:
-                try:
-                    con.execute(
-                        "UPDATE users SET org_id = ? WHERE user_id = ? AND org_id IS NULL",
-                        [default_org_id, user_id],
-                    )
-                except Exception:
-                    pass
     except Exception:
-        default_org_id = None
+        row = None
 
-    user["org_id"] = default_org_id
+    user["org_id"] = str(row[0]) if row and row[0] else None
     return user
 
 
