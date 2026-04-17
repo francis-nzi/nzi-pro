@@ -258,7 +258,7 @@ export function LiveDataPDFExport({
       <Button
         onClick={handleExportPDF}
         variant={variant}
-        size={size}
+        size={size === "md" ? "default" : size}
         className="gap-2"
       >
         <Download className="w-4 h-4" />
@@ -361,16 +361,16 @@ export function LiveDataPDFExport({
 // ============================================================================
 
 const logger = {
-  info: (message: string, ...args: any[]) => {
+  info: (message: string, ...args: unknown[]) => {
     console.log(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  debug: (message: string, ...args: any[]) => {
+  debug: (message: string, ...args: unknown[]) => {
     console.debug(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  warn: (message: string, ...args: any[]) => {
+  warn: (message: string, ...args: unknown[]) => {
     console.warn(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  error: (message: string, ...args: any[]) => {
+  error: (message: string, ...args: unknown[]) => {
     console.error(`[LiveDataPDFExport] ${message}`, ...args);
   },
 };

@@ -182,6 +182,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [debugError, setDebugError] = useState("");
   const [debugSearch, setDebugSearch] = useState("");
   const [selectedScope, setSelectedScope] = useState<string>("All");
+  const [selectedSiteId, setSelectedSiteId] = useState<string>("All");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showColumnManager, setShowColumnManager] = useState(false);
@@ -952,6 +953,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   const filteredData = scopeData.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (selectedSiteId !== "All" && String(row.site_id ?? "") !== selectedSiteId) return false;
     if (confidenceFilter !== "All") {
       const confidence = String(row.data_confidence || "M").toUpperCase();
       if (confidence !== confidenceFilter) return false;
@@ -974,6 +976,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   const filteredPreviousYearRows = previousYearRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (selectedSiteId !== "All" && String(row.site_id ?? "") !== selectedSiteId) return false;
     if (searchQuery) {
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
@@ -999,6 +1002,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   const filteredDebugRows = debugRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (selectedSiteId !== "All" && String(row.site_id ?? "") !== selectedSiteId) return false;
     if (!debugSearch.trim()) return true;
     return multiTokenMatch(debugSearch, [
       row.scope,
@@ -1104,7 +1108,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_8rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_10rem_12rem_12rem_8rem]">
             <div className="min-w-0">
               <Label htmlFor="search">Search</Label>
               <Input
@@ -1126,6 +1130,22 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   <SelectItem value="Scope 1">Scope 1</SelectItem>
                   <SelectItem value="Scope 2">Scope 2</SelectItem>
                   <SelectItem value="Scope 3">Scope 3</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor="siteFilter">Site</Label>
+              <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                <SelectTrigger id="siteFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Sites</SelectItem>
+                  {sites.map((site) => (
+                    <SelectItem key={site.site_id} value={String(site.site_id)}>
+                      {site.site_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

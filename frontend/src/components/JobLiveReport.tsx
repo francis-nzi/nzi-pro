@@ -33,6 +33,7 @@ type LiveJobData = {
   benchmark_period_end?: string | null;
   status: string | null;
   client_name: string | null;
+  crm_owner?: string | null;
   logo_url?: string | null;
   client_logo_url?: string | null;
   benchmark_year?: number | null;
@@ -185,6 +186,7 @@ function formatDateDisplay(value: unknown): string {
 
 export default function JobLiveReport({ jobId, baseUrl, printMode = false }: JobLiveReportProps) {
   const [data, setData] = useState<LiveReportData | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -228,6 +230,33 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
   }, [baseUrl, jobId]);
 
   const job = data?.job_data ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClientOwner() {
+      const clientId = job?.client_db_id;
+      if (!clientId) {
+        setClientOwnerLabel("");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const clientJson = (await res.json()) as { crm_owner?: string | null };
+        setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+      } catch {
+        if (!cancelled) setClientOwnerLabel("");
+      }
+    }
+
+    void loadClientOwner();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, job?.client_db_id]);
   const scopeTotals = useMemo(() => data?.scope_totals ?? {}, [data?.scope_totals]);
   const benchmarkTotals = useMemo(() => data?.benchmark_totals ?? {}, [data?.benchmark_totals]);
   const intensityMetrics = data?.intensity_metrics ?? {};
@@ -280,7 +309,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
             ? `${new Date(job.benchmark_period_start).toLocaleDateString("en-GB")} - ${new Date(job.benchmark_period_end).toLocaleDateString("en-GB")}`
             : undefined,
         statusLabel: job.status ?? "Draft",
-        ownerLabel: "Unassigned",
+        ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: undefined,
       }
     : null;

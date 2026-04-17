@@ -117,6 +117,7 @@ from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
 from api.permissions import assert_client_access, assert_job_access, assert_permission
+from services.tenancy import require_org
 
 
 def _client_audit_snapshot(con, client_db_id: int) -> dict | None:
@@ -722,12 +723,13 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         if not start_date or not due_date:
             raise HTTPException(status_code=400, detail="start_date and due_date are required")
         assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
 
         with get_conn() as con:
             # Lookup job_type_id and is_crp from job_types table
             job_type_row = con.execute(
-                "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
-                [job_type_name]
+                "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE AND org_id = ?",
+                [job_type_name, org_id]
             ).fetchone()
             
             if not job_type_row:
@@ -1213,7 +1215,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                        {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
                        j.status, {job_template_expr}, {milestone_template_expr},
                        j.client_db_id, c.client_name,
-                       {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
+                       {crm_owner_expr}, {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
                        j.job_type_id
                 FROM jobs j
                 LEFT JOIN clients c ON c.db_id = j.client_db_id
@@ -1293,6 +1295,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         milestone_template_id,
         client_db_id,
         client_name,
+        crm_owner,
         crm_name,
         start_date,
         due_date,
@@ -1349,6 +1352,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "milestone_template_id": (int(milestone_template_id) if milestone_template_id is not None else None),
         "client_db_id": (int(client_db_id) if client_db_id is not None else None),
         "client_name": client_name,
+        "crm_owner": crm_owner,
         "crm_name": crm_name,
         "start_date": (str(start_date) if start_date else None),
         "due_date": (str(due_date) if due_date else None),
@@ -3164,6 +3168,7 @@ def list_clients(
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
+    org_id = require_org(_user)
     query = (q or "").strip()
 
     def _col_exists(con, table_name: str, col_name: str) -> bool:
@@ -3189,6 +3194,8 @@ def list_clients(
 
             where_clauses: list[str] = []
             params: list[object] = []
+            where_clauses.append("c.org_id = ?")
+            params.append(org_id)
             if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
                 linked_client_ids = sorted(
                     {
@@ -3403,6 +3410,7 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
+    org_id = require_org(_user)
     assert_client_access(_user, int(client_db_id))
     with get_conn() as con:
         _ensure_client_billing_columns(con)
@@ -3423,9 +3431,9 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
                    c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
             FROM clients c
-            WHERE c.db_id=?
+            WHERE c.db_id=? AND c.org_id=?
             """,
-            [int(client_db_id)],
+            [int(client_db_id), org_id],
         ).fetchone()
 
     if not row:

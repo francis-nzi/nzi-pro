@@ -31,6 +31,7 @@ type Job = {
   status: string | null;
   client_db_id: number;
   client_name: string | null;
+  crm_owner?: string | null;
   crm_name?: string | null;
 };
 
@@ -93,6 +94,7 @@ export default function JobSectionShell({
   renderContent,
 }: JobSectionShellProps) {
   const [job, setJob] = useState<Job | null>(null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -114,7 +116,17 @@ export default function JobSectionShell({
           throw new Error(`Failed to load job (${res.status})`);
         }
         const json = (await res.json()) as Job;
-        if (!cancelled) setJob(json);
+        if (!cancelled) {
+          setJob(json);
+          setClientOwnerLabel("");
+        }
+        if (json.client_db_id) {
+          const clientRes = await fetch(`${baseUrl}/clients/${json.client_db_id}`, { credentials: "include" });
+          if (clientRes.ok && !cancelled) {
+            const clientJson = (await clientRes.json()) as { crm_owner?: string | null };
+            setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+          }
+        }
       } catch (e) {
         if (!cancelled) {
           setJob(null);
@@ -131,6 +143,32 @@ export default function JobSectionShell({
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClientOwner() {
+      if (!job?.client_db_id) {
+        setClientOwnerLabel("");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const clientJson = (await res.json()) as { crm_owner?: string | null };
+        setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+      } catch {
+        if (!cancelled) setClientOwnerLabel("");
+      }
+    }
+
+    void loadClientOwner();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, job?.client_db_id]);
 
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
@@ -150,7 +188,7 @@ export default function JobSectionShell({
             ? `${new Date(job.benchmark_period_start).toLocaleDateString("en-GB")} - ${new Date(job.benchmark_period_end).toLocaleDateString("en-GB")}`
             : undefined,
         statusLabel: job.status ?? "Draft",
-        ownerLabel: job.crm_name ?? "Unassigned",
+        ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: job.crm_name ?? undefined,
       }
     : null;
@@ -158,7 +196,7 @@ export default function JobSectionShell({
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}` },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
         { label: "Jobs", href: "/jobs" },
         { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
         { label: sectionLabel, href: sectionHref ?? `/jobs/${job.job_id}` },

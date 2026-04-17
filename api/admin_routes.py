@@ -9,6 +9,7 @@ from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
 from core.auth import set_user_password
+from services.tenancy import require_org
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from pathlib import Path
@@ -709,7 +710,16 @@ def _coerce_missing_data_value(raw_value, field_type: str):
     return raw_value
 
 
-def _missing_data_query(con, *, entity: str, field_name: str, missing_only: bool, search: str, limit: int) -> dict[str, object]:
+def _missing_data_query(
+    con,
+    *,
+    entity: str,
+    field_name: str,
+    missing_only: bool,
+    search: str,
+    limit: int,
+    org_id: str | None = None,
+) -> dict[str, object]:
     meta = _missing_data_field_meta(entity, field_name)
     field_type = str(meta.get("type") or "text")
     column = str(meta.get("column") or field_name)
@@ -757,8 +767,11 @@ def _missing_data_query(con, *, entity: str, field_name: str, missing_only: bool
         ]
         edit_url_builder = lambda row: f"/jobs/{int(row[0])}"
 
-    where_clauses = ["COALESCE(c.archived, FALSE) = FALSE"] if entity == "client" else ["COALESCE(j.archived, FALSE) = FALSE"]
     params: list[object] = []
+    where_clauses = ["COALESCE(c.archived, FALSE) = FALSE"] if entity == "client" else ["COALESCE(j.archived, FALSE) = FALSE"]
+    if org_id:
+        where_clauses.append("c.org_id = %s" if entity == "client" else "j.org_id = %s")
+        params.append(org_id)
     if missing_only:
         where_clauses.append(_missing_data_missing_clause(value_sql, field_type))
     if str(search or "").strip():
@@ -813,27 +826,55 @@ def _missing_data_query(con, *, entity: str, field_name: str, missing_only: bool
     }
 
 
-def _missing_data_update_one(con, *, entity: str, field_name: str, record_id: int, value):
+def _missing_data_update_one(con, *, entity: str, field_name: str, record_id: int, value, org_id: str | None = None):
     meta = _missing_data_field_meta(entity, field_name)
     column = str(meta.get("column") or field_name)
     field_type = str(meta.get("type") or "text")
     coerced_value = _coerce_missing_data_value(value, field_type)
     if entity == "client":
-        exists = con.execute("SELECT 1 FROM clients WHERE db_id = %s", [int(record_id)]).fetchone()
+        exists_sql = "SELECT 1 FROM clients WHERE db_id = %s"
+        exists_params: list[object] = [int(record_id)]
+        if org_id:
+            exists_sql += " AND org_id = %s"
+            exists_params.append(org_id)
+        exists = con.execute(exists_sql, exists_params).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Client not found")
-        con.execute(f"UPDATE clients SET {column} = %s WHERE db_id = %s", [coerced_value, int(record_id)])
+        update_sql = f"UPDATE clients SET {column} = %s WHERE db_id = %s"
+        update_params: list[object] = [coerced_value, int(record_id)]
+        if org_id:
+            update_sql += " AND org_id = %s"
+            update_params.append(org_id)
+        con.execute(update_sql, update_params)
     else:
-        exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(record_id)]).fetchone()
+        exists_sql = "SELECT 1 FROM jobs WHERE job_id = %s"
+        exists_params: list[object] = [int(record_id)]
+        if org_id:
+            exists_sql += " AND org_id = %s"
+            exists_params.append(org_id)
+        exists = con.execute(exists_sql, exists_params).fetchone()
         if not exists:
             raise HTTPException(status_code=404, detail="Job not found")
-        con.execute(f"UPDATE jobs SET {column} = %s WHERE job_id = %s", [coerced_value, int(record_id)])
+        update_sql = f"UPDATE jobs SET {column} = %s WHERE job_id = %s"
+        update_params: list[object] = [coerced_value, int(record_id)]
+        if org_id:
+            update_sql += " AND org_id = %s"
+            update_params.append(org_id)
+        con.execute(update_sql, update_params)
     return coerced_value
 
 
 def _ensure_job_types_lookup_table(con) -> None:
     """Ensure job types table is present with the columns the admin UI expects."""
     try:
+        default_org_id = None
+        try:
+            row = con.execute(
+                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
+            ).fetchone()
+            default_org_id = row[0] if row else None
+        except Exception:
+            default_org_id = None
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS job_types (
@@ -872,13 +913,13 @@ def _ensure_job_types_lookup_table(con) -> None:
         for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active in default_job_types:
             con.execute(
                 """
-                INSERT INTO job_types (name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active)
-                SELECT %s, %s, %s, %s, %s, %s
+                INSERT INTO job_types (name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, org_id)
+                SELECT %s, %s, %s, %s, %s, %s, %s
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_types WHERE lower(name)=lower(%s)
                 )
                 """,
-                [name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, name],
+                [name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, default_org_id, name],
             )
     except Exception:
         pass
@@ -1037,6 +1078,14 @@ def _ensure_payment_terms_lookup_table(con) -> None:
 def _ensure_time_subjects_lookup_table(con) -> None:
     """Ensure time subjects lookup exists and supports budget hours."""
     try:
+        default_org_id = None
+        try:
+            row = con.execute(
+                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
+            ).fetchone()
+            default_org_id = row[0] if row else None
+        except Exception:
+            default_org_id = None
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS time_subjects (
@@ -1059,13 +1108,13 @@ def _ensure_time_subjects_lookup_table(con) -> None:
         for subject_name in default_subjects:
             con.execute(
                 """
-                INSERT INTO time_subjects (name, is_active, budget_hours)
-                SELECT %s, TRUE, 0
+                INSERT INTO time_subjects (name, is_active, budget_hours, org_id)
+                SELECT %s, TRUE, 0, %s
                 WHERE NOT EXISTS (
                   SELECT 1 FROM time_subjects WHERE lower(name)=lower(%s)
                 )
                 """,
-                [subject_name, subject_name],
+                [subject_name, default_org_id, subject_name],
             )
     except Exception:
         pass
@@ -1074,6 +1123,14 @@ def _ensure_time_subjects_lookup_table(con) -> None:
 def _ensure_portfolios_lookup_table(con) -> None:
     """Ensure portfolios lookup exists with the standard NZI portfolio."""
     try:
+        default_org_id = None
+        try:
+            row = con.execute(
+                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
+            ).fetchone()
+            default_org_id = row[0] if row else None
+        except Exception:
+            default_org_id = None
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS portfolios_lookup (
@@ -1085,23 +1142,23 @@ def _ensure_portfolios_lookup_table(con) -> None:
         )
         con.execute(
             """
-            INSERT INTO portfolios_lookup (name, is_active)
-            SELECT %s, TRUE
+            INSERT INTO portfolios_lookup (name, is_active, org_id)
+            SELECT %s, TRUE, %s
             WHERE NOT EXISTS (
               SELECT 1 FROM portfolios_lookup WHERE lower(name)=lower(%s)
             )
             """,
-            ["NZI", "NZI"],
+            ["NZI", default_org_id, "NZI"],
         )
         con.execute(
             """
-            INSERT INTO portfolios_lookup (name, is_active)
-            SELECT %s, TRUE
+            INSERT INTO portfolios_lookup (name, is_active, org_id)
+            SELECT %s, TRUE, %s
             WHERE NOT EXISTS (
               SELECT 1 FROM portfolios_lookup WHERE lower(name)=lower(%s)
             )
             """,
-            ["NZN", "NZN"],
+            ["NZN", default_org_id, "NZN"],
         )
     except Exception:
         pass
@@ -1581,6 +1638,7 @@ def _is_invite_lapsed(expires_at, has_password: bool, must_change_password: bool
 def list_users(_user: dict = Depends(_current_user)):
     """List all users."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_admin_user_schema_once(con)
             df = con.execute(
@@ -1591,8 +1649,11 @@ def list_users(_user: dict = Depends(_current_user)):
                        COALESCE(user_type, 'internal') AS user_type,
                        COALESCE(access_scope, 'all') AS access_scope
                 FROM users
+                WHERE org_id = %s
                 ORDER BY status DESC, role, full_name
                 """
+                ,
+                [org_id],
             ).df()
         
         items = []
@@ -1633,13 +1694,16 @@ def list_users(_user: dict = Depends(_current_user)):
 def list_roles(_user: dict = Depends(_current_user)):
     """List all roles."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             df = con.execute(
                 """
                 SELECT role_name, is_active
                 FROM roles_lookup
+                WHERE org_id = %s
                 ORDER BY role_name
-                """
+                """,
+                [org_id],
             ).df()
         
         items = []
@@ -1682,23 +1746,29 @@ def list_permissions(_user: dict = Depends(_current_user)):
 @router.get("/access/options")
 def get_access_options(_user: dict = Depends(_current_user)):
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             ensure_permission_schema(con)
             roles_df = con.execute(
                 """
                 SELECT role_name, is_active
                 FROM roles_lookup
-                WHERE COALESCE(is_active, TRUE) = TRUE
+                WHERE org_id = %s
+                  AND COALESCE(is_active, TRUE) = TRUE
                 ORDER BY role_name
-                """
+                """,
+                [org_id],
             ).df()
             clients_df = con.execute(
                 """
                 SELECT db_id AS client_db_id, client_name
                 FROM clients
-                WHERE status IS NULL OR LOWER(COALESCE(status, '')) <> 'archived'
+                WHERE org_id = %s
+                  AND (status IS NULL OR LOWER(COALESCE(status, '')) <> 'archived')
                 ORDER BY client_name ASC, db_id ASC
                 """
+                ,
+                [org_id],
             ).df()
         roles = []
         if roles_df is not None and not roles_df.empty:
@@ -1738,6 +1808,7 @@ def get_access_options(_user: dict = Depends(_current_user)):
 def get_user_access(email: str, _user: dict = Depends(_current_user)):
     try:
         email_norm = str(email or "").strip().lower()
+        org_id = require_org(_user)
         with get_conn() as con:
             ensure_permission_schema(con)
             row = con.execute(
@@ -1745,9 +1816,10 @@ def get_user_access(email: str, _user: dict = Depends(_current_user)):
                 SELECT email, COALESCE(role, 'ReadOnly'), COALESCE(user_type, 'internal'), COALESCE(access_scope, 'all')
                 FROM users
                 WHERE LOWER(COALESCE(email, '')) = LOWER(?)
+                  AND org_id = ?
                 LIMIT 1
                 """,
-                [email_norm],
+                [email_norm, org_id],
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
@@ -1792,6 +1864,7 @@ def get_user_access(email: str, _user: dict = Depends(_current_user)):
 def update_user_access(email: str, body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
         email_norm = str(email or "").strip().lower()
+        org_id = require_org(_user)
         actor = _actor_identifier(_user)
         role_name = str(body.get("role") or "ReadOnly").strip() or "ReadOnly"
         user_type = _normalize_user_type(body.get("user_type"))
@@ -1802,8 +1875,8 @@ def update_user_access(email: str, body: dict = Body(...), _user: dict = Depends
         with get_conn() as con:
             ensure_permission_schema(con)
             exists = con.execute(
-                "SELECT 1 FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(?) LIMIT 1",
-                [email_norm],
+                "SELECT 1 FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(?) AND org_id = ? LIMIT 1",
+                [email_norm, org_id],
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="User not found")
@@ -1812,9 +1885,9 @@ def update_user_access(email: str, body: dict = Body(...), _user: dict = Depends
                 """
                 UPDATE users
                 SET role = ?, user_type = ?, access_scope = ?, user_id = COALESCE(NULLIF(user_id, ''), ?)
-                WHERE LOWER(COALESCE(email, '')) = LOWER(?)
+                WHERE LOWER(COALESCE(email, '')) = LOWER(?) AND org_id = ?
                 """,
-                [role_name, user_type, access_scope, email_norm, email_norm],
+                [role_name, user_type, access_scope, email_norm, email_norm, org_id],
             )
 
             con.execute(
@@ -1871,11 +1944,12 @@ def archive_user(
 ):
     """Archive or unarchive a team member."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             # Check user exists
             exists = con.execute(
-                "SELECT 1 FROM users WHERE user_id = ?",
-                [int(user_id)]
+                "SELECT 1 FROM users WHERE user_id = ? AND org_id = ?",
+                [int(user_id), org_id]
             ).fetchone()
             
             if not exists:
@@ -1889,22 +1963,22 @@ def archive_user(
                     """
                     UPDATE users 
                     SET archived = ?, archived_at = CURRENT_TIMESTAMP, archived_by = ?
-                    WHERE user_id = ?
+                    WHERE user_id = ? AND org_id = ?
                     """,
-                    [True, user_name, int(user_id)]
+                    [True, user_name, int(user_id), org_id]
                 )
             else:
                 con.execute(
                     """
                     UPDATE users 
                     SET archived = ?, archived_at = NULL, archived_by = NULL
-                    WHERE user_id = ?
+                    WHERE user_id = ? AND org_id = ?
                     """,
-                    [False, int(user_id)]
+                    [False, int(user_id), org_id]
                 )
             affected_email = con.execute(
-                "SELECT LOWER(COALESCE(email, '')) FROM users WHERE user_id = ? LIMIT 1",
-                [int(user_id)],
+                "SELECT LOWER(COALESCE(email, '')) FROM users WHERE user_id = ? AND org_id = ? LIMIT 1",
+                [int(user_id), org_id],
             ).fetchone()
             if affected_email and affected_email[0]:
                 invalidate_permission_cache(str(affected_email[0]))
@@ -1941,6 +2015,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
         password = str(body.get("password") or "")
         manual_password_provided = bool(password)
         actor = _actor_identifier(_user)
+        org_id = require_org(_user)
         is_new_user = False
         generated_temp_password = ""
         invite_expires_at: datetime | None = None
@@ -1959,9 +2034,10 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                 SELECT password_hash
                 FROM users
                 WHERE lower(email) = lower(%s)
+                  AND org_id = %s
                 LIMIT 1
                 """,
-                [email],
+                [email, org_id],
             ).fetchone()
 
             if existing:
@@ -1979,8 +2055,9 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         access_scope = %s,
                         user_id = %s
                     WHERE lower(email) = lower(%s)
+                      AND org_id = %s
                     """,
-                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, user_type, access_scope, email, email],
+                    [full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, status, user_type, access_scope, email, email, org_id],
                 )
             else:
                 is_new_user = True
@@ -1996,8 +2073,8 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                 invited_by = actor if invite_mode else None
                 con.execute(
                     """
-                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at, user_type, access_scope)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO users (user_id, full_name, role, position, mobile_phone, cost_per_hour, sell_per_hour, email, status, invited_at, invited_by, invite_expires_at, user_type, access_scope, org_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     [
                         email,
@@ -2014,6 +2091,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
                         invite_expires_at,
                         user_type,
                         access_scope,
+                        org_id,
                     ],
                 )
 
@@ -2064,6 +2142,7 @@ def create_or_update_user(body: dict = Body(...), _user: dict = Depends(_current
 def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_current_user)):
     """Update a user's details."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             ensure_permission_schema(con)
             _ensure_users_position_column(con)
@@ -2095,8 +2174,8 @@ def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_curre
                 scope_user_type = body.get("user_type")
                 if scope_user_type is None:
                     current_row = con.execute(
-                        "SELECT COALESCE(user_type, 'internal') FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(%s) LIMIT 1",
-                        [email.lower()],
+                        "SELECT COALESCE(user_type, 'internal') FROM users WHERE LOWER(COALESCE(email, '')) = LOWER(%s) AND org_id = %s LIMIT 1",
+                        [email.lower(), org_id],
                     ).fetchone()
                     scope_user_type = current_row[0] if current_row else "internal"
                 updates.append("access_scope = %s")
@@ -2122,9 +2201,9 @@ def update_user(email: str, body: dict = Body(...), _user: dict = Depends(_curre
                 return {"ok": True, "message": "No fields to update"}
             
             params.append(email.lower())
-            query = f"UPDATE users SET {', '.join(updates)} WHERE email = %s"
-            
-            con.execute(query, params)
+            query = f"UPDATE users SET {', '.join(updates)} WHERE email = %s AND org_id = %s"
+
+            con.execute(query, [*params, org_id])
 
         password = str(body.get("password") or "")
         if password:
@@ -2151,11 +2230,12 @@ def admin_set_user_password(
         if len(new_password) < 8:
             raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_users_password_column(con)
             exists = con.execute(
-                "SELECT 1 FROM users WHERE lower(email) = lower(?) LIMIT 1",
-                [email],
+                "SELECT 1 FROM users WHERE lower(email) = lower(?) AND org_id = ? LIMIT 1",
+                [email, org_id],
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="User not found")
@@ -2186,11 +2266,12 @@ def admin_reset_user_password(
         full_name = email
         role = "Team Member"
         with get_conn() as con:
+            org_id = require_org(_user)
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
             row = con.execute(
-                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) LIMIT 1",
-                [email],
+                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) AND org_id = ? LIMIT 1",
+                [email, org_id],
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
@@ -2209,9 +2290,9 @@ def admin_reset_user_password(
                 SET invited_at = %s,
                     invited_by = %s,
                     invite_expires_at = %s
-                WHERE lower(email) = lower(%s)
+                WHERE lower(email) = lower(%s) AND org_id = %s
                 """,
-                [now, _actor_identifier(_user), expiry, email],
+                [now, _actor_identifier(_user), expiry, email, org_id],
             )
 
         email_result = _send_team_access_email(
@@ -2253,11 +2334,12 @@ def admin_reinvite_user(
         full_name = email
         role = "Team Member"
         with get_conn() as con:
+            org_id = require_org(_user)
             _ensure_users_password_column(con)
             _ensure_users_invite_columns(con)
             row = con.execute(
-                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) LIMIT 1",
-                [email],
+                "SELECT full_name, role FROM users WHERE lower(email) = lower(?) AND org_id = ? LIMIT 1",
+                [email, org_id],
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
@@ -2276,9 +2358,9 @@ def admin_reinvite_user(
                 SET invited_at = %s,
                     invited_by = %s,
                     invite_expires_at = %s
-                WHERE lower(email) = lower(%s)
+                WHERE lower(email) = lower(%s) AND org_id = %s
                 """,
-                [now, _actor_identifier(_user), expiry, email],
+                [now, _actor_identifier(_user), expiry, email, org_id],
             )
 
         email_result = _send_team_access_email(
@@ -2313,6 +2395,7 @@ def admin_reinvite_user(
 def list_datasets(_user: dict = Depends(_current_user)):
     """List all datasets with factor counts."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             df = con.execute(
                 """
@@ -2322,11 +2405,14 @@ def list_datasets(_user: dict = Depends(_current_user)):
                        COUNT(f.db_id) as factor_count
                 FROM datasets d
                 LEFT JOIN factor_lookup f ON f.dataset_id = d.dataset_id
+                WHERE d.org_id = %s
                 GROUP BY d.dataset_id, d.name, d.source, d.analysis_type, d.country, d.region, d.currency,
                          d.year, d.version, d.license, d.notes, d.valid_from, d.valid_to,
                          d.archived, d.archived_at, d.archived_by
                 ORDER BY d.year DESC, d.name
                 """
+                ,
+                [org_id],
             ).df()
         
         items = []
@@ -2364,13 +2450,14 @@ def create_dataset(body: dict = Body(...), _user: dict = Depends(_current_user))
         
         if not name or not source:
             raise HTTPException(status_code=400, detail="Name and source are required")
-        
+
+        org_id = require_org(_user)
         with get_conn() as con:
             row = con.execute(
                 """
                 INSERT INTO datasets
-                (name, source, analysis_type, country, region, currency, year, version, license, notes, valid_from, valid_to)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (name, source, analysis_type, country, region, currency, year, version, license, notes, valid_from, valid_to, org_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING dataset_id
                 """,
                 [
@@ -2386,6 +2473,7 @@ def create_dataset(body: dict = Body(...), _user: dict = Depends(_current_user))
                     body.get("notes"),
                     body.get("valid_from"),
                     body.get("valid_to"),
+                    org_id,
                 ],
             ).fetchone()
             
@@ -2406,11 +2494,12 @@ def update_dataset(
 ):
     """Update an existing dataset."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             # Check if dataset exists
             existing = con.execute(
-                "SELECT dataset_id FROM datasets WHERE dataset_id = %s",
-                [dataset_id]
+                "SELECT dataset_id FROM datasets WHERE dataset_id = %s AND org_id = %s",
+                [dataset_id, org_id]
             ).fetchone()
             
             if not existing:
@@ -2423,7 +2512,7 @@ def update_dataset(
                 SET name = %s, source = %s, analysis_type = %s, country = %s,
                     region = %s, currency = %s, year = %s, version = %s,
                     license = %s, notes = %s, valid_from = %s, valid_to = %s
-                WHERE dataset_id = %s
+                WHERE dataset_id = %s AND org_id = %s
                 """,
                 [
                     body.get("name"),
@@ -2439,6 +2528,7 @@ def update_dataset(
                     body.get("valid_from"),
                     body.get("valid_to"),
                     dataset_id,
+                    org_id,
                 ]
             )
         
@@ -2459,12 +2549,13 @@ def archive_dataset(
     try:
         archived = body.get("archived", True)
         user_email = _user.get("user", "admin")
+        org_id = require_org(_user)
         
         with get_conn() as con:
             # Check if dataset exists
             existing = con.execute(
-                "SELECT dataset_id FROM datasets WHERE dataset_id = %s",
-                [dataset_id]
+                "SELECT dataset_id FROM datasets WHERE dataset_id = %s AND org_id = %s",
+                [dataset_id, org_id]
             ).fetchone()
             
             if not existing:
@@ -2476,9 +2567,9 @@ def archive_dataset(
                     """
                     UPDATE datasets
                     SET archived = TRUE, archived_at = NOW(), archived_by = %s
-                    WHERE dataset_id = %s
+                    WHERE dataset_id = %s AND org_id = %s
                     """,
-                    [user_email, dataset_id]
+                    [user_email, dataset_id, org_id]
                 )
                 message = "Dataset archived successfully"
             else:
@@ -2487,9 +2578,9 @@ def archive_dataset(
                     """
                     UPDATE datasets
                     SET archived = FALSE, archived_at = NULL, archived_by = NULL
-                    WHERE dataset_id = %s
+                    WHERE dataset_id = %s AND org_id = %s
                     """,
-                    [dataset_id]
+                    [dataset_id, org_id]
                 )
                 message = "Dataset unarchived successfully"
         
@@ -2507,11 +2598,12 @@ def delete_dataset(
 ):
     """Permanently delete a dataset. Admin only. Should only be used on archived datasets."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             # Check if dataset exists and is archived
             existing = con.execute(
-                "SELECT archived FROM datasets WHERE dataset_id = %s",
-                [dataset_id]
+                "SELECT archived FROM datasets WHERE dataset_id = %s AND org_id = %s",
+                [dataset_id, org_id]
             ).fetchone()
             
             if not existing:
@@ -2525,8 +2617,8 @@ def delete_dataset(
             
             # Delete the dataset
             con.execute(
-                "DELETE FROM datasets WHERE dataset_id = %s",
-                [dataset_id]
+                "DELETE FROM datasets WHERE dataset_id = %s AND org_id = %s",
+                [dataset_id, org_id]
             )
         
         return {"ok": True, "message": "Dataset permanently deleted"}
@@ -2543,6 +2635,7 @@ def export_dataset(
 ):
     """Export all factors from a dataset as CSV."""
     try:
+        org_id = require_org(_user)
         import io
         import csv
         from fastapi.responses import StreamingResponse
@@ -2550,8 +2643,8 @@ def export_dataset(
         with get_conn() as con:
             # Get dataset info
             dataset_row = con.execute(
-                "SELECT name, source, analysis_type, year FROM datasets WHERE dataset_id = %s",
-                [dataset_id]
+                "SELECT name, source, analysis_type, year FROM datasets WHERE dataset_id = %s AND org_id = %s",
+                [dataset_id, org_id]
             ).fetchone()
             
             if not dataset_row:
@@ -2683,6 +2776,8 @@ def list_lookup_items(
         "currency_lookup": "currency_lookup"
     }
     query_table = table_map.get(table_name, table_name)
+    org_scoped_tables = {"job_types", "time_subjects", "portfolios_lookup"}
+    org_id = require_org(_user) if table_name in org_scoped_tables else None
     
     def _lookup_has_active_flag(con, name: str) -> bool:
         try:
@@ -2708,27 +2803,33 @@ def list_lookup_items(
             active_filter = ""
             if has_active_flag and not include_archived:
                 active_filter = "WHERE COALESCE(is_active, TRUE) = TRUE"
+            org_filter = ""
+            org_params: list[object] = []
+            if org_id is not None:
+                org_filter = " AND org_id = %s" if active_filter else "WHERE org_id = %s"
+                org_params.append(org_id)
             # Different tables might have different sort columns
             if table_name == "job_statuses_lookup":
-                df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY sort_order, name").df()
+                df = con.execute(f"SELECT * FROM {query_table} {active_filter}{org_filter} ORDER BY sort_order, name", org_params).df()
             elif table_name == "currency_lookup":
                 # Query with explicit column names - avoid using 'name' column since it doesn't exist
                 df = con.execute(
                     f"""
                     SELECT currency_id, currency_code, currency_name, symbol, exchange_rate, is_default, is_active, sort_order
                     FROM {query_table}
-                    {active_filter}
+                    {active_filter}{org_filter}
                     ORDER BY sort_order, currency_code
-                    """
+                    """,
+                    org_params,
                 ).df()
             elif table_name in ("job_item_categories_lookup", "uom_lookup", "bd_bin_reasons_lookup"):
-                df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY sort_order, name").df()
+                df = con.execute(f"SELECT * FROM {query_table} {active_filter}{org_filter} ORDER BY sort_order, name", org_params).df()
             else:
                 # Try to order by name, fallback to no ordering if column doesn't exist
                 try:
-                    df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY name").df()
+                    df = con.execute(f"SELECT * FROM {query_table} {active_filter}{org_filter} ORDER BY name", org_params).df()
                 except Exception:
-                    df = con.execute(f"SELECT * FROM {query_table} {active_filter}").df()
+                    df = con.execute(f"SELECT * FROM {query_table} {active_filter}{org_filter}", org_params).df()
             
             items = []
             if df is not None and not df.empty:
@@ -2789,23 +2890,29 @@ def permanently_delete_lookup_item(
     id_col = id_col_map.get(table_name)
     if not id_col:
         raise HTTPException(status_code=400, detail="Unknown table")
+    org_scoped_tables = {"job_types", "time_subjects", "portfolios_lookup"}
+    org_id = require_org(_user) if table_name in org_scoped_tables else None
 
     try:
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
-            row = con.execute(
-                f"SELECT is_active FROM {table_name} WHERE {id_col} = %s",
-                [int(item_id)],
-            ).fetchone()
+            row_sql = f"SELECT is_active FROM {table_name} WHERE {id_col} = %s"
+            row_params: list[object] = [int(item_id)]
+            if org_id is not None:
+                row_sql += " AND org_id = %s"
+                row_params.append(org_id)
+            row = con.execute(row_sql, row_params).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Lookup item not found")
             is_active = bool(row[0]) if row[0] is not None else True
             if is_active:
                 raise HTTPException(status_code=400, detail="Item must be archived before permanent deletion")
-            con.execute(
-                f"DELETE FROM {table_name} WHERE {id_col} = %s",
-                [int(item_id)],
-            )
+            delete_sql = f"DELETE FROM {table_name} WHERE {id_col} = %s"
+            delete_params: list[object] = [int(item_id)]
+            if org_id is not None:
+                delete_sql += " AND org_id = %s"
+                delete_params.append(org_id)
+            con.execute(delete_sql, delete_params)
         return {"ok": True, "message": "Lookup item permanently deleted"}
     except HTTPException:
         raise
@@ -2830,6 +2937,8 @@ def create_lookup_item(
     
     if table_name not in allowed_tables:
         raise HTTPException(status_code=400, detail="Invalid table name")
+    org_scoped_tables = {"job_types", "time_subjects", "portfolios_lookup"}
+    org_id = require_org(_user) if table_name in org_scoped_tables else None
     
     try:
         with get_conn() as con:
@@ -2908,10 +3017,16 @@ def create_lookup_item(
                 if not name:
                     raise HTTPException(status_code=400, detail="Name is required")
                 # Generic insert for simple lookup tables
-                con.execute(
-                    f"INSERT INTO {table_name} (name, is_active) VALUES (%s, %s)",
-                    [name, body.get("is_active", True)],
-                )
+                if org_id is not None:
+                    con.execute(
+                        f"INSERT INTO {table_name} (name, is_active, org_id) VALUES (%s, %s, %s)",
+                        [name, body.get("is_active", True), org_id],
+                    )
+                else:
+                    con.execute(
+                        f"INSERT INTO {table_name} (name, is_active) VALUES (%s, %s)",
+                        [name, body.get("is_active", True)],
+                    )
         
         return {"ok": True, "message": "Item created successfully"}
     except HTTPException:
@@ -2960,10 +3075,20 @@ def update_lookup_item(
     id_col = id_col_map.get(table_name)
     if not id_col:
         raise HTTPException(status_code=400, detail="Unknown table")
+    org_scoped_tables = {"job_types", "time_subjects", "portfolios_lookup"}
+    org_id = require_org(_user) if table_name in org_scoped_tables else None
     
     try:
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
+            existing_sql = f"SELECT {id_col} FROM {table_name} WHERE {id_col} = %s"
+            existing_params: list[object] = [int(item_id)]
+            if org_id is not None:
+                existing_sql += " AND org_id = %s"
+                existing_params.append(org_id)
+            existing = con.execute(existing_sql, existing_params).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Lookup item not found")
             # Build update query
             updates = []
             params = []
@@ -3010,6 +3135,9 @@ def update_lookup_item(
             
             params.append(int(item_id))
             query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s"
+            if org_id is not None:
+                query += " AND org_id = %s"
+                params.append(org_id)
             
             con.execute(query, params)
         
@@ -3331,16 +3459,17 @@ def patch_supplier_item(supplier_item_id: int, body: dict = Body(...), _user: di
 def list_archived_clients(q: str = "", _user: dict = Depends(_current_user)):
     """List archived clients."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             df = con.execute(
                 """
                 SELECT db_id, client_name, industry, status
                 FROM clients
-                WHERE status = 'Archived' AND client_name ILIKE %s
+                WHERE org_id = %s AND status = 'Archived' AND client_name ILIKE %s
                 ORDER BY client_name
                 LIMIT 100
                 """,
-                [f"%{q}%"],
+                [org_id, f"%{q}%"],
             ).df()
         
         items = []
@@ -3362,10 +3491,11 @@ def list_archived_clients(q: str = "", _user: dict = Depends(_current_user)):
 def reactivate_client(client_id: int, _user: dict = Depends(_current_user)):
     """Reactivate an archived client."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             con.execute(
-                "UPDATE clients SET status = 'Active' WHERE db_id = %s",
-                [int(client_id)],
+                "UPDATE clients SET status = 'Active' WHERE db_id = %s AND org_id = %s",
+                [int(client_id), org_id],
             )
         
         return {"ok": True, "message": "Client reactivated successfully"}
@@ -3377,10 +3507,11 @@ def reactivate_client(client_id: int, _user: dict = Depends(_current_user)):
 def permanently_delete_archived_client(client_id: int, _user: dict = Depends(_current_user)):
     """Permanently delete an archived client if there are no dependent financial/job records."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             client_row = con.execute(
-                "SELECT client_name, status FROM clients WHERE db_id = %s",
-                [int(client_id)],
+                "SELECT client_name, status FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_id), org_id],
             ).fetchone()
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
@@ -3924,7 +4055,14 @@ def delete_job_item(item_id: int, _user: dict = Depends(_current_user)):
 def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
     """Get all job items associated with a job type."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
+            jt_exists = con.execute(
+                "SELECT job_type_id FROM job_types WHERE job_type_id = %s AND org_id = %s",
+                [job_type_id, org_id]
+            ).fetchone()
+            if not jt_exists:
+                raise HTTPException(status_code=404, detail=f"Job type {job_type_id} not found")
             df = con.execute(
                 """
                 SELECT jti.job_type_item_id, jti.job_type_id, jti.item_id, jti.quantity,
@@ -3934,10 +4072,12 @@ def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
                        ji.vat_rate
                 FROM job_type_items jti
                 JOIN job_items ji ON ji.item_id = jti.item_id
+                JOIN job_types jt ON jt.job_type_id = jti.job_type_id
                 WHERE jti.job_type_id = %s
+                  AND jt.org_id = %s
                 ORDER BY jti.sort_order, ji.item_name
                 """,
-                [job_type_id]
+                [job_type_id, org_id]
             ).df()
         
         items = []
@@ -3981,10 +4121,11 @@ def add_job_type_item(
             raise HTTPException(status_code=400, detail="item_id is required")
         
         with get_conn() as con:
+            org_id = require_org(_user)
             # Check if job type exists
             jt_exists = con.execute(
-                "SELECT job_type_id FROM job_types WHERE job_type_id = %s",
-                [job_type_id]
+                "SELECT job_type_id FROM job_types WHERE job_type_id = %s AND org_id = %s",
+                [job_type_id, org_id]
             ).fetchone()
             
             if not jt_exists:
@@ -4033,10 +4174,24 @@ def remove_job_type_item(
 ):
     """Remove a job item from a job type."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
+            jt_exists = con.execute(
+                "SELECT job_type_id FROM job_types WHERE job_type_id = %s AND org_id = %s",
+                [job_type_id, org_id]
+            ).fetchone()
+            if not jt_exists:
+                raise HTTPException(status_code=404, detail=f"Job type {job_type_id} not found")
             con.execute(
-                "DELETE FROM job_type_items WHERE job_type_id = %s AND item_id = %s",
-                [job_type_id, item_id]
+                """
+                DELETE FROM job_type_items
+                WHERE job_type_id = %s
+                  AND item_id = %s
+                  AND job_type_id IN (
+                      SELECT job_type_id FROM job_types WHERE org_id = %s
+                  )
+                """,
+                [job_type_id, item_id, org_id]
             )
         
         return {"ok": True, "message": "Job item removed from job type"}
@@ -4062,6 +4217,7 @@ def admin_missing_data_fields(_user: dict = Depends(_current_user)):
 @router.post("/missing-data/query")
 def admin_missing_data_query(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        org_id = require_org(_user)
         entity = str(body.get("entity") or "").strip().lower()
         field_name = str(body.get("field") or "").strip()
         missing_only = bool(body.get("missing_only", True))
@@ -4075,6 +4231,7 @@ def admin_missing_data_query(body: dict = Body(...), _user: dict = Depends(_curr
                 missing_only=missing_only,
                 search=search,
                 limit=limit,
+                org_id=org_id,
             )
     except HTTPException:
         raise
@@ -4085,6 +4242,7 @@ def admin_missing_data_query(body: dict = Body(...), _user: dict = Depends(_curr
 @router.post("/missing-data/update")
 def admin_missing_data_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        org_id = require_org(_user)
         entity = str(body.get("entity") or "").strip().lower()
         field_name = str(body.get("field") or "").strip()
         record_id = body.get("record_id")
@@ -4097,6 +4255,7 @@ def admin_missing_data_update(body: dict = Body(...), _user: dict = Depends(_cur
                 field_name=field_name,
                 record_id=int(record_id),
                 value=body.get("value"),
+                org_id=org_id,
             )
         return {
             "ok": True,
@@ -4114,6 +4273,7 @@ def admin_missing_data_update(body: dict = Body(...), _user: dict = Depends(_cur
 @router.post("/missing-data/bulk-update")
 def admin_missing_data_bulk_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        org_id = require_org(_user)
         entity = str(body.get("entity") or "").strip().lower()
         field_name = str(body.get("field") or "").strip()
         record_ids_raw = body.get("record_ids") or []
@@ -4130,6 +4290,7 @@ def admin_missing_data_bulk_update(body: dict = Body(...), _user: dict = Depends
                     field_name=field_name,
                     record_id=record_id,
                     value=body.get("value"),
+                    org_id=org_id,
                 )
                 updated += 1
         return {

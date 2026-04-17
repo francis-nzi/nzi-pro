@@ -76,16 +76,15 @@ export default function JobWorkspaceHeader({
             </div>
             <div className="text-lg text-slate-700">{job.jobTitle}</div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+              <span>Benchmark period</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>{job.benchmarkPeriodLabel ?? "Not set"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
               <span>{job.clientName}</span>
               <span aria-hidden="true">&middot;</span>
               <span>{job.reportingPeriodLabel}</span>
             </div>
-            {job.benchmarkPeriodLabel ? (
-              <div className="text-sm text-slate-600">
-                <span className="font-medium text-slate-700">Benchmark period:</span>{" "}
-                <span>{job.benchmarkPeriodLabel}</span>
-              </div>
-            ) : null}
             <div className="flex flex-wrap items-center gap-2">
               <Pill label={`Owner: ${job.ownerLabel}`} />
               {job.crmLabel ? <Pill label={`CRM: ${job.crmLabel}`} /> : null}

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.tenancy import require_org
 
 router = APIRouter(tags=["business-development"])
 
@@ -4061,6 +4062,7 @@ def create_quote_from_opportunity(opportunity_id: int, body: dict = Body(default
 def create_job_from_opportunity(opportunity_id: int, body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     try:
         actor = _actor(_user)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_tables(con)
             opp_df = con.execute("SELECT * FROM bd_opportunities WHERE opportunity_id = ?", [int(opportunity_id)]).df()
@@ -4073,12 +4075,13 @@ def create_job_from_opportunity(opportunity_id: int, body: dict = Body(default={
             job_type_row = None
             if job_type_name:
                 job_type_row = con.execute(
-                    "SELECT job_type_id, name, is_crp FROM job_types WHERE lower(name)=lower(?) AND is_active=TRUE LIMIT 1",
-                    [job_type_name],
+                    "SELECT job_type_id, name, is_crp FROM job_types WHERE lower(name)=lower(?) AND is_active=TRUE AND org_id = ? LIMIT 1",
+                    [job_type_name, org_id],
                 ).fetchone()
             if not job_type_row:
                 job_type_row = con.execute(
-                    "SELECT job_type_id, name, is_crp FROM job_types WHERE is_active=TRUE ORDER BY job_type_id LIMIT 1"
+                    "SELECT job_type_id, name, is_crp FROM job_types WHERE is_active=TRUE AND org_id = ? ORDER BY job_type_id LIMIT 1",
+                    [org_id],
                 ).fetchone()
             if not job_type_row:
                 raise HTTPException(status_code=400, detail="No active job type available")

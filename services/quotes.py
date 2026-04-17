@@ -44,6 +44,14 @@ def get_quote(quote_id: int) -> dict[str, Any] | None:
         if qdf.empty:
             return None
         quote = qdf.iloc[0].to_dict()
+        try:
+            client_org_row = con.execute(
+                "SELECT org_id FROM clients WHERE db_id=?",
+                [int(quote.get("client_db_id") or 0)],
+            ).fetchone()
+            quote["client_org_id"] = client_org_row[0] if client_org_row else None
+        except Exception:
+            quote["client_org_id"] = None
         ldf = con.execute(
             """
             SELECT line_id, quote_id, line_type, sort_order, job_type_id, description,

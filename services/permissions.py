@@ -190,15 +190,51 @@ def ensure_permission_schema(con) -> None:
         """
     )
 
-    for role_name in ROLE_PERMISSION_GRANTS.keys():
-        con.execute(
-            """
-            INSERT INTO roles_lookup (role_name, is_active)
-            VALUES (?, TRUE)
-            ON CONFLICT (role_name) DO NOTHING
-            """,
-            [role_name],
+    default_org_id = None
+    roles_lookup_has_org_id = False
+    try:
+        row = con.execute(
+            "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
+        ).fetchone()
+        default_org_id = row[0] if row else None
+    except Exception:
+        default_org_id = None
+
+    try:
+        roles_lookup_has_org_id = bool(
+            con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'roles_lookup'
+                  AND column_name = 'org_id'
+                LIMIT 1
+                """
+            ).fetchone()
         )
+    except Exception:
+        roles_lookup_has_org_id = False
+
+    for role_name in ROLE_PERMISSION_GRANTS.keys():
+        if roles_lookup_has_org_id:
+            con.execute(
+                """
+                INSERT INTO roles_lookup (role_name, is_active, org_id)
+                VALUES (?, TRUE, ?)
+                ON CONFLICT (role_name) DO NOTHING
+                """,
+                [role_name, default_org_id],
+            )
+        else:
+            con.execute(
+                """
+                INSERT INTO roles_lookup (role_name, is_active)
+                VALUES (?, TRUE)
+                ON CONFLICT (role_name) DO NOTHING
+                """,
+                [role_name],
+            )
 
     for permission_key, description in PERMISSIONS.items():
         con.execute(

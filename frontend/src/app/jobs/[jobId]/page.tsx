@@ -409,6 +409,7 @@ type Job = {
   milestone_template_id?: number | null;
   client_db_id: number;
   client_name: string | null;
+  crm_owner?: string | null;
   crm_name?: string | null;
   legacy_job_no?: string | null;
   start_date?: string | null;
