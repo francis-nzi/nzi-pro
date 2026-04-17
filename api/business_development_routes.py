@@ -2645,12 +2645,20 @@ def list_stages(_user: dict = Depends(_current_user)):
                 """
             ).df()
             items: list[dict[str, Any]] = []
-            if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    items.append(_serialize_stage(row.to_dict()))
-            return {"items": items}
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                items.append(_serialize_stage(row.to_dict()))
+        return {"items": items}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load funnel stages: {e}")
+        return {
+            "items": [
+                {"stage_id": 1, "stage_key": "lead", "stage_name": "Lead", "stage_order": 1, "probability_pct": 10, "is_active": True},
+                {"stage_id": 2, "stage_key": "qualified", "stage_name": "Qualified", "stage_order": 2, "probability_pct": 35, "is_active": True},
+                {"stage_id": 3, "stage_key": "proposal", "stage_name": "Proposal", "stage_order": 3, "probability_pct": 65, "is_active": True},
+                {"stage_id": 4, "stage_key": "closed", "stage_name": "Closed", "stage_order": 4, "probability_pct": 100, "is_active": True},
+            ],
+            "warning": f"Failed to load funnel stages: {e}",
+        }
 
 
 @router.post("/bd/funnel/stages")
@@ -3778,7 +3786,7 @@ def list_leads(
                     items.append(_serialize_lead(row.to_dict()))
             return {"items": items, "total": total, "limit": int(limit), "offset": int(offset)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load leads: {e}")
+        return {"items": [], "total": 0, "limit": int(limit), "offset": int(offset), "warning": f"Failed to load leads: {e}"}
 
 
 @router.post("/bd/leads")
@@ -3932,7 +3940,7 @@ def list_opportunities(
                     items.append(_serialize_opportunity(row.to_dict()))
             return {"items": items, "total": total, "limit": int(limit), "offset": int(offset)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load opportunities: {e}")
+        return {"items": [], "total": 0, "limit": int(limit), "offset": int(offset), "warning": f"Failed to load opportunities: {e}"}
 
 
 @router.post("/bd/opportunities")
@@ -4295,4 +4303,12 @@ def get_bd_overview(_user: dict = Depends(_current_user)):
                 },
             }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load business development overview: {e}")
+        return {
+            "stages": [],
+            "totals": {
+                "lead_count": 0,
+                "open_opportunities": 0,
+                "pipeline_value": 0,
+            },
+            "warning": f"Failed to load business development overview: {e}",
+        }
