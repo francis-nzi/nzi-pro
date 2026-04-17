@@ -21,6 +21,47 @@ def _clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
+    if crp_only:
+        return con.execute(
+            """
+            SELECT
+                j.job_id,
+                j.reporting_year,
+                j.title,
+                COALESCE(
+                    EXTRACT(YEAR FROM j.reporting_period_end),
+                    EXTRACT(YEAR FROM cjd.reporting_period_to),
+                    j.reporting_year
+                ) AS dashboard_year
+            FROM jobs j
+            LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+            WHERE j.client_db_id = %s AND j.is_crp = TRUE
+            ORDER BY dashboard_year ASC NULLS LAST
+            """,
+            [int(client_db_id)],
+        ).df()
+
+    return con.execute(
+        """
+        SELECT
+            j.job_id,
+            j.reporting_year,
+            j.title,
+            COALESCE(
+                EXTRACT(YEAR FROM j.reporting_period_end),
+                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                j.reporting_year
+            ) AS dashboard_year
+        FROM jobs j
+        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+        WHERE j.client_db_id = %s
+        ORDER BY dashboard_year ASC NULLS LAST
+        """,
+        [int(client_db_id)],
+    ).df()
+
+
 @router.get("/clients/{client_db_id}/reporting")
 def get_client_reporting(
     client_db_id: int,
@@ -47,25 +88,11 @@ def get_client_reporting(
             if not client_check:
                 raise HTTPException(status_code=404, detail="Client not found")
             
-            # Get all CRP jobs for this client
-            jobs_df = con.execute(
-                """
-                SELECT 
-                    j.job_id,
-                    j.reporting_year,
-                    j.title,
-                    COALESCE(
-                        EXTRACT(YEAR FROM j.reporting_period_end),
-                        EXTRACT(YEAR FROM cjd.reporting_period_to),
-                        j.reporting_year
-                    ) AS dashboard_year
-                FROM jobs j
-                LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                WHERE j.client_db_id = %s AND j.is_crp = TRUE
-                ORDER BY dashboard_year ASC NULLS LAST
-                """,
-                [int(client_db_id)]
-            ).df()
+            # Prefer CRP jobs for reporting, but fall back to all client jobs when
+            # the client has no CRP-tagged jobs yet.
+            jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=True)
+            if jobs_df is None or jobs_df.empty:
+                jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
             
             if jobs_df is None or jobs_df.empty:
                 return {

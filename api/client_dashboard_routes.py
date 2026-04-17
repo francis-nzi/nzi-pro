@@ -17,6 +17,88 @@ from services.emissions_reporting import combined_row_metrics, load_combined_emi
 router = APIRouter()
 
 
+def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
+    if org_id:
+        if crp_only:
+            return con.execute(
+                """
+                SELECT
+                    j.job_id,
+                    j.reporting_year,
+                    COALESCE(
+                        EXTRACT(YEAR FROM j.reporting_period_end),
+                        EXTRACT(YEAR FROM cjd.reporting_period_to),
+                        j.reporting_year
+                    ) as dashboard_year,
+                    j.title
+                FROM jobs j
+                LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+                JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
+                ORDER BY dashboard_year ASC NULLS LAST
+                """,
+                [int(client_db_id), org_id],
+            ).df()
+        return con.execute(
+            """
+            SELECT
+                j.job_id,
+                j.reporting_year,
+                COALESCE(
+                    EXTRACT(YEAR FROM j.reporting_period_end),
+                    EXTRACT(YEAR FROM cjd.reporting_period_to),
+                    j.reporting_year
+                ) as dashboard_year,
+                j.title
+            FROM jobs j
+            LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+            JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.client_db_id = %s AND c.org_id = %s
+            ORDER BY dashboard_year ASC NULLS LAST
+            """,
+            [int(client_db_id), org_id],
+        ).df()
+
+    if crp_only:
+        return con.execute(
+            """
+            SELECT
+                j.job_id,
+                j.reporting_year,
+                COALESCE(
+                    EXTRACT(YEAR FROM j.reporting_period_end),
+                    EXTRACT(YEAR FROM cjd.reporting_period_to),
+                    j.reporting_year
+                ) as dashboard_year,
+                j.title
+            FROM jobs j
+            LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+            WHERE j.client_db_id = %s AND j.is_crp = TRUE
+            ORDER BY dashboard_year ASC NULLS LAST
+            """,
+            [int(client_db_id)],
+        ).df()
+
+    return con.execute(
+        """
+        SELECT
+            j.job_id,
+            j.reporting_year,
+            COALESCE(
+                EXTRACT(YEAR FROM j.reporting_period_end),
+                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                j.reporting_year
+            ) as dashboard_year,
+            j.title
+        FROM jobs j
+        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+        WHERE j.client_db_id = %s
+        ORDER BY dashboard_year ASC NULLS LAST
+        """,
+        [int(client_db_id)],
+    ).df()
+
+
 @router.get("/clients/{client_db_id}/dashboard")
 def get_client_dashboard(
     client_db_id: int,
@@ -36,46 +118,11 @@ def get_client_dashboard(
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
             try:
-                # Get all jobs for this client with their reporting years.
-                if org_id:
-                    jobs_df = con.execute(
-                        """
-                        SELECT
-                            j.job_id,
-                            j.reporting_year,
-                            COALESCE(
-                                EXTRACT(YEAR FROM j.reporting_period_end),
-                                EXTRACT(YEAR FROM cjd.reporting_period_to),
-                                j.reporting_year
-                            ) as dashboard_year,
-                            j.title
-                        FROM jobs j
-                        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                        JOIN clients c ON c.db_id = j.client_db_id
-                        WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
-                        ORDER BY dashboard_year ASC NULLS LAST
-                        """,
-                        [int(client_db_id), org_id]
-                    ).df()
-                else:
-                    jobs_df = con.execute(
-                        """
-                        SELECT
-                            j.job_id,
-                            j.reporting_year,
-                            COALESCE(
-                                EXTRACT(YEAR FROM j.reporting_period_end),
-                                EXTRACT(YEAR FROM cjd.reporting_period_to),
-                                j.reporting_year
-                            ) as dashboard_year,
-                            j.title
-                        FROM jobs j
-                        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                        WHERE j.client_db_id = %s AND j.is_crp = TRUE
-                        ORDER BY dashboard_year ASC NULLS LAST
-                        """,
-                        [int(client_db_id)]
-                    ).df()
+                # Prefer CRP jobs for the dashboard, but fall back to all client jobs
+                # when the client has no CRP-tagged jobs yet.
+                jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=True)
+                if jobs_df is None or jobs_df.empty:
+                    jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=False)
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
                 scope_df = load_combined_emissions_summary_rows(con, job_ids)
             except Exception:
