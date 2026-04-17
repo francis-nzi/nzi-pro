@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,18 @@ type ClientListItem = {
   milestone_status?: string | null;
 };
 
+type FacetOption = {
+  value: string;
+  count: number;
+};
+
+type ClientFacets = {
+  industries: FacetOption[];
+  statuses: FacetOption[];
+  owners: FacetOption[];
+  risks: FacetOption[];
+};
+
 type SortBy = "client" | "industry" | "status" | "owner" | "risk";
 
 export default function ClientsPage() {
@@ -43,6 +56,16 @@ export default function ClientsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [industryFilter, setIndustryFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [riskFilter, setRiskFilter] = useState("");
+  const [facets, setFacets] = useState<ClientFacets>({
+    industries: [],
+    statuses: [],
+    owners: [],
+    risks: [],
+  });
   const [sortBy, setSortBy] = useState<SortBy>("client");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -54,8 +77,14 @@ export default function ClientsPage() {
       try {
         const params = new URLSearchParams();
         if (q.trim()) params.set("q", q.trim());
+        if (industryFilter.trim()) params.set("industry", industryFilter.trim());
+        if (statusFilter.trim()) params.set("status", statusFilter.trim());
+        if (ownerFilter.trim()) params.set("crm_owner", ownerFilter.trim());
+        if (riskFilter.trim()) params.set("risk", riskFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
+        params.set("sort_by", sortBy);
+        params.set("sort_dir", sortDir);
 
         const res = await fetch(`${baseUrl}/clients?${params.toString()}`, {
           credentials: "include",
@@ -69,10 +98,24 @@ export default function ClientsPage() {
         if (cancelled) return;
         setItems(json.items ?? []);
         setTotal(Number(json.total ?? 0));
+        setFacets(
+          json.facets ?? {
+            industries: [],
+            statuses: [],
+            owners: [],
+            risks: [],
+          }
+        );
       } catch (e) {
         if (cancelled) return;
         setItems([]);
         setTotal(0);
+        setFacets({
+          industries: [],
+          statuses: [],
+          owners: [],
+          risks: [],
+        });
         setError((e as Error).message);
       } finally {
         if (!cancelled) setLoading(false);
@@ -83,7 +126,7 @@ export default function ClientsPage() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, limit, offset]);
+  }, [baseUrl, q, industryFilter, statusFilter, ownerFilter, riskFilter, limit, offset, sortBy, sortDir]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -168,7 +211,7 @@ export default function ClientsPage() {
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Due</span>
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">Healthy</span>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <Label htmlFor="q">Search</Label>
                   <Input
@@ -201,6 +244,66 @@ export default function ClientsPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="industry-filter">Industry</Label>
+                  <SearchableStringSelect
+                    id="industry-filter"
+                    value={industryFilter}
+                    options={facets.industries.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.industries.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All industries"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setIndustryFilter(value);
+                      setOffset(0);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status-filter">Status</Label>
+                  <SearchableStringSelect
+                    id="status-filter"
+                    value={statusFilter}
+                    options={facets.statuses.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.statuses.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All statuses"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setStatusFilter(value);
+                      setOffset(0);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="owner-filter">Owner</Label>
+                  <SearchableStringSelect
+                    id="owner-filter"
+                    value={ownerFilter}
+                    options={facets.owners.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.owners.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All owners"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setOwnerFilter(value);
+                      setOffset(0);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="risk-filter">Risk</Label>
+                  <SearchableStringSelect
+                    id="risk-filter"
+                    value={riskFilter}
+                    options={facets.risks.map((facet) => facet.value)}
+                    optionBadges={Object.fromEntries(facets.risks.map((facet) => [facet.value, facet.count]))}
+                    placeholder="All risks"
+                    showClearButton
+                    onValueChange={(value) => {
+                      setRiskFilter(value);
+                      setOffset(0);
+                    }}
+                  />
                 </div>
               </div>
             </div>

@@ -3229,9 +3229,15 @@ async def upload_client_logo(
 @app.get("/clients")
 def list_clients(
     q: str | None = None,
+    industry: str | None = None,
+    status: str | None = None,
+    crm_owner: str | None = None,
+    risk: str | None = None,
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    sort_by: str = Query("client"),
+    sort_dir: str = Query("asc"),
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
@@ -3253,6 +3259,13 @@ def list_clients(
             return bool(row)
         except Exception:
             return False
+
+    def _normalize_filter_value(value: object, fallback: str) -> str:
+        text = str(value or "").strip()
+        return text if text else fallback
+
+    def _normalize_lookup_value(value: object) -> str:
+        return str(value or "").strip().lower()
 
     try:
         with get_conn() as con:
@@ -3324,16 +3337,15 @@ def list_clients(
                     FROM clients c
                     {where_sql}
                     ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
-                    LIMIT %s OFFSET %s
                     """,
-                    [*params, int(limit), int(offset)],
+                    params,
                 )
                 .df()
             )
-            
-            # Get milestone data for all jobs of these clients
+
+            milestone_data = None
             if rows is not None and not rows.empty:
-                client_ids = [int(r['client_db_id']) for _, r in rows.iterrows()]
+                client_ids = [int(r["client_db_id"]) for _, r in rows.iterrows()]
                 try:
                     milestone_data = con.execute(
                         f"""
@@ -3346,7 +3358,7 @@ def list_clients(
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         WHERE j.client_db_id IN ({','.join(['%s'] * len(client_ids))})
                         """,
-                        client_ids
+                        client_ids,
                     ).df()
                 except Exception:
                     milestone_data = None
@@ -3379,9 +3391,8 @@ def list_clients(
                         FROM clients c
                         {where_sql}
                         ORDER BY LOWER(COALESCE(c.client_name, '')) ASC, c.db_id ASC
-                        LIMIT %s OFFSET %s
                         """,
-                        [*params, int(limit), int(offset)],
+                        params,
                     )
                     .df()
                 )
@@ -3448,36 +3459,86 @@ def list_clients(
                 client_milestone_status[client_id] = None
 
     items: list[dict[str, object]] = []
+    facet_industries: dict[str, int] = {}
+    facet_statuses: dict[str, int] = {}
+    facet_owners: dict[str, int] = {}
+    facet_risks: dict[str, int] = {}
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
             client_id = int(r.get("client_db_id"))
+            industry_value = _normalize_filter_value(_json_null_if_na(r.get("industry")), "Unspecified")
+            status_value = _normalize_filter_value(_json_null_if_na(r.get("status")), "Unspecified")
+            owner_value = _normalize_filter_value(_json_null_if_na(r.get("crm_owner")), "Unassigned")
+            risk_value = _normalize_filter_value(client_milestone_status.get(client_id) or "green", "green")
+            risk_label = "Overdue" if risk_value == "red" else "Due" if risk_value == "amber" else "Healthy"
+
+            facet_industries[industry_value] = facet_industries.get(industry_value, 0) + 1
+            facet_statuses[status_value] = facet_statuses.get(status_value, 0) + 1
+            facet_owners[owner_value] = facet_owners.get(owner_value, 0) + 1
+            facet_risks[risk_label] = facet_risks.get(risk_label, 0) + 1
+
             items.append(
                 {
                     "client_db_id": client_id,
                     "client_name": _json_null_if_na(r.get("client_name")),
-                    "industry": _json_null_if_na(r.get("industry")),
-                    "status": _json_null_if_na(r.get("status")),
-                    "crm_owner": _json_null_if_na(r.get("crm_owner")),
+                    "industry": industry_value,
+                    "status": status_value,
+                    "crm_owner": owner_value,
                     "milestone_status": _json_null_if_na(client_milestone_status.get(client_id)),
                 }
             )
 
-    # Sort by milestone status priority: red > amber > green > None/completed
-    def status_priority(item):
-        status = item.get("milestone_status")
-        if status == "red":
-            return 0
-        elif status == "amber":
-            return 1
-        elif status == "green":
-            return 2
-        else:
-            return 3
-    
-    items.sort(key=status_priority)
+        def matches_filters(item: dict[str, object]) -> bool:
+            if industry and _normalize_lookup_value(item.get("industry")) != _normalize_lookup_value(industry):
+                return False
+            if status and _normalize_lookup_value(item.get("status")) != _normalize_lookup_value(status):
+                return False
+            if crm_owner and _normalize_lookup_value(item.get("crm_owner")) != _normalize_lookup_value(crm_owner):
+                return False
+            if risk:
+                item_risk = item.get("milestone_status")
+                risk_label = "Overdue" if item_risk == "red" else "Due" if item_risk == "amber" else "Healthy"
+                if _normalize_lookup_value(risk_label) != _normalize_lookup_value(risk):
+                    return False
+            return True
 
-    total = int(total_row[0] if total_row else 0)
-    return {"items": items, "limit": int(limit), "offset": int(offset), "total": total}
+        items = [item for item in items if matches_filters(item)]
+
+    def sort_value(item: dict[str, object]):
+        key = (sort_by or "client").strip().lower()
+        if key == "industry":
+            return _normalize_lookup_value(item.get("industry"))
+        if key == "status":
+            return _normalize_lookup_value(item.get("status"))
+        if key == "owner":
+            return _normalize_lookup_value(item.get("crm_owner"))
+        if key == "risk":
+            status = item.get("milestone_status")
+            return 0 if status == "red" else 1 if status == "amber" else 2
+        return _normalize_lookup_value(item.get("client_name"))
+
+    reverse = str(sort_dir or "asc").strip().lower() == "desc"
+    items.sort(key=sort_value, reverse=reverse)
+
+    total = len(items)
+    start = int(offset)
+    end = start + int(limit)
+    page_items = items[start:end]
+
+    facet_payload = {
+        "industries": [{"value": key, "count": count} for key, count in sorted(facet_industries.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+        "statuses": [{"value": key, "count": count} for key, count in sorted(facet_statuses.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+        "owners": [{"value": key, "count": count} for key, count in sorted(facet_owners.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+        "risks": [{"value": key, "count": count} for key, count in sorted(facet_risks.items(), key=lambda kv: (-kv[1], kv[0].lower()))],
+    }
+
+    return {
+        "items": page_items,
+        "limit": int(limit),
+        "offset": int(offset),
+        "total": total,
+        "facets": facet_payload,
+    }
 
 
 @app.get("/clients/{client_db_id}")
