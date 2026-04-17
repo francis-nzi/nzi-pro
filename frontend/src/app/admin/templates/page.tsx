@@ -66,6 +66,8 @@ export default function TemplatesPage() {
   const [isActive, setIsActive] = useState(true);
   const [datasetCountry, setDatasetCountry] = useState("");
   const [datasetYear, setDatasetYear] = useState("");
+  const [datasetCountryMenuOpen, setDatasetCountryMenuOpen] = useState(false);
+  const [datasetCountrySearchStarted, setDatasetCountrySearchStarted] = useState(false);
   const [datasetCatalog, setDatasetCatalog] = useState<DatasetCatalogItem[]>([]);
   const [datasetWorkbookHint, setDatasetWorkbookHint] = useState("");
   const lastAutoTemplateKey = useRef("");
@@ -107,18 +109,45 @@ export default function TemplatesPage() {
     void loadDatasetCatalog();
   }, [loadDatasetCatalog, loadTemplates]);
 
+  const activeDatasetCatalog = useMemo(
+    () => datasetCatalog.filter((item) => !item.archived && item.country && item.year),
+    [datasetCatalog]
+  );
+
+  const datasetCountryOptions = useMemo(() => {
+    const countries = Array.from(new Set(activeDatasetCatalog.map((item) => item.country))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    return countries;
+  }, [activeDatasetCatalog]);
+
+  const filteredDatasetCountryOptions = useMemo(() => {
+    const query = datasetCountrySearchStarted ? datasetCountry.trim().toLowerCase() : "";
+    const filtered = !query
+      ? datasetCountryOptions
+      : datasetCountryOptions.filter((option) => option.toLowerCase().includes(query));
+    return filtered.slice(0, 100);
+  }, [datasetCountry, datasetCountryOptions, datasetCountrySearchStarted]);
+
+  const datasetYearOptions = useMemo(() => {
+    if (!datasetCountry) {
+      return Array.from(new Set(activeDatasetCatalog.map((item) => String(item.year)))).sort((a, b) => Number(b) - Number(a));
+    }
+    return activeDatasetCatalog
+      .filter((item) => item.country === datasetCountry)
+      .map((item) => String(item.year))
+      .filter((value, index, arr) => arr.indexOf(value) === index)
+      .sort((a, b) => Number(b) - Number(a));
+  }, [activeDatasetCatalog, datasetCountry]);
+
   useEffect(() => {
-    const activeDatasets = datasetCatalog.filter((item) => !item.archived && item.country && item.year);
-    if (!activeDatasets.length) {
+    if (!activeDatasetCatalog.length) {
       return;
     }
 
-    const availableCountries = Array.from(new Set(activeDatasets.map((item) => item.country))).sort((a, b) =>
-      a.localeCompare(b)
-    );
     const preferredCountry =
-      (datasetCountry && availableCountries.includes(datasetCountry) ? datasetCountry : "") ||
-      (availableCountries.includes("UK") ? "UK" : availableCountries[0]);
+      (datasetCountry && datasetCountryOptions.includes(datasetCountry) ? datasetCountry : "") ||
+      (datasetCountryOptions.includes("UK") ? "UK" : datasetCountryOptions[0]);
 
     let workbookHint = "";
     if (preferredCountry && preferredCountry !== datasetCountry) {
@@ -126,7 +155,7 @@ export default function TemplatesPage() {
       workbookHint = `Using ${preferredCountry} because it is the first available country with dataset rows.`;
     }
 
-    const yearsForCountry = activeDatasets
+    const yearsForCountry = activeDatasetCatalog
       .filter((item) => item.country === preferredCountry)
       .map((item) => Number(item.year))
       .filter((value) => Number.isFinite(value))
@@ -143,7 +172,7 @@ export default function TemplatesPage() {
     }
 
     setDatasetWorkbookHint(workbookHint);
-  }, [datasetCatalog, datasetCountry, datasetYear]);
+  }, [activeDatasetCatalog, datasetCountry, datasetCountryOptions, datasetYear]);
 
   useEffect(() => {
     setTemplateType(activeTab);
@@ -342,8 +371,13 @@ export default function TemplatesPage() {
       return;
     }
 
-    const matchingDatasetYears = datasetCatalog
-      .filter((item) => !item.archived && item.country === country && item.year)
+    const resolvedCountry =
+      datasetCountryOptions.find((option) => option.toLowerCase() === country.toLowerCase()) ||
+      datasetCountryOptions.find((option) => option.toLowerCase().includes(country.toLowerCase())) ||
+      country;
+
+    const matchingDatasetYears = activeDatasetCatalog
+      .filter((item) => !item.archived && item.country === resolvedCountry && item.year)
       .map((item) => Number(item.year))
       .filter((value) => Number.isFinite(value))
       .sort((a, b) => b - a);
@@ -352,12 +386,12 @@ export default function TemplatesPage() {
       : String(matchingDatasetYears[0] || year);
 
     if (effectiveYear !== year) {
-      setDatasetWorkbookHint(`Using the latest available year (${effectiveYear}) for ${country}.`);
+      setDatasetWorkbookHint(`Using the latest available year (${effectiveYear}) for ${resolvedCountry}.`);
     } else {
-      setDatasetWorkbookHint(`Using ${country} / ${effectiveYear} for the workbook download.`);
+      setDatasetWorkbookHint(`Using ${resolvedCountry} / ${effectiveYear} for the workbook download.`);
     }
 
-    const defaults = buildDatasetTemplateDefaults(country, effectiveYear);
+    const defaults = buildDatasetTemplateDefaults(resolvedCountry, effectiveYear);
     const currentKey = templateKey.trim();
     const currentName = templateName.trim();
     if (!currentKey || currentKey === lastAutoTemplateKey.current) {
@@ -372,7 +406,7 @@ export default function TemplatesPage() {
     try {
       setStatus("Preparing dataset workbook...");
       const params = new URLSearchParams({
-        country,
+        country: resolvedCountry,
         year: effectiveYear,
       });
       const res = await fetch(`${baseUrl}/admin/templates/dataset-workbook?${params.toString()}`, {
@@ -386,7 +420,7 @@ export default function TemplatesPage() {
       const blob = await res.blob();
       const disposition = res.headers.get("content-disposition") || "";
       const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
-      const filename = filenameMatch?.[1] || `${country.replace(/[^\w\- ]+/g, "_").trim() || "country"}_${effectiveYear}_dataset_template.xlsx`;
+      const filename = filenameMatch?.[1] || `${resolvedCountry.replace(/[^\w\- ]+/g, "_").trim() || "country"}_${effectiveYear}_dataset_template.xlsx`;
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -566,24 +600,79 @@ export default function TemplatesPage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="datasetCountry">Country</Label>
-                      <Input
-                        id="datasetCountry"
-                        value={datasetCountry}
-                        onChange={(e) => setDatasetCountry(e.target.value)}
-                        placeholder="e.g., UK"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="datasetCountry"
+                          value={datasetCountry}
+                          onChange={(e) => {
+                            setDatasetCountry(e.target.value);
+                            setDatasetCountrySearchStarted(true);
+                            setDatasetCountryMenuOpen(true);
+                          }}
+                          onFocus={() => {
+                            setDatasetCountrySearchStarted(false);
+                            setDatasetCountryMenuOpen(true);
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => setDatasetCountryMenuOpen(false), 120);
+                          }}
+                          placeholder="Search country..."
+                        />
+                        {datasetCountryMenuOpen && (
+                          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
+                            {filteredDatasetCountryOptions.length === 0 ? (
+                              <div className="px-3 py-2 text-sm text-muted-foreground">No countries found</div>
+                            ) : (
+                              filteredDatasetCountryOptions.map((countryOption) => (
+                                <button
+                                  key={countryOption}
+                                  type="button"
+                                  className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setDatasetCountry(countryOption);
+                                    setDatasetCountrySearchStarted(false);
+                                    setDatasetCountryMenuOpen(false);
+                                    const yearsForCountry = activeDatasetCatalog
+                                      .filter((item) => item.country === countryOption)
+                                      .map((item) => Number(item.year))
+                                      .filter((value) => Number.isFinite(value))
+                                      .sort((a, b) => b - a);
+                                    if (yearsForCountry.length) {
+                                      setDatasetYear(String(yearsForCountry[0]));
+                                    }
+                                  }}
+                                >
+                                  {countryOption}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                <div className="space-y-2">
-                  <Label htmlFor="datasetYear">Year</Label>
-                  <Input
-                    id="datasetYear"
-                    type="number"
-                        value={datasetYear}
-                        onChange={(e) => setDatasetYear(e.target.value)}
-                    placeholder="e.g., 2025"
-                  />
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="datasetYear">Year</Label>
+                      <Select value={datasetYear} onValueChange={setDatasetYear}>
+                        <SelectTrigger id="datasetYear">
+                          <SelectValue placeholder="Select year..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {datasetYearOptions.length === 0 ? (
+                            <SelectItem value="" disabled>
+                              No years available
+                            </SelectItem>
+                          ) : (
+                            datasetYearOptions.map((yearOption) => (
+                              <SelectItem key={yearOption} value={yearOption}>
+                                {yearOption}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
               {datasetWorkbookHint && (
                 <div className="text-xs text-muted-foreground">
                   {datasetWorkbookHint}
