@@ -457,7 +457,7 @@ export default function TemplatesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-hidden bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -484,20 +484,20 @@ export default function TemplatesPage() {
           </TabsList>
 
           {TEMPLATE_TYPES.map((type) => (
-            <TabsContent key={type.key} value={type.key}>
+            <TabsContent key={type.key} value={type.key} className="min-w-0">
               {type.key === "variables" ? (
                 <ReportVariablesAdmin baseUrl={baseUrl} />
               ) : type.key === "messaging" ? (
                 <MessagingTemplatesAdmin baseUrl={baseUrl} />
               ) : (
               <>
-              <div className="grid gap-6 lg:grid-cols-2">
+              <div className="grid min-w-0 gap-6 lg:grid-cols-2">
           {/* Template List */}
-          <Card>
+          <Card className="min-w-0">
             <CardHeader>
               <CardTitle>Active Templates</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0">
               {loading ? (
                 <div className="text-sm text-muted-foreground">Loading...</div>
               ) : activeTemplates.length === 0 ? (
@@ -510,14 +510,14 @@ export default function TemplatesPage() {
                       className="rounded-md border p-3 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="font-medium">{t.template_key}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="break-words font-medium">{t.template_key}</div>
                           {t.template_name && (
-                            <div className="text-sm text-muted-foreground">{t.template_name}</div>
+                            <div className="break-words text-sm text-muted-foreground">{t.template_name}</div>
                           )}
                           <div className="mt-2 space-y-1 text-xs">
                             {t.file_path && (
-                              <div className="text-muted-foreground">
+                              <div className="break-words text-muted-foreground">
                                 � File: {t.file_path}
                               </div>
                             )}
@@ -569,11 +569,11 @@ export default function TemplatesPage() {
           </Card>
 
           {/* Add/Edit Form */}
-          <Card>
+          <Card className="min-w-0">
             <CardHeader>
               <CardTitle>{editingId ? "Edit Template" : "Add New Template"}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="min-w-0 space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="templateKey">Template Key *</Label>
                 <Input
