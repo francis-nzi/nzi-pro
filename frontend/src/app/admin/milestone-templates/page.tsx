@@ -206,7 +206,7 @@ export default function MilestoneTemplatesPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
+    <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: '#F26624' }}>Milestone Templates</h1>
