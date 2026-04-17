@@ -75,6 +75,7 @@ type GeneratedLead = {
   contact_role: string;
   contact_email: string;
   contact_phone: string;
+  linkedin_url?: string;
   revenue_gbp_millions: number;
   likelihood_score: number;
   why_good_lead: string;
@@ -1364,6 +1365,9 @@ export default function BusinessDevelopmentPage() {
                           <span className="font-medium">Contact: </span>
                           {item.contact_name || "-"} {item.contact_role ? `(${item.contact_role})` : ""} {item.contact_email ? `| ${item.contact_email}` : ""}{" "}
                           {item.contact_phone ? `| ${item.contact_phone}` : ""}
+                          {item.linkedin_url ? (
+                            <>{" "}| <a href={item.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">LinkedIn</a></>
+                          ) : null}
                         </div>
                         <div className="mt-2 text-xs text-muted-foreground">
                           <span className="font-medium">Why good lead: </span>
@@ -1458,6 +1462,9 @@ export default function BusinessDevelopmentPage() {
                     <div className="mt-2 text-xs">
                       <span className="font-medium">Contact: </span>
                       {item.contact_name || "-"} {item.contact_role ? `(${item.contact_role})` : ""} {item.contact_email ? `| ${item.contact_email}` : ""} {item.contact_phone ? `| ${item.contact_phone}` : ""}
+                      {item.linkedin_url ? (
+                        <>{" "}| <a href={item.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">LinkedIn</a></>
+                      ) : null}
                     </div>
                     <div className="text-xs">
                       <span className="font-medium">Revenue: </span>

@@ -646,6 +646,7 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS market_company_id INTEGER")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS scan_batch_id INTEGER")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS source_provider VARCHAR")
+    con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()")
     con.execute("ALTER TABLE bd_ai_generated_leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()")
     con.execute(
@@ -791,6 +792,7 @@ def _serialize_generated_lead(row: dict[str, Any]) -> dict[str, Any]:
         "contact_role": _safe_str(row.get("contact_role"), ""),
         "contact_email": _safe_str(row.get("contact_email"), ""),
         "contact_phone": _safe_str(row.get("contact_phone"), ""),
+        "linkedin_url": _safe_str(row.get("linkedin_url"), ""),
         "revenue_gbp_millions": float(_safe_float(row.get("revenue_gbp_millions"), 0)),
         "likelihood_score": float(_safe_float(row.get("likelihood_score"), 0)),
         "why_good_lead": _safe_str(row.get("why_good_lead"), ""),
@@ -1068,8 +1070,6 @@ def _criteria_filters_match(
 
     if target_industries and not _matches_target_industries(item, target_industries, include_narrative=include_narrative):
         return False
-    if target_roles and not _matches_target_roles(item, target_roles):
-        return False
 
     text = _candidate_text(item, include_narrative=include_narrative)
     if regions:
@@ -1255,8 +1255,6 @@ def _is_consultancy_competitor_candidate(item: dict[str, Any]) -> bool:
             str(item.get("company_name") or ""),
             str(item.get("industry") or ""),
             str(item.get("website") or ""),
-            str(item.get("why_good_lead") or ""),
-            str(item.get("trigger_reason") or ""),
         ]
     ).lower()
     consultancy_markers = [
@@ -1294,8 +1292,6 @@ def _is_unwanted_market_scan_company(item: dict[str, Any]) -> bool:
             str(item.get("company_name") or ""),
             str(item.get("industry") or ""),
             str(item.get("website") or ""),
-            str(item.get("why_good_lead") or ""),
-            str(item.get("trigger_reason") or ""),
         ]
     ).lower()
     blocked_markers = [
@@ -1552,7 +1548,7 @@ def _parse_market_scan_rows(
             "source_references": str(row.get("source_references") or "").strip(),
             "source_provider": "open_web",
         }
-        if not _matches_target_industries(candidate, target_industries, include_narrative=False):
+        if not _matches_target_industries(candidate, target_industries, include_narrative=True):
             continue
         if not _criteria_filters_match(
             candidate,
@@ -1563,7 +1559,6 @@ def _parse_market_scan_rows(
             revenue_min=revenue_min,
             revenue_max=revenue_max,
             strict_mode=strict_mode,
-            include_narrative=False,
         ):
             continue
         if _is_consultancy_competitor_candidate(candidate) or _is_unwanted_market_scan_company(candidate):
@@ -1926,12 +1921,113 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         return {}
 
 
+def _apollo_enrich_lead(
+    item: dict[str, Any],
+    target_roles: list[str],
+) -> tuple[dict[str, Any] | None, str | None]:
+    api_key = _apollo_api_key()
+    if not api_key:
+        return None, None
+
+    company_name = str(item.get("company_name") or "").strip()
+    website = str(item.get("website") or "").strip()
+    domain = _host_from_website(website)
+    if not domain and not company_name:
+        return None, None
+    if domain and domain.startswith("www.google.com"):
+        domain = ""
+
+    role_keywords = [
+        "sustainability",
+        "esg",
+        "environment",
+        "net zero",
+        "carbon",
+        "social value",
+        "climate",
+        "bid",
+        "procurement",
+        "business development",
+        "sales",
+    ]
+    title_terms = list(dict.fromkeys(
+        [r.strip().lower() for r in target_roles if r.strip()] + role_keywords
+    ))
+
+    search_payload: dict[str, Any] = {
+        "per_page": 10,
+        "person_titles": title_terms[:15],
+    }
+    if domain:
+        search_payload["q_organization_domains"] = domain
+    elif company_name:
+        search_payload["q_organization_name"] = company_name
+
+    try:
+        people, _raw = _apollo_search_people(search_payload)
+    except Exception as e:
+        return None, f"Apollo people search failed: {e}"
+
+    if not people:
+        return None, None
+
+    role_lower = [r.strip().lower() for r in target_roles if r.strip()]
+    best: dict[str, Any] | None = None
+    best_score = -1
+    for person in people:
+        title = str(person.get("job_title") or "").lower()
+        seniority = str(person.get("seniority") or "").lower()
+        score = 0
+        for role in role_lower:
+            if role in title or title in role:
+                score += 10
+                break
+        for kw in role_keywords:
+            if kw in title:
+                score += 5
+                break
+        if seniority in ("director", "vp", "c_suite", "owner", "founder"):
+            score += 3
+        elif seniority in ("manager", "senior"):
+            score += 2
+        if person.get("email"):
+            score += 4
+        if person.get("linkedin_url"):
+            score += 2
+        if score > best_score:
+            best_score = score
+            best = person
+
+    if not best:
+        return None, None
+
+    linkedin_url = str(best.get("linkedin_url") or "").strip()
+    existing_refs = str(item.get("source_references") or "").strip()
+    source_parts = [r.strip() for r in existing_refs.split("|") if r.strip()] if existing_refs else []
+    if linkedin_url and linkedin_url not in source_parts:
+        source_parts.append(linkedin_url)
+
+    return {
+        "contact_name": str(best.get("full_name") or "").strip(),
+        "contact_role": str(best.get("job_title") or "").strip(),
+        "contact_email": str(best.get("email") or "").strip(),
+        "contact_phone": str(best.get("phone") or "").strip(),
+        "linkedin_url": linkedin_url,
+        "source_references": " | ".join(source_parts) if source_parts else "",
+        "source_provider": "apollo",
+    }, None
+
+
 def _enrich_single_lead_with_ai(
     item: dict[str, Any],
     target_roles: list[str],
     revenue_min: float,
     revenue_max: float,
 ) -> tuple[dict[str, Any] | None, str | None]:
+    apollo_result, apollo_error = _apollo_enrich_lead(item, target_roles)
+    if apollo_result and apollo_result.get("contact_name"):
+        return apollo_result, None
+
     prompt = (
         "Return ONLY valid JSON object with keys: contact_name, contact_role, contact_email, contact_phone, "
         "revenue_gbp_millions, likelihood_score, why_good_lead, trigger_reason, source_references.\n"
@@ -1961,8 +2057,19 @@ def _enrich_single_lead_with_ai(
             content = (response.choices[0].message.content or "").strip() if response.choices else ""
             parsed = _parse_json_object(content)
             if parsed:
+                if apollo_result:
+                    for key in ("contact_name", "contact_role", "contact_email", "contact_phone", "linkedin_url"):
+                        if apollo_result.get(key) and not parsed.get(key):
+                            parsed[key] = apollo_result[key]
+                    if apollo_result.get("source_references"):
+                        existing = str(parsed.get("source_references") or "").strip()
+                        apollo_refs = str(apollo_result.get("source_references") or "").strip()
+                        if apollo_refs and apollo_refs not in existing:
+                            parsed["source_references"] = f"{existing} | {apollo_refs}" if existing else apollo_refs
                 return parsed, None
         except Exception as e:
+            if apollo_result:
+                return apollo_result, None
             return None, f"OpenAI enrich failed: {e}"
 
     gemini_key = _env_value("GEMINI_API_KEY", "")
@@ -1986,11 +2093,24 @@ def _enrich_single_lead_with_ai(
                     text = " ".join([str(p.get("text") or "") for p in parts if isinstance(p, dict)]).strip()
             parsed = _parse_json_object(text)
             if parsed:
+                if apollo_result:
+                    for key in ("contact_name", "contact_role", "contact_email", "contact_phone", "linkedin_url"):
+                        if apollo_result.get(key) and not parsed.get(key):
+                            parsed[key] = apollo_result[key]
+                    if apollo_result.get("source_references"):
+                        existing = str(parsed.get("source_references") or "").strip()
+                        apollo_refs = str(apollo_result.get("source_references") or "").strip()
+                        if apollo_refs and apollo_refs not in existing:
+                            parsed["source_references"] = f"{existing} | {apollo_refs}" if existing else apollo_refs
                 return parsed, None
         except Exception as e:
+            if apollo_result:
+                return apollo_result, None
             return None, f"Gemini enrich failed: {e}"
 
-    return None, "No AI provider configured for enrichment."
+    if apollo_result:
+        return apollo_result, None
+    return None, apollo_error or "No AI or Apollo provider configured for enrichment."
 
 
 def _service_search_terms(service_key: str, regions: list[str]) -> list[str]:
@@ -2278,9 +2398,7 @@ def _openai_generate_service_leads(
                     "source_references": str(row.get("source_references") or "").strip(),
                     "source_provider": "open_web",
                 }
-                if not _matches_target_industries(candidate, target_industries):
-                    continue
-                if not _matches_target_roles(candidate, target_roles):
+                if not _matches_target_industries(candidate, target_industries, include_narrative=True):
                     continue
                 if not _criteria_filters_match(
                     candidate,
@@ -2475,9 +2593,7 @@ def _gemini_generate_service_leads(
                     "source_references": str(row.get("source_references") or "").strip(),
                     "source_provider": "open_web",
                 }
-                if not _matches_target_industries(candidate, target_industries):
-                    continue
-                if not _matches_target_roles(candidate, target_roles):
+                if not _matches_target_industries(candidate, target_industries, include_narrative=True):
                     continue
                 if not _criteria_filters_match(
                     candidate,
@@ -3352,7 +3468,7 @@ def enrich_generated_leads(body: dict = Body(default={}), _user: dict = Depends(
             df = con.execute(
                 """
                 SELECT generated_lead_id, company_name, industry, country, city, website,
-                       contact_name, contact_role, contact_email, contact_phone,
+                       contact_name, contact_role, contact_email, contact_phone, linkedin_url,
                        revenue_gbp_millions, likelihood_score, why_good_lead,
                        trigger_reason, source_references, score_breakdown_json, source_provider
                 FROM bd_ai_generated_leads
@@ -3382,11 +3498,13 @@ def enrich_generated_leads(body: dict = Body(default={}), _user: dict = Depends(
                         contact_role = ?,
                         contact_email = ?,
                         contact_phone = ?,
+                        linkedin_url = ?,
                         revenue_gbp_millions = ?,
                         likelihood_score = ?,
                         why_good_lead = ?,
                         trigger_reason = ?,
                         source_references = ?,
+                        source_provider = CASE WHEN ? IS NOT NULL THEN ? ELSE source_provider END,
                         updated_at = NOW()
                     WHERE generated_lead_id = ? AND org_id = ?
                     """,
@@ -3395,11 +3513,14 @@ def enrich_generated_leads(body: dict = Body(default={}), _user: dict = Depends(
                         str(enriched.get("contact_role") or lead.get("contact_role") or "").strip() or None,
                         str(enriched.get("contact_email") or lead.get("contact_email") or "").strip() or None,
                         str(enriched.get("contact_phone") or lead.get("contact_phone") or "").strip() or None,
+                        str(enriched.get("linkedin_url") or lead.get("linkedin_url") or "").strip() or None,
                         _safe_float(enriched.get("revenue_gbp_millions"), _safe_float(lead.get("revenue_gbp_millions"), 0)),
                         _normalize_likelihood_score(enriched.get("likelihood_score") if enriched.get("likelihood_score") is not None else lead.get("likelihood_score")),
                         str(enriched.get("why_good_lead") or lead.get("why_good_lead") or "").strip() or None,
                         str(enriched.get("trigger_reason") or lead.get("trigger_reason") or "").strip() or None,
                         str(enriched.get("source_references") or lead.get("source_references") or "").strip() or None,
+                        str(enriched.get("source_provider") or "").strip() or None,
+                        str(enriched.get("source_provider") or "").strip() or None,
                         int(lead.get("generated_lead_id") or 0),
                         org_id,
                     ],
