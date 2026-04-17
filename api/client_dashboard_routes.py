@@ -37,25 +37,45 @@ def get_client_dashboard(
             ensure_client_benchmark_columns(con)
             try:
                 # Get all jobs for this client with their reporting years.
-                jobs_df = con.execute(
-                    """
-                    SELECT
-                        j.job_id,
-                        j.reporting_year,
-                        COALESCE(
-                            EXTRACT(YEAR FROM j.reporting_period_end),
-                            EXTRACT(YEAR FROM cjd.reporting_period_to),
-                            j.reporting_year
-                        ) as dashboard_year,
-                        j.title
-                    FROM jobs j
-                    LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                    JOIN clients c ON c.db_id = j.client_db_id
-                    WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
-                    ORDER BY dashboard_year ASC NULLS LAST
-                    """,
-                    [int(client_db_id), org_id]
-                ).df()
+                if org_id:
+                    jobs_df = con.execute(
+                        """
+                        SELECT
+                            j.job_id,
+                            j.reporting_year,
+                            COALESCE(
+                                EXTRACT(YEAR FROM j.reporting_period_end),
+                                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                                j.reporting_year
+                            ) as dashboard_year,
+                            j.title
+                        FROM jobs j
+                        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+                        JOIN clients c ON c.db_id = j.client_db_id
+                        WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
+                        ORDER BY dashboard_year ASC NULLS LAST
+                        """,
+                        [int(client_db_id), org_id]
+                    ).df()
+                else:
+                    jobs_df = con.execute(
+                        """
+                        SELECT
+                            j.job_id,
+                            j.reporting_year,
+                            COALESCE(
+                                EXTRACT(YEAR FROM j.reporting_period_end),
+                                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                                j.reporting_year
+                            ) as dashboard_year,
+                            j.title
+                        FROM jobs j
+                        LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+                        WHERE j.client_db_id = %s AND j.is_crp = TRUE
+                        ORDER BY dashboard_year ASC NULLS LAST
+                        """,
+                        [int(client_db_id)]
+                    ).df()
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
                 scope_df = load_combined_emissions_summary_rows(con, job_ids)
             except Exception:
@@ -175,91 +195,180 @@ def get_client_dashboard(
             industry_average_emissions = None
             net_zero_progress = None
 
-            client_info = con.execute(
-                "SELECT industry, net_zero_year FROM clients WHERE db_id = %s AND org_id = %s",
-                [int(client_db_id), org_id],
-            ).fetchone()
+            try:
+                if org_id:
+                    client_info = con.execute(
+                        "SELECT industry, net_zero_year FROM clients WHERE db_id = %s AND org_id = %s",
+                        [int(client_db_id), org_id],
+                    ).fetchone()
+                else:
+                    client_info = con.execute(
+                        "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
+                        [int(client_db_id)],
+                    ).fetchone()
+            except Exception:
+                client_info = con.execute(
+                    "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
+                    [int(client_db_id)],
+                ).fetchone()
             if not client_info:
                 raise HTTPException(status_code=404, detail="Client not found")
             industry = client_info[0] if len(client_info) > 0 else None
             net_year = client_info[1] if len(client_info) > 1 else None
             if industry:
                 try:
-                    avg_df = con.execute(
-                        """
-                        SELECT AVG(total_emissions) FROM (
-                            WITH job_context AS (
-                                SELECT
-                                    j.job_id,
-                                    j.client_db_id
-                                FROM jobs j
-                                JOIN clients c ON c.db_id = j.client_db_id
-                                WHERE c.industry = %s AND j.is_crp = TRUE AND c.org_id = %s
-                            ),
-                                legacy_rows AS (
+                    if org_id:
+                        avg_df = con.execute(
+                            """
+                            SELECT AVG(total_emissions) FROM (
+                                WITH job_context AS (
                                     SELECT
-                                        jc.client_db_id,
-                                        jsr.qty,
-                                        jsr.factor,
-                                        jsr.ghg_unit,
-                                        jsr.apply_pct,
-                                        jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
-                                        jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
-                                        jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
-                                    FROM job_scope_rows jsr
-                                    JOIN job_context jc ON jc.job_id = jsr.job_id
-                                    WHERE jsr.enabled = TRUE
+                                        j.job_id,
+                                        j.client_db_id
+                                    FROM jobs j
+                                    JOIN clients c ON c.db_id = j.client_db_id
+                                    WHERE c.industry = %s AND j.is_crp = TRUE AND c.org_id = %s
                                 ),
-                                source_rows AS (
+                                    legacy_rows AS (
+                                        SELECT
+                                            jc.client_db_id,
+                                            jsr.qty,
+                                            jsr.factor,
+                                            jsr.ghg_unit,
+                                            jsr.apply_pct,
+                                            jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
+                                            jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
+                                            jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                                        FROM job_scope_rows jsr
+                                        JOIN job_context jc ON jc.job_id = jsr.job_id
+                                        WHERE jsr.enabled = TRUE
+                                    ),
+                                    source_rows AS (
+                                        SELECT
+                                            jc.client_db_id,
+                                            js.qty,
+                                            COALESCE(g.factor, js.factor) AS factor,
+                                            COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
+                                            js.apply_pct,
+                                            NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
+                                            NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
+                                            NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
+                                        FROM job_emission_sources js
+                                        JOIN job_context jc ON jc.job_id = js.job_id
+                                        LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+                                        WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                    ),
+                                    combined_rows AS (
+                                        SELECT * FROM legacy_rows
+                                        UNION ALL
+                                        SELECT * FROM source_rows
+                                    )
                                     SELECT
-                                        jc.client_db_id,
-                                        js.qty,
-                                        COALESCE(g.factor, js.factor) AS factor,
-                                        COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
-                                        js.apply_pct,
-                                        NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
-                                        NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
-                                        NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
-                                    FROM job_emission_sources js
-                                    JOIN job_context jc ON jc.job_id = js.job_id
-                                    LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
-                                    WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                        client_db_id,
+                                        COALESCE(SUM(
+                                            CASE
+                                                WHEN LOWER(COALESCE(ghg_unit,'kgCO2e')) LIKE '%%kg%%' THEN
+                                                    (COALESCE(qty,
+                                                            COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                            COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                            COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                            COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                            COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                            COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                        * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)/1000.0
+                                                ELSE
+                                                    (COALESCE(qty,
+                                                            COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                            COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                            COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                            COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                            COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                            COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                        * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)
+                                            END
+                                        ),0) AS total_emissions
+                                    FROM combined_rows
+                                    GROUP BY client_db_id
+                                ) sub
+                                """,
+                            [industry, org_id],
+                        ).fetchone()
+                    else:
+                        avg_df = con.execute(
+                            """
+                            SELECT AVG(total_emissions) FROM (
+                                WITH job_context AS (
+                                    SELECT
+                                        j.job_id,
+                                        j.client_db_id
+                                    FROM jobs j
+                                    JOIN clients c ON c.db_id = j.client_db_id
+                                    WHERE c.industry = %s AND j.is_crp = TRUE
                                 ),
-                                combined_rows AS (
-                                    SELECT * FROM legacy_rows
-                                    UNION ALL
-                                    SELECT * FROM source_rows
-                                )
-                                SELECT
-                                    client_db_id,
-                                    COALESCE(SUM(
-                                        CASE
-                                            WHEN LOWER(COALESCE(ghg_unit,'kgCO2e')) LIKE '%%kg%%' THEN
-                                                (COALESCE(qty,
-                                                        COALESCE(month_1,0)+COALESCE(month_2,0)+
-                                                        COALESCE(month_3,0)+COALESCE(month_4,0)+
-                                                        COALESCE(month_5,0)+COALESCE(month_6,0)+
-                                                        COALESCE(month_7,0)+COALESCE(month_8,0)+
-                                                        COALESCE(month_9,0)+COALESCE(month_10,0)+
-                                                        COALESCE(month_11,0)+COALESCE(month_12,0),0)
-                                                    * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)/1000.0
-                                            ELSE
-                                                (COALESCE(qty,
-                                                        COALESCE(month_1,0)+COALESCE(month_2,0)+
-                                                        COALESCE(month_3,0)+COALESCE(month_4,0)+
-                                                        COALESCE(month_5,0)+COALESCE(month_6,0)+
-                                                        COALESCE(month_7,0)+COALESCE(month_8,0)+
-                                                        COALESCE(month_9,0)+COALESCE(month_10,0)+
-                                                        COALESCE(month_11,0)+COALESCE(month_12,0),0)
-                                                    * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)
-                                        END
-                                    ),0) AS total_emissions
-                                FROM combined_rows
-                                GROUP BY client_db_id
-                            ) sub
-                            """,
-                        [industry, org_id],
-                    ).fetchone()
+                                    legacy_rows AS (
+                                        SELECT
+                                            jc.client_db_id,
+                                            jsr.qty,
+                                            jsr.factor,
+                                            jsr.ghg_unit,
+                                            jsr.apply_pct,
+                                            jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
+                                            jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
+                                            jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
+                                        FROM job_scope_rows jsr
+                                        JOIN job_context jc ON jc.job_id = jsr.job_id
+                                        WHERE jsr.enabled = TRUE
+                                    ),
+                                    source_rows AS (
+                                        SELECT
+                                            jc.client_db_id,
+                                            js.qty,
+                                            COALESCE(g.factor, js.factor) AS factor,
+                                            COALESCE(g.ghg_unit, js.ghg_unit) AS ghg_unit,
+                                            js.apply_pct,
+                                            NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
+                                            NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
+                                            NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
+                                        FROM job_emission_sources js
+                                        JOIN job_context jc ON jc.job_id = js.job_id
+                                        LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
+                                        WHERE COALESCE(js.enabled, TRUE) = TRUE
+                                    ),
+                                    combined_rows AS (
+                                        SELECT * FROM legacy_rows
+                                        UNION ALL
+                                        SELECT * FROM source_rows
+                                    )
+                                    SELECT
+                                        client_db_id,
+                                        COALESCE(SUM(
+                                            CASE
+                                                WHEN LOWER(COALESCE(ghg_unit,'kgCO2e')) LIKE '%%kg%%' THEN
+                                                    (COALESCE(qty,
+                                                            COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                            COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                            COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                            COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                            COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                            COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                        * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)/1000.0
+                                                ELSE
+                                                    (COALESCE(qty,
+                                                            COALESCE(month_1,0)+COALESCE(month_2,0)+
+                                                            COALESCE(month_3,0)+COALESCE(month_4,0)+
+                                                            COALESCE(month_5,0)+COALESCE(month_6,0)+
+                                                            COALESCE(month_7,0)+COALESCE(month_8,0)+
+                                                            COALESCE(month_9,0)+COALESCE(month_10,0)+
+                                                            COALESCE(month_11,0)+COALESCE(month_12,0),0)
+                                                        * COALESCE(factor,0) * COALESCE(apply_pct,100)/100.0)
+                                            END
+                                        ),0) AS total_emissions
+                                    FROM combined_rows
+                                    GROUP BY client_db_id
+                                ) sub
+                                """,
+                            [industry],
+                        ).fetchone()
                     industry_average_emissions = float(avg_df[0]) if avg_df and avg_df[0] is not None else None
                 except Exception:
                     industry_average_emissions = None
@@ -316,10 +425,22 @@ def get_client_dashboard(
                                 })
             
             # Get client currency for display
-            client_currency = con.execute(
-                "SELECT currency FROM clients WHERE db_id = %s AND org_id = %s",
-                [int(client_db_id), org_id]
-            ).fetchone()
+            try:
+                if org_id:
+                    client_currency = con.execute(
+                        "SELECT currency FROM clients WHERE db_id = %s AND org_id = %s",
+                        [int(client_db_id), org_id]
+                    ).fetchone()
+                else:
+                    client_currency = con.execute(
+                        "SELECT currency FROM clients WHERE db_id = %s",
+                        [int(client_db_id)]
+                    ).fetchone()
+            except Exception:
+                client_currency = con.execute(
+                    "SELECT currency FROM clients WHERE db_id = %s",
+                    [int(client_db_id)]
+                ).fetchone()
             
             currency = client_currency[0] if client_currency and client_currency[0] else 'GBP'
             return {

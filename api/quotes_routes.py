@@ -2650,16 +2650,25 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
-
-            quote_ids_df = con.execute(
-                """
-                SELECT quote_id
-                FROM quotes
-                WHERE client_db_id = %s
-                  AND org_id = %s
-                """,
-                [int(client_id), org_id],
-            ).df()
+            if org_id:
+                quote_ids_df = con.execute(
+                    """
+                    SELECT quote_id
+                    FROM quotes
+                    WHERE client_db_id = %s
+                      AND org_id = %s
+                    """,
+                    [int(client_id), org_id],
+                ).df()
+            else:
+                quote_ids_df = con.execute(
+                    """
+                    SELECT quote_id
+                    FROM quotes
+                    WHERE client_db_id = %s
+                    """,
+                    [int(client_id)],
+                ).df()
             quote_total = 0.0
             quote_count = 0
             if quote_ids_df is not None and not quote_ids_df.empty:
@@ -2668,15 +2677,25 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                     if qid is None:
                         continue
                     quote_count += 1
-                    line_df = con.execute(
-                        """
-                        SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
-                        FROM quote_lines
-                        WHERE quote_id = %s
-                          AND org_id = %s
-                        """,
-                        [int(qid), org_id],
-                    ).df()
+                    if org_id:
+                        line_df = con.execute(
+                            """
+                            SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
+                            FROM quote_lines
+                            WHERE quote_id = %s
+                              AND org_id = %s
+                            """,
+                            [int(qid), org_id],
+                        ).df()
+                    else:
+                        line_df = con.execute(
+                            """
+                            SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
+                            FROM quote_lines
+                            WHERE quote_id = %s
+                            """,
+                            [int(qid)],
+                        ).df()
                     lines = []
                     if line_df is not None and not line_df.empty:
                         for _, l in line_df.iterrows():
@@ -2690,15 +2709,25 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                             )
                     quote_total += _compute_totals(lines)["total"]
 
-            inv_df = con.execute(
-                """
-                SELECT invoice_id, subtotal, vat, total, status, amount_paid
-                FROM invoices
-                WHERE client_db_id = %s
-                  AND org_id = %s
-                """,
-                [int(client_id), org_id],
-            ).df()
+            if org_id:
+                inv_df = con.execute(
+                    """
+                    SELECT invoice_id, subtotal, vat, total, status, amount_paid
+                    FROM invoices
+                    WHERE client_db_id = %s
+                      AND org_id = %s
+                    """,
+                    [int(client_id), org_id],
+                ).df()
+            else:
+                inv_df = con.execute(
+                    """
+                    SELECT invoice_id, subtotal, vat, total, status, amount_paid
+                    FROM invoices
+                    WHERE client_db_id = %s
+                    """,
+                    [int(client_id)],
+                ).df()
 
             invoice_count = 0
             invoiced_total = 0.0
@@ -2723,18 +2752,30 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
 
             variance = invoiced_total - quote_total
             realization_pct = (invoiced_total / quote_total * 100.0) if quote_total > 0 else 0.0
-            time_df = con.execute(
-                """
-                SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
-                FROM time_logs tl
-                JOIN jobs j ON j.job_id = tl.job_id
-                LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
-                WHERE j.client_db_id = %s
-                  AND COALESCE(tl.org_id, %s) = %s
-                  AND COALESCE(j.org_id, %s) = %s
-                """,
-                [int(client_id), org_id, org_id, org_id, org_id],
-            ).df()
+            if org_id:
+                time_df = con.execute(
+                    """
+                    SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
+                    FROM time_logs tl
+                    JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+                    WHERE j.client_db_id = %s
+                      AND COALESCE(tl.org_id, %s) = %s
+                      AND COALESCE(j.org_id, %s) = %s
+                    """,
+                    [int(client_id), org_id, org_id, org_id, org_id],
+                ).df()
+            else:
+                time_df = con.execute(
+                    """
+                    SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
+                    FROM time_logs tl
+                    JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+                    WHERE j.client_db_id = %s
+                    """,
+                    [int(client_id)],
+                ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
             if time_df is not None and not time_df.empty:
@@ -2747,17 +2788,28 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                     hourly_rate = unit_price / estimated_hours if unit_price > 0 and estimated_hours > 0 else 0.0
                     actual_cost_from_time += hours * hourly_rate
             time_cost_variance = actual_cost_from_time - quote_total
-            other_df = con.execute(
-                """
-                SELECT amount_ex_vat, vat_amount, total_inc_vat
-                FROM job_other_costs oc
-                JOIN jobs j ON j.job_id = oc.job_id
-                WHERE j.client_db_id = %s
-                  AND COALESCE(oc.org_id, %s) = %s
-                  AND COALESCE(j.org_id, %s) = %s
-                """,
-                [int(client_id), org_id, org_id, org_id, org_id],
-            ).df()
+            if org_id:
+                other_df = con.execute(
+                    """
+                    SELECT amount_ex_vat, vat_amount, total_inc_vat
+                    FROM job_other_costs oc
+                    JOIN jobs j ON j.job_id = oc.job_id
+                    WHERE j.client_db_id = %s
+                      AND COALESCE(oc.org_id, %s) = %s
+                      AND COALESCE(j.org_id, %s) = %s
+                    """,
+                    [int(client_id), org_id, org_id, org_id, org_id],
+                ).df()
+            else:
+                other_df = con.execute(
+                    """
+                    SELECT amount_ex_vat, vat_amount, total_inc_vat
+                    FROM job_other_costs oc
+                    JOIN jobs j ON j.job_id = oc.job_id
+                    WHERE j.client_db_id = %s
+                    """,
+                    [int(client_id)],
+                ).df()
             other_subtotal = 0.0
             other_vat = 0.0
             other_total = 0.0
@@ -2898,18 +2950,30 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
 
             variance = invoiced_total - quote_total
             realization_pct = (invoiced_total / quote_total * 100.0) if quote_total > 0 else 0.0
-            time_df = con.execute(
-                """
-                SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
-                FROM time_logs tl
-                JOIN jobs j ON j.job_id = tl.job_id
-                LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
-                WHERE tl.job_id = %s
-                  AND COALESCE(tl.org_id, %s) = %s
-                  AND COALESCE(j.org_id, %s) = %s
-                """,
-                [int(job_id), org_id, org_id, org_id, org_id],
-            ).df()
+            if org_id:
+                time_df = con.execute(
+                    """
+                    SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
+                    FROM time_logs tl
+                    JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+                    WHERE tl.job_id = %s
+                      AND COALESCE(tl.org_id, %s) = %s
+                      AND COALESCE(j.org_id, %s) = %s
+                    """,
+                    [int(job_id), org_id, org_id, org_id, org_id],
+                ).df()
+            else:
+                time_df = con.execute(
+                    """
+                    SELECT tl.minutes, jt.unit_price_ex_vat, jt.estimated_hours
+                    FROM time_logs tl
+                    JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
+                    WHERE tl.job_id = %s
+                    """,
+                    [int(job_id)],
+                ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
             if time_df is not None and not time_df.empty:
@@ -2922,15 +2986,25 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                     hourly_rate = unit_price / estimated_hours if unit_price > 0 and estimated_hours > 0 else 0.0
                     actual_cost_from_time += hours * hourly_rate
             time_cost_variance = actual_cost_from_time - quote_total
-            other_df = con.execute(
-                """
-                SELECT amount_ex_vat, vat_amount, total_inc_vat
-                FROM job_other_costs
-                WHERE job_id = %s
-                  AND COALESCE(org_id, %s) = %s
-                """,
-                [int(job_id), org_id, org_id],
-            ).df()
+            if org_id:
+                other_df = con.execute(
+                    """
+                    SELECT amount_ex_vat, vat_amount, total_inc_vat
+                    FROM job_other_costs
+                    WHERE job_id = %s
+                      AND COALESCE(org_id, %s) = %s
+                    """,
+                    [int(job_id), org_id, org_id],
+                ).df()
+            else:
+                other_df = con.execute(
+                    """
+                    SELECT amount_ex_vat, vat_amount, total_inc_vat
+                    FROM job_other_costs
+                    WHERE job_id = %s
+                    """,
+                    [int(job_id)],
+                ).df()
             other_subtotal = 0.0
             other_vat = 0.0
             other_total = 0.0
