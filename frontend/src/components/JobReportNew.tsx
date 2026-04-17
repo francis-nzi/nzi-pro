@@ -1182,7 +1182,7 @@ export default function JobReportNew({
                       disabled={draftGeneratingSection === activeDraftSection}
                     >
                       <Sparkles className="h-4 w-4" />
-                      {draftGeneratingSection === activeDraftSection ? "Generating..." : "Generate AI Draft"}
+                        {draftGeneratingSection === activeDraftSection ? "Generating..." : "Generate Draft"}
                     </Button>
                   ) : null}
                 </div>
