@@ -179,6 +179,7 @@ def _ensure_quote_tables(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE invoice_lines ADD COLUMN IF NOT EXISTS org_id VARCHAR")
     con.execute("CREATE INDEX IF NOT EXISTS invoices_xero_invoice_idx ON invoices (xero_invoice_id)")
     con.execute(
         """
@@ -1805,6 +1806,7 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             df = con.execute(
                 """
                 SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
@@ -1813,16 +1815,17 @@ def list_client_invoices(client_id: int, _user: dict = Depends(_current_user)):
                        created_at, updated_at
                 FROM invoices
                 WHERE client_db_id = %s
+                  AND org_id = %s
                 ORDER BY COALESCE(invoice_date, created_at) DESC, invoice_id DESC
                 """,
-                [int(client_id)],
+                [int(client_id), org_id],
             ).df()
 
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
                 for _, r in df.iterrows():
                     invoice_id = _safe_int(r.get("invoice_id"), 0)
-                    lines = _invoice_lines_for(con, int(invoice_id))
+                    lines = _invoice_lines_for(con, int(invoice_id), org_id=org_id)
                     totals = _invoice_totals_from_lines(lines) if lines else {
                         "subtotal": round(_safe_float(r.get("subtotal"), 0.0), 2),
                         "vat": round(_safe_float(r.get("vat"), 0.0), 2),
@@ -1866,6 +1869,7 @@ def list_job_invoices(job_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             df = con.execute(
                 """
                 SELECT invoice_id, client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
@@ -1874,16 +1878,17 @@ def list_job_invoices(job_id: int, _user: dict = Depends(_current_user)):
                        created_at, updated_at
                 FROM invoices
                 WHERE job_id = %s
+                  AND org_id = %s
                 ORDER BY COALESCE(invoice_date, created_at) DESC, invoice_id DESC
                 """,
-                [int(job_id)],
+                [int(job_id), org_id],
             ).df()
 
             items: list[dict[str, Any]] = []
             if df is not None and not df.empty:
                 for _, r in df.iterrows():
                     invoice_id = _safe_int(r.get("invoice_id"), 0)
-                    lines = _invoice_lines_for(con, int(invoice_id))
+                    lines = _invoice_lines_for(con, int(invoice_id), org_id=org_id)
                     totals = _invoice_totals_from_lines(lines) if lines else {
                         "subtotal": round(_safe_float(r.get("subtotal"), 0.0), 2),
                         "vat": round(_safe_float(r.get("vat"), 0.0), 2),
@@ -1927,6 +1932,13 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
+            client_exists = con.execute(
+                "SELECT db_id FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_id), org_id],
+            ).fetchone()
+            if not client_exists:
+                raise HTTPException(status_code=404, detail="Client not found")
             invoice_number = str(body.get("invoice_number") or "").strip() or _next_invoice_number(con)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
 
@@ -1938,14 +1950,15 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
             con.execute(
                 """
                 INSERT INTO invoices (
-                  client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
+                  client_db_id, org_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                   currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
                   created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """,
                 [
                     int(client_id),
+                    org_id,
                     _safe_int(body.get("job_id"), None),
                     _safe_int(body.get("quote_id"), None),
                     invoice_number,
@@ -1961,17 +1974,20 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
                     _safe_float(body.get("amount_paid"), 0.0),
                 ],
             )
-            row = con.execute("SELECT MAX(invoice_id) FROM invoices WHERE client_db_id = %s", [int(client_id)]).fetchone()
+            row = con.execute(
+                "SELECT MAX(invoice_id) FROM invoices WHERE client_db_id = %s AND org_id = %s",
+                [int(client_id), org_id],
+            ).fetchone()
             if not row or row[0] is None:
                 raise HTTPException(status_code=500, detail="Failed to create invoice")
             invoice_id = int(row[0])
             if lines:
-                _write_invoice_lines(con, invoice_id, lines)
+                _write_invoice_lines(con, invoice_id, lines, org_id=org_id)
                 con.execute(
                     "UPDATE invoices SET subtotal = %s, vat = %s, total = %s, updated_at = NOW() WHERE invoice_id = %s",
                     [computed_totals["subtotal"], computed_totals["vat"], computed_totals["total"], int(invoice_id)],
                 )
-            return _serialize_invoice(con, invoice_id)
+            return _serialize_invoice(con, invoice_id, org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -1983,7 +1999,11 @@ def create_job_invoice(job_id: int, body: dict = Body(...), _user: dict = Depend
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            job_row = con.execute(
+                "SELECT client_db_id FROM jobs WHERE job_id = %s AND org_id = %s",
+                [int(job_id), org_id],
+            ).fetchone()
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
             client_id = _safe_int(job_row[0], None)
@@ -2318,9 +2338,10 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
             exists = con.execute(
-                "SELECT invoice_id, xero_invoice_id FROM invoices WHERE invoice_id = %s",
-                [int(invoice_id)],
+                "SELECT invoice_id, xero_invoice_id FROM invoices WHERE invoice_id = %s AND org_id = %s",
+                [int(invoice_id), org_id],
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
@@ -2377,8 +2398,9 @@ def update_invoice(invoice_id: int, body: dict = Body(...), _user: dict = Depend
                 params.append(None)
             updates.append("updated_at = NOW()")
             params.append(int(invoice_id))
-            con.execute(f"UPDATE invoices SET {', '.join(updates)} WHERE invoice_id = %s", params)
-            return _serialize_invoice(con, int(invoice_id))
+            params.append(org_id)
+            con.execute(f"UPDATE invoices SET {', '.join(updates)} WHERE invoice_id = %s AND org_id = %s", params)
+            return _serialize_invoice(con, int(invoice_id), org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -2390,12 +2412,16 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            exists = con.execute("SELECT invoice_id FROM invoices WHERE invoice_id = %s", [int(invoice_id)]).fetchone()
+            org_id = _quote_org_id(_user)
+            exists = con.execute(
+                "SELECT invoice_id FROM invoices WHERE invoice_id = %s AND org_id = %s",
+                [int(invoice_id), org_id],
+            ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
             con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
             con.execute("DELETE FROM xero_invoice_links WHERE invoice_id = %s", [int(invoice_id)])
-            con.execute("DELETE FROM invoices WHERE invoice_id = %s", [int(invoice_id)])
+            con.execute("DELETE FROM invoices WHERE invoice_id = %s AND org_id = %s", [int(invoice_id), org_id])
         return {"ok": True, "invoice_id": int(invoice_id)}
     except HTTPException:
         raise
@@ -2408,7 +2434,8 @@ def get_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            return _serialize_invoice(con, int(invoice_id))
+            org_id = _quote_org_id(_user)
+            return _serialize_invoice(con, int(invoice_id), org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -2420,7 +2447,8 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            quote = _serialize_quote(con, int(quote_id))
+            org_id = _quote_org_id(_user)
+            quote = _serialize_quote(con, int(quote_id), org_id=org_id)
             invoice_number = _next_invoice_number(con)
             invoice_date = str(body.get("invoice_date") or date.today().isoformat())
             due_date = str(body.get("due_date") or "") or None
@@ -2449,14 +2477,15 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
             con.execute(
                 """
                 INSERT INTO invoices (
-                  client_db_id, job_id, quote_id, invoice_number, invoice_date, due_date,
+                  client_db_id, org_id, job_id, quote_id, invoice_number, invoice_date, due_date,
                   currency_code, subtotal, vat, total, status, notes, paid_date, amount_paid,
                   created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, 0, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, 0, NOW(), NOW())
                 """,
                 [
                     int(quote["client_db_id"]),
+                    org_id,
                     _safe_int(body.get("job_id"), None),
                     int(quote_id),
                     invoice_number,
@@ -2470,12 +2499,15 @@ def convert_quote_to_invoice(quote_id: int, body: dict = Body(default={}), _user
                     str(body.get("notes") or quote.get("notes") or ""),
                 ],
             )
-            row = con.execute("SELECT MAX(invoice_id) FROM invoices WHERE client_db_id = %s", [int(quote["client_db_id"])]).fetchone()
+            row = con.execute(
+                "SELECT MAX(invoice_id) FROM invoices WHERE client_db_id = %s AND org_id = %s",
+                [int(quote["client_db_id"]), org_id],
+            ).fetchone()
             if not row or row[0] is None:
                 raise HTTPException(status_code=500, detail="Failed to convert quote to invoice")
             invoice_id = int(row[0])
-            _write_invoice_lines(con, int(invoice_id), lines)
-            return _serialize_invoice(con, int(invoice_id))
+            _write_invoice_lines(con, int(invoice_id), lines, org_id=org_id)
+            return _serialize_invoice(con, int(invoice_id), org_id=org_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -2487,7 +2519,8 @@ def get_invoice_pdf(invoice_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
-            invoice = _serialize_invoice(con, int(invoice_id))
+            org_id = _quote_org_id(_user)
+            invoice = _serialize_invoice(con, int(invoice_id), org_id=org_id)
         pdf_bytes = _render_invoice_pdf_bytes(invoice)
         filename = f"{invoice.get('invoice_number') or f'invoice-{invoice_id}'}.pdf"
         return Response(
@@ -2516,7 +2549,8 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
         requested_message = str(body.get("message") or "").strip()
         with get_conn() as con:
             _ensure_quote_tables(con)
-            invoice = _serialize_invoice(con, int(invoice_id))
+            org_id = _quote_org_id(_user)
+            invoice = _serialize_invoice(con, int(invoice_id), org_id=org_id)
             pdf_bytes = _render_invoice_pdf_bytes(invoice)
             sender = str(_user.get("email") or _user.get("user_id") or "system")
             email_ctx = {
@@ -2560,13 +2594,16 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
             )
             con.execute(
                 """
-                INSERT INTO invoice_email_log (invoice_id, sent_to, subject, body, sent_by, sent_at)
-                VALUES (%s, %s, %s, %s, %s, NOW())
+                INSERT INTO invoice_email_log (invoice_id, org_id, sent_to, subject, body, sent_by, sent_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW())
                 """,
-                [int(invoice_id), to_email, rendered["subject"], rendered["body_html"], sender],
+                [int(invoice_id), org_id, to_email, rendered["subject"], rendered["body_html"], sender],
             )
             if str(send_res.get("status") or "") == "sent" and str(invoice.get("status") or "").strip().lower() == "draft":
-                con.execute("UPDATE invoices SET status = 'Sent', updated_at = NOW() WHERE invoice_id = %s", [int(invoice_id)])
+                con.execute(
+                    "UPDATE invoices SET status = 'Sent', updated_at = NOW() WHERE invoice_id = %s AND org_id = %s",
+                    [int(invoice_id), org_id],
+                )
             if str(send_res.get("status") or "") != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
         return {"ok": True, "invoice_id": int(invoice_id), "sent_to": to_email, "email_id": int(send_res.get('email_id') or 0)}
@@ -2581,14 +2618,16 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
 
             quote_ids_df = con.execute(
                 """
                 SELECT quote_id
                 FROM quotes
                 WHERE client_db_id = %s
+                  AND org_id = %s
                 """,
-                [int(client_id)],
+                [int(client_id), org_id],
             ).df()
             quote_total = 0.0
             quote_count = 0
@@ -2603,8 +2642,9 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                         SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
                         FROM quote_lines
                         WHERE quote_id = %s
+                          AND org_id = %s
                         """,
-                        [int(qid)],
+                        [int(qid), org_id],
                     ).df()
                     lines = []
                     if line_df is not None and not line_df.empty:
@@ -2624,8 +2664,9 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                 SELECT invoice_id, subtotal, vat, total, status, amount_paid
                 FROM invoices
                 WHERE client_db_id = %s
+                  AND org_id = %s
                 """,
-                [int(client_id)],
+                [int(client_id), org_id],
             ).df()
 
             invoice_count = 0
@@ -2658,8 +2699,9 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                 JOIN jobs j ON j.job_id = tl.job_id
                 LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
                 WHERE j.client_db_id = %s
+                  AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(client_id)],
+                [int(client_id), org_id, org_id],
             ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
@@ -2679,8 +2721,9 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                 FROM job_other_costs oc
                 JOIN jobs j ON j.job_id = oc.job_id
                 WHERE j.client_db_id = %s
+                  AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(client_id)],
+                [int(client_id), org_id, org_id],
             ).df()
             other_subtotal = 0.0
             other_vat = 0.0
@@ -2732,14 +2775,16 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_quote_tables(con)
+            org_id = _quote_org_id(_user)
 
             job_row = con.execute(
                 """
                 SELECT job_id, client_db_id, job_number, job_type_id
                 FROM jobs
                 WHERE job_id = %s
+                  AND COALESCE(org_id, %s) = %s
                 """,
-                [int(job_id)],
+                [int(job_id), org_id, org_id],
             ).fetchone()
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -2756,8 +2801,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                     FROM quotes
                     WHERE client_db_id = %s
                       AND COALESCE(job_number, '') = %s
+                      AND org_id = %s
                     """,
-                    [int(client_id), job_number],
+                    [int(client_id), job_number, org_id],
                 ).df()
                 if quote_ids_df is not None and not quote_ids_df.empty:
                     for _, r in quote_ids_df.iterrows():
@@ -2770,8 +2816,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                             SELECT line_type, qty, unit_price_ex_vat, vat_rate_pct
                             FROM quote_lines
                             WHERE quote_id = %s
+                              AND org_id = %s
                             """,
-                            [int(qid)],
+                            [int(qid), org_id],
                         ).df()
                         lines = []
                         if line_df is not None and not line_df.empty:
@@ -2791,8 +2838,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                 SELECT invoice_id, subtotal, vat, total, status, amount_paid
                 FROM invoices
                 WHERE job_id = %s
+                  AND org_id = %s
                 """,
-                [int(job_id)],
+                [int(job_id), org_id],
             ).df()
             invoice_count = 0
             invoiced_total = 0.0
@@ -2824,8 +2872,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                 JOIN jobs j ON j.job_id = tl.job_id
                 LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
                 WHERE tl.job_id = %s
+                  AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(job_id)],
+                [int(job_id), org_id, org_id],
             ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
@@ -2844,8 +2893,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                 SELECT amount_ex_vat, vat_amount, total_inc_vat
                 FROM job_other_costs
                 WHERE job_id = %s
+                  AND org_id = %s
                 """,
-                [int(job_id)],
+                [int(job_id), org_id],
             ).df()
             other_subtotal = 0.0
             other_vat = 0.0
