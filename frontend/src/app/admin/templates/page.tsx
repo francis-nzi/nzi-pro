@@ -58,6 +58,8 @@ export default function TemplatesPage() {
   const [templateName, setTemplateName] = useState("");
   const [templateType, setTemplateType] = useState("dataset");
   const [isActive, setIsActive] = useState(true);
+  const [datasetCountry, setDatasetCountry] = useState("UK");
+  const [datasetYear, setDatasetYear] = useState(String(new Date().getFullYear()));
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -256,6 +258,50 @@ export default function TemplatesPage() {
     }
   }
 
+  async function downloadDatasetWorkbook() {
+    const country = datasetCountry.trim();
+    const year = datasetYear.trim();
+    if (!country) {
+      setStatus("Country is required to generate a dataset workbook");
+      return;
+    }
+    if (!year || Number.isNaN(Number(year))) {
+      setStatus("A valid year is required to generate a dataset workbook");
+      return;
+    }
+
+    try {
+      setStatus("Preparing dataset workbook...");
+      const params = new URLSearchParams({
+        country,
+        year,
+      });
+      const res = await fetch(`${baseUrl}/admin/templates/dataset-workbook?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Workbook download failed: ${res.status}${text ? ` - ${text}` : ""}`);
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+      const filename = filenameMatch?.[1] || `${country.replace(/[^\w\- ]+/g, "_").trim() || "country"}_${year}_dataset_template.xlsx`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setStatus("");
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-10">
@@ -409,6 +455,43 @@ export default function TemplatesPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {templateType === "dataset" && (
+                <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                  <div>
+                    <div className="font-medium">Generate workbook from datasets</div>
+                    <p className="text-xs text-muted-foreground">
+                      Download a country/year workbook built from the existing dataset rows, edit it offline, then upload it back here.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="datasetCountry">Country</Label>
+                      <Input
+                        id="datasetCountry"
+                        value={datasetCountry}
+                        onChange={(e) => setDatasetCountry(e.target.value)}
+                        placeholder="e.g., UK"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="datasetYear">Year</Label>
+                      <Input
+                        id="datasetYear"
+                        type="number"
+                        value={datasetYear}
+                        onChange={(e) => setDatasetYear(e.target.value)}
+                        placeholder="e.g., 2025"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" variant="secondary" onClick={downloadDatasetWorkbook}>
+                      Download Workbook
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="templateFile">Upload Template File {!editingId && '*'}</Label>

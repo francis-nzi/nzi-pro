@@ -43,6 +43,9 @@ from services.permissions import (
     get_effective_permissions_for_user,
     invalidate_permission_cache,
 )
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 router = APIRouter(
     prefix="/admin",
@@ -2564,6 +2567,167 @@ def export_dataset(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export dataset: {e}")
+
+
+def _build_dataset_template_workbook(country: str, year: int) -> tuple[bytes, str]:
+    country_norm = str(country or "").strip()
+    if not country_norm:
+        raise HTTPException(status_code=400, detail="country is required")
+
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+                d.name AS dataset_name,
+                d.country AS dataset_country,
+                d.year AS dataset_year,
+                fl.scope,
+                COALESCE(NULLIF(fl.category, ''), NULLIF(fl.level_1, ''), '') AS category,
+                COALESCE(NULLIF(fl.report_label, ''), NULLIF(fl.column_text, ''), '') AS report_label,
+                fl.original_id,
+                COALESCE(NULLIF(fl.uom, ''), '') AS uom,
+                COALESCE(NULLIF(fl.ghg_unit, ''), '') AS ghg_unit,
+                fl.factor,
+                fl.year AS factor_year,
+                COALESCE(NULLIF(fl.level_1, ''), '') AS level_1,
+                COALESCE(NULLIF(fl.level_2, ''), '') AS level_2,
+                COALESCE(NULLIF(fl.level_3, ''), '') AS level_3,
+                COALESCE(NULLIF(fl.level_4, ''), '') AS level_4,
+                COALESCE(NULLIF(fl.column_text, ''), '') AS column_text,
+                COALESCE(NULLIF(fl.source, ''), '') AS source,
+                COALESCE(NULLIF(fl.region, ''), '') AS region,
+                COALESCE(NULLIF(fl.method, ''), '') AS method
+            FROM factor_lookup fl
+            JOIN datasets d ON d.dataset_id = fl.dataset_id
+            WHERE LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))
+              AND d.year = %s
+              AND (d.archived IS NULL OR d.archived = FALSE)
+            ORDER BY d.name, fl.scope, COALESCE(NULLIF(fl.category, ''), NULLIF(fl.level_1, ''), ''), COALESCE(NULLIF(fl.report_label, ''), NULLIF(fl.column_text, '')), fl.original_id
+            """,
+            [country_norm, int(year)],
+        ).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No dataset rows found for {country_norm} {int(year)}")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Dataset Template"
+
+    meta_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    even_fill = PatternFill(start_color="F8FBFF", end_color="F8FBFF", fill_type="solid")
+    odd_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+    meta_rows = [
+        ("Country", country_norm),
+        ("Year", str(int(year))),
+        ("Datasets", ", ".join(sorted({str(r[0] or "") for r in rows if r and r[0]}))),
+    ]
+    for idx, (label, value) in enumerate(meta_rows, start=1):
+        ws.cell(row=idx, column=1, value=f"{label}:")
+        ws.cell(row=idx, column=2, value=value)
+        ws.cell(row=idx, column=1).font = Font(bold=True)
+        ws.cell(row=idx, column=1).fill = meta_fill
+        ws.cell(row=idx, column=2).fill = meta_fill
+
+    ws["E1"] = "Template:"
+    ws["F1"] = "Dataset rows workbook"
+    ws["E2"] = "Generated:"
+    ws["F2"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ws["E3"] = "Rows:"
+    ws["F3"] = len(rows)
+    for cell_ref in ("E1", "E2", "E3"):
+        ws[cell_ref].font = Font(bold=True)
+        ws[cell_ref].fill = meta_fill
+    for cell_ref in ("F1", "F2", "F3"):
+        ws[cell_ref].fill = meta_fill
+
+    headers = [
+        "Scope",
+        "Category",
+        "Report Label",
+        "ID",
+        "UOM",
+        "GHG Unit",
+        "Factor",
+        "Year",
+        "Source",
+        "Region",
+        "Method",
+        "Dataset",
+    ]
+    header_row = 5
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row, column=col_idx, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for row_idx, row in enumerate(rows, start=1):
+        excel_row = header_row + row_idx
+        row_fill = even_fill if row_idx % 2 == 0 else odd_fill
+        values = [
+            row[3],  # scope
+            row[4],  # category
+            row[5],  # report label
+            row[6],  # original_id
+            row[7],  # uom
+            row[8],  # ghg_unit
+            row[9],  # factor
+            row[10],  # factor year
+            row[16],  # source
+            row[17],  # region
+            row[18],  # method
+            row[0],  # dataset_name
+        ]
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row=excel_row, column=col_idx, value=value)
+            cell.fill = row_fill
+            if col_idx in (7, 8):
+                cell.alignment = Alignment(horizontal="right")
+
+    ws.freeze_panes = "A6"
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 28
+    ws.column_dimensions["C"].width = 38
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 12
+    ws.column_dimensions["F"].width = 12
+    ws.column_dimensions["G"].width = 12
+    ws.column_dimensions["H"].width = 10
+    ws.column_dimensions["I"].width = 22
+    ws.column_dimensions["J"].width = 18
+    ws.column_dimensions["K"].width = 18
+    ws.column_dimensions["L"].width = 30
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    safe_country = re.sub(r"[^A-Za-z0-9._-]+", "_", country_norm).strip("_") or "country"
+    filename = f"{safe_country}_{int(year)}_dataset_template.xlsx"
+    return buffer.getvalue(), filename
+
+
+@router.get("/templates/dataset-workbook")
+def download_dataset_template_workbook(
+    country: str = Query(..., min_length=1),
+    year: int = Query(..., ge=1900, le=3000),
+    _user: dict = Depends(_current_user),
+):
+    """Download a country/year workbook built from all dataset factor rows."""
+    try:
+        data, filename = _build_dataset_template_workbook(country, int(year))
+        safe_filename = filename.replace('"', '\\"')
+        return StreamingResponse(
+            iter([data]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build dataset workbook: {e}")
 
 
 @router.get("/factors")
