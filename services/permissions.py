@@ -473,13 +473,17 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
         return True
     user_org_id = str(user.get("org_id") or "").strip()
     if user_org_id:
-        with get_conn() as con:
-            row = con.execute(
-                "SELECT org_id FROM clients WHERE db_id = ? LIMIT 1",
-                [client_id],
-            ).fetchone()
-        if row and str(row[0] or "").strip() and str(row[0]).strip() == user_org_id:
-            return True
+        try:
+            with get_conn() as con:
+                row = con.execute(
+                    "SELECT org_id FROM clients WHERE db_id = ? LIMIT 1",
+                    [client_id],
+                ).fetchone()
+            if row and str(row[0] or "").strip() and str(row[0]).strip() == user_org_id:
+                return True
+        except Exception:
+            # Older live databases may not have tenant columns yet; fall back to the legacy path.
+            pass
     linked_client_ids = {int(v) for v in (user.get("linked_client_ids") or []) if v is not None}
     if linked_client_ids:
         return client_id in linked_client_ids
@@ -504,19 +508,23 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
         return True
     user_org_id = str(user.get("org_id") or "").strip()
     if user_org_id:
-        with get_conn() as con:
-            row = con.execute(
-                """
-                SELECT c.org_id
-                FROM jobs j
-                JOIN clients c ON c.db_id = j.client_db_id
-                WHERE j.job_id = ?
-                LIMIT 1
-                """,
-                [int(job_id)],
-            ).fetchone()
-        if row and str(row[0] or "").strip() and str(row[0]).strip() == user_org_id:
-            return True
+        try:
+            with get_conn() as con:
+                row = con.execute(
+                    """
+                    SELECT c.org_id
+                    FROM jobs j
+                    JOIN clients c ON c.db_id = j.client_db_id
+                    WHERE j.job_id = ?
+                    LIMIT 1
+                    """,
+                    [int(job_id)],
+                ).fetchone()
+            if row and str(row[0] or "").strip() and str(row[0]).strip() == user_org_id:
+                return True
+        except Exception:
+            # Older live databases may not have tenant columns yet; fall back to the legacy path.
+            pass
     with get_conn() as con:
         row = con.execute(
             "SELECT client_db_id FROM jobs WHERE job_id = ? LIMIT 1",
