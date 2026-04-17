@@ -4357,32 +4357,67 @@ def client_jobs(
         else:
             return "green"
 
+    def _is_missing(value) -> bool:
+        try:
+            return pd.isna(value)
+        except Exception:
+            return value is None
+
+    def _int_or_none(value):
+        if _is_missing(value):
+            return None
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _float_or_zero(value) -> float:
+        if _is_missing(value):
+            return 0.0
+        try:
+            out = float(value)
+            return 0.0 if pd.isna(out) else out
+        except Exception:
+            return 0.0
+
+    def _bool_or_false(value) -> bool:
+        if _is_missing(value):
+            return False
+        try:
+            return bool(value)
+        except Exception:
+            return False
+
     items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
+            job_id = _int_or_none(r.get("job_id"))
+            if job_id is None:
+                continue
+
             # Calculate individual milestone statuses
             milestone_statuses = []
-            if r.get("data_collection_due"):
+            if not _is_missing(r.get("data_collection_due")):
                 milestone_statuses.append(get_milestone_status(r.get("data_collection_due"), r.get("data_collection_completed_at")))
-            if r.get("first_draft_due"):
+            if not _is_missing(r.get("first_draft_due")):
                 milestone_statuses.append(get_milestone_status(r.get("first_draft_due"), r.get("first_draft_completed_at")))
-            if r.get("final_report_due"):
+            if not _is_missing(r.get("final_report_due")):
                 milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
-            
+
             # Calculate overall status
             overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
-            
+
             items.append(
                 {
-                    "job_id": int(r.get("job_id")),
-                    "job_number": r.get("job_number"),
-                    "title": r.get("title"),
-                    "reporting_year": (int(r.get("reporting_year")) if r.get("reporting_year") is not None else None),
-                    "status": r.get("status"),
-                    "job_type": r.get("job_type"),
-                    "is_crp": bool(r.get("is_crp")) if r.get("is_crp") is not None else False,
+                    "job_id": job_id,
+                    "job_number": None if _is_missing(r.get("job_number")) else r.get("job_number"),
+                    "title": None if _is_missing(r.get("title")) else r.get("title"),
+                    "reporting_year": _int_or_none(r.get("reporting_year")),
+                    "status": None if _is_missing(r.get("status")) else r.get("status"),
+                    "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
+                    "is_crp": _bool_or_false(r.get("is_crp")),
                     "milestone_status": overall_milestone_status,
-                    "total_emissions": float(r.get("total_emissions", 0)),
+                    "total_emissions": _float_or_zero(r.get("total_emissions", 0)),
                 }
             )
 
