@@ -3212,7 +3212,7 @@ def list_clients(
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
-    org_id = require_org(_user)
+    org_id = str(_user.get("org_id") or "").strip() or get_default_org_id()
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
@@ -3238,8 +3238,11 @@ def list_clients(
             has_status = _col_exists(con, "clients", "status")
             has_crm_owner = _col_exists(con, "clients", "crm_owner")
 
-            where_clauses: list[str] = [f"c.org_id = {org_placeholder}"]
-            params: list[object] = [org_id]
+            where_clauses: list[str] = []
+            params: list[object] = []
+            if org_id:
+                where_clauses.append(f"c.org_id = {org_placeholder}")
+                params.append(org_id)
             if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
                 linked_client_ids = sorted(
                     {
@@ -3328,8 +3331,11 @@ def list_clients(
         # Final defensive fallback for schema drift: return a minimal list instead of 500.
         try:
             with get_conn() as con:
-                where_clauses = [f"c.org_id = {org_placeholder}"]
-                params: list[object] = [org_id]
+                where_clauses = []
+                params: list[object] = []
+                if org_id:
+                    where_clauses.append(f"c.org_id = {org_placeholder}")
+                    params.append(org_id)
                 if query:
                     where_clauses.append("c.client_name ILIKE %s")
                     params.append(f"%{query}%")
@@ -3455,31 +3461,53 @@ def list_clients(
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
     assert_client_access(_user, int(client_db_id))
-    org_id = require_org(_user)
+    org_id = str(_user.get("org_id") or "").strip() or get_default_org_id()
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
         ensure_client_benchmark_columns(con)
-        row = con.execute(
-            """
-            SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status, 
-                   c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
-                   c.addr_line1, c.addr_line2, c.addr_city, c.addr_region, 
-                   c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
-                   c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-                   c.interim_s3_pct, c.portfolio, c.benchmark_year,
-                   c.benchmark_period_start, c.benchmark_period_end, c.currency,
-                   COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
-                   c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
-                   c.billing_addr_postcode, c.billing_addr_country,
-                   c.create_site_from_address,
-                   c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                   c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
-            FROM clients c
-            WHERE c.db_id=? AND c.org_id=?
-            """,
-            [int(client_db_id), org_id],
-        ).fetchone()
+        if org_id:
+            row = con.execute(
+                """
+                SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
+                       c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
+                       c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
+                       c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
+                       c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
+                       c.interim_s3_pct, c.portfolio, c.benchmark_year,
+                       c.benchmark_period_start, c.benchmark_period_end, c.currency,
+                       COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
+                       c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
+                       c.billing_addr_postcode, c.billing_addr_country,
+                       c.create_site_from_address,
+                       c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
+                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
+                FROM clients c
+                WHERE c.db_id=? AND c.org_id=?
+                """,
+                [int(client_db_id), org_id],
+            ).fetchone()
+        else:
+            row = con.execute(
+                """
+                SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
+                       c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
+                       c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
+                       c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
+                       c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
+                       c.interim_s3_pct, c.portfolio, c.benchmark_year,
+                       c.benchmark_period_start, c.benchmark_period_end, c.currency,
+                       COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
+                       c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
+                       c.billing_addr_postcode, c.billing_addr_country,
+                       c.create_site_from_address,
+                       c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
+                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
+                FROM clients c
+                WHERE c.db_id=?
+                """,
+                [int(client_db_id)],
+            ).fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
