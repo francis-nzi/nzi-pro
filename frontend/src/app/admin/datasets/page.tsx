@@ -515,6 +515,17 @@ export default function DatasetsPage() {
     return Array.from(options).sort((a, b) => a.localeCompare(b));
   }, [datasetCountries]);
 
+  const countryDatasetCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    datasets.forEach((ds) => {
+      if (ds.archived) return;
+      const key = (ds.country || "").trim();
+      if (!key) return;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [datasets]);
+
   const filteredCountryOptions = useMemo(() => {
     const query = countrySearchStarted ? country.trim().toLowerCase() : "";
     const filtered = !query
@@ -644,6 +655,7 @@ export default function DatasetsPage() {
                       options={factorCountryOptions}
                       placeholder="All Countries"
                       showClearButton
+                      optionBadges={countryDatasetCounts}
                       onValueChange={setFactorCountry}
                     />
                   </div>
@@ -1034,6 +1046,7 @@ export default function DatasetsPage() {
                       options={filterCountryOptions}
                       placeholder="All Countries"
                       showClearButton
+                      optionBadges={countryDatasetCounts}
                       onValueChange={setFilterCountry}
                     />
                   </div>

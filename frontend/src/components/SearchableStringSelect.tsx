@@ -16,6 +16,7 @@ type SearchableStringSelectProps = {
   disabled?: boolean;
   noMatchesText?: string;
   showClearButton?: boolean;
+  optionBadges?: Record<string, string | number>;
   onValueChange: (value: string) => void;
 };
 
@@ -29,6 +30,7 @@ export default function SearchableStringSelect({
   disabled = false,
   noMatchesText = "No matches found",
   showClearButton = false,
+  optionBadges,
   onValueChange,
 }: SearchableStringSelectProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -140,6 +142,7 @@ export default function SearchableStringSelect({
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option) => {
                 const selected = option === value;
+                const badgeValue = optionBadges?.[option];
                 return (
                   <button
                     key={option}
@@ -149,11 +152,16 @@ export default function SearchableStringSelect({
                       handleSelect(option);
                     }}
                     className={cn(
-                      "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                      "flex w-full items-center justify-between gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
                       selected && "bg-accent/70 font-medium"
                     )}
                   >
                     <span className="min-w-0 flex-1 truncate">{option}</span>
+                    {badgeValue !== undefined ? (
+                      <span className="ml-2 inline-flex shrink-0 items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {badgeValue}
+                      </span>
+                    ) : null}
                     {selected && <Check className="ml-2 size-4 shrink-0" />}
                   </button>
                 );
