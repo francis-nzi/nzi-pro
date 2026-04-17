@@ -505,14 +505,18 @@ export default function DatasetsPage() {
     }
   }
 
-  // Get unique countries and years for filters
-  const datasetCountryOptions = useMemo(() => {
+  const datasetCountries = useMemo(() => {
     const existingCountries = new Set(
       datasets.map((ds) => ds.country).filter((value) => Boolean(value && value.trim()))
     );
-    const options = new Set([...STANDARD_COUNTRIES, ...Array.from(existingCountries)]);
-    return Array.from(options).sort((a, b) => a.localeCompare(b));
+    return Array.from(existingCountries).sort((a, b) => a.localeCompare(b));
   }, [datasets]);
+
+  // Get unique countries and years for filters
+  const datasetCountryOptions = useMemo(() => {
+    const options = new Set([...STANDARD_COUNTRIES, ...datasetCountries]);
+    return Array.from(options).sort((a, b) => a.localeCompare(b));
+  }, [datasetCountries]);
 
   const filteredCountryOptions = useMemo(() => {
     const query = countrySearchStarted ? country.trim().toLowerCase() : "";
@@ -522,15 +526,57 @@ export default function DatasetsPage() {
     return filtered.slice(0, 100);
   }, [country, countrySearchStarted, datasetCountryOptions]);
 
-  const uniqueCountries = useMemo(() => {
-    const countries = new Set(datasets.map(ds => ds.country));
-    return [ALL_COUNTRIES_FILTER, ...Array.from(countries).sort()];
-  }, [datasets]);
+  const factorCountryOptions = useMemo(() => {
+    return [ALL_COUNTRIES_FILTER, ...datasetCountries];
+  }, [datasetCountries]);
 
-  const uniqueYears = useMemo(() => {
-    const years = new Set(datasets.map(ds => ds.year));
-    return [ALL_YEARS_FILTER, ...Array.from(years).sort((a, b) => b - a).map((year) => String(year))];
-  }, [datasets]);
+  const filterCountryOptions = useMemo(() => {
+    return [ALL_COUNTRIES_FILTER, ...datasetCountries];
+  }, [datasetCountries]);
+
+  const factorYearOptions = useMemo(() => {
+    const rows =
+      factorCountry === ALL_COUNTRIES_FILTER
+        ? datasets
+        : datasets.filter((ds) => ds.country === factorCountry);
+    const years = Array.from(
+      new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
+    ).sort((a, b) => b - a);
+    return [ALL_YEARS_FILTER, ...years.map((year) => String(year))];
+  }, [datasets, factorCountry]);
+
+  const filterYearOptions = useMemo(() => {
+    const rows =
+      filterCountry === ALL_COUNTRIES_FILTER
+        ? datasets
+        : datasets.filter((ds) => ds.country === filterCountry);
+    const years = Array.from(
+      new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
+    ).sort((a, b) => b - a);
+    return [ALL_YEARS_FILTER, ...years.map((year) => String(year))];
+  }, [datasets, filterCountry]);
+
+  useEffect(() => {
+    if (factorCountry === ALL_COUNTRIES_FILTER) {
+      if (factorYear !== ALL_YEARS_FILTER && !factorYearOptions.includes(factorYear)) {
+        setFactorYear(ALL_YEARS_FILTER);
+      }
+      return;
+    }
+
+    if (factorYear === ALL_YEARS_FILTER) {
+      const latest = factorYearOptions.find((option) => option !== ALL_YEARS_FILTER);
+      if (latest) {
+        setFactorYear(latest);
+      }
+      return;
+    }
+
+    if (!factorYearOptions.includes(factorYear)) {
+      const latest = factorYearOptions.find((option) => option !== ALL_YEARS_FILTER);
+      setFactorYear(latest || ALL_YEARS_FILTER);
+    }
+  }, [factorCountry, factorYear, factorYearOptions]);
 
   // Filter and group datasets
   const filteredDatasets = useMemo(() => {
@@ -598,11 +644,11 @@ export default function DatasetsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="factorCountry">Country</Label>
-                <div className="w-full max-w-[220px]">
+                <div className="w-full max-w-[180px]">
                   <SearchableStringSelect
                     id="factorCountry"
                     value={factorCountry}
-                    options={uniqueCountries}
+                    options={factorCountryOptions}
                     placeholder="Search countries..."
                     onValueChange={setFactorCountry}
                   />
@@ -611,11 +657,11 @@ export default function DatasetsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="factorYear">Year</Label>
-                <div className="w-full max-w-[160px]">
+                <div className="w-full max-w-[150px]">
                   <SearchableStringSelect
                     id="factorYear"
                     value={factorYear}
-                    options={uniqueYears}
+                    options={factorYearOptions}
                     placeholder="Search years..."
                     onValueChange={setFactorYear}
                   />
@@ -628,7 +674,8 @@ export default function DatasetsPage() {
             </Button>
 
             <div className="text-xs text-muted-foreground">
-              Use country and year to narrow the conversion factor search before applying the text query.
+              Use country and year to narrow the conversion factor search before applying the text query. The year list
+              follows the selected country.
             </div>
 
             {factors.length > 0 && (
@@ -985,11 +1032,11 @@ export default function DatasetsPage() {
               <div className="mb-4 grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="filterCountry">Filter by Country</Label>
-                  <div className="w-full max-w-[260px]">
+                  <div className="w-full max-w-[200px]">
                     <SearchableStringSelect
                       id="filterCountry"
                       value={filterCountry}
-                      options={uniqueCountries}
+                      options={filterCountryOptions}
                       placeholder="Search countries..."
                       onValueChange={setFilterCountry}
                     />
@@ -997,11 +1044,11 @@ export default function DatasetsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="filterYear">Filter by Year</Label>
-                  <div className="w-full max-w-[180px]">
+                  <div className="w-full max-w-[150px]">
                     <SearchableStringSelect
                       id="filterYear"
                       value={filterYear}
-                      options={uniqueYears}
+                      options={filterYearOptions}
                       placeholder="Search years..."
                       onValueChange={setFilterYear}
                     />
