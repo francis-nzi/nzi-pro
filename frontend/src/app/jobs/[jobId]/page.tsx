@@ -859,6 +859,7 @@ export default function JobDetailPage() {
 
   const [job, setJob] = useState<Job | null>(null);
   const [clientOwnerLabel, setClientOwnerLabel] = useState<string>("");
+  const [clientBenchmarkPeriodLabel, setClientBenchmarkPeriodLabel] = useState<string>("");
   const [sites, setSites] = useState<JobSitesResponse["sites"]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("All");
   const [includePrevYear, setIncludePrevYear] = useState<boolean>(true);
@@ -940,8 +941,9 @@ export default function JobDetailPage() {
     (job?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() ||
     "Job";
   const jobTitleLabel = (jobTitle || job?.title || "").trim();
-  const clientLabel = (job?.client_name || "Client").trim() || "Client";
-  const periodStartLabel = reportingPeriodStart || job?.reporting_period_start || "";
+    const clientLabel = (job?.client_name || "Client").trim() || "Client";
+    const benchmarkPeriodLabel = clientBenchmarkPeriodLabel.trim();
+    const periodStartLabel = reportingPeriodStart || job?.reporting_period_start || "";
   const periodEndLabel = reportingPeriodEnd || job?.reporting_period_end || "";
   const reportingPeriodLabel =
     periodStartLabel && periodEndLabel
@@ -1057,8 +1059,9 @@ export default function JobDetailPage() {
     jobId,
     jobNumber: jobNumberLabel,
     jobTitle: jobTitleLabel || "Job",
-    clientName: clientLabel,
-    reportingPeriodLabel,
+      clientName: clientLabel,
+      benchmarkPeriodLabel: benchmarkPeriodLabel || undefined,
+      reportingPeriodLabel,
     statusLabel,
     ownerLabel,
     crmLabel: crmName || job?.crm_name || undefined,
@@ -1453,8 +1456,9 @@ export default function JobDetailPage() {
 
         if (cancelled) return;
 
-        setJob(jJson);
-        setClientOwnerLabel("");
+          setJob(jJson);
+          setClientOwnerLabel("");
+          setClientBenchmarkPeriodLabel("");
         
         // Initialize job details fields
         setJobTitle(jJson.title || "");
@@ -1472,6 +1476,21 @@ export default function JobDetailPage() {
             
             if (clientJson.crm_owner) {
               setClientOwnerLabel(clientJson.crm_owner.trim());
+            }
+            if (clientJson.benchmark_period_start && clientJson.benchmark_period_end) {
+              const start = new Date(clientJson.benchmark_period_start).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              });
+              const end = new Date(clientJson.benchmark_period_end).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+              });
+              setClientBenchmarkPeriodLabel(`Benchmark Period: ${start} - ${end}`);
+            } else {
+              setClientBenchmarkPeriodLabel("");
             }
             // Set currency for intensity metrics
             setClientCurrency(clientJson.currency || "GBP");
