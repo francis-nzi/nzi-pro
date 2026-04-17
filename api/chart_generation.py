@@ -1,4 +1,4 @@
-"""
+﻿"""
 Chart generation module for carbon reports.
 Generates matplotlib charts as base64 encoded PNGs for PDF inclusion.
 """
@@ -29,7 +29,7 @@ def _configure_matplotlib():
 
 
 def create_donut_chart(data_dict: dict, colors_dict: dict, title: str, total_value: float, 
-                       center_label: str = "tCO2e") -> str:
+                       center_label: str = "tCO₂e") -> str:
     """
     Create a donut chart and return as base64 encoded PNG.
     
@@ -104,7 +104,7 @@ def create_donut_chart(data_dict: dict, colors_dict: dict, title: str, total_val
 def create_total_emissions_donut(
     scope_totals: dict,
     title: str = "Total Emissions",
-    center_label: str = "tCO2e",
+    center_label: str = "tCO₂e",
     period_from: str = "",
     period_to: str = ""
 ) -> str:
@@ -225,9 +225,9 @@ def create_total_emissions_donut(
         if total > 0 and values[i] > 0:
             pct = (values[i] / total) * 100
             scope_name = scope_labels[i] if i < len(scope_labels) else f'Scope {i+1}'
-            legend_labels.append(f"{scope_name}: {values[i]:,.1f} tCO2e ({pct:.1f}%)")
+            legend_labels.append(f"{scope_name}: {values[i]:,.1f} tCO₂e ({pct:.1f}%)")
         elif i < len(scope_labels):
-            legend_labels.append(f"{scope_labels[i]}: {values[i]:,.1f} tCO2e")
+            legend_labels.append(f"{scope_labels[i]}: {values[i]:,.1f} tCO₂e")
     
     # Create colored patches for legend
     from matplotlib.patches import Patch
@@ -278,7 +278,7 @@ def create_activity_donut(
     activity_totals: dict,
     activity_colors: dict = None,
     title: str = "Emissions by Activity",
-    center_label: str = "tCO2e",
+    center_label: str = "tCO₂e",
     period_from: str = "",
     period_to: str = "",
     total_value: float = None
@@ -412,9 +412,9 @@ def create_activity_donut(
     for i in range(len(values)):
         if total > 0 and values[i] > 0:
             pct = (values[i] / total) * 100
-            legend_labels.append(f"{activity_labels[i]}: {values[i]:,.1f} tCO2e ({pct:.1f}%)")
+            legend_labels.append(f"{activity_labels[i]}: {values[i]:,.1f} tCO₂e ({pct:.1f}%)")
         elif i < len(activity_labels):
-            legend_labels.append(f"{activity_labels[i]}: {values[i]:,.1f} tCO2e")
+            legend_labels.append(f"{activity_labels[i]}: {values[i]:,.1f} tCO₂e")
     
     # Create colored patches for legend
     from matplotlib.patches import Patch
@@ -462,7 +462,7 @@ def create_activity_donut(
 
 
 def create_bar_chart(data_dict: dict, colors_dict: dict, title: str, 
-                    xlabel: str = "Category", ylabel: str = "tCO2e") -> str:
+                    xlabel: str = "Category", ylabel: str = "tCO₂e") -> str:
     """
     Create a horizontal bar chart and return as base64 encoded PNG.
     
@@ -630,7 +630,7 @@ def create_reduction_pathway_chart(
             ticks='outside'
         ),
         yaxis=dict(
-            title=dict(text='Emissions (tCO2e)', font=dict(size=12, family='Arial, sans-serif')),
+            title=dict(text='Emissions (tCO₂e)', font=dict(size=12, family='Arial, sans-serif')),
             showgrid=False,
             zeroline=False,
             showline=True,
@@ -717,7 +717,7 @@ def create_intensity_pathway_chart(
     baseline_metric_value: float,
     target_year: int,
     target_percent_reduction: int,
-    metric_name: str = "per £1000 revenue",
+    metric_name: str = "per Â£1000 revenue",
     title: str = "Intensity Reduction Pathway"
 ) -> str:
     """
@@ -725,7 +725,7 @@ def create_intensity_pathway_chart(
     
     Args:
         baseline_year: The baseline year
-        baseline_intensity: Baseline intensity value (e.g., tCO2e per employee)
+        baseline_intensity: Baseline intensity value (e.g., tCO₂e per employee)
         baseline_metric_value: The baseline metric value (e.g., number of employees)
         target_year: Target year
         target_percent_reduction: Target % reduction
@@ -794,7 +794,7 @@ def create_intensity_pathway_chart(
             ticks='outside'
         ),
         yaxis=dict(
-            title=dict(text=f'Intensity (tCO2e {metric_name})', font=dict(size=12, family='Arial, sans-serif')),
+            title=dict(text=f'Intensity (tCO₂e {metric_name})', font=dict(size=12, family='Arial, sans-serif')),
             showgrid=False,
             zeroline=False,
             showline=True,
@@ -884,7 +884,7 @@ def generate_report_assets(
     assets['total_emissions'] = create_total_emissions_donut(
         scope_totals,
         title="Total Emissions",
-        center_label="tCO2e",
+        center_label="tCO₂e",
         period_from=period_from,
         period_to=period_to
     )
@@ -893,7 +893,7 @@ def generate_report_assets(
     assets['scope_breakdown'] = create_donut_chart(
         scope_chart_data,
         scope_colors,
-        f'Emissions by Scope (tCO2e)\n{period_text}',
+        f'Emissions by Scope (tCO₂e)\n{period_text}',
         scope_totals.get('Total', 0)
     )
     
@@ -902,7 +902,7 @@ def generate_report_assets(
         activity_totals,
         activity_colors=ACTIVITY_GROUP_COLORS,
         title="Emissions by Activity",
-        center_label="tCO2e",
+        center_label="tCO₂e",
         period_from=period_from,
         period_to=period_to,
         total_value=scope_totals.get('Total', sum(activity_totals.values()))
@@ -912,7 +912,7 @@ def generate_report_assets(
     assets['activity_bar'] = create_bar_chart(
         activity_totals,
         ACTIVITY_GROUP_COLORS,
-        'Emissions by Activity Group (tCO2e)'
+        'Emissions by Activity Group (tCO₂e)'
     )
     
     # Reduction pathway charts (if target data available and has valid baseline_year)
@@ -994,12 +994,12 @@ def generate_report_assets(
                             # Assume value is in thousands for revenue
                             assets['intensity_pathway_per_revenue'] = create_intensity_pathway_chart(
                                 baseline_year=baseline_year,
-                                baseline_intensity=intensity * 1000,  # Convert to per £1000
+                                baseline_intensity=intensity * 1000,  # Convert to per Â£1000
                                 baseline_metric_value=metric_value * 1000,
                                 target_year=interim_year,
                                 target_percent_reduction=interim_pct,
-                                metric_name='per £1000 revenue',
-                                title='Carbon Intensity per £1000 Revenue'
+                                metric_name='per Â£1000 revenue',
+                                title='Carbon Intensity per Â£1000 Revenue'
                             )
     
     return assets

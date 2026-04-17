@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -465,7 +465,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       row.level_2,
       row.level_1,
       row.original_id,
-    ]).join(" • ");
+    ]).join(" â€¢ ");
   }
 
   async function updateQuantity(rowId: number, newQty: number | null) {
@@ -1041,7 +1041,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       factor.level_1,
       factor.original_id,
       factor.source,
-    ]).join(" • ");
+    ]).join(" â€¢ ");
   }
 
   // Check if a factor is already added to the job
@@ -1071,7 +1071,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="space-y-1 text-center">
                   <div className="text-2xl font-bold">{scopeTotals.total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                  <div className="text-xs text-muted-foreground">Total tCO2e</div>
+                  <div className="text-xs text-muted-foreground">Total tCO₂e</div>
                 </div>
                 <div className="space-y-1 text-center">
                   <div className="text-2xl font-bold text-red-600">{scopeTotals.scope_1.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -1183,7 +1183,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     <th className="text-left p-2">Report Label</th>
                     {visibleColumns.qty && <th className="text-right p-2">Qty</th>}
                     {visibleColumns.apply && <th className="text-right p-2">Apply %</th>}
-                    {visibleColumns.tco2e && <th className="text-right p-2">tCO2e (After)</th>}
+                    {visibleColumns.tco2e && <th className="text-right p-2">tCO₂e (After)</th>}
                     {visibleColumns.confidence && <th className="text-left p-2">Data Confidence</th>}
                     <th className="text-left p-2">Monthly</th>
                     <th className="text-left p-2">Actions</th>
@@ -1241,7 +1241,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             {isLegacyFallbackRow(row) ? (
                               <span
                                 className="inline-block px-2 py-1 font-mono"
-                                title="Legacy annual row shows the original source volume. This row is stored monthly as tCO2e for audit compatibility."
+                                title="Legacy annual row shows the original source volume. This row is stored monthly as tCO₂e for audit compatibility."
                               >
                                 {row.qty?.toFixed(2) || "0.00"}
                               </span>
@@ -1331,11 +1331,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               onClick={() => openMonthlyModal(row)}
                               title={
                                 isLegacyFallbackRow(row)
-                                  ? "This legacy row stores monthly fallback tCO2e values while showing the original source volume above."
+                                  ? "This legacy row stores monthly fallback tCO₂e values while showing the original source volume above."
                                   : undefined
                               }
                             >
-                              {isLegacyFallbackRow(row) ? "Monthly tCO2e" : "Monthly"}
+                              {isLegacyFallbackRow(row) ? "Monthly tCO₂e" : "Monthly"}
                             </Button>
                             <Button variant="ghost" size="sm" onClick={() => deleteRow(row.row_id)}>Delete</Button>
                           </div>
@@ -1362,7 +1362,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 <div className="font-mono break-all">{row.factor_reference || row.original_id || "-"}</div>
                               </div>
                               <div className="text-xs">
-                                <div className="text-muted-foreground">tCO2e (Before)</div>
+                                <div className="text-muted-foreground">tCO₂e (Before)</div>
                                 <div className="font-mono">{row.tco2e_before_apply.toFixed(4)}</div>
                               </div>
                               <div className="text-xs">
@@ -1589,9 +1589,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             </div>
                             <div className="text-xs text-muted-foreground">
                               From {row.source_job_number || `Job ${row.job_id}`}
-                              {row.source_job_title ? ` • ${row.source_job_title}` : ""}
+                              {row.source_job_title ? ` â€¢ ${row.source_job_title}` : ""}
                               {row.source_reporting_period_start && row.source_reporting_period_end
-                                ? ` • ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
+                                ? ` â€¢ ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
                                 : ""}
                             </div>
                             <div className="flex flex-wrap gap-3 text-xs">
@@ -1630,7 +1630,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               { key: "site", label: "Site" },
               { key: "qty", label: "Qty" },
               { key: "apply", label: "Apply %" },
-              { key: "tco2e", label: "tCO2e (After)" },
+              { key: "tco2e", label: "tCO₂e (After)" },
               { key: "confidence", label: "Data Confidence" },
             ].map((item) => (
               <label key={item.key} className="flex items-center justify-between text-sm">
@@ -1769,7 +1769,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                       <th className="p-2 text-left">Report Label</th>
                       <th className="p-2 text-right">Qty</th>
                       <th className="p-2 text-right">Apply %</th>
-                      <th className="p-2 text-right">tCO2e</th>
+                      <th className="p-2 text-right">tCO₂e</th>
                       <th className="p-2 text-left">Updated</th>
                     </tr>
                   </thead>
@@ -1969,7 +1969,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     monthlyEditRow.scope,
                     monthlyEditRow.category,
                     monthlyEditRow.original_id,
-                  ]).join(" • ")}
+                  ]).join(" â€¢ ")}
                 </div>
               </div>
             )}
@@ -1978,7 +1978,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           <div className="space-y-4">
             {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                This legacy annual row shows the original source volume in the grid, but its monthly values are stored as fallback tCO2e for audit compatibility. Monthly values are read-only here.
+                This legacy annual row shows the original source volume in the grid, but its monthly values are stored as fallback tCO₂e for audit compatibility. Monthly values are read-only here.
               </div>
             )}
             {/* Copy to All Months Button */}
@@ -2038,7 +2038,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               {monthlyEditRow && !isLegacyFallbackRow(monthlyEditRow) && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                   <div className="flex items-start gap-2">
-                    <span className="text-yellow-600 font-semibold text-sm">⚠️ Warning:</span>
+                    <span className="text-yellow-600 font-semibold text-sm">âš ï¸ Warning:</span>
                     <div className="text-sm text-yellow-800">
                       <p>Monthly total ({getMonthlySum().toFixed(2)}) does not match Annual Qty ({monthlyEditRow.qty.toFixed(2)}).</p>
                       <p className="mt-1">When you save, the Annual Qty will be updated to match the monthly total.</p>

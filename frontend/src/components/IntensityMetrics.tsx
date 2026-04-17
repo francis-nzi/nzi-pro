@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -164,9 +164,9 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
   const getCurrencySymbol = useCallback((curr: string): string => {
     const symbols: { [key: string]: string } = {
-      GBP: "£",
+      GBP: "Â£",
       USD: "$",
-      EUR: "€",
+      EUR: "â‚¬",
       AUD: "A$",
       CAD: "C$",
     };
@@ -291,7 +291,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                     <div className="col-span-3 space-y-2">
                       <Label className="text-xs text-muted-foreground">Intensity</Label>
                       <div className="font-bold text-lg">
-                        {formatIntensity(intensity)} <span className="text-sm font-normal text-muted-foreground">tCO2e</span>
+                        {formatIntensity(intensity)} <span className="text-sm font-normal text-muted-foreground">tCO₂e</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {dividerLabel} {key === "turnover" ? getCurrencySymbol(currency) : metric.label}

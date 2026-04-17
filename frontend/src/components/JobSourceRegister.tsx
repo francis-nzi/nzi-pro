@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -580,7 +580,7 @@ export default function JobSourceRegister({
           <div><div className="text-xs text-muted-foreground">{recordPlural}</div><div className="text-2xl font-semibold">{summary?.source_count ?? 0}</div></div>
           <div><div className="text-xs text-muted-foreground">Groups</div><div className="text-2xl font-semibold">{summary?.group_count ?? 0}</div></div>
           <div><div className="text-xs text-muted-foreground">Ungrouped</div><div className="text-2xl font-semibold">{summary?.ungrouped_source_count ?? 0}</div></div>
-          <div><div className="text-xs text-muted-foreground">tCO2e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
+          <div><div className="text-xs text-muted-foreground">tCO₂e</div><div className="text-2xl font-semibold">{(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</div></div>
         </CardContent>
       </Card>
 
@@ -742,7 +742,7 @@ export default function JobSourceRegister({
                     <div className="min-w-0">
                       <div className="truncate font-medium">{factor.report_label}</div>
                       <div className="text-xs text-muted-foreground">
-                        {factor.scope} · {factor.category} · UOM {factor.uom || "-"} · {factor.original_id}
+                        {factor.scope} Â· {factor.category} Â· UOM {factor.uom || "-"} Â· {factor.original_id}
                       </div>
                     </div>
                     <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
@@ -757,7 +757,7 @@ export default function JobSourceRegister({
                 <div className="rounded-md border bg-background p-3 text-sm">
                   <div className="font-medium">Selected factor</div>
                   <div className="text-muted-foreground">
-                    {selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} · UOM {selectedFactor.uom || "-"}
+                    {selectedFactor.report_label} Â· {selectedFactor.original_id} Â· {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} Â· UOM {selectedFactor.uom || "-"}
                   </div>
                 </div>
               ) : null}
@@ -826,10 +826,10 @@ export default function JobSourceRegister({
               </p>
               {selectedGroup ? (
                 <p className="text-foreground">
-                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> · {selectedGroup.scope}
-                  {selectedGroup.site_name ? ` · ${selectedGroup.site_name}` : ""}
-                  {selectedGroup.factor_report_label ? ` · ${selectedGroup.factor_report_label}` : ""}
-                  {selectedGroup.uom ? ` · UOM ${selectedGroup.uom}` : ""}
+                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> Â· {selectedGroup.scope}
+                  {selectedGroup.site_name ? ` Â· ${selectedGroup.site_name}` : ""}
+                  {selectedGroup.factor_report_label ? ` Â· ${selectedGroup.factor_report_label}` : ""}
+                  {selectedGroup.uom ? ` Â· UOM ${selectedGroup.uom}` : ""}
                 </p>
               ) : (
                 <p className="text-amber-700">
@@ -862,7 +862,7 @@ export default function JobSourceRegister({
                 <th className="p-2">Factor</th>
                 <th className="p-2">UOM</th>
                 <th className="p-2">Sources</th>
-                <th className="p-2 text-right">tCO2e</th>
+                <th className="p-2 text-right">tCO₂e</th>
                 <th className="p-2"></th>
               </tr>
             </thead>
@@ -874,7 +874,7 @@ export default function JobSourceRegister({
                   <td className="p-2">{g.site_name || "-"}</td>
                   <td className="p-2">
                     <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
-                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
+                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` Â· ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
                   </td>
                   <td className="p-2">{g.uom || "-"}</td>
                   <td className="p-2">{g.source_count ?? 0}</td>
@@ -903,7 +903,7 @@ export default function JobSourceRegister({
                 <th className="p-2">Identity</th>
                 <th className="p-2">Group</th>
                 <th className="p-2 text-right">Qty</th>
-                <th className="p-2 text-right">tCO2e</th>
+                <th className="p-2 text-right">tCO₂e</th>
                 <th className="p-2">Status</th>
                 <th className="p-2"></th>
               </tr>

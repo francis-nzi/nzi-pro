@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -196,8 +196,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   const displayYear = data.selected_year ?? data.current_metrics.year ?? "N/A";
   const benchmarkCaption = benchmarkPoint
     ? benchmarkPoint.source === "client"
-      ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
-      : `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e (${benchmarkPoint.year ?? "benchmark"})`
+      ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
+      : `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (${benchmarkPoint.year ?? "benchmark"})`
     : "No benchmark data available";
 
   return (
@@ -230,7 +230,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           <CardContent className="pt-6">
             <div className="text-sm text-muted-foreground">Total Emissions</div>
             <div className="text-3xl font-semibold">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
-            <div className="text-xs text-muted-foreground">tCO2e ({displayYear})</div>
+            <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
           </CardContent>
         </Card>
         <Card>
@@ -249,7 +249,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="text-sm text-muted-foreground">Top Category</div>
             <div className="truncate text-lg font-semibold">{topCategoryData[0]?.category || "-"}</div>
             <div className="text-xs text-muted-foreground">
-              {topCategoryData[0] ? `${topCategoryData[0].emissions.toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e` : "No category data"}
+              {topCategoryData[0] ? `${topCategoryData[0].emissions.toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e` : "No category data"}
             </div>
           </CardContent>
         </Card>
@@ -290,7 +290,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                               <Cell key={idx} fill={SCOPE_COLORS[idx % SCOPE_COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e`} />
+                          <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e`} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -298,7 +298,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                           <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
                             {total.toLocaleString(undefined, { maximumFractionDigits: 1 })}
                           </div>
-                          <div className="mt-2 text-[11px] text-muted-foreground">tCO2e total</div>
+                          <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
                         </div>
                       </div>
                     </div>
@@ -328,7 +328,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                       </div>
 
                       <div className="mt-4 border-t pt-3">
-                        <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO2e by Scope</div>
+                        <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO₂e by Scope</div>
                         {scopeData.map((s, idx) => (
                           <div key={`${s.name}-tco2e`} className="flex items-center justify-between gap-2 text-sm">
                             <div className="flex items-center gap-2">
@@ -367,7 +367,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis type="number" />
                         <YAxis type="category" dataKey="category" width={140} tick={{ fontSize: 12 }} />
-                        <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e`} />
+                        <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e`} />
                         <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -393,7 +393,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="year" />
                       <YAxis />
-                      <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO2e`} />
+                      <Tooltip formatter={(val: number | string | undefined) => `${Number(val ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e`} />
                       <Legend />
                       <Line type="monotone" dataKey="total" stroke="#0f766e" strokeWidth={3} dot={{ r: 4 }} name="Total" />
                       <Line type="monotone" dataKey="scope1" stroke="#0f766e" strokeOpacity={0.7} strokeWidth={1.5} dot={false} name="Scope 1" />

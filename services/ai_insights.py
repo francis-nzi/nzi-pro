@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import re
 from pathlib import Path
@@ -52,7 +52,7 @@ def _build_prompt(
     # Build a strict JSON prompt with explicit response schema.
     cat_lines = []
     for c in top_categories[:5]:
-        cat_lines.append(f"- {c.get('category')}: {float(c.get('emissions') or 0):.1f} tCO2e ({float(c.get('percentage') or 0):.1f}%)")
+        cat_lines.append(f"- {c.get('category')}: {float(c.get('emissions') or 0):.1f} tCO₂e ({float(c.get('percentage') or 0):.1f}%)")
 
     parts = [
         "You are an expert sustainability consultant.",
@@ -288,8 +288,8 @@ def _local_insight_payload(
     latest_year = latest.get("year") if latest else "N/A"
     latest_total = float(latest.get("total") or 0) if latest else 0.0
     summary = (
-        f"{client_name} recorded {latest_total:.1f} tCO2e in {latest_year}. "
-        f"{yoy_text} Top driver: {top_title} ({top_emissions:.1f} tCO2e, {top_pct:.1f}%)."
+        f"{client_name} recorded {latest_total:.1f} tCO₂e in {latest_year}. "
+        f"{yoy_text} Top driver: {top_title} ({top_emissions:.1f} tCO₂e, {top_pct:.1f}%)."
     )
 
     country = str(client_info.get("addr_country") or "").strip().lower()
@@ -336,7 +336,7 @@ def _local_insight_payload(
         "top_drivers": (
             [{
                 "title": top_title,
-                "detail": f"Largest emissions contributor in selected data at {top_emissions:.1f} tCO2e.",
+                "detail": f"Largest emissions contributor in selected data at {top_emissions:.1f} tCO₂e.",
                 "metric": f"{top_pct:.1f}% of total",
                 "citation": "job_scope_rows.level_2",
             }] if top else []
@@ -369,7 +369,7 @@ def _local_insight_payload(
         citations.append(
             {
                 "label": "Latest total emissions",
-                "value": f"{latest_total:.1f} tCO2e ({latest_year})",
+                "value": f"{latest_total:.1f} tCO₂e ({latest_year})",
                 "source": "jobs + job_scope_rows",
             }
         )
@@ -377,7 +377,7 @@ def _local_insight_payload(
         citations.append(
             {
                 "label": "Top emission category",
-                "value": f"{top_title}: {top_emissions:.1f} tCO2e",
+                "value": f"{top_title}: {top_emissions:.1f} tCO₂e",
                 "source": "job_scope_rows.level_2",
             }
         )
@@ -538,7 +538,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
         for _, r in emissions_df.iterrows():
             yr = r.get("reporting_year")
             tot = r.get("total_emissions") or 0
-            lines.append(f"{yr}: {tot:.1f} tCO2e")
+            lines.append(f"{yr}: {tot:.1f} tCO₂e")
             yearly_rows.append({"year": yr, "total": float(tot)})
         emissions_summary = "; ".join(lines)
 
@@ -612,7 +612,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
         citations.append(
             {
                 "label": "Latest total emissions",
-                "value": f"{latest.get('total', 0):.1f} tCO2e ({latest.get('year')})",
+                "value": f"{latest.get('total', 0):.1f} tCO₂e ({latest.get('year')})",
                 "source": "jobs + job_scope_rows",
             }
         )
@@ -621,7 +621,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
         citations.append(
             {
                 "label": "Top emission category",
-                "value": f"{top.get('category')}: {float(top.get('emissions') or 0):.1f} tCO2e",
+                "value": f"{top.get('category')}: {float(top.get('emissions') or 0):.1f} tCO₂e",
                 "source": "job_scope_rows.level_2",
             }
         )

@@ -1,4 +1,4 @@
-"""
+﻿"""
 API endpoints for job report generation.
 Generates comprehensive PDF reports with emissions data.
 """
@@ -84,7 +84,7 @@ DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
     {"term": "Carbon Reduction", "definition": "Reduction in measured CO2e emissions."},
     {"term": "Carbon Emissions (Gross)", "definition": "CO2e emissions from Company activities."},
     {"term": "Carbon Reduction Plan", "definition": "Plan to reduce CO2e emissions over a period of time, updated annually."},
-    {"term": "tCO2e", "definition": "Tonnes of carbon dioxide equivalent - a standard unit for measuring carbon footprints."},
+    {"term": "tCO₂e", "definition": "Tonnes of carbon dioxide equivalent - a standard unit for measuring carbon footprints."},
     {"term": "Scope 1", "definition": "Direct GHG emissions from sources owned or controlled by the organisation."},
     {"term": "Scope 2", "definition": "Indirect GHG emissions from purchased electricity, steam, heating and cooling."},
     {"term": "Scope 3", "definition": "All other indirect emissions in the value chain."},
@@ -144,7 +144,7 @@ _SYSTEM_LOGO_PATH = (
 
 def _get_nzi_logo_src() -> str:
     """Return NZI logo as data URI. Checks DB first (redeploy-safe), falls back to filesystem."""
-    # 1. Try database (logo uploaded via Admin → System Settings)
+    # 1. Try database (logo uploaded via Admin â†’ System Settings)
     try:
         with get_conn() as con:
             rows = con.execute(
@@ -172,10 +172,10 @@ def _get_client_logo_src(logo_url: str | None) -> str:
     if not logo_url:
         return ""
     logo_url = str(logo_url).strip()
-    # External URL — use directly
+    # External URL â€” use directly
     if logo_url.startswith("http://") or logo_url.startswith("https://"):
         return logo_url
-    # Relative path to uploaded file — try to read and base64-encode
+    # Relative path to uploaded file â€” try to read and base64-encode
     try:
         from pathlib import Path as _Path
         project_root = _Path(__file__).resolve().parents[1]
@@ -1286,7 +1286,7 @@ def _load_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
     return _records_from_df(_load_data_output_rows(con, int(job_id)))
 
 
-def create_donut_chart(data_dict, colors_dict, title, total_value, center_label="tCO2e"):
+def create_donut_chart(data_dict, colors_dict, title, total_value, center_label="tCO₂e"):
     """
     Create a high-quality donut chart and return it as a base64 encoded PNG.
     Optimized for professional PDF rendering at 25% of page size.
@@ -1385,7 +1385,7 @@ def create_activity_donut(
     activity_totals: dict[str, float],
     colors_dict: dict[str, str],
     title: str = "Emissions by Activity",
-    center_label: str = "tCO2e",
+    center_label: str = "tCO₂e",
     period_from: object | None = None,
     period_to: object | None = None,
 ):
@@ -1552,14 +1552,14 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
     top = _top_category(categories)
 
     context_summary = (
-        f"{job_data.get('client_name') or 'Client'} reported {current_total:.2f} tCO2e in "
+        f"{job_data.get('client_name') or 'Client'} reported {current_total:.2f} tCO₂e in "
         f"{job_data.get('reporting_year') or 'the reporting period'}."
     )
     if change_pct is not None:
         direction = "higher" if change_pct > 0 else "lower" if change_pct < 0 else "flat"
         context_summary += f" Total emissions are {abs(change_pct):.1f}% {direction} than the comparison period."
     if top:
-        context_summary += f" Largest category: {top.get('category')} at {_coerce_float(top.get('emissions')):.2f} tCO2e."
+        context_summary += f" Largest category: {top.get('category')} at {_coerce_float(top.get('emissions')):.2f} tCO₂e."
 
     return {
         "job_id": int(job_id),
@@ -2761,7 +2761,7 @@ def _apply_docx_brand_styles(doc) -> None:
         TEXT_MAIN   = RGBColor(0x0F, 0x17, 0x2A)   # near-black
         TEXT_MUTED  = RGBColor(0x47, 0x55, 0x69)   # slate
 
-        # Title (Heading 0) — for the cover title
+        # Title (Heading 0) â€” for the cover title
         title_style = doc.styles['Title']
         title_style.font.name = 'Aptos'
         title_style.font.size = Pt(28)
@@ -2769,7 +2769,7 @@ def _apply_docx_brand_styles(doc) -> None:
         title_style.font.color.rgb = TEXT_MAIN
         title_style.paragraph_format.space_after = Pt(6)
 
-        # Heading 1 — brand green, 16pt
+        # Heading 1 â€” brand green, 16pt
         h1 = doc.styles['Heading 1']
         h1.font.name = 'Aptos'
         h1.font.size = Pt(16)
@@ -2778,7 +2778,7 @@ def _apply_docx_brand_styles(doc) -> None:
         h1.paragraph_format.space_before = Pt(18)
         h1.paragraph_format.space_after = Pt(4)
 
-        # Heading 2 — lighter green, 13pt
+        # Heading 2 â€” lighter green, 13pt
         h2 = doc.styles['Heading 2']
         h2.font.name = 'Aptos'
         h2.font.size = Pt(13)
@@ -2868,16 +2868,16 @@ def _docx_add_cover_page(doc, job_data: dict, generation_date: str, template_nam
         # Subtitle / period
         rm = report_metadata or {}
         period = str(rm.get('current_reporting_period_label') or
-                     ((job_data.get('period_start') or '') + ' – ' + (job_data.get('period_end') or '')))
+                     ((job_data.get('period_start') or '') + ' â€“ ' + (job_data.get('period_end') or '')))
         sub_p = doc.add_paragraph()
-        sub_run = sub_p.add_run(period.strip(' –'))
+        sub_run = sub_p.add_run(period.strip(' â€“'))
         sub_run.font.name = 'Aptos'
         sub_run.font.size = Pt(12)
         sub_run.font.color.rgb = TEXT_MUTED
         sub_p.paragraph_format.space_after = Pt(18)
 
         # Divider rule
-        hr_p = doc.add_paragraph('─' * 60)
+        hr_p = doc.add_paragraph('â”€' * 60)
         hr_p.runs[0].font.color.rgb = BRAND_GREEN
         hr_p.runs[0].font.size = Pt(8)
         hr_p.paragraph_format.space_after = Pt(12)
@@ -2910,7 +2910,7 @@ def _docx_add_cover_page(doc, job_data: dict, generation_date: str, template_nam
         doc.add_page_break()
 
     except Exception:
-        # Cover creation failed — continue with body content
+        # Cover creation failed â€” continue with body content
         doc.add_page_break()
 
 
@@ -2968,7 +2968,7 @@ def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | Non
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "The requested template/version does not match this job’s assigned template version. "
+                    "The requested template/version does not match this jobâ€™s assigned template version. "
                     "Re-assign the template version and try again."
                 ),
             )
@@ -3542,7 +3542,7 @@ def generate_job_report(
         scope_chart_base64 = create_donut_chart(
             scope_chart_data,
             scope_colors,
-            f'Emissions by Scope (tCO₂e)\n{period_text}',
+            f'Emissions by Scope (tCOâ‚‚e)\n{period_text}',
             scope_totals['Total']
         )
         
@@ -3569,7 +3569,7 @@ def generate_job_report(
             activity_totals,
             ACTIVITY_GROUP_COLORS,
             title="Emissions by Activity",
-            center_label="tCO2e",
+            center_label="tCO₂e",
             period_from=period_from,
             period_to=period_to
         )
@@ -3614,7 +3614,7 @@ def generate_job_report(
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "The requested template/version does not match this job’s assigned template version. "
+                        "The requested template/version does not match this jobâ€™s assigned template version. "
                         "Re-assign the template version and try again."
                     ),
                 )
@@ -4600,7 +4600,7 @@ def generate_professional_pdf(
         scope_chart_base64 = create_donut_chart(
             scope_chart_data,
             scope_colors,
-            f'Emissions by Scope (tCO₂e)',
+            f'Emissions by Scope (tCOâ‚‚e)',
             scope_totals['Total']
         )
         
@@ -4609,7 +4609,7 @@ def generate_professional_pdf(
             activity_totals,
             ACTIVITY_GROUP_COLORS,
             title="Emissions by Activity",
-            center_label="tCO2e",
+            center_label="tCO₂e",
             period_from=period_from,
             period_to=period_to
         )
@@ -4877,7 +4877,7 @@ def generate_job_report_docx(
                     p.add_run(f"{label}: ").bold = True
                     p.add_run(value)
 
-            # ── Section: Narrative ──────────────────────────────────────────
+            # â”€â”€ Section: Narrative â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if is_crp:
                 doc.add_heading("Carbon Reduction Plan", level=1)
                 crp_fields = [
@@ -4910,7 +4910,7 @@ def generate_job_report_docx(
                     p.add_run(f"{label}: ").bold = True
                     p.add_run(value)
 
-            # ── Section: Charts ─────────────────────────────────────────────
+            # â”€â”€ Section: Charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             snapshot_assets = snapshot_payload.get("assets") or {}
             scope_chart = (snapshot_assets.get("total_emissions") or
                            snapshot_assets.get("scope_breakdown") or
@@ -4919,14 +4919,14 @@ def generate_job_report_docx(
                               snapshot_payload.get("activity_chart_base64") or "")
             if scope_chart or activity_chart:
                 doc.add_heading("Emissions Charts", level=1)
-                _docx_embed_chart(doc, scope_chart, "Scope Profile (tCO₂e)")
-                _docx_embed_chart(doc, activity_chart, "Activity Profile (tCO₂e)")
+                _docx_embed_chart(doc, scope_chart, "Scope Profile (tCOâ‚‚e)")
+                _docx_embed_chart(doc, activity_chart, "Activity Profile (tCOâ‚‚e)")
 
-            # ── Section: Emissions Summary ──────────────────────────────────
+            # â”€â”€ Section: Emissions Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             doc.add_heading("Emissions Summary", level=1)
             summary_table = doc.add_table(rows=1, cols=3)
             summary_table.style = "Table Grid"
-            for col, hdr in enumerate(["Scope", "tCO₂e", "% of Total"]):
+            for col, hdr in enumerate(["Scope", "tCOâ‚‚e", "% of Total"]):
                 summary_table.cell(0, col).text = hdr
             _docx_shade_table_header(summary_table)
             s1 = scope_totals.get('Scope 1', 0.0)
@@ -4939,19 +4939,19 @@ def generate_job_report_docx(
                 rc[1].text = f"{val:,.2f}"
                 rc[2].text = f"{(val / total * 100):.1f}%" if total > 0 else "0.0%"
 
-            # ── Section: Activity Group Totals ──────────────────────────────
+            # â”€â”€ Section: Activity Group Totals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             doc.add_heading("Activity Group Totals", level=1)
             group_table = doc.add_table(rows=1, cols=2)
             group_table.style = "Table Grid"
             group_table.cell(0, 0).text = "Activity Group"
-            group_table.cell(0, 1).text = "tCO₂e"
+            group_table.cell(0, 1).text = "tCOâ‚‚e"
             _docx_shade_table_header(group_table)
             for group in ACTIVITY_GROUP_ORDER:
                 rc = group_table.add_row().cells
                 rc[0].text = group
                 rc[1].text = f"{activity_totals.get(group, 0.0):,.2f}"
 
-            # ── Section: Planned Actions ────────────────────────────────────
+            # â”€â”€ Section: Planned Actions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if job_actions.get("items"):
                 doc.add_heading("Planned Actions", level=1)
                 actions_table = doc.add_table(rows=1, cols=4)
@@ -4966,12 +4966,12 @@ def generate_job_report_docx(
                     row_cells[2].text = str(item.get("action_category") or "")
                     row_cells[3].text = str(item.get("description") or "")
 
-            # ── Section: Top Activity Rows ──────────────────────────────────
+            # â”€â”€ Section: Top Activity Rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if activity_details:
                 doc.add_heading("Top Emission Drivers", level=1)
                 details_table = doc.add_table(rows=1, cols=5)
                 details_table.style = "Table Grid"
-                for col, hdr in enumerate(["Activity Group", "Emission Type", "Scope", "Confidence", "tCO₂e"]):
+                for col, hdr in enumerate(["Activity Group", "Emission Type", "Scope", "Confidence", "tCOâ‚‚e"]):
                     details_table.cell(0, col).text = hdr
                 _docx_shade_table_header(details_table)
                 for row in activity_details[:50]:
@@ -4982,7 +4982,7 @@ def generate_job_report_docx(
                     cells[3].text = str(row.get("data_confidence") or "M")
                     cells[4].text = f"{float(row.get('emissions') or 0.0):,.2f}"
 
-            # ── Section: Additional template variable sections ──────────────
+            # â”€â”€ Section: Additional template variable sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             _docx_add_variable_sections(doc, template_variables, template_var_meta)
 
             output = io.BytesIO()
@@ -5050,7 +5050,7 @@ def generate_job_report_docx(
             str(
                 render_values.get("report_title")
                 or template_variables.get("report_title")
-                or f"Emissions Report – {job_data.get('client_name') or 'Client'}"
+                or f"Emissions Report â€“ {job_data.get('client_name') or 'Client'}"
             ),
             level=0,
         )
@@ -5058,7 +5058,7 @@ def generate_job_report_docx(
             heading.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
 
         subtitle = doc.add_paragraph(
-            f"Job {job_data.get('job_number') or job_id} • Reporting year {job_data.get('reporting_year') or 'N/A'}"
+            f"Job {job_data.get('job_number') or job_id} â€¢ Reporting year {job_data.get('reporting_year') or 'N/A'}"
         )
         if WD_PARAGRAPH_ALIGNMENT is not None:
             subtitle.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -5124,10 +5124,10 @@ def generate_job_report_docx(
         summary_table = doc.add_table(rows=4, cols=2)
         summary_table.style = "Table Grid"
         summary_rows = [
-            ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.2f} tCO₂e"),
-            ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.2f} tCO₂e"),
-            ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.2f} tCO₂e"),
-            ("Total", f"{scope_totals.get('Total', 0.0):,.2f} tCO₂e"),
+            ("Scope 1", f"{scope_totals.get('Scope 1', 0.0):,.2f} tCOâ‚‚e"),
+            ("Scope 2", f"{scope_totals.get('Scope 2', 0.0):,.2f} tCOâ‚‚e"),
+            ("Scope 3", f"{scope_totals.get('Scope 3', 0.0):,.2f} tCOâ‚‚e"),
+            ("Total", f"{scope_totals.get('Total', 0.0):,.2f} tCOâ‚‚e"),
         ]
         for idx, (label, value) in enumerate(summary_rows):
             summary_table.cell(idx, 0).text = label
@@ -5138,7 +5138,7 @@ def generate_job_report_docx(
         group_table.style = "Table Grid"
         for idx, group in enumerate(ACTIVITY_GROUP_ORDER):
             group_table.cell(idx, 0).text = group
-            group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.2f} tCO₂e"
+            group_table.cell(idx, 1).text = f"{activity_totals.get(group, 0.0):,.2f} tCOâ‚‚e"
 
         _docx_add_variable_sections(doc, template_variables, template_var_meta)
 
@@ -5162,7 +5162,7 @@ def generate_job_report_docx(
             doc.add_heading("Top Activity Rows", level=1)
             details_table = doc.add_table(rows=1, cols=4)
             details_table.style = "Table Grid"
-            headers = ["Group", "Emission Type", "Scope", "tCO₂e"]
+            headers = ["Group", "Emission Type", "Scope", "tCOâ‚‚e"]
             for col, header in enumerate(headers):
                 details_table.cell(0, col).text = header
 

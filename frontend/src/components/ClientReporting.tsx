@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -169,7 +169,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatNumber(getValueForYear(reportDataSafe.by_scope, latestYear, 'total'))} tCO2e
+              {formatNumber(getValueForYear(reportDataSafe.by_scope, latestYear, 'total'))} tCO₂e
             </div>
           </CardContent>
         </Card>
@@ -539,5 +539,3 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
     </div>
   );
 }
-
-

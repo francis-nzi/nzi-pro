@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -514,7 +514,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
               </Select>
             </div>
             <div className="rounded-md border px-3 py-2 text-sm">
-              Embedded Emissions: {selectedProduct ? `${Number(selectedProduct.total_embedded_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e` : "-"}
+              Embedded Emissions: {selectedProduct ? `${Number(selectedProduct.total_embedded_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e` : "-"}
             </div>
             <div className="rounded-md border px-3 py-2 text-sm">
               Functional Unit: {selectedProduct ? `${selectedProduct.functional_unit_value || 1} ${selectedProduct.functional_unit_unit || "kg_product"}` : "-"}
@@ -706,7 +706,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
           <CardHeader><CardTitle>Stage 5: Impact Assessment (LCIA) + Hotspots</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="text-sm">
-              Total Embedded Emissions: <span className="font-semibold">{Number(summary?.total_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e</span>
+              Total Embedded Emissions: <span className="font-semibold">{Number(summary?.total_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e</span>
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="rounded-md border p-3">
@@ -715,7 +715,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
                   {(summary?.stage_breakdown || []).map((s) => (
                     <div key={s.stage_key} className="flex justify-between">
                       <span>{s.stage_key}</span>
-                      <span>{s.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e ({s.share_pct.toFixed(1)}%)</span>
+                      <span>{s.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e ({s.share_pct.toFixed(1)}%)</span>
                     </div>
                   ))}
                 </div>
@@ -726,7 +726,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
                   {(summary?.hotspots || []).slice(0, 6).map((h) => (
                     <div key={h.item_id} className="flex justify-between">
                       <span>{h.item_name}</span>
-                      <span>{h.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e</span>
+                      <span>{h.emissions_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e</span>
                     </div>
                   ))}
                 </div>
@@ -749,7 +749,7 @@ export default function JobLca({ jobId, baseUrl }: JobLcaProps) {
                   Goal & Scope: {isoReport?.goal_scope?.product_name || "-"} | Boundary: {isoReport?.goal_scope?.system_boundary || "-"} | Functional Unit: {isoReport?.goal_scope?.functional_unit || "-"}
                 </div>
                 <div className="text-sm">
-                  Inventory Rows: {isoReport?.inventory_analysis?.rows_count || 0} | Total GWP: {Number(isoReport?.impact_assessment?.total_embedded_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO2e
+                  Inventory Rows: {isoReport?.inventory_analysis?.rows_count || 0} | Total GWP: {Number(isoReport?.impact_assessment?.total_embedded_tco2e || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Checklist: Goal/Scope {isoReport?.iso_14040_14044_checklist?.goal_and_scope_defined ? "yes" : "no"} | Inventory {isoReport?.iso_14040_14044_checklist?.inventory_collected ? "yes" : "no"} | LCIA {isoReport?.iso_14040_14044_checklist?.impact_assessed_gwp ? "yes" : "no"} | Interpretation {isoReport?.iso_14040_14044_checklist?.interpretation_hotspots_available ? "yes" : "no"}

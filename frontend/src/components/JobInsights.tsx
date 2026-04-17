@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -87,7 +87,7 @@ function bucketKey(value?: string | null): string {
 
 function formatTooltipValue(value: unknown): [string, string] {
   const amount = Array.isArray(value) ? Number(value[0] ?? 0) : Number(value ?? 0);
-  return [`${formatTco2e(amount)} tCO2e`, ""];
+  return [`${formatTco2e(amount)} tCO₂e`, ""];
 }
 
 function formatMetricTooltip(value: unknown): [string, string] {
@@ -370,10 +370,10 @@ export default function JobInsights({
     const dominantScope = scopeRows[0];
     const topDriverShare = topActivity && scopeTotals.total > 0 ? (topActivity.value / scopeTotals.total) * 100 : 0;
     return [
-      clientName ? `${clientName} job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO2e.` : `Job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO2e.`,
-      dominantScope ? `${dominantScope.name} is the dominant scope at ${formatTco2e(dominantScope.value)} tCO2e (${pct(dominantScope.value, scopeTotals.total)} of total).` : null,
-      topActivity ? `${topActivity.name} is the largest activity driver at ${formatTco2e(topActivity.value)} tCO2e (${pct(topActivity.value, scopeTotals.total)} of total).` : null,
-      topSite ? `${topSite.name} is the largest site contributor at ${formatTco2e(topSite.value)} tCO2e (${pct(topSite.value, scopeTotals.total)} of total).` : null,
+      clientName ? `${clientName} job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO₂e.` : `Job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO₂e.`,
+      dominantScope ? `${dominantScope.name} is the dominant scope at ${formatTco2e(dominantScope.value)} tCO₂e (${pct(dominantScope.value, scopeTotals.total)} of total).` : null,
+      topActivity ? `${topActivity.name} is the largest activity driver at ${formatTco2e(topActivity.value)} tCO₂e (${pct(topActivity.value, scopeTotals.total)} of total).` : null,
+      topSite ? `${topSite.name} is the largest site contributor at ${formatTco2e(topSite.value)} tCO₂e (${pct(topSite.value, scopeTotals.total)} of total).` : null,
       topDriverShare > 0 ? `Your largest activity is responsible for ${topDriverShare.toFixed(1)}% of total emissions, so that is the most direct reduction lever.` : null,
       interimYear ? `Interim targets are plotted at ${interimYear} to show the job's midpoint pathway.` : null,
       targetYear ? `The target line extends to ${targetYear} with a piecewise path that honours any interim reduction target.` : null,
@@ -412,19 +412,19 @@ export default function JobInsights({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Total tCO2e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
+        <MetricCard label="Total tCO₂e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
         <MetricCard label="Target Year" value={targetYear ?? 2050} />
         <LinkMetricCard
           label="Top Activity"
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
-          suffix="tCO2e"
+          suffix="tCO₂e"
           name={normalizedActivityData[0]?.name ?? "No activity data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
           label="Top Site"
           value={normalizedSiteData[0] ? formatTco2e(normalizedSiteData[0].value) : "0.0"}
-          suffix="tCO2e"
+          suffix="tCO₂e"
           name={normalizedSiteData[0]?.name ?? "No site data"}
           href={`/jobs/${jobId}/data-entry`}
         />
@@ -441,14 +441,14 @@ export default function JobInsights({
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Top driver</div>
               <div className="mt-1 text-sm font-medium">{normalizedActivityData[0]?.name ?? "No activity data"}</div>
               <div className="text-sm text-muted-foreground">
-                {normalizedActivityData[0] ? `${formatTco2e(normalizedActivityData[0].value)} tCO2e` : "No activity data"}
+                {normalizedActivityData[0] ? `${formatTco2e(normalizedActivityData[0].value)} tCO₂e` : "No activity data"}
               </div>
             </div>
             <div className="rounded-lg border bg-white/70 p-3">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Largest site</div>
               <div className="mt-1 text-sm font-medium">{normalizedSiteData[0]?.name ?? "No site data"}</div>
               <div className="text-sm text-muted-foreground">
-                {normalizedSiteData[0] ? `${formatTco2e(normalizedSiteData[0].value)} tCO2e` : "No site data"}
+                {normalizedSiteData[0] ? `${formatTco2e(normalizedSiteData[0].value)} tCO₂e` : "No site data"}
               </div>
             </div>
             <div className="rounded-lg border bg-white/70 p-3">
@@ -462,7 +462,7 @@ export default function JobInsights({
               const share = scopeTotals && scopeTotals.total > 0 ? (scope.value / scopeTotals.total) * 100 : 0;
               return (
                 <Badge key={scope.name} variant="secondary">
-                  {scope.name}: {formatTco2e(scope.value)} tCO2e ({share.toFixed(1)}%)
+                  {scope.name}: {formatTco2e(scope.value)} tCO₂e ({share.toFixed(1)}%)
                 </Badge>
               );
             })}
@@ -491,7 +491,7 @@ export default function JobInsights({
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
                     <div className="text-3xl font-semibold tabular-nums">{formatTco2e(scopeTotals?.total ?? 0)}</div>
-                    <div className="text-xs text-muted-foreground">tCO2e total</div>
+                    <div className="text-xs text-muted-foreground">tCO₂e total</div>
                   </div>
                 </div>
               </div>
@@ -594,7 +594,7 @@ export default function JobInsights({
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-3xl font-semibold tabular-nums">{formatTco2e(Number(scopeTotals?.total || 0))}</div>
-                      <div className="text-xs text-muted-foreground">tCO2e total</div>
+                      <div className="text-xs text-muted-foreground">tCO₂e total</div>
                     </div>
                   </div>
                 </div>
@@ -722,7 +722,7 @@ export default function JobInsights({
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <MetricCard label="Scenario total" value={formatTco2e(whatIf.total)} />
-            <MetricCard label="Reduction" value={formatTco2e(whatIf.reduction)} suffix="tCO2e" />
+            <MetricCard label="Reduction" value={formatTco2e(whatIf.reduction)} suffix="tCO₂e" />
             <MetricCard label="Reduction %" value={whatIf.reductionPct.toFixed(1)} suffix="%" />
           </div>
           <div className="flex flex-wrap gap-2">

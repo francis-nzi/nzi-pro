@@ -1,4 +1,4 @@
-"""
+﻿"""
 Main Dashboard API Routes
 Provides overview metrics for the main dashboard
 """
@@ -2170,7 +2170,7 @@ def _build_insights_report(
                 {"key": "crm_owner", "label": "CRM Owner"},
                 {"key": "active_jobs", "label": "Active Jobs"},
                 {"key": "total_jobs", "label": "Total Jobs"},
-                {"key": "total_emissions", "label": "tCO2e"},
+                {"key": "total_emissions", "label": "tCO₂e"},
             ],
             "rows": rows,
             "row_count": len(rows),
@@ -2200,7 +2200,7 @@ def get_dashboard_bi_portfolio(
             has_client_targets = has_clients and _column_exists(con, "clients", "net_zero_year")
             has_client_created_at = has_clients and _column_exists(con, "clients", "created_at")
 
-            # ── Client filters ──────────────────────────────────────────────────
+            # â”€â”€ Client filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             client_where_parts: list[str] = []
             client_params: list[object] = []
             if industry:
@@ -2211,7 +2211,7 @@ def get_dashboard_bi_portfolio(
                 client_params.append(crm_owner)
             client_where = ("WHERE " + " AND ".join(client_where_parts)) if client_where_parts else ""
 
-            # ── Client portfolio summary ────────────────────────────────────────
+            # â”€â”€ Client portfolio summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             client_status_breakdown: list[dict] = []
             total_clients = 0
             active_clients = 0
@@ -2266,7 +2266,7 @@ def get_dashboard_bi_portfolio(
                     ).fetchone()
                     new_clients_this_year = int(new_clients_row[0]) if new_clients_row else 0
 
-            # ── Jobs delivered / completed ──────────────────────────────────────
+            # â”€â”€ Jobs delivered / completed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             jobs_delivered_this_year = 0
             if has_jobs:
                 job_where_parts2: list[str] = ["j.status = 'Completed'"]
@@ -2285,7 +2285,7 @@ def get_dashboard_bi_portfolio(
                 ).fetchone()
                 jobs_delivered_this_year = int(jd_row[0]) if jd_row else 0
 
-            # ── Emissions pipeline ──────────────────────────────────────────────
+            # â”€â”€ Emissions pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             emissions_by_country: list[dict] = []
             emissions_by_scope: dict[str, float] = {"scope_1": 0.0, "scope_2": 0.0, "scope_3": 0.0, "other": 0.0}
             cumulative_by_year: list[dict] = []
@@ -2306,7 +2306,7 @@ def get_dashboard_bi_portfolio(
                         scope_df = _attach_dashboard_emissions(con, scope_df)
                         scope_df = scope_df[scope_df["emissions"] > 0].copy()
 
-                        # Merge country from jobs → clients
+                        # Merge country from jobs â†’ clients
                         if has_clients:
                             country_map_rows = con.execute(
                                 """
@@ -2321,7 +2321,7 @@ def get_dashboard_bi_portfolio(
                                 lambda jid: country_by_job.get(int(jid) if jid is not None else -1, "Unknown")
                             )
 
-                        # ── Cumulative emissions by year ───────────────────────────
+                        # â”€â”€ Cumulative emissions by year â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                         trend_grp = (
                             scope_df.dropna(subset=["dashboard_year_norm"])
                             .groupby("dashboard_year_norm")["emissions"]
@@ -2340,7 +2340,7 @@ def get_dashboard_bi_portfolio(
                             })
                         total_emissions_managed = round(running, 2)
 
-                        # ── Scope breakdown (selected year or all years) ───────────
+                        # â”€â”€ Scope breakdown (selected year or all years) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                         year_scope_df = scope_df
                         if year:
                             year_scope_df = scope_df[scope_df["dashboard_year_norm"] == int(year)].copy()
@@ -2357,7 +2357,7 @@ def get_dashboard_bi_portfolio(
                                 else:
                                     emissions_by_scope["other"] += round(float(scope_val), 2)
 
-                        # ── Emissions by country ───────────────────────────────────
+                        # â”€â”€ Emissions by country â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                         if "country" in scope_df.columns:
                             country_grp = (
                                 year_scope_df.groupby("country")["emissions"]
@@ -2372,7 +2372,7 @@ def get_dashboard_bi_portfolio(
                                     "emissions": round(float(row["emissions"]), 2),
                                 })
 
-                        # ── Top 10 clients by emissions ────────────────────────────
+                        # â”€â”€ Top 10 clients by emissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                         top_df = (
                             year_scope_df
                             .groupby(["client_id", "client_name"], dropna=False)["emissions"]

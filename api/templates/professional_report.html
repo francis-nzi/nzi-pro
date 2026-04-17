@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -486,7 +486,7 @@
           {% endif %}
         </div>
         <h1 class="cover-title">{{ title }}</h1>
-        <p class="cover-subtitle">{{ job_data.client_name or "Client" }}{% if job_data.reporting_year %} • Reporting year {{ job_data.reporting_year }}{% endif %}</p>
+        <p class="cover-subtitle">{{ job_data.client_name or "Client" }}{% if job_data.reporting_year %} â€¢ Reporting year {{ job_data.reporting_year }}{% endif %}</p>
       </div>
       <div class="cover-body">
         <div class="meta-grid">
@@ -538,7 +538,7 @@
           <li class="toc-item">
             <span class="toc-section-num">{{ num }}</span>
             <span class="toc-section-name">{{ name }}</span>
-            <span class="toc-dots">· · · · · · · · · · · · · · · · · · · ·</span>
+            <span class="toc-dots">Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â·</span>
           </li>
           {% endfor %}
         </ul>
@@ -561,7 +561,7 @@
         <div class="kpi">
           <div class="kpi-label">Total Emissions</div>
           <div class="kpi-value">{{ "{:,.2f}".format(total) }}</div>
-          <div class="kpi-sub">tCO2e</div>
+          <div class="kpi-sub">tCO₂e</div>
         </div>
         <div class="kpi">
           <div class="kpi-label">Scope 1</div>
@@ -643,7 +643,7 @@
           <thead>
             <tr>
               <th>Scope</th>
-              <th class="num">Emissions (tCO2e)</th>
+              <th class="num">Emissions (tCO₂e)</th>
               <th class="num">% of Total</th>
             </tr>
           </thead>
@@ -679,7 +679,7 @@
             <tr>
               <th>Activity Group</th>
               <th>Emission Type</th>
-              <th class="num">tCO2e</th>
+              <th class="num">tCO₂e</th>
               <th>Data Confidence</th>
               <th>Source Family</th>
               <th>Group / Asset</th>
@@ -782,9 +782,9 @@
             <tr><td>Energy Reporting Basis</td><td class="num">{{ rm.get("energy_reporting_basis") or "-" }}</td></tr>
             <tr><td>Renewable Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("renewable_energy_kwh") or 0)|float) }}</td></tr>
             <tr><td>Renewables %</td><td class="num">{{ "{:,.2f}%".format((rm.get("renewable_energy_pct") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Location-based tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Market-based tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Carbon Offsets (tCO2e)</td><td class="num">{{ "{:,.2f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Location-based tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Energy Emissions (Market-based tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
+            <tr><td>Carbon Offsets (tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -925,4 +925,3 @@
   </div>
 </body>
 </html>
-

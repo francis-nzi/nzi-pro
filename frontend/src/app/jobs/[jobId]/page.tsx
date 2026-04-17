@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
@@ -2187,7 +2187,7 @@ export default function JobDetailPage() {
             setImportConflicts(conflicts);
             setUploadStatus("");
             setBusy(false);
-            return; // Show conflict warning — user must acknowledge
+            return; // Show conflict warning â€” user must acknowledge
           }
         }
       } catch {
@@ -2475,7 +2475,7 @@ export default function JobDetailPage() {
                       </span>
                       {job?.is_benchmark && (
                         <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
-                          📊 Benchmark Period
+                          ðŸ“Š Benchmark Period
                         </span>
                       )}
                     </div>
@@ -2724,7 +2724,7 @@ export default function JobDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-4">
-                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
+                    These custom fields are configured in Admin â†’ Custom Fields. Required fields must be completed before
                     saving.
                   </p>
                   <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
@@ -2864,7 +2864,7 @@ export default function JobDetailPage() {
                     {scopeAutoResolution ? (
                       <div className="text-xs text-muted-foreground space-y-1">
                         <div>
-                          Resolution context: {(scopeAutoResolution.country || "Unspecified country")} • {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
+                          Resolution context: {(scopeAutoResolution.country || "Unspecified country")} â€¢ {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
                         </div>
                         {scopeAutoResolution.uses_legacy_fallback ? (
                           <div>Automatic mode is currently using some legacy fallback datasets.</div>
@@ -2998,7 +2998,7 @@ export default function JobDetailPage() {
                                   {ds.name || `Dataset ${id}`}
                                 </div>
                                 <div className="text-muted-foreground">
-                                  {ds.country || "Unknown"} • {ds.year || "n/a"} • {ds.analysis_type || "n/a"}
+                                  {ds.country || "Unknown"} â€¢ {ds.year || "n/a"} â€¢ {ds.analysis_type || "n/a"}
                                 </div>
                               </div>
                               <input
@@ -3192,7 +3192,7 @@ export default function JobDetailPage() {
                   {importConflicts.length > 0 ? (
                     <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm space-y-3">
                       <div className="font-medium text-amber-800">
-                        ⚠️ {importConflicts.length} row{importConflicts.length > 1 ? "s" : ""} already have data entered — uploading will overwrite their quantities.
+                        âš ï¸ {importConflicts.length} row{importConflicts.length > 1 ? "s" : ""} already have data entered â€” uploading will overwrite their quantities.
                       </div>
                       <div className="max-h-48 overflow-y-auto rounded border border-amber-200 bg-white">
                         <table className="w-full text-xs">
@@ -3210,7 +3210,7 @@ export default function JobDetailPage() {
                                 <td className="p-2">{c.scope}</td>
                                 <td className="p-2">{c.report_label}</td>
                                 <td className="p-2 text-right font-mono text-amber-700">{c.existing_qty.toLocaleString()}</td>
-                                <td className="p-2 text-right font-mono">{c.upload_qty?.toLocaleString() ?? "—"}</td>
+                                <td className="p-2 text-right font-mono">{c.upload_qty?.toLocaleString() ?? "â€”"}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -3290,7 +3290,7 @@ export default function JobDetailPage() {
                                   <th className="p-2 text-left">ID</th>
                                   <th className="p-2 text-left">Report Label</th>
                                   <th className="p-2 text-right">Qty</th>
-                                  <th className="p-2 text-right">tCO2e</th>
+                                  <th className="p-2 text-right">tCO₂e</th>
                                   <th className="p-2 text-left">Unit</th>
                                 </tr>
                               </thead>

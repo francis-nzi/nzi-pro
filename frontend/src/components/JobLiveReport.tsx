@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -351,7 +351,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
         scope2Tco2e: toNumber(scopeTotals["Scope 2"] ?? scopeTotals.scope_2 ?? 0),
         scope3Tco2e: toNumber(scopeTotals["Scope 3"] ?? scopeTotals.scope_3 ?? 0),
         label: "Current live totals",
-        note: benchmarkTotal > 0 ? `Benchmark: ${formatNumber(benchmarkTotal)} tCO2e` : undefined,
+        note: benchmarkTotal > 0 ? `Benchmark: ${formatNumber(benchmarkTotal)} tCO₂e` : undefined,
       }
     : null;
 
@@ -532,7 +532,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
 
             <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {[
-                { label: "Total tCO2e", value: currentTotal },
+                { label: "Total tCO₂e", value: currentTotal },
                 { label: "Scope 1", value: toNumber(scopeTotals["Scope 1"] ?? scopeTotals.scope_1 ?? 0) },
                 { label: "Scope 2", value: toNumber(scopeTotals["Scope 2"] ?? scopeTotals.scope_2 ?? 0) },
                 { label: "Scope 3", value: toNumber(scopeTotals["Scope 3"] ?? scopeTotals.scope_3 ?? 0) },
@@ -666,12 +666,12 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                   <div className="rounded-2xl border bg-slate-50 p-4">
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Current total</div>
                     <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(currentTotal)}</div>
-                    <div className="text-xs text-slate-500">tCO2e for the reporting year</div>
+                    <div className="text-xs text-slate-500">tCO₂e for the reporting year</div>
                   </div>
                   <div className="rounded-2xl border bg-slate-50 p-4">
                     <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Benchmark</div>
                     <div className="mt-2 text-3xl font-semibold tabular-nums">{formatNumber(benchmarkTotal)}</div>
-                    <div className="text-xs text-slate-500">tCO2e benchmark comparison</div>
+                    <div className="text-xs text-slate-500">tCO₂e benchmark comparison</div>
                   </div>
                 </div>
                 <div className="rounded-2xl border bg-white p-4">
@@ -711,7 +711,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                             <Cell key={index} fill={SCOPE_COLORS[index % SCOPE_COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(val: number | string | undefined) => `${formatNumber(Number(val ?? 0))} tCO2e`} />
+                        <Tooltip formatter={(val: number | string | undefined) => `${formatNumber(Number(val ?? 0))} tCO₂e`} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -719,7 +719,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                         <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
                           {formatNumber(currentTotal)}
                         </div>
-                        <div className="mt-2 text-[11px] text-muted-foreground">tCO2e total</div>
+                        <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
                       </div>
                     </div>
                   </div>
@@ -745,7 +745,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                       </div>
                     </div>
                     <div className="mt-4 border-t pt-3">
-                      <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO2e by Scope</div>
+                      <div className="mb-2 text-xs font-semibold text-muted-foreground">tCO₂e by Scope</div>
                       {scopeChartData.map((scope, index) => (
                         <div key={`${scope.name}-tco2e`} className="flex items-center justify-between gap-2 text-sm">
                           <div className="flex items-center gap-2">
@@ -786,7 +786,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" />
                       <YAxis type="category" dataKey="category" width={140} tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO2e`, ""]} />
+                      <Tooltip formatter={(value) => [`${formatNumber(Number(value))} tCO₂e`, ""]} />
                       <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
                     </BarChart>
                   </ResponsiveContainer>

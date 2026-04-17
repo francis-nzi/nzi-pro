@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -394,7 +394,7 @@ export default function EmployeeCommutingData({
           ? ` Scaled to ${data.employee_headcount} employees from ${data.commuting_response_count} responses (${data.commuting_scale_factor.toFixed(2)}x).`
           : "";
       setStatus(
-        `Preview complete: ${data.ready_count} ready, ${data.unresolved_count} unresolved, ${data.total_tco2e.toFixed(4)} tCO2e.${scalingNote}`
+        `Preview complete: ${data.ready_count} ready, ${data.unresolved_count} unresolved, ${data.total_tco2e.toFixed(4)} tCO₂e.${scalingNote}`
       );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Preview failed");
@@ -628,7 +628,7 @@ export default function EmployeeCommutingData({
             <div className="mt-1 text-2xl font-semibold">{summary?.row_count ?? 0}</div>
           </div>
           <div className="rounded-md border p-3">
-            <div className="text-xs uppercase text-muted-foreground">Imported tCO2e</div>
+            <div className="text-xs uppercase text-muted-foreground">Imported tCO₂e</div>
             <div className="mt-1 text-2xl font-semibold">
               {(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
             </div>
@@ -966,7 +966,7 @@ export default function EmployeeCommutingData({
                         <td className="px-3 py-2">{row.employee_name}</td>
                         <td className="px-3 py-2 text-muted-foreground">
                           {row.row_type === "commuting"
-                            ? `${row.mode_value || "Commute"}${row.service_value ? ` • ${row.service_value}` : ""}${row.unit_value ? ` • ${row.unit_value}` : ""}`
+                            ? `${row.mode_value || "Commute"}${row.service_value ? ` â€¢ ${row.service_value}` : ""}${row.unit_value ? ` â€¢ ${row.unit_value}` : ""}`
                             : `WFH ${row.annual_days || "?"} days, ${row.hours_per_day || "?"} hrs/day`}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -1000,7 +1000,7 @@ export default function EmployeeCommutingData({
                         <th className="px-3 py-2">Factor ID</th>
                         <th className="px-3 py-2 text-right">Qty</th>
                         <th className="px-3 py-2">Unit</th>
-                        <th className="px-3 py-2 text-right">tCO2e</th>
+                        <th className="px-3 py-2 text-right">tCO₂e</th>
                         <th className="px-3 py-2 text-right">Action</th>
                       </tr>
                     </thead>
@@ -1049,7 +1049,7 @@ export default function EmployeeCommutingData({
               <div>
                 <div className="font-medium">Preview Summary</div>
                 <div className="text-sm text-muted-foreground">
-                  {preview.site_label.replaceAll("_", " ")} • {preview.template_version}
+                  {preview.site_label.replaceAll("_", " ")} â€¢ {preview.template_version}
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">
@@ -1071,7 +1071,7 @@ export default function EmployeeCommutingData({
                 <div className="mt-1 text-xl font-semibold">{preview.unresolved_count}</div>
               </div>
               <div className="rounded-md border p-3">
-                <div className="text-xs uppercase text-muted-foreground">Preview tCO2e</div>
+                <div className="text-xs uppercase text-muted-foreground">Preview tCO₂e</div>
                 <div className="mt-1 text-xl font-semibold">
                   {preview.total_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                 </div>
@@ -1093,7 +1093,7 @@ export default function EmployeeCommutingData({
                     <div key={`${row.sheet}-${row.row_number}-${idx}`} className="rounded border bg-background p-2">
                       <div className="font-medium">
                         {row.sheet} row {row.row_number}
-                        {row.employee_name ? ` • ${row.employee_name}` : ""}
+                        {row.employee_name ? ` â€¢ ${row.employee_name}` : ""}
                       </div>
                       <div className="text-muted-foreground">{row.reason}</div>
                       {row.original_id ? <div className="font-mono text-xs">{row.original_id}</div> : null}
@@ -1117,7 +1117,7 @@ export default function EmployeeCommutingData({
                         <th className="px-3 py-2">Report Label</th>
                         <th className="px-3 py-2 text-right">Qty</th>
                         <th className="px-3 py-2">Unit</th>
-                        <th className="px-3 py-2 text-right">tCO2e</th>
+                        <th className="px-3 py-2 text-right">tCO₂e</th>
                       </tr>
                     </thead>
                     <tbody>

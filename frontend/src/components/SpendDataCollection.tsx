@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -570,7 +570,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
               <div>Total Spend (Net): <strong>{(summary.total_spend_net ?? 0).toLocaleString()}</strong></div>
               <div>Total Spend (Gross): <strong>{summary.total_spend_gross.toLocaleString()}</strong></div>
               <div>Estimated kgCO2e: <strong>{(summary.total_estimated_kgco2e ?? summary.total_estimated_tco2e * 1000).toLocaleString()}</strong></div>
-              <div>Estimated tCO2e: <strong>{summary.total_estimated_tco2e.toLocaleString()}</strong></div>
+              <div>Estimated tCO₂e: <strong>{summary.total_estimated_tco2e.toLocaleString()}</strong></div>
             </div>
           ) : null}
           {error ? <div className="text-destructive">{error}</div> : null}
@@ -781,7 +781,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             <div className="max-h-72 overflow-auto rounded border">
               <table className="w-full text-sm">
                 <thead className="bg-muted">
-                  <tr><th className="p-2 text-left">Site</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Net</th><th className="p-2 text-left">Gross</th><th className="p-2 text-left">Suggested Mapping</th><th className="p-2 text-left">Est tCO2e</th></tr>
+                  <tr><th className="p-2 text-left">Site</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Net</th><th className="p-2 text-left">Gross</th><th className="p-2 text-left">Suggested Mapping</th><th className="p-2 text-left">Est tCO₂e</th></tr>
                 </thead>
                 <tbody>
                   {previewRows.slice(0, 100).map((r, idx) => (
@@ -914,7 +914,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                     <th className="p-2 text-left">Amount (Gross)</th>
                     <th className="p-2 text-left">VAT %</th>
                     <th className="p-2 text-left">Mapping</th>
-                    <th className="p-2 text-left">Est tCO2e</th>
+                    <th className="p-2 text-left">Est tCO₂e</th>
                     <th className="p-2 text-left">Actions</th>
                   </tr>
                 </thead>
@@ -956,7 +956,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
             <div>Total rows: <strong>{totalCount}</strong></div>
             <div>Mapped rows: <strong>{mappedCount}</strong></div>
             <div>Unmapped rows: <strong>{unmappedCount}</strong></div>
-            <div>Estimated tCO2e: <strong>{(summary?.total_estimated_tco2e ?? 0).toLocaleString()}</strong></div>
+            <div>Estimated tCO₂e: <strong>{(summary?.total_estimated_tco2e ?? 0).toLocaleString()}</strong></div>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setCurrentStep(3)}>Back to Mapping</Button>
@@ -1025,4 +1025,3 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     </div>
   );
 }
-

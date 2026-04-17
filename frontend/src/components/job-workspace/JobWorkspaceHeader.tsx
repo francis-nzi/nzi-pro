@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 
@@ -77,7 +77,7 @@ export default function JobWorkspaceHeader({
             <div className="text-lg text-slate-700">{job.jobTitle}</div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
               <span>{job.clientName}</span>
-              <span>•</span>
+              <span>â€¢</span>
               <span>{job.reportingPeriodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -104,7 +104,7 @@ export default function JobWorkspaceHeader({
                   {emissionsSummary.note ? <div className="text-xs text-slate-500">{emissionsSummary.note}</div> : null}
                 </div>
                 <div className="mt-3.5 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
-                  <SummaryCard label="Total tCO2e" value={emissionsSummary.totalTco2e} tone="default" />
+                  <SummaryCard label="Total tCO₂e" value={emissionsSummary.totalTco2e} tone="default" />
                   <SummaryCard label="Scope 1" value={emissionsSummary.scope1Tco2e} tone="red" />
                   <SummaryCard label="Scope 2" value={emissionsSummary.scope2Tco2e} tone="orange" />
                   <SummaryCard label="Scope 3" value={emissionsSummary.scope3Tco2e} tone="blue" />
@@ -141,7 +141,7 @@ function SummaryCard({
   return (
     <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
       <div className={`text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums sm:text-[1.02rem] xl:text-[1.14rem] ${toneClassName}`}>
-        {typeof value === "number" ? value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+        {typeof value === "number" ? value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "â€”"}
       </div>
       <div className="mt-1.5 text-[0.56rem] uppercase tracking-[0.3em] text-slate-500">{label}</div>
     </div>

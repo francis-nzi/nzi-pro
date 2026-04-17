@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -323,7 +323,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       "UOM",
       "Qty",
       "Factor",
-      "tCO2e (After Apply)",
+      "tCO₂e (After Apply)",
       "Data Confidence",
       "Source Family",
       "Dataset",
@@ -649,7 +649,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           <span className="font-semibold">{scope.scope_name}</span>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="text-sm font-medium">{formatNumber(scope.total_emissions)} tCO2e</span>
+                          <span className="text-sm font-medium">{formatNumber(scope.total_emissions)} tCO₂e</span>
                           <Button
                             size="sm"
                             variant="outline"
@@ -681,7 +681,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     {categoryExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                     <span className="text-sm font-medium">{category.category_name}</span>
                                   </div>
-                                  <span className="text-sm">{formatNumber(category.total_emissions)} tCO2e</span>
+                                  <span className="text-sm">{formatNumber(category.total_emissions)} tCO₂e</span>
                                 </div>
 
                                 {/* Sites */}
@@ -691,7 +691,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       <div key={idx} className="flex items-center justify-between p-2 text-sm bg-muted/30 rounded">
                                         <span className="text-muted-foreground">{site.site_name}</span>
                                         <div className="flex items-center gap-2">
-                                          <span>{formatNumber(site.total_emissions)} tCO2e</span>
+                                          <span>{formatNumber(site.total_emissions)} tCO₂e</span>
                                           {site.activity_count && (
                                             <span className="text-xs text-muted-foreground">({site.activity_count} activities)</span>
                                           )}
@@ -726,7 +726,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               ) : (
                 <Tabs defaultValue="emissions" className="w-full">
                   <TabsList>
-                    <TabsTrigger value="emissions">Emissions (tCO2e)</TabsTrigger>
+                    <TabsTrigger value="emissions">Emissions (tCO₂e)</TabsTrigger>
                     <TabsTrigger value="volume">Volume</TabsTrigger>
                   </TabsList>
 
@@ -888,7 +888,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                             {siteExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             <span className="font-semibold">{site.site_name}</span>
                           </div>
-                          <span className="text-sm font-medium">{formatNumber(site.total_emissions)} tCO2e</span>
+                          <span className="text-sm font-medium">{formatNumber(site.total_emissions)} tCO₂e</span>
                         </div>
 
                         {/* Scopes for this site */}
@@ -909,7 +909,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       {scopeExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                       <span className="text-sm font-medium">{scope.scope_name}</span>
                                     </div>
-                                    <span className="text-sm">{formatNumber(scope.total_emissions)} tCO2e</span>
+                                    <span className="text-sm">{formatNumber(scope.total_emissions)} tCO₂e</span>
                                   </div>
 
                                   {/* Categories */}
@@ -918,7 +918,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       {scope.categories.map((category, idx) => (
                                         <div key={idx} className="flex items-center justify-between p-2 text-sm bg-muted/30 rounded">
                                           <span className="text-muted-foreground">{category.category_name}</span>
-                                          <span>{formatNumber(category.total_emissions)} tCO2e</span>
+                                          <span>{formatNumber(category.total_emissions)} tCO₂e</span>
                                         </div>
                                       ))}
                                     </div>
@@ -972,7 +972,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                         <th className="p-2 text-left">UOM</th>
                         <th className="p-2 text-right">Qty</th>
                         <th className="p-2 text-right">Factor</th>
-                        <th className="p-2 text-right">tCO2e (After Apply)</th>
+                        <th className="p-2 text-right">tCO₂e (After Apply)</th>
                         <th className="p-2 text-left">Data Confidence</th>
                         <th className="p-2 text-left">Source Family</th>
                         <th className="p-2 text-left">Dataset</th>
@@ -1063,7 +1063,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                         {categoryExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         <span className="font-semibold">{category.category_name}</span>
                       </div>
-                      <span className="font-medium">{formatNumber(category.total_emissions)} tCO2e</span>
+                      <span className="font-medium">{formatNumber(category.total_emissions)} tCO₂e</span>
                     </div>
 
                     {/* Sites with Activities */}
@@ -1084,7 +1084,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                   {siteExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                   <span className="text-sm font-medium">{site.site_name}</span>
                                 </div>
-                                <span className="text-sm">{formatNumber(site.total_emissions)} tCO2e</span>
+                                <span className="text-sm">{formatNumber(site.total_emissions)} tCO₂e</span>
                               </div>
 
                               {/* Activities */}
@@ -1100,7 +1100,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                           <th className="text-left p-2">Level 4</th>
                                           <th className="text-right p-2">Quantity</th>
                                           <th className="text-left p-2">Unit</th>
-                                          <th className="text-right p-2">Emissions (tCO2e)</th>
+                                          <th className="text-right p-2">Emissions (tCO₂e)</th>
                                         </tr>
                                       </thead>
                                       <tbody>

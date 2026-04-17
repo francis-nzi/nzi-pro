@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -220,10 +220,10 @@ const DEFAULT_MAPPING_SUMMARY: { job: Record<string, string[]>; client: Record<s
     data_collection_due: ["Data Completion Date", "Data Collection Due Date"],
     first_draft_due: ["Draft Report Due Date", "First Draft Due Date"],
     final_report_due: ["Report Due Date", "Final Report Due Date", "Report Completion Date"],
-    scope_1_tco2e: ["Scope 1 (tCO2e)", "Scope 1 Emissions", "Scope 1"],
-    scope_2_tco2e: ["Scope 2 (tCO2e)", "Scope 2 Emissions", "Scope 2"],
-    scope_3_tco2e: ["Scope 3 (tCO2e)", "Scope 3 Emissions", "Scope 3"],
-    total_tco2e: ["Total Emissions (tCO2e)", "Total Emissions"],
+    scope_1_tco2e: ["Scope 1 (tCO₂e)", "Scope 1 Emissions", "Scope 1"],
+    scope_2_tco2e: ["Scope 2 (tCO₂e)", "Scope 2 Emissions", "Scope 2"],
+    scope_3_tco2e: ["Scope 3 (tCO₂e)", "Scope 3 Emissions", "Scope 3"],
+    total_tco2e: ["Total Emissions (tCO₂e)", "Total Emissions"],
     employees: ["Number of Employees", "Employees"],
     turnover: ["Turnover", "Annual Turnover"],
   },

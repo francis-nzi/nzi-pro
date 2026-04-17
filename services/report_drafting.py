@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import os
@@ -122,7 +122,7 @@ def _format_category_list(categories: list[dict[str, Any]], *, limit: int = 3) -
         category = _text(item.get("category") or "Uncategorized")
         emissions = _as_float(item.get("emissions"))
         if category:
-            items.append(f"{category} ({emissions:.2f} tCO2e)")
+            items.append(f"{category} ({emissions:.2f} tCO₂e)")
     return ", ".join(items)
 
 
@@ -165,13 +165,13 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
     comparison_job = _text(previous_job_data.get("job_number") or "")
 
     if section_key == "executive_summary":
-        paragraph_1 = f"{client_name} reported {current_total:.2f} tCO2e in {reporting_year}. {change_sentence}".strip()
+        paragraph_1 = f"{client_name} reported {current_total:.2f} tCO₂e in {reporting_year}. {change_sentence}".strip()
         if previous_job_data:
             paragraph_1 += f" The comparison period is {comparison_year}{f' ({comparison_job})' if comparison_job else ''}."
         paragraph_2_bits = []
         if top:
             paragraph_2_bits.append(
-                f"The largest driver is { _text(top.get('category')) } at {_as_float(top.get('emissions')):.2f} tCO2e"
+                f"The largest driver is { _text(top.get('category')) } at {_as_float(top.get('emissions')):.2f} tCO₂e"
             )
         if action_list:
             paragraph_2_bits.append(
@@ -187,8 +187,8 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
 
     if section_key == "emissions_overview":
         paragraph_1 = (
-            f"Total emissions are {current_total:.2f} tCO2e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.2f}, "
-            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.2f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.2f} tCO2e. "
+            f"Total emissions are {current_total:.2f} tCO₂e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.2f}, "
+            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.2f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.2f} tCO₂e. "
             f"{change_sentence}"
         ).strip()
         paragraph_2_bits = []
@@ -213,7 +213,7 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
             paragraph_2_bits.append(f"Priority actions include {action_list}")
         if top:
             paragraph_2_bits.append(
-                f"These should remain aligned to the largest emissions source, { _text(top.get('category')) }, at {_as_float(top.get('emissions')):.2f} tCO2e"
+                f"These should remain aligned to the largest emissions source, { _text(top.get('category')) }, at {_as_float(top.get('emissions')):.2f} tCO₂e"
             )
         if paragraph_2_bits:
             paragraph_2 = ". ".join(paragraph_2_bits).strip()
@@ -226,7 +226,7 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
 
     return (
         f"Draft the { _get_section_config(section_key)['title'].lower() } section using the supplied evidence. "
-        f"Current emissions are {current_total:.2f} tCO2e and the comparison note is: {change_sentence}"
+        f"Current emissions are {current_total:.2f} tCO₂e and the comparison note is: {change_sentence}"
     )
 
 
@@ -389,7 +389,7 @@ def _scope_total_text(scope_totals: dict[str, Any]) -> str:
     s1 = _as_float(scope_totals.get("Scope 1"))
     s2 = _as_float(scope_totals.get("Scope 2"))
     s3 = _as_float(scope_totals.get("Scope 3"))
-    return f"Scope 1 {s1:.2f} tCO2e, Scope 2 {s2:.2f} tCO2e, Scope 3 {s3:.2f} tCO2e, Total {total:.2f} tCO2e"
+    return f"Scope 1 {s1:.2f} tCO₂e, Scope 2 {s2:.2f} tCO₂e, Scope 3 {s3:.2f} tCO₂e, Total {total:.2f} tCO₂e"
 
 
 def _change_text(current_total: float, previous_total: float) -> tuple[str, float | None]:
@@ -429,7 +429,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             "Previous job: "
             f"{_text(previous_job_data.get('job_number') or '')} | "
             f"{_text(previous_job_data.get('reporting_year') or 'N/A')} | "
-            f"Total {_as_float(benchmark_totals.get('Total')):.2f} tCO2e"
+            f"Total {_as_float(benchmark_totals.get('Total')):.2f} tCO₂e"
         )
 
     if categories:
@@ -438,7 +438,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             lines.append(
                 "- "
                 f"{_text(item.get('category') or 'Uncategorized')}: "
-                f"{_as_float(item.get('emissions')):.2f} tCO2e"
+                f"{_as_float(item.get('emissions')):.2f} tCO₂e"
             )
 
     if previous_categories:
@@ -447,7 +447,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             lines.append(
                 "- "
                 f"{_text(item.get('category') or 'Uncategorized')}: "
-                f"{_as_float(item.get('emissions')):.2f} tCO2e"
+                f"{_as_float(item.get('emissions')):.2f} tCO₂e"
             )
 
     items = job_actions.get("items") or []
@@ -530,15 +530,15 @@ def _fallback_payload(context: dict[str, Any], section_key: str, *, reason: str)
 
     evidence_used: list[dict[str, str]] = []
     if current_total:
-        evidence_used.append({"label": "Current total emissions", "source": "jobs + data output", "value": f"{current_total:.2f} tCO2e"})
+        evidence_used.append({"label": "Current total emissions", "source": "jobs + data output", "value": f"{current_total:.2f} tCO₂e"})
     if previous_total:
-        evidence_used.append({"label": "Comparison total emissions", "source": "benchmark job", "value": f"{previous_total:.2f} tCO2e"})
+        evidence_used.append({"label": "Comparison total emissions", "source": "benchmark job", "value": f"{previous_total:.2f} tCO₂e"})
     if top:
         evidence_used.append(
             {
                 "label": "Top category",
                 "source": "job_scope_rows.level_2",
-                "value": f"{_text(top.get('category'))}: {_as_float(top.get('emissions')):.2f} tCO2e",
+                "value": f"{_text(top.get('category'))}: {_as_float(top.get('emissions')):.2f} tCO₂e",
             }
         )
 

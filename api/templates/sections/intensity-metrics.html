@@ -1,6 +1,6 @@
-{#
+﻿{#
   Intensity Metrics Analysis Section
-  tCO2e per revenue, per FTE, etc.
+  tCO₂e per revenue, per FTE, etc.
   Expects: meta (report metadata), data (emissions, employee numbers, revenue)
 #}
 
@@ -16,21 +16,21 @@
     <div class="intensity-metrics-grid">
         {% if data.intensity_per_revenue %}
         <div class="intensity-metric-card">
-            <div class="metric-label">tCO₂e per £1m Revenue</div>
+            <div class="metric-label">tCOâ‚‚e per Â£1m Revenue</div>
             <div class="metric-value">{{ data.intensity_per_revenue|round(2) }}</div>
         </div>
         {% endif %}
         
         {% if data.intensity_per_fte %}
         <div class="intensity-metric-card">
-            <div class="metric-label">tCO₂e per FTE</div>
+            <div class="metric-label">tCOâ‚‚e per FTE</div>
             <div class="metric-value">{{ data.intensity_per_fte|round(2) }}</div>
         </div>
         {% endif %}
         
         {% if data.intensity_per_sqft %}
         <div class="intensity-metric-card">
-            <div class="metric-label">tCO₂e per 1,000 sq ft</div>
+            <div class="metric-label">tCOâ‚‚e per 1,000 sq ft</div>
             <div class="metric-value">{{ data.intensity_per_sqft|round(2) }}</div>
         </div>
         {% endif %}
