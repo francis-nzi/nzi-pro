@@ -30,9 +30,6 @@ function apiBaseUrl(): string {
   return envBase;
 }
 
-const ALL_COUNTRIES_FILTER = "All Countries";
-const ALL_YEARS_FILTER = "All Years";
-
 async function fetchWithAuth(input: string, init: RequestInit = {}) {
   return fetch(input, {
     ...init,
@@ -125,12 +122,12 @@ export default function DatasetsPage() {
   
   // Factor search
   const [searchQuery, setSearchQuery] = useState("");
-  const [factorCountry, setFactorCountry] = useState<string>(ALL_COUNTRIES_FILTER);
-  const [factorYear, setFactorYear] = useState<string>(ALL_YEARS_FILTER);
+  const [factorCountry, setFactorCountry] = useState<string>("");
+  const [factorYear, setFactorYear] = useState<string>("");
   
   // Dataset filters
-  const [filterCountry, setFilterCountry] = useState<string>(ALL_COUNTRIES_FILTER);
-  const [filterYear, setFilterYear] = useState<string>(ALL_YEARS_FILTER);
+  const [filterCountry, setFilterCountry] = useState<string>("");
+  const [filterYear, setFilterYear] = useState<string>("");
   
   // Edit mode
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
@@ -385,8 +382,8 @@ export default function DatasetsPage() {
     try {
       const params = new URLSearchParams();
       params.set("q", searchQuery);
-      if (factorCountry !== ALL_COUNTRIES_FILTER) params.set("country", factorCountry);
-      if (factorYear !== ALL_YEARS_FILTER) params.set("year", factorYear);
+      if (factorCountry) params.set("country", factorCountry);
+      if (factorYear) params.set("year", factorYear);
       params.set("limit", "100");
 
       const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
@@ -526,46 +523,42 @@ export default function DatasetsPage() {
     return filtered.slice(0, 100);
   }, [country, countrySearchStarted, datasetCountryOptions]);
 
-  const factorCountryOptions = useMemo(() => {
-    return [ALL_COUNTRIES_FILTER, ...datasetCountries];
-  }, [datasetCountries]);
+  const factorCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
-  const filterCountryOptions = useMemo(() => {
-    return [ALL_COUNTRIES_FILTER, ...datasetCountries];
-  }, [datasetCountries]);
+  const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
   const factorYearOptions = useMemo(() => {
     const rows =
-      factorCountry === ALL_COUNTRIES_FILTER
+      !factorCountry
         ? datasets
         : datasets.filter((ds) => ds.country === factorCountry);
     const years = Array.from(
       new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
     ).sort((a, b) => b - a);
-    return [ALL_YEARS_FILTER, ...years.map((year) => String(year))];
+    return years.map((year) => String(year));
   }, [datasets, factorCountry]);
 
   const filterYearOptions = useMemo(() => {
     const rows =
-      filterCountry === ALL_COUNTRIES_FILTER
+      !filterCountry
         ? datasets
         : datasets.filter((ds) => ds.country === filterCountry);
     const years = Array.from(
       new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
     ).sort((a, b) => b - a);
-    return [ALL_YEARS_FILTER, ...years.map((year) => String(year))];
+    return years.map((year) => String(year));
   }, [datasets, filterCountry]);
 
   useEffect(() => {
-    if (factorCountry === ALL_COUNTRIES_FILTER) {
-      if (factorYear !== ALL_YEARS_FILTER && !factorYearOptions.includes(factorYear)) {
-        setFactorYear(ALL_YEARS_FILTER);
+    if (!factorCountry) {
+      if (factorYear && !factorYearOptions.includes(factorYear)) {
+        setFactorYear("");
       }
       return;
     }
 
-    if (factorYear === ALL_YEARS_FILTER) {
-      const latest = factorYearOptions.find((option) => option !== ALL_YEARS_FILTER);
+    if (!factorYear) {
+      const latest = factorYearOptions[0];
       if (latest) {
         setFactorYear(latest);
       }
@@ -573,8 +566,8 @@ export default function DatasetsPage() {
     }
 
     if (!factorYearOptions.includes(factorYear)) {
-      const latest = factorYearOptions.find((option) => option !== ALL_YEARS_FILTER);
-      setFactorYear(latest || ALL_YEARS_FILTER);
+      const latest = factorYearOptions[0];
+      setFactorYear(latest || "");
     }
   }, [factorCountry, factorYear, factorYearOptions]);
 
@@ -583,8 +576,8 @@ export default function DatasetsPage() {
     return datasets.filter(ds => {
       // Exclude archived datasets from main list
       if (ds.archived) return false;
-      if (filterCountry !== ALL_COUNTRIES_FILTER && ds.country !== filterCountry) return false;
-      if (filterYear !== ALL_YEARS_FILTER && ds.year !== Number(filterYear)) return false;
+      if (filterCountry && ds.country !== filterCountry) return false;
+      if (filterYear && ds.year !== Number(filterYear)) return false;
       return true;
     });
   }, [datasets, filterCountry, filterYear]);
@@ -645,27 +638,29 @@ export default function DatasetsPage() {
               <div className="space-y-2">
                 <Label htmlFor="factorCountry">Country</Label>
                 <div className="w-full max-w-[180px]">
-                  <SearchableStringSelect
-                    id="factorCountry"
-                    value={factorCountry}
-                    options={factorCountryOptions}
-                    placeholder="Search countries..."
-                    onValueChange={setFactorCountry}
-                  />
-                </div>
+                    <SearchableStringSelect
+                      id="factorCountry"
+                      value={factorCountry}
+                      options={factorCountryOptions}
+                      placeholder="All Countries"
+                      showClearButton
+                      onValueChange={setFactorCountry}
+                    />
+                  </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="factorYear">Year</Label>
                 <div className="w-full max-w-[150px]">
-                  <SearchableStringSelect
-                    id="factorYear"
-                    value={factorYear}
-                    options={factorYearOptions}
-                    placeholder="Search years..."
-                    onValueChange={setFactorYear}
-                  />
-                </div>
+                    <SearchableStringSelect
+                      id="factorYear"
+                      value={factorYear}
+                      options={factorYearOptions}
+                      placeholder="All Years"
+                      showClearButton
+                      onValueChange={setFactorYear}
+                    />
+                  </div>
               </div>
             </div>
 
@@ -1037,7 +1032,8 @@ export default function DatasetsPage() {
                       id="filterCountry"
                       value={filterCountry}
                       options={filterCountryOptions}
-                      placeholder="Search countries..."
+                      placeholder="All Countries"
+                      showClearButton
                       onValueChange={setFilterCountry}
                     />
                   </div>
@@ -1049,7 +1045,8 @@ export default function DatasetsPage() {
                       id="filterYear"
                       value={filterYear}
                       options={filterYearOptions}
-                      placeholder="Search years..."
+                      placeholder="All Years"
+                      showClearButton
                       onValueChange={setFilterYear}
                     />
                   </div>

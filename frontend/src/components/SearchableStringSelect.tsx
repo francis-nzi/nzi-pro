@@ -15,6 +15,7 @@ type SearchableStringSelectProps = {
   className?: string;
   disabled?: boolean;
   noMatchesText?: string;
+  showClearButton?: boolean;
   onValueChange: (value: string) => void;
 };
 
@@ -27,6 +28,7 @@ export default function SearchableStringSelect({
   className,
   disabled = false,
   noMatchesText = "No matches found",
+  showClearButton = false,
   onValueChange,
 }: SearchableStringSelectProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +62,12 @@ export default function SearchableStringSelect({
   function handleSelect(option: string) {
     onValueChange(option);
     setQuery(option);
+    setOpen(false);
+  }
+
+  function handleClear() {
+    onValueChange("");
+    setQuery("");
     setOpen(false);
   }
 
@@ -108,8 +116,21 @@ export default function SearchableStringSelect({
           role="combobox"
           aria-expanded={open}
           aria-autocomplete="list"
-          className={cn("pr-9", className)}
+          className={cn(showClearButton ? "pr-16" : "pr-9", className)}
         />
+        {showClearButton && value && !disabled ? (
+          <button
+            type="button"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              handleClear();
+            }}
+            className="absolute right-8 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+            aria-label="Clear selection"
+          >
+            Clear
+          </button>
+        ) : null}
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-50" />
       </div>
 
