@@ -33,6 +33,12 @@ type JobTemplate = {
   is_active: boolean;
 };
 
+type DatasetCatalogItem = {
+  country: string;
+  year: number | null;
+  archived?: boolean | null;
+};
+
 const TEMPLATE_TYPES = [
   { key: "dataset", label: "Data Collection Templates", description: "Excel templates for data capture" },
   { key: "report", label: "Report Templates", description: "Word/PDF templates for reports" },
@@ -58,8 +64,9 @@ export default function TemplatesPage() {
   const [templateName, setTemplateName] = useState("");
   const [templateType, setTemplateType] = useState("dataset");
   const [isActive, setIsActive] = useState(true);
-  const [datasetCountry, setDatasetCountry] = useState("UK");
-  const [datasetYear, setDatasetYear] = useState(String(new Date().getFullYear()));
+  const [datasetCountry, setDatasetCountry] = useState("");
+  const [datasetYear, setDatasetYear] = useState("");
+  const [datasetCatalog, setDatasetCatalog] = useState<DatasetCatalogItem[]>([]);
   const lastAutoTemplateKey = useRef("");
   const lastAutoTemplateName = useRef("");
 
@@ -80,9 +87,57 @@ export default function TemplatesPage() {
     }
   }, [baseUrl]);
 
+  const loadDatasetCatalog = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/admin/datasets`);
+      if (!res.ok) {
+        throw new Error(`Failed to load datasets: ${res.status}`);
+      }
+      const json = await res.json();
+      const items = Array.isArray(json?.items) ? (json.items as DatasetCatalogItem[]) : [];
+      setDatasetCatalog(items);
+    } catch {
+      setDatasetCatalog([]);
+    }
+  }, [baseUrl]);
+
   useEffect(() => {
     void loadTemplates();
-  }, [loadTemplates]);
+    void loadDatasetCatalog();
+  }, [loadDatasetCatalog, loadTemplates]);
+
+  useEffect(() => {
+    const activeDatasets = datasetCatalog.filter((item) => !item.archived && item.country && item.year);
+    if (!activeDatasets.length) {
+      return;
+    }
+
+    const availableCountries = Array.from(new Set(activeDatasets.map((item) => item.country))).sort((a, b) =>
+      a.localeCompare(b)
+    );
+    const preferredCountry =
+      (datasetCountry && availableCountries.includes(datasetCountry) ? datasetCountry : "") ||
+      (availableCountries.includes("UK") ? "UK" : availableCountries[0]);
+
+    if (preferredCountry && preferredCountry !== datasetCountry) {
+      setDatasetCountry(preferredCountry);
+    }
+
+    const yearsForCountry = activeDatasets
+      .filter((item) => item.country === preferredCountry)
+      .map((item) => Number(item.year))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => b - a);
+
+    if (!yearsForCountry.length) {
+      return;
+    }
+
+    const preferredYear = String(yearsForCountry[0]);
+    if (!datasetYear || !yearsForCountry.includes(Number(datasetYear))) {
+      setDatasetYear(preferredYear);
+    }
+  }, [datasetCatalog, datasetCountry, datasetYear]);
 
   useEffect(() => {
     setTemplateType(activeTab);
@@ -281,7 +336,16 @@ export default function TemplatesPage() {
       return;
     }
 
-    const defaults = buildDatasetTemplateDefaults(country, year);
+    const matchingDatasetYears = datasetCatalog
+      .filter((item) => !item.archived && item.country === country && item.year)
+      .map((item) => Number(item.year))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => b - a);
+    const effectiveYear = matchingDatasetYears.includes(Number(year))
+      ? year
+      : String(matchingDatasetYears[0] || year);
+
+    const defaults = buildDatasetTemplateDefaults(country, effectiveYear);
     const currentKey = templateKey.trim();
     const currentName = templateName.trim();
     if (!currentKey || currentKey === lastAutoTemplateKey.current) {
@@ -297,7 +361,7 @@ export default function TemplatesPage() {
       setStatus("Preparing dataset workbook...");
       const params = new URLSearchParams({
         country,
-        year,
+        year: effectiveYear,
       });
       const res = await fetch(`${baseUrl}/admin/templates/dataset-workbook?${params.toString()}`, {
         credentials: "include",
@@ -310,7 +374,7 @@ export default function TemplatesPage() {
       const blob = await res.blob();
       const disposition = res.headers.get("content-disposition") || "";
       const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
-      const filename = filenameMatch?.[1] || `${country.replace(/[^\w\- ]+/g, "_").trim() || "country"}_${year}_dataset_template.xlsx`;
+      const filename = filenameMatch?.[1] || `${country.replace(/[^\w\- ]+/g, "_").trim() || "country"}_${effectiveYear}_dataset_template.xlsx`;
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
