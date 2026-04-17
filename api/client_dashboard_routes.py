@@ -35,28 +35,39 @@ def get_client_dashboard(
         org_id = require_org(_user)
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
-            # Get all jobs for this client with their reporting years.
-            jobs_df = con.execute(
-                """
-                SELECT 
-                    j.job_id,
-                    j.reporting_year,
-                    COALESCE(
-                        EXTRACT(YEAR FROM j.reporting_period_end),
-                        EXTRACT(YEAR FROM cjd.reporting_period_to),
-                        j.reporting_year
-                    ) as dashboard_year,
-                    j.title
-                FROM jobs j
-                LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                JOIN clients c ON c.db_id = j.client_db_id
-                WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
-                ORDER BY dashboard_year ASC NULLS LAST
-                """,
-                [int(client_db_id), org_id]
-            ).df()
-            job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
-            scope_df = load_combined_emissions_summary_rows(con, job_ids)
+            try:
+                # Get all jobs for this client with their reporting years.
+                jobs_df = con.execute(
+                    """
+                    SELECT
+                        j.job_id,
+                        j.reporting_year,
+                        COALESCE(
+                            EXTRACT(YEAR FROM j.reporting_period_end),
+                            EXTRACT(YEAR FROM cjd.reporting_period_to),
+                            j.reporting_year
+                        ) as dashboard_year,
+                        j.title
+                    FROM jobs j
+                    LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
+                    JOIN clients c ON c.db_id = j.client_db_id
+                    WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
+                    ORDER BY dashboard_year ASC NULLS LAST
+                    """,
+                    [int(client_db_id), org_id]
+                ).df()
+                job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
+                scope_df = load_combined_emissions_summary_rows(con, job_ids)
+            except Exception:
+                jobs_df = None
+                scope_df = None
+
+            benchmark_metrics = None
+            try:
+                benchmark_metrics = get_client_benchmark_metrics(con, int(client_db_id))
+            except Exception:
+                benchmark_metrics = None
+
             if scope_df is None or scope_df.empty:
                 available_years = sorted(
                     [
@@ -86,7 +97,7 @@ def get_client_dashboard(
                     'top_categories': [],
                     'intensity_metrics': [],
                     'currency': 'GBP',
-                    'benchmark_metrics': get_client_benchmark_metrics(con, int(client_db_id)),
+                    'benchmark_metrics': benchmark_metrics,
                     'industry_average_emissions': None,
                     'net_zero_progress': None
                 }
@@ -311,8 +322,6 @@ def get_client_dashboard(
             ).fetchone()
             
             currency = client_currency[0] if client_currency and client_currency[0] else 'GBP'
-            benchmark_metrics = get_client_benchmark_metrics(con, int(client_db_id))
-            
             return {
                 'client_db_id': int(client_db_id),
                 'selected_year': selected_year,
@@ -327,7 +336,6 @@ def get_client_dashboard(
                 'industry_average_emissions': industry_average_emissions,
                 'net_zero_progress': net_zero_progress
             }
-            
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard data: {e}")
 
