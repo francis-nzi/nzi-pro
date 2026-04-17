@@ -714,62 +714,68 @@ export default function InsightsPageClient() {
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
       params.set("limit", "100");
-      const requestTimeoutMs = 30000;
+      const requestTimeoutMs = 12000;
 
       const requestInit: RequestInit = {
         credentials: "include",
         cache: "no-store",
       };
 
-      const [overviewRes, jobsStatusRes, financialRes, operationsRes, biPortfolioRes] = await Promise.allSettled([
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Insights overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/bi-portfolio${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "BI portfolio"),
-      ]);
+      const overviewRes = await fetchJsonWithTimeout(
+        `${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`,
+        requestInit,
+        requestTimeoutMs,
+        "Insights overview",
+      );
 
-      if (overviewRes.status !== "fulfilled") {
-        throw new Error((overviewRes.reason as Error)?.message || "Insights overview failed");
+      if (!overviewRes.ok) {
+        throw new Error(`Insights overview failed (${overviewRes.status})`);
       }
 
-      if (!overviewRes.value.ok) {
-        throw new Error(`Insights overview failed (${overviewRes.value.status})`);
-      }
-
-      const overviewJson = (await overviewRes.value.json()) as DashboardOverview;
+      const overviewJson = (await overviewRes.json()) as DashboardOverview;
       setData(overviewJson);
       if (!selectedYear && overviewJson.selected_year) {
         setSelectedYear(Number(overviewJson.selected_year));
       }
 
-      if (jobsStatusRes.status === "fulfilled" && jobsStatusRes.value.ok) {
-        const jobsStatusJson = (await jobsStatusRes.value.json()) as JobsMilestoneStatus;
-        setJobsStatus(jobsStatusJson);
-      } else {
-        setJobsStatus(EMPTY_JOBS_STATUS);
-      }
+      setLoading(false);
 
-      if (financialRes.status === "fulfilled" && financialRes.value.ok) {
-        const financialJson = (await financialRes.value.json()) as FinancialOverview;
-        setFinancialData(financialJson);
-      } else {
-        setFinancialData(EMPTY_FINANCIAL);
-      }
+      void (async () => {
+        const [jobsStatusRes, financialRes, operationsRes, biPortfolioRes] = await Promise.allSettled([
+          fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
+          fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
+          fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
+          fetchJsonWithTimeout(`${baseUrl}/dashboard/bi-portfolio${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "BI portfolio"),
+        ]);
 
-      if (operationsRes.status === "fulfilled" && operationsRes.value.ok) {
-        const operationsJson = (await operationsRes.value.json()) as OperationsOverview;
-        setOperationsData(operationsJson);
-      } else {
-        setOperationsData(EMPTY_OPERATIONS);
-      }
+        if (jobsStatusRes.status === "fulfilled" && jobsStatusRes.value.ok) {
+          const jobsStatusJson = (await jobsStatusRes.value.json()) as JobsMilestoneStatus;
+          setJobsStatus(jobsStatusJson);
+        } else {
+          setJobsStatus(EMPTY_JOBS_STATUS);
+        }
 
-      if (biPortfolioRes.status === "fulfilled" && biPortfolioRes.value.ok) {
-        const biJson = (await biPortfolioRes.value.json()) as BiPortfolio;
-        setBiPortfolio(biJson);
-      } else {
-        setBiPortfolio(EMPTY_BI_PORTFOLIO);
-      }
+        if (financialRes.status === "fulfilled" && financialRes.value.ok) {
+          const financialJson = (await financialRes.value.json()) as FinancialOverview;
+          setFinancialData(financialJson);
+        } else {
+          setFinancialData(EMPTY_FINANCIAL);
+        }
+
+        if (operationsRes.status === "fulfilled" && operationsRes.value.ok) {
+          const operationsJson = (await operationsRes.value.json()) as OperationsOverview;
+          setOperationsData(operationsJson);
+        } else {
+          setOperationsData(EMPTY_OPERATIONS);
+        }
+
+        if (biPortfolioRes.status === "fulfilled" && biPortfolioRes.value.ok) {
+          const biJson = (await biPortfolioRes.value.json()) as BiPortfolio;
+          setBiPortfolio(biJson);
+        } else {
+          setBiPortfolio(EMPTY_BI_PORTFOLIO);
+        }
+      })();
     } catch (e) {
       setError((e as Error).message);
       setData(null);
@@ -778,10 +784,9 @@ export default function InsightsPageClient() {
       setOperationsData(EMPTY_OPERATIONS);
       setReportData(EMPTY_REPORT);
       setBiPortfolio(EMPTY_BI_PORTFOLIO);
-    } finally {
       setLoading(false);
     }
-  }, [baseUrl, fetchJsonWithTimeout, loadReportView, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, fetchJsonWithTimeout, selectedCrm, selectedIndustry, selectedYear]);
 
   useEffect(() => {
     void loadInsights();
