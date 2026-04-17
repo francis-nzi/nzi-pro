@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import JobInsights from "@/components/JobInsights";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
+import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
 import type { JobWorkspaceJob, WorkspaceBreadcrumb } from "@/components/job-workspace/types";
 
 function apiBaseUrl(): string {
@@ -24,6 +25,18 @@ type Job = {
   crm_owner?: string | null;
   crm_name?: string | null;
 };
+
+const JOB_TABS = [
+  { key: "setup", label: "Setup", href: "/jobs/__JOB_ID__?tab=setup" },
+  { key: "data", label: "Data", href: "/jobs/__JOB_ID__?tab=data-entry" },
+  { key: "outputs", label: "Outputs", href: "/jobs/__JOB_ID__?tab=data-output" },
+  { key: "report", label: "Report", href: "/jobs/__JOB_ID__/report-new" },
+  { key: "analysis", label: "Analysis", href: "/jobs/__JOB_ID__/lca" },
+  { key: "insights", label: "Insights", href: "/jobs/__JOB_ID__/insights" },
+  { key: "communications", label: "Communications", href: "/jobs/__JOB_ID__/communications-timeline" },
+  { key: "financial", label: "Financial", href: "/jobs/__JOB_ID__/financial-quotes" },
+  { key: "admin", label: "Admin", href: "/jobs/__JOB_ID__?tab=admin" },
+] as const;
 
 export default function JobInsightsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
@@ -115,6 +128,16 @@ export default function JobInsightsPage() {
         {workspaceJob ? (
           <JobWorkspaceHeader breadcrumbs={breadcrumbs} jobId={jobId} baseUrl={baseUrl} job={workspaceJob} />
         ) : null}
+        <div className="mt-4">
+          <JobWorkspaceTabs
+            activeTab="insights"
+            tabs={JOB_TABS.map((tab) => ({
+              ...tab,
+              href: tab.href.replaceAll("__JOB_ID__", String(jobId)),
+            }))}
+            onTabChange={() => undefined}
+          />
+        </div>
         {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading insights...</div> : null}
         {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
         {job ? (
