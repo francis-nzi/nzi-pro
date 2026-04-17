@@ -385,7 +385,7 @@ def _local_insight_payload(
     return {"insights": summary, "structured": structured, "citations": citations}
 
 
-def generate_client_insights(client_db_id: int, provider: str = "anthropic") -> dict[str, Any]:
+def generate_client_insights(client_db_id: int, provider: str = "anthropic", org_id: str | None = None) -> dict[str, Any]:
     """Fetch client data, call the LLM, and return structured + raw insight output.
 
     Returns:
@@ -397,10 +397,16 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic") -> 
     """
     # collect client info
     with get_conn() as con:
-        row = con.execute(
-            "SELECT client_name, industry, website, addr_country FROM clients WHERE db_id = %s",
-            [int(client_db_id)],
-        ).fetchone()
+        if org_id is not None and str(org_id).strip():
+            row = con.execute(
+                "SELECT client_name, industry, website, addr_country FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), str(org_id).strip()],
+            ).fetchone()
+        else:
+            row = con.execute(
+                "SELECT client_name, industry, website, addr_country FROM clients WHERE db_id = %s",
+                [int(client_db_id)],
+            ).fetchone()
         if not row:
             raise ValueError(f"Client {client_db_id} not found")
 
@@ -449,11 +455,13 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic") -> 
                    ),0) as total_emissions
             FROM jobs j
             LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
+            JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.client_db_id = %s AND j.is_crp = TRUE
+              AND (%s IS NULL OR c.org_id = %s)
             GROUP BY j.reporting_year
             ORDER BY j.reporting_year
             """,
-            [int(client_db_id)],
+            [int(client_db_id), org_id, org_id],
         ).df()
 
         categories_df = con.execute(
@@ -483,8 +491,10 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic") -> 
                    ),0) as total_emissions
             FROM job_scope_rows jsr
             JOIN jobs j ON j.job_id = jsr.job_id
+            JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.client_db_id = %s
               AND j.is_crp = TRUE
+              AND (%s IS NULL OR c.org_id = %s)
               AND jsr.enabled = TRUE
               AND jsr.level_2 IS NOT NULL
               AND TRIM(jsr.level_2) != ''
@@ -493,7 +503,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic") -> 
             ORDER BY total_emissions DESC
             LIMIT 5
             """,
-            [int(client_db_id)],
+            [int(client_db_id), org_id, org_id],
         ).df()
 
         # Optional Data Bank context to enrich prompt grounding.
