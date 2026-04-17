@@ -22,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
+  return "/api/backend";
 }
 
 type Client = {
