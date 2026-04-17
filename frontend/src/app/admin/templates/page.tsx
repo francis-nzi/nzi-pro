@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -60,6 +60,8 @@ export default function TemplatesPage() {
   const [isActive, setIsActive] = useState(true);
   const [datasetCountry, setDatasetCountry] = useState("UK");
   const [datasetYear, setDatasetYear] = useState(String(new Date().getFullYear()));
+  const lastAutoTemplateKey = useRef("");
+  const lastAutoTemplateName = useRef("");
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -110,6 +112,15 @@ export default function TemplatesPage() {
     setTemplateType(activeTab);
     setIsActive(true);
     setUploadingFile(null);
+  }
+
+  function buildDatasetTemplateDefaults(country: string, year: string) {
+    const normalizedCountry = country.trim().replace(/[^\w\- ]+/g, "_").replace(/\s+/g, "_") || "dataset";
+    const normalizedYear = year.trim() || String(new Date().getFullYear());
+    return {
+      templateKey: `${normalizedCountry}_${normalizedYear}_dataset`,
+      templateName: `${country.trim() || "Dataset"} ${normalizedYear} Dataset Template`,
+    };
   }
 
   async function saveTemplate() {
@@ -269,6 +280,18 @@ export default function TemplatesPage() {
       setStatus("A valid year is required to generate a dataset workbook");
       return;
     }
+
+    const defaults = buildDatasetTemplateDefaults(country, year);
+    const currentKey = templateKey.trim();
+    const currentName = templateName.trim();
+    if (!currentKey || currentKey === lastAutoTemplateKey.current) {
+      setTemplateKey(defaults.templateKey);
+    }
+    if (!currentName || currentName === lastAutoTemplateName.current) {
+      setTemplateName(defaults.templateName);
+    }
+    lastAutoTemplateKey.current = defaults.templateKey;
+    lastAutoTemplateName.current = defaults.templateName;
 
     try {
       setStatus("Preparing dataset workbook...");
