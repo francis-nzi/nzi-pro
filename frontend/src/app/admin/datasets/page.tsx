@@ -880,6 +880,86 @@ export default function DatasetsPage() {
             </CardContent>
           </Card>
 
+          {/* Factor Search */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle>Search Conversion Factors</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="searchQuery">Search Text</Label>
+                  <Input
+                    id="searchQuery"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search factors..."
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") searchFactors();
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="datasetFilter">Dataset</Label>
+                  <Select
+                    value={selectedDataset ? String(selectedDataset) : "all"}
+                    onValueChange={(v) => setSelectedDataset(v === "all" ? null : Number(v))}
+                  >
+                    <SelectTrigger id="datasetFilter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Datasets</SelectItem>
+                      {datasets.map((ds) => (
+                        <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
+                          [{ds.dataset_id}] {ds.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Button onClick={searchFactors} className="w-full">
+                Search Factors
+              </Button>
+
+              {factors.length > 0 && (
+                <div className="mt-4 max-h-96 overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="p-2 text-left">ID</th>
+                        <th className="p-2 text-left">Dataset</th>
+                        <th className="p-2 text-left">Scope</th>
+                        <th className="p-2 text-left">Category</th>
+                        <th className="p-2 text-left">Level 1</th>
+                        <th className="p-2 text-left">Report Label</th>
+                        <th className="p-2 text-right">Factor</th>
+                        <th className="p-2 text-left">Unit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {factors.map((f) => (
+                        <tr key={f.db_id} className="border-t">
+                          <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
+                          <td className="p-2">{f.dataset}</td>
+                          <td className="p-2">{f.scope}</td>
+                          <td className="p-2">{f.category || "-"}</td>
+                          <td className="p-2">{f.level_1 || "-"}</td>
+                          <td className="p-2">{f.report_label || f.column_text}</td>
+                          <td className="p-2 text-right">{f.factor}</td>
+                          <td className="p-2">{f.ghg_unit}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Existing Datasets */}
           <Card>
             <CardHeader>
@@ -992,86 +1072,6 @@ export default function DatasetsPage() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Factor Search */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Search Conversion Factors</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="searchQuery">Search Text</Label>
-                <Input
-                  id="searchQuery"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search factors..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") searchFactors();
-                  }}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="datasetFilter">Dataset</Label>
-                <Select
-                  value={selectedDataset ? String(selectedDataset) : "all"}
-                  onValueChange={(v) => setSelectedDataset(v === "all" ? null : Number(v))}
-                >
-                  <SelectTrigger id="datasetFilter">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Datasets</SelectItem>
-                    {datasets.map((ds) => (
-                      <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
-                        [{ds.dataset_id}] {ds.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <Button onClick={searchFactors} className="w-full">
-              Search Factors
-            </Button>
-
-            {factors.length > 0 && (
-              <div className="mt-4 max-h-96 overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="p-2 text-left">ID</th>
-                      <th className="p-2 text-left">Dataset</th>
-                      <th className="p-2 text-left">Scope</th>
-                      <th className="p-2 text-left">Category</th>
-                      <th className="p-2 text-left">Level 1</th>
-                      <th className="p-2 text-left">Report Label</th>
-                      <th className="p-2 text-right">Factor</th>
-                      <th className="p-2 text-left">Unit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {factors.map((f) => (
-                      <tr key={f.db_id} className="border-t">
-                        <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
-                        <td className="p-2">{f.dataset}</td>
-                        <td className="p-2">{f.scope}</td>
-                        <td className="p-2">{f.category || "-"}</td>
-                        <td className="p-2">{f.level_1 || "-"}</td>
-                        <td className="p-2">{f.report_label || f.column_text}</td>
-                        <td className="p-2 text-right">{f.factor}</td>
-                        <td className="p-2">{f.ghg_unit}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Documentation */}
         <Card className="mt-6">
