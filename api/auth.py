@@ -12,6 +12,7 @@ from fastapi import Header, HTTPException, Request
 from core.auth import get_user_by_id
 from core.database import get_conn
 from services.permissions import enrich_user_permissions
+from services.tenancy import attach_org_id
 
 try:
     import jwt
@@ -117,6 +118,7 @@ def _current_user(
         user = _active_user_from_identifier(str(sub or ""))
         if not user:
             raise HTTPException(status_code=401, detail="Unknown or inactive user")
+        user = attach_org_id(user)
         return _enforce_password_change(enrich_user_permissions(user) or user)
 
     # Header-based compatibility mode (still strict; no anonymous access)
@@ -133,4 +135,5 @@ def _current_user(
     user = _active_user_from_identifier(ident)
     if not user:
         raise HTTPException(status_code=401, detail="Unknown or inactive user")
+    user = attach_org_id(user)
     return _enforce_password_change(enrich_user_permissions(user) or user)
