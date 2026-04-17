@@ -4004,17 +4004,43 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
                     [int(client_db_id)]
                 ).df()
 
+            def _contact_is_missing(value) -> bool:
+                try:
+                    return pd.isna(value)
+                except Exception:
+                    return value is None
+
+            def _contact_int_or_none(value):
+                if _contact_is_missing(value):
+                    return None
+                try:
+                    return int(value)
+                except Exception:
+                    return None
+
+            def _contact_bool_or_false(value) -> bool:
+                if _contact_is_missing(value):
+                    return False
+                try:
+                    return bool(value)
+                except Exception:
+                    return False
+
             contacts = []
             if df is not None and not df.empty:
                 for _, row in df.iterrows():
+                    contact_id_value = _contact_int_or_none(row.get("contact_id"))
+                    client_db_id_value = _contact_int_or_none(row.get("client_db_id"))
+                    if contact_id_value is None or client_db_id_value is None:
+                        continue
                     contacts.append({
-                        "contact_id": int(row["contact_id"]),
-                        "client_db_id": int(row["client_db_id"]),
-                        "full_name": row["full_name"],
-                        "job_title": row["job_title"],
-                        "email": row["email"],
-                        "phone": row["phone"],
-                        "is_primary": bool(row["is_primary"]) if row["is_primary"] is not None else False,
+                        "contact_id": contact_id_value,
+                        "client_db_id": client_db_id_value,
+                        "full_name": None if _contact_is_missing(row.get("full_name")) else row.get("full_name"),
+                        "job_title": None if _contact_is_missing(row.get("job_title")) else row.get("job_title"),
+                        "email": None if _contact_is_missing(row.get("email")) else row.get("email"),
+                        "phone": None if _contact_is_missing(row.get("phone")) else row.get("phone"),
+                        "is_primary": _contact_bool_or_false(row.get("is_primary")),
                     })
 
             return {"client_db_id": int(client_db_id), "contacts": contacts}
