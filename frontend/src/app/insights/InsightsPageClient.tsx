@@ -676,6 +676,33 @@ export default function InsightsPageClient() {
     }
   }, [baseUrl, readApiError]);
 
+  const loadReportView = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedYear) params.set("year", String(selectedYear));
+      if (selectedIndustry) params.set("industry", selectedIndustry);
+      if (selectedCrm) params.set("crm_owner", selectedCrm);
+      const requestInit: RequestInit = {
+        credentials: "include",
+        cache: "no-store",
+      };
+      const reportRes = await fetchJsonWithTimeout(
+        `${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`,
+        requestInit,
+        15000,
+        "Report view",
+      );
+      if (!reportRes.ok) {
+        setReportData(EMPTY_REPORT);
+        return;
+      }
+      const reportJson = (await reportRes.json()) as ReportViewData;
+      setReportData(reportJson);
+    } catch {
+      setReportData(EMPTY_REPORT);
+    }
+  }, [baseUrl, fetchJsonWithTimeout, reportView, selectedCrm, selectedIndustry, selectedYear]);
+
   const loadInsights = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -686,19 +713,18 @@ export default function InsightsPageClient() {
       if (selectedCrm) params.set("crm_owner", selectedCrm);
 
       params.set("limit", "100");
-      const requestTimeoutMs = 60000;
+      const requestTimeoutMs = 30000;
 
       const requestInit: RequestInit = {
         credentials: "include",
         cache: "no-store",
       };
 
-      const [overviewRes, jobsStatusRes, financialRes, operationsRes, reportRes, biPortfolioRes] = await Promise.allSettled([
+      const [overviewRes, jobsStatusRes, financialRes, operationsRes, biPortfolioRes] = await Promise.allSettled([
         fetchJsonWithTimeout(`${baseUrl}/dashboard/overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Insights overview"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
-        fetchJsonWithTimeout(`${baseUrl}/dashboard/report-view?view=${encodeURIComponent(reportView)}${params.toString() ? `&${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Report view"),
         fetchJsonWithTimeout(`${baseUrl}/dashboard/bi-portfolio${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "BI portfolio"),
       ]);
 
@@ -737,13 +763,6 @@ export default function InsightsPageClient() {
         setOperationsData(EMPTY_OPERATIONS);
       }
 
-      if (reportRes.status === "fulfilled" && reportRes.value.ok) {
-        const reportJson = (await reportRes.value.json()) as ReportViewData;
-        setReportData(reportJson);
-      } else {
-        setReportData(EMPTY_REPORT);
-      }
-
       if (biPortfolioRes.status === "fulfilled" && biPortfolioRes.value.ok) {
         const biJson = (await biPortfolioRes.value.json()) as BiPortfolio;
         setBiPortfolio(biJson);
@@ -761,11 +780,15 @@ export default function InsightsPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, fetchJsonWithTimeout, reportView, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, fetchJsonWithTimeout, loadReportView, selectedCrm, selectedIndustry, selectedYear]);
 
   useEffect(() => {
     void loadInsights();
   }, [loadInsights]);
+
+  useEffect(() => {
+    void loadReportView();
+  }, [loadReportView]);
 
   useEffect(() => {
     void loadSavedReports();
