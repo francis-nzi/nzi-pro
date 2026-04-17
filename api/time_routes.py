@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
 from core.database import get_conn
 from api.auth import _current_user
-from services.tenancy import require_org
+from services.tenancy import get_default_org_id, require_org
 
 router = APIRouter()
 
@@ -26,12 +26,10 @@ def _ensure_time_tracking_schema(con) -> None:
         ADD COLUMN IF NOT EXISTS budget_hours NUMERIC(10,2) DEFAULT 0
         """
     )
-    con.execute(
-        """
-        ALTER TABLE time_subjects
-        ADD COLUMN IF NOT EXISTS org_id TEXT
-        """
-    )
+    try:
+        con.execute("ALTER TABLE time_subjects ADD COLUMN IF NOT EXISTS org_id TEXT")
+    except Exception:
+        pass
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS time_logs (
@@ -47,6 +45,27 @@ def _ensure_time_tracking_schema(con) -> None:
         )
         """
     )
+    try:
+        con.execute("ALTER TABLE time_logs ADD COLUMN IF NOT EXISTS org_id TEXT")
+    except Exception:
+        pass
+
+    default_org_id = get_default_org_id()
+    if default_org_id:
+        try:
+            con.execute(
+                "UPDATE time_subjects SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL",
+                [default_org_id],
+            )
+        except Exception:
+            pass
+        try:
+            con.execute(
+                "UPDATE time_logs SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL",
+                [default_org_id],
+            )
+        except Exception:
+            pass
 
 
 @router.get("/time-logs")
@@ -82,8 +101,8 @@ def list_time_logs(
                        j.job_number, j.title as job_title, c.client_name,
                        u.full_name as user_name
                 FROM time_logs tl
-                LEFT JOIN jobs j ON j.job_id = tl.job_id AND j.org_id = tl.org_id
-                LEFT JOIN clients c ON c.db_id = j.client_db_id AND c.org_id = tl.org_id
+                LEFT JOIN jobs j ON j.job_id = tl.job_id
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
                 LEFT JOIN users u ON u.user_id = tl.user_id
                 {where_sql}
                 ORDER BY tl.work_date DESC, tl.created_at DESC
