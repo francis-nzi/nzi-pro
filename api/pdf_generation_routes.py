@@ -62,13 +62,26 @@ async def api_queue_pdf_generation(
             if not job:
                 raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
         
-        # Queue PDF generation
-        from services.pdf_generation_queue import queue_pdf_generation
+        # Queue PDF generation (lazy import)
+        try:
+            from services.pdf_generation_queue import queue_pdf_generation
+        except ImportError:
+            raise HTTPException(
+                status_code=503,
+                detail="PDF generation service unavailable (Redis not configured)"
+            )
+        
         job_token = queue_pdf_generation(
             job_id=job_id,
             template_id=template_id,
             user_id=current_user.get('id'),
         )
+        
+        if not job_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Failed to queue PDF - Redis unavailable"
+            )
         
         logger.info(f"Queued PDF for job {job_id}, token: {job_token}")
         
@@ -113,6 +126,8 @@ async def api_check_pdf_progress(job_token: str):
         from services.pdf_generation_queue import get_pdf_job_status
         status = get_pdf_job_status(job_token)
         return status
+    except ImportError:
+        return {'status': 'error', 'message': 'PDF generation service unavailable'}
     except Exception as e:
         logger.error(f"Failed to check status: {e}")
         return {'status': 'error', 'message': str(e)}

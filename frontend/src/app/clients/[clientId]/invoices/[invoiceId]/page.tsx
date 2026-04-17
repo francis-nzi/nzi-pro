@@ -366,7 +366,7 @@ export default function InvoiceDetailPage() {
             { label: "Clients", href: "/clients" },
             { label: `Client ${clientId}`, href: `/clients/${clientId}` },
             { label: "Financial", href: `/clients/${clientId}?section=financial` },
-            { label: "Invoice" },
+            { label: "Invoice", href: `/clients/${clientId}/invoices/${invoiceId}` },
           ]}
           actions={
             <div className="flex flex-wrap items-center gap-2">

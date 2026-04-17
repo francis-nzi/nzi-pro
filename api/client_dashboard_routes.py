@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 import os
 from core.database import get_conn
 from api.auth import _current_user
+from services.tenancy import require_org
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.monthly_emissions import JobMonthlyEmissionsResolver
@@ -29,8 +30,15 @@ def get_client_dashboard(
     - Intensity metrics (if available)
     """
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
+            client_exists = con.execute(
+                "SELECT 1 FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), org_id],
+            ).fetchone()
+            if not client_exists:
+                raise HTTPException(status_code=404, detail="Client not found")
             # Get all jobs for this client with their reporting years.
             jobs_df = con.execute(
                 """
@@ -45,10 +53,10 @@ def get_client_dashboard(
                     j.title
                 FROM jobs j
                 LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
-                WHERE j.client_db_id = %s AND j.is_crp = TRUE
+                WHERE j.client_db_id = %s AND j.is_crp = TRUE AND j.org_id = %s
                 ORDER BY dashboard_year ASC NULLS LAST
                 """,
-                [int(client_db_id)]
+                [int(client_db_id), org_id]
             ).df()
             job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
             scope_df = load_combined_emissions_summary_rows(con, job_ids)
@@ -160,8 +168,8 @@ def get_client_dashboard(
             net_zero_progress = None
 
             client_info = con.execute(
-                "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
-                [int(client_db_id)],
+                "SELECT industry, net_zero_year FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), org_id],
             ).fetchone()
             if client_info:
                 industry = client_info[0] if len(client_info) > 0 else None
@@ -177,7 +185,7 @@ def get_client_dashboard(
                                         j.client_db_id
                                     FROM jobs j
                                     JOIN clients c ON c.db_id = j.client_db_id
-                                    WHERE c.industry = %s AND j.is_crp = TRUE
+                                    WHERE c.industry = %s AND j.is_crp = TRUE AND c.org_id = %s AND j.org_id = %s
                                 ),
                                 legacy_rows AS (
                                     SELECT
@@ -241,7 +249,7 @@ def get_client_dashboard(
                                 GROUP BY client_db_id
                             ) sub
                             """,
-                            [industry],
+                            [industry, org_id, org_id],
                         ).fetchone()
                         industry_average_emissions = float(avg_df[0]) if avg_df and avg_df[0] is not None else None
                     except Exception:
@@ -300,8 +308,8 @@ def get_client_dashboard(
             
             # Get client currency for display
             client_currency = con.execute(
-                "SELECT currency FROM clients WHERE db_id = %s",
-                [int(client_db_id)]
+                "SELECT currency FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), org_id]
             ).fetchone()
             
             currency = client_currency[0] if client_currency and client_currency[0] else 'GBP'
@@ -330,6 +338,14 @@ def get_client_dashboard(
 def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Generate AI insights for a client using external LLM."""
     try:
+        org_id = require_org(_user)
+        with get_conn() as con:
+            client_exists = con.execute(
+                "SELECT 1 FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), org_id],
+            ).fetchone()
+            if not client_exists:
+                raise HTTPException(status_code=404, detail="Client not found")
         payload = ai_insights.generate_client_insights(client_db_id)
         return payload
     except HTTPException:
@@ -356,6 +372,14 @@ def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_curr
 def get_client_insights_openai(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Generate non-Anthropic insights (OpenAI provider with rule-based fallback)."""
     try:
+        org_id = require_org(_user)
+        with get_conn() as con:
+            client_exists = con.execute(
+                "SELECT 1 FROM clients WHERE db_id = %s AND org_id = %s",
+                [int(client_db_id), org_id],
+            ).fetchone()
+            if not client_exists:
+                raise HTTPException(status_code=404, detail="Client not found")
         payload = ai_insights.generate_client_insights(client_db_id, provider="openai")
         return payload
     except HTTPException:

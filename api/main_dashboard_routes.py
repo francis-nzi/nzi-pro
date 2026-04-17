@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
+from services.tenancy import require_org
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
@@ -77,7 +78,11 @@ def _apply_client_filters(
     client_alias: str,
     industry: str | None,
     crm_owner: str | None,
+    org_id: str | None = None,
 ) -> None:
+    if org_id:
+        where_parts.append(f"{client_alias}.org_id = ?")
+        params.append(org_id)
     if industry:
         where_parts.append(f"{client_alias}.industry = ?")
         params.append(industry)
@@ -142,6 +147,7 @@ def _load_dashboard_emissions_jobs(
     year: int | None,
     industry: str | None,
     crm_owner: str | None,
+    org_id: str | None = None,
 ):
     where_parts = ["j.is_crp = TRUE"]
     params: list[object] = []
@@ -151,6 +157,7 @@ def _load_dashboard_emissions_jobs(
         client_alias="c",
         industry=industry,
         crm_owner=crm_owner,
+        org_id=org_id,
     )
     if year is not None:
         where_parts.append("j.reporting_year = ?")
@@ -320,12 +327,20 @@ def get_dashboard_overview(
     - Top emitting clients
     """
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             # build filters for industry / crm owner
             client_filters: list[str] = []
             job_filters: list[str] = []
             client_params: list[object] = []
             job_params: list[object] = []
+
+            client_filters.append("org_id = ?")
+            client_params.append(org_id)
+            job_filters.append("c.org_id = ?")
+            job_params.append(org_id)
+            job_filters.append("j.org_id = ?")
+            job_params.append(org_id)
 
             if industry:
                 client_filters.append("industry = ?")
@@ -349,7 +364,8 @@ def get_dashboard_overview(
             # Get current year if not specified
             if year is None:
                 current_year_result = con.execute(
-                    "SELECT MAX(reporting_year) FROM jobs WHERE reporting_year IS NOT NULL"
+                    "SELECT MAX(reporting_year) FROM jobs WHERE reporting_year IS NOT NULL AND org_id = ?",
+                    [org_id],
                 ).fetchone()
                 year = current_year_result[0] if current_year_result and current_year_result[0] else 2024
             
@@ -363,6 +379,7 @@ def get_dashboard_overview(
                 year=None,
                 industry=industry,
                 crm_owner=crm_owner,
+                org_id=org_id,
             )
             emissions_scope_df = None
             if emissions_jobs_df is not None and not emissions_jobs_df.empty:
@@ -445,16 +462,17 @@ def get_dashboard_overview(
                     """
                 active_jobs = con.execute(active_jobs_query, job_params).fetchone()[0]
             except Exception:
-                active_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+                active_jobs = con.execute("SELECT COUNT(*) FROM jobs WHERE org_id = ?", [org_id]).fetchone()[0]
             
             # Total datasets
             if _table_exists(con, "datasets"):
                 try:
                     total_datasets = con.execute(
-                        "SELECT COUNT(*) FROM datasets WHERE archived = FALSE OR archived IS NULL"
+                        "SELECT COUNT(*) FROM datasets WHERE (archived = FALSE OR archived IS NULL) AND org_id = ?",
+                        [org_id],
                     ).fetchone()[0]
                 except Exception:
-                    total_datasets = con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
+                    total_datasets = con.execute("SELECT COUNT(*) FROM datasets WHERE org_id = ?", [org_id]).fetchone()[0]
             else:
                 total_datasets = 0
             
@@ -463,9 +481,11 @@ def get_dashboard_overview(
                 """
                 SELECT DISTINCT reporting_year 
                 FROM jobs 
-                WHERE reporting_year IS NOT NULL
+                WHERE reporting_year IS NOT NULL AND org_id = ?
                 ORDER BY reporting_year DESC
                 """
+                ,
+                [org_id],
             ).df()
             
             years_list = []
@@ -474,13 +494,20 @@ def get_dashboard_overview(
 
             # Available industries (for filter dropdown)
             industries_df = con.execute(
-                "SELECT DISTINCT industry FROM clients WHERE industry IS NOT NULL ORDER BY industry"
+                "SELECT DISTINCT industry FROM clients WHERE org_id = ? AND industry IS NOT NULL ORDER BY industry",
+                [org_id],
             ).df()
             available_industries = [row['industry'] for _, row in industries_df.iterrows()] if industries_df is not None else []
 
             # Available CRM owners (from client table)
             crm_list_df = con.execute(
-                "SELECT DISTINCT COALESCE(crm_owner, 'Unassigned') AS crm_owner FROM clients ORDER BY crm_owner"
+                """
+                SELECT DISTINCT COALESCE(crm_owner, 'Unassigned') AS crm_owner
+                FROM clients
+                WHERE org_id = ?
+                ORDER BY crm_owner
+                """,
+                [org_id],
             ).df()
             available_crm = [row['crm_owner'] for _, row in crm_list_df.iterrows()] if crm_list_df is not None else []
 
@@ -711,6 +738,7 @@ def get_dashboard_financial_overview(
 ):
     """Portfolio-level quote and invoice intelligence for Insights."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             if not _table_exists(con, "quotes") or not _table_exists(con, "quote_lines") or not _table_exists(con, "invoices"):
                 return {
@@ -753,6 +781,7 @@ def get_dashboard_financial_overview(
                 client_alias="c",
                 industry=industry,
                 crm_owner=crm_owner,
+                org_id=org_id,
             )
             _apply_client_filters(
                 invoice_where_parts,
@@ -760,6 +789,7 @@ def get_dashboard_financial_overview(
                 client_alias="c",
                 industry=industry,
                 crm_owner=crm_owner,
+                org_id=org_id,
             )
             _financial_year_filter(
                 quote_where_parts,
@@ -1098,6 +1128,7 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
     Get count of jobs grouped by their overall milestone status (green, amber, red)
     """
     try:
+        org_id = require_org(_user)
         from datetime import date
         import pandas as pd
         
@@ -1134,7 +1165,7 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
         with get_conn() as con:
             # If milestone table does not exist yet, return safe empty counts
             if not _table_exists(con, "job_plan"):
-                total_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+                total_jobs = con.execute("SELECT COUNT(*) FROM jobs WHERE org_id = ?", [org_id]).fetchone()[0]
                 return {
                     "green": 0,
                     "amber": 0,
@@ -1154,10 +1185,13 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
                         jp.final_report_due, jp.final_report_completed_at
                     FROM jobs j
                     LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                    WHERE j.org_id = ?
                     """
+                    ,
+                    [org_id],
                 ).df()
             except Exception:
-                total_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+                total_jobs = con.execute("SELECT COUNT(*) FROM jobs WHERE org_id = ?", [org_id]).fetchone()[0]
                 return {
                     "green": 0,
                     "amber": 0,
@@ -1220,6 +1254,7 @@ def get_dashboard_operations_overview(
 ):
     """Portfolio-level delivery and workload intelligence for Insights."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             if not _table_exists(con, "jobs"):
                 return {
@@ -1259,7 +1294,10 @@ def get_dashboard_operations_overview(
                 client_alias="c",
                 industry=industry,
                 crm_owner=crm_owner,
+                org_id=org_id,
             )
+            job_where_parts.append("j.org_id = ?")
+            job_params.append(org_id)
             if year is not None:
                 job_where_parts.append("j.reporting_year = ?")
                 job_params.append(int(year))
@@ -1313,9 +1351,10 @@ def get_dashboard_operations_overview(
                 {job_type_join}
                 {job_plan_join}
                 {job_where}
+                AND j.org_id = ?
                 ORDER BY j.job_id DESC
                 """,
-                job_params,
+                [*job_params, org_id],
             ).df()
 
             time_by_job: dict[int, dict[str, object]] = {}
@@ -1329,7 +1368,10 @@ def get_dashboard_operations_overview(
                     client_alias="c",
                     industry=industry,
                     crm_owner=crm_owner,
+                    org_id=org_id,
                 )
+                time_where_parts.append("j.org_id = ?")
+                time_params.append(org_id)
                 if year is not None:
                     time_where_parts.append("COALESCE(j.reporting_year, EXTRACT(YEAR FROM tl.work_date)::INTEGER) = ?")
                     time_params.append(int(year))
@@ -1345,9 +1387,10 @@ def get_dashboard_operations_overview(
                     LEFT JOIN jobs j ON j.job_id = tl.job_id
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
                     {time_where}
+                    AND j.org_id = ?
                     GROUP BY tl.job_id
                     """,
-                    time_params,
+                    [*time_params, org_id],
                 ).df()
                 if time_jobs_df is not None and not time_jobs_df.empty:
                     for _, row in time_jobs_df.iterrows():
@@ -1589,6 +1632,7 @@ def _build_insights_report(
     industry: str | None,
     crm_owner: str | None,
     limit: int,
+    org_id: str,
 ) -> dict:
     has_job_plan = _table_exists(con, "job_plan")
     has_time_logs = _table_exists(con, "time_logs")
@@ -1605,6 +1649,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         year_case = "j.reporting_year = ?" if year is not None else "1=1"
@@ -1665,6 +1710,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         if year is not None:
             where_parts.append("j.reporting_year = ?")
@@ -1776,6 +1822,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         if year is not None:
             where_parts.append("COALESCE(j.reporting_year, jq.reporting_year, EXTRACT(YEAR FROM COALESCE(i.invoice_date, i.created_at::date))::INTEGER) = ?")
@@ -1854,6 +1901,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         _financial_year_filter(
             quote_where_parts,
@@ -1944,6 +1992,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         if year is not None:
             where_parts.append("j.reporting_year = ?")
@@ -2076,6 +2125,7 @@ def _build_insights_report(
             client_alias="c",
             industry=industry,
             crm_owner=crm_owner,
+            org_id=org_id,
         )
         if year is not None:
             where_parts.append("j.reporting_year = ?")
@@ -2588,6 +2638,7 @@ def get_dashboard_report_view(
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             return _build_insights_report(
                 con,
@@ -2596,6 +2647,7 @@ def get_dashboard_report_view(
                 industry=industry,
                 crm_owner=crm_owner,
                 limit=limit,
+                org_id=org_id,
             )
     except HTTPException:
         raise
@@ -2613,6 +2665,7 @@ def export_dashboard_report(
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             report = _build_insights_report(
                 con,
@@ -2621,6 +2674,7 @@ def export_dashboard_report(
                 industry=industry,
                 crm_owner=crm_owner,
                 limit=limit,
+                org_id=org_id,
             )
 
         output = io.StringIO()

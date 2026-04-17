@@ -454,7 +454,7 @@ export default function NewClientPage() {
           subtitle="Create a new client profile"
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
-            { label: "New Client" },
+            { label: "New Client", href: "/clients/new" },
           ]}
           actions={
             <Button variant="secondary" asChild>

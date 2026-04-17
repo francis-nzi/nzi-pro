@@ -113,7 +113,7 @@ export default function QuotesPage() {
           subtitle={`${filtered.length} quotes`}
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
-            { label: "Quotes" },
+            { label: "Quotes", href: "/clients/quotes" },
           ]}
           actions={
             <div className="flex flex-wrap items-center gap-2">

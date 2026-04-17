@@ -1459,7 +1459,7 @@ function ClientDetailPageContent() {
         <PageHeader
           title={client?.client_name ?? "Client"}
           subtitle={`Client ID: ${Number.isFinite(clientId) ? clientId : "-"}`}
-          breadcrumbs={[{ label: "Clients", href: "/clients" }, { label: client?.client_name ?? "Client" }]}
+          breadcrumbs={[{ label: "Clients", href: "/clients" }, { label: client?.client_name ?? "Client", href: `/clients/${clientId}` }]}
           titleSuffix={client?.status ? <StatusBadge status={client.status} /> : undefined}
           actions={
             <>

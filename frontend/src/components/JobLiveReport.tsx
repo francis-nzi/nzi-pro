@@ -29,6 +29,8 @@ type LiveJobData = {
   reporting_year: number | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
+  benchmark_period_start?: string | null;
+  benchmark_period_end?: string | null;
   status: string | null;
   client_name: string | null;
   crm_owner?: string | null;
@@ -226,11 +228,14 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+
+  const job = data?.job_data ?? null;
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadClientOwner() {
-      const clientId = data?.job_data?.client_db_id;
+      const clientId = job?.client_db_id;
       if (!clientId) {
         setClientOwnerLabel("");
         return;
@@ -251,9 +256,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, data?.job_data?.client_db_id]);
-
-  const job = data?.job_data ?? null;
+  }, [baseUrl, job?.client_db_id]);
   const scopeTotals = useMemo(() => data?.scope_totals ?? {}, [data?.scope_totals]);
   const benchmarkTotals = useMemo(() => data?.benchmark_totals ?? {}, [data?.benchmark_totals]);
   const intensityMetrics = data?.intensity_metrics ?? {};
@@ -294,12 +297,17 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
         jobNumber: job.job_number ?? `J${String(job.job_id).padStart(6, "0")}`,
         jobTitle: job.title ?? "Job",
         clientName: job.client_name ?? "Client",
+        clientDbId: job.client_db_id,
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
             ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
             : job.reporting_year
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
+        benchmarkPeriodLabel:
+          job.benchmark_period_start && job.benchmark_period_end
+            ? `${new Date(job.benchmark_period_start).toLocaleDateString("en-GB")} - ${new Date(job.benchmark_period_end).toLocaleDateString("en-GB")}`
+            : undefined,
         statusLabel: job.status ?? "Draft",
         ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: undefined,
@@ -309,7 +317,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
   const breadcrumbs: WorkspaceBreadcrumb[] = job
     ? [
         { label: "Clients", href: "/clients" },
-        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
+        { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}` },
         { label: "Jobs", href: "/jobs" },
         { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
         { label: "Live Report", href: `/jobs/${job.job_id}/report-live` },

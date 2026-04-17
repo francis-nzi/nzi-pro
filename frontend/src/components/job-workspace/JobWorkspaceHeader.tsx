@@ -32,7 +32,7 @@ function Pill({
     <span
       className={cn(
         "rounded-full border bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm",
-        className
+        className,
       )}
     >
       {label}
@@ -76,8 +76,13 @@ export default function JobWorkspaceHeader({
             </div>
             <div className="text-lg text-slate-700">{job.jobTitle}</div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+              <span>Benchmark period</span>
+              <span aria-hidden="true">&middot;</span>
+              <span>{job.benchmarkPeriodLabel ?? "Not set"}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
               <span>{job.clientName}</span>
-              <span>•</span>
+              <span aria-hidden="true">&middot;</span>
               <span>{job.reportingPeriodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">

@@ -1,56 +1,84 @@
 
 from core.database import db_backend, get_conn, next_id
 
-def list_crm_owners():
+def list_crm_owners(org_id: str | None = None):
     """Distinct CRM owners from users + existing clients. Keeps dropdown stable without hardcoding."""
     with get_conn() as con:
-        a = con.execute("SELECT DISTINCT crm_owner AS v FROM clients WHERE crm_owner IS NOT NULL AND crm_owner <> ''").df()
-        b = con.execute("SELECT DISTINCT full_name AS v FROM users WHERE status='Active' AND full_name IS NOT NULL AND full_name <> ''").df()
+        client_sql = "SELECT DISTINCT crm_owner AS v FROM clients WHERE crm_owner IS NOT NULL AND crm_owner <> ''"
+        user_sql = "SELECT DISTINCT full_name AS v FROM users WHERE status='Active' AND full_name IS NOT NULL AND full_name <> ''"
+        params: list[object] = []
+        if org_id is not None:
+            client_sql += " AND org_id = ?"
+            user_sql += " AND org_id = ?"
+            params = [org_id]
+        a = con.execute(client_sql, params).df()
+        b = con.execute(user_sql, params).df()
     vals = sorted({str(x) for x in list(a["v"]) + list(b["v"]) if x is not None and str(x).strip() != ""})
     return ["(Unassigned)"] + vals
 
-def list_portfolios():
+def list_portfolios(org_id: str | None = None):
     try:
         with get_conn() as con:
-            df = con.execute(
-                "SELECT name FROM portfolios_lookup WHERE is_active=TRUE ORDER BY name"
-            ).df()
+            sql = "SELECT name FROM portfolios_lookup WHERE is_active=TRUE"
+            params: list[object] = []
+            if org_id is not None:
+                sql += " AND org_id = ?"
+                params.append(org_id)
+            sql += " ORDER BY name"
+            df = con.execute(sql, params).df()
         vals = df["name"].tolist() if not df.empty else []
         if "NZI" not in vals:
             vals = ["NZI"] + vals
         return vals
     except Exception:
         with get_conn() as con:
-            a = con.execute(
-                "SELECT DISTINCT portfolio AS v FROM clients WHERE portfolio IS NOT NULL AND portfolio <> ''"
-            ).df()
+            sql = "SELECT DISTINCT portfolio AS v FROM clients WHERE portfolio IS NOT NULL AND portfolio <> ''"
+            params: list[object] = []
+            if org_id is not None:
+                sql += " AND org_id = ?"
+                params.append(org_id)
+            a = con.execute(sql, params).df()
         vals = sorted({str(x) for x in list(a["v"]) if x is not None and str(x).strip() != ""})
         if "NZI" not in vals:
             vals = ["NZI"] + vals
         return vals
 
 
-def list_industries():
+def list_industries(org_id: str | None = None):
     try:
         with get_conn() as con:
-            df = con.execute(
-                "SELECT name FROM industries_lookup WHERE is_active=TRUE ORDER BY name"
-            ).df()
+            sql = "SELECT name FROM industries_lookup WHERE is_active=TRUE"
+            params: list[object] = []
+            if org_id is not None:
+                sql += " AND org_id = ?"
+                params.append(org_id)
+            sql += " ORDER BY name"
+            df = con.execute(sql, params).df()
         return df["name"].tolist() if not df.empty else []
     except Exception:
         return []
 
-def list_clients(search:str=""):
+def list_clients(search:str="", org_id: str | None = None):
     with get_conn() as con:
-        return con.execute('''
+        sql = '''
           SELECT db_id, client_name, crm_owner, portfolio, industry, addr_city, addr_country
           FROM clients WHERE status='Active' AND client_name ILIKE ?
           ORDER BY client_name
-        ''', [f"%{search}%"]).df()
+        '''
+        params: list[object] = [f"%{search}%"]
+        if org_id is not None:
+            sql = sql.replace("WHERE status='Active' AND", "WHERE status='Active' AND org_id = ? AND")
+            params = [org_id, *params]
+        return con.execute(sql, params).df()
 
-def get_client(client_id:int):
+def get_client(client_id:int, org_id: str | None = None):
     with get_conn() as con:
-        df = con.execute("SELECT * FROM clients WHERE db_id=?", [client_id]).df()
+        sql = "SELECT * FROM clients WHERE db_id=?"
+        params: list[object] = [client_id]
+        if org_id is not None:
+            sql += " AND org_id=?"
+            params.append(org_id)
+        df = con.execute(sql, params).df()
     return df.iloc[0] if not df.empty else None
 
 def create_client(payload:dict):
@@ -84,7 +112,7 @@ def create_client(payload:dict):
         con.execute(q2, [nid] + vals)
         return int(nid)
 
-def update_client(client_id:int, payload:dict):
+def update_client(client_id:int, payload:dict, org_id: str | None = None):
     # Minimal update helper for Client Profile edits
     cols = [
         "client_name", "industry", "description_long", "website", "year_end_month", "company_reg",
@@ -104,19 +132,38 @@ def update_client(client_id:int, payload:dict):
         return
     vals.append(client_id)
     with get_conn() as con:
-        con.execute(f"UPDATE clients SET {', '.join(sets)} WHERE db_id=?", vals)
+        sql = f"UPDATE clients SET {', '.join(sets)} WHERE db_id=?"
+        if org_id is not None:
+            sql += " AND org_id=?"
+            vals.append(org_id)
+        con.execute(sql, vals)
 
-def archive_client(client_id:int):
+def archive_client(client_id:int, org_id: str | None = None):
     with get_conn() as con:
-        con.execute("UPDATE clients SET status='Archived' WHERE db_id=?", [client_id])
-def list_archived_clients(search: str = ""):
+        sql = "UPDATE clients SET status='Archived' WHERE db_id=?"
+        params: list[object] = [client_id]
+        if org_id is not None:
+            sql += " AND org_id=?"
+            params.append(org_id)
+        con.execute(sql, params)
+def list_archived_clients(search: str = "", org_id: str | None = None):
     with get_conn() as con:
-        return con.execute('''
+        sql = '''
           SELECT db_id, client_name, crm_owner, portfolio, industry, addr_city, addr_country
           FROM clients WHERE status='Archived' AND client_name ILIKE ?
           ORDER BY client_name
-        ''', [f"%{search}%"]).df()
+        '''
+        params: list[object] = [f"%{search}%"]
+        if org_id is not None:
+            sql = sql.replace("WHERE status='Archived' AND", "WHERE status='Archived' AND org_id = ? AND")
+            params = [org_id, *params]
+        return con.execute(sql, params).df()
 
-def reactivate_client(client_id: int):
+def reactivate_client(client_id: int, org_id: str | None = None):
     with get_conn() as con:
-        con.execute("UPDATE clients SET status='Active' WHERE db_id=?", [client_id])
+        sql = "UPDATE clients SET status='Active' WHERE db_id=?"
+        params: list[object] = [client_id]
+        if org_id is not None:
+            sql += " AND org_id=?"
+            params.append(org_id)
+        con.execute(sql, params)

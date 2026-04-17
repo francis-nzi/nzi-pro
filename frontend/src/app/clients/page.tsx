@@ -140,7 +140,7 @@ export default function ClientsPage() {
         <PageHeader
           title="Clients"
           subtitle={`${total} total`}
-          breadcrumbs={[{ label: "Clients" }]}
+          breadcrumbs={[{ label: "Clients", href: "/clients" }]}
           actions={
             <>
               <Button asChild>
