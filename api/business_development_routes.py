@@ -3361,32 +3361,48 @@ def list_daily_bins(
     include_fallback: bool = Query(default=False),
     _user: dict = Depends(_current_user),
 ):
+    def empty_response(target_day: date, detail: str | None = None) -> dict[str, Any]:
+        response: dict[str, Any] = {
+            "bin_date": target_day.isoformat(),
+            "items": [],
+            "services": [],
+        }
+        if detail:
+            response["warning"] = detail
+        return response
+
     try:
         target_day = _to_date(bin_date)
-        with get_conn() as con:
-            _ensure_tables(con)
-            where = ["l.bin_date = ?"]
-            params: list[Any] = [target_day.isoformat()]
-            if service_key and str(service_key).strip():
-                where.append("lower(l.service_key) = lower(?)")
-                params.append(str(service_key).strip())
-            if status and str(status).strip():
-                where.append("lower(l.qualification_status) = lower(?)")
-                params.append(str(status).strip())
-            if not include_fallback:
-                where.append("(l.source_references IS NULL OR l.source_references NOT ILIKE ?)")
-                params.append("%Generated fallback list%")
-            where_sql = " AND ".join(where)
-            df = con.execute(
-                f"""
-                SELECT l.*, s.service_name
-                FROM bd_ai_generated_leads l
-                LEFT JOIN bd_service_lines s ON s.service_key = l.service_key
-                WHERE {where_sql}
-                ORDER BY s.sort_order ASC, l.likelihood_score DESC, l.company_name ASC
-                """,
-                params,
-            ).df()
+        try:
+            with get_conn() as con:
+                _ensure_tables(con)
+                where = ["l.bin_date = ?"]
+                params: list[Any] = [target_day.isoformat()]
+                if service_key and str(service_key).strip():
+                    where.append("lower(l.service_key) = lower(?)")
+                    params.append(str(service_key).strip())
+                if status and str(status).strip():
+                    where.append("lower(l.qualification_status) = lower(?)")
+                    params.append(str(status).strip())
+                if not include_fallback:
+                    where.append("(l.source_references IS NULL OR l.source_references NOT ILIKE ?)")
+                    params.append("%Generated fallback list%")
+                where_sql = " AND ".join(where)
+                df = con.execute(
+                    f"""
+                    SELECT l.*, s.service_name
+                    FROM bd_ai_generated_leads l
+                    LEFT JOIN bd_service_lines s ON s.service_key = l.service_key
+                    WHERE {where_sql}
+                    ORDER BY s.sort_order ASC, l.likelihood_score DESC, l.company_name ASC
+                    """,
+                    params,
+                ).df()
+        except Exception as e:
+            message = str(e).lower()
+            if "max clients" in message or "connection" in message or "pool" in message:
+                return empty_response(target_day, "Lead generator bins temporarily unavailable")
+            raise
         items: list[dict[str, Any]] = []
         by_service: dict[str, dict[str, Any]] = {}
         if df is not None and not df.empty:
@@ -3415,7 +3431,7 @@ def list_daily_bins(
             "services": list(by_service.values()),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load daily bins: {e}")
+        return empty_response(_to_date(bin_date), f"Failed to load daily bins: {e}")
 
 
 @router.get("/bd/lead-generator/database")
