@@ -10,6 +10,7 @@ Integration: Copy to /services/ in main project after Redis setup
 import os
 import logging
 from typing import Optional
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,11 @@ def get_redis_connection():
         logger.info(f"Connected to Redis: {redis_url}")
         return conn
     except ImportError:
-        logger.error("Redis client required. Install: pip install redis rq")
-        return None
+        raise RuntimeError(
+            "Redis client required. Install: pip install redis rq"
+        )
     except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
-        return None
+        raise RuntimeError(f"Failed to connect to Redis: {e}")
 
 
 def get_pdf_queue():
@@ -42,19 +43,16 @@ def get_pdf_queue():
     try:
         from rq import Queue
         redis_conn = get_redis_connection()
-        if not redis_conn:
-            return None
         return Queue('pdf_generation', connection=redis_conn)
     except ImportError:
-        logger.error("RQ required. Install: pip install rq")
-        return None
+        raise RuntimeError("RQ required. Install: pip install rq")
 
 
 def queue_pdf_generation(
     job_id: int,
     template_id: Optional[int] = None,
     user_id: Optional[str] = None,
-) -> Optional[str]:
+) -> str:
     """
     Queue a PDF generation job.
     
@@ -64,20 +62,13 @@ def queue_pdf_generation(
         user_id: User ID (for audit)
     
     Returns:
-        job_token: Unique token for tracking job status, or None if Redis unavailable
+        job_token: Unique token for tracking job status
     
     Raises:
         RuntimeError: If Redis/RQ not available
     """
     try:
-        from rq import Queue
-        
-        redis_conn = get_redis_connection()
-        if not redis_conn:
-            logger.error("Redis connection failed - cannot queue PDF")
-            return None
-        
-        queue = Queue('pdf_generation', connection=redis_conn)
+        queue = get_pdf_queue()
         
         # Enqueue background task
         rq_job = queue.enqueue(
@@ -93,12 +84,9 @@ def queue_pdf_generation(
         logger.info(f"Queued PDF gen for job {job_id}, token: {job_token}")
         return job_token
     
-    except ImportError as e:
-        logger.error(f"RQ/Redis not available: {e}")
-        return None
     except Exception as e:
         logger.error(f"Failed to queue PDF generation: {e}")
-        return None
+        raise
 
 
 def get_pdf_job_status(job_token: str) -> dict:
@@ -120,22 +108,14 @@ def get_pdf_job_status(job_token: str) -> dict:
         }
     """
     try:
-        from rq import Queue
-        
-        redis_conn = get_redis_connection()
-        if not redis_conn:
-            return {'status': 'error', 'message': 'Redis unavailable', 'job_token': job_token}
-        
-        queue = Queue('pdf_generation', connection=redis_conn)
+        queue = get_pdf_queue()
         rq_job = queue.fetch_job(job_token)
-    except ImportError:
-        return {'status': 'error', 'message': 'RQ not available', 'job_token': job_token}
     except Exception as e:
         logger.error(f"Failed to fetch job {job_token}: {e}")
-        return {'status': 'not_found', 'message': 'Job not found', 'job_token': job_token}
+        return {'status': 'not_found', 'message': 'Job not found'}
     
     if not rq_job:
-        return {'status': 'not_found', 'message': 'Job has expired', 'job_token': job_token}
+        return {'status': 'not_found', 'message': 'Job has expired'}
     
     # Map RQ status to our status
     status_map = {
@@ -186,22 +166,12 @@ def cancel_pdf_job(job_token: str) -> bool:
         True if canceled, False if not found or error
     """
     try:
-        from rq import Queue
-        
-        redis_conn = get_redis_connection()
-        if not redis_conn:
-            logger.error("Redis unavailable - cannot cancel job")
-            return False
-        
-        queue = Queue('pdf_generation', connection=redis_conn)
+        queue = get_pdf_queue()
         rq_job = queue.fetch_job(job_token)
         if rq_job:
             rq_job.cancel()
             logger.info(f"Canceled PDF gen job {job_token}")
             return True
-    except ImportError:
-        logger.error("RQ not available - cannot cancel job")
-        return False
     except Exception as e:
         logger.error(f"Failed to cancel job {job_token}: {e}")
     return False
@@ -210,23 +180,15 @@ def cancel_pdf_job(job_token: str) -> bool:
 def get_queue_stats() -> dict:
     """Get current queue statistics for monitoring."""
     try:
-        from rq import Queue
-        
-        redis_conn = get_redis_connection()
-        if not redis_conn:
-            return {'error': 'Redis unavailable', 'queued_count': 0}
-        
-        queue = Queue('pdf_generation', connection=redis_conn)
+        queue = get_pdf_queue()
         return {
             'queued_count': len(queue),
             'queue_name': queue.name,
-            'status': 'operational',
+            'connection': queue.connection.connection_pool.connection_kwargs,
         }
-    except ImportError:
-        return {'error': 'RQ not available', 'queued_count': 0}
     except Exception as e:
         logger.error(f"Failed to get queue stats: {e}")
-        return {'error': str(e), 'queued_count': 0}
+        return {'error': str(e)}
 
 
 def start_pdf_worker(num_workers: int = 1, log_level: str = 'INFO'):

@@ -36,7 +36,6 @@ const LOOKUP_TABLES = [
   { key: "job_statuses_lookup", label: "Job Statuses", idCol: "status_id", nameCol: "name" },
   { key: "vat_rates_lookup", label: "VAT Rates", idCol: "vat_rate_id", nameCol: "name" },
   { key: "payment_terms_lookup", label: "Payment Terms", idCol: "term_id", nameCol: "name" },
-  { key: "referral_sources_lookup", label: "Referral Sources", idCol: "referral_source_id", nameCol: "name" },
   { key: "positions_lookup", label: "Positions", idCol: "position_id", nameCol: "name" },
   { key: "processes_lookup", label: "Processes", idCol: "process_id", nameCol: "name" },
   { key: "job_item_categories_lookup", label: "Job Item Categories", idCol: "category_id", nameCol: "name" },

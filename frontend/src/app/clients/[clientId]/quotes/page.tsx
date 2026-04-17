@@ -72,7 +72,7 @@ export default function ClientQuotesPage() {
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
             { label: `Client ${clientId}`, href: `/clients/${clientId}` },
-            { label: "Quotes", href: `/clients/${clientId}/quotes` },
+            { label: "Quotes" },
           ]}
           actions={
             <>

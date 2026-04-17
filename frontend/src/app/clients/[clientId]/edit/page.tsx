@@ -572,7 +572,7 @@ export default function EditClientPage() {
           breadcrumbs={[
             { label: "Clients", href: "/clients" },
             { label: clientName || "Client", href: `/clients/${clientId}` },
-            { label: "Edit", href: `/clients/${clientId}/edit` },
+            { label: "Edit" },
           ]}
           titleSuffix={<StatusBadge status={clientStatus} label={clientStatus || "Status"} />}
           actions={

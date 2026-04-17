@@ -148,7 +148,7 @@ export default function JobInsights({
 
       try {
         const scopeTotalsRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" });
-        const scopeDataRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-data`, {
+        const scopeDataRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-data?include_disabled=true`, {
           credentials: "include",
         });
         const intensityRes = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" });
@@ -415,14 +415,16 @@ export default function JobInsights({
         <MetricCard label="Total tCO2e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
         <MetricCard label="Target Year" value={targetYear ?? 2050} />
         <LinkMetricCard
-          label="Top Activity (tCO2e)"
+          label="Top Activity"
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
+          suffix="tCO2e"
           name={normalizedActivityData[0]?.name ?? "No activity data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
-          label="Top Site (tCO2e)"
+          label="Top Site"
           value={normalizedSiteData[0] ? formatTco2e(normalizedSiteData[0].value) : "0.0"}
+          suffix="tCO2e"
           name={normalizedSiteData[0]?.name ?? "No site data"}
           href={`/jobs/${jobId}/data-entry`}
         />
@@ -720,8 +722,8 @@ export default function JobInsights({
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <MetricCard label="Scenario total" value={formatTco2e(whatIf.total)} />
-            <MetricCard label="Reduction" value={formatTco2e(whatIf.reduction)} />
-            <MetricCard label="Reduction %" value={whatIf.reductionPct.toFixed(1)} />
+            <MetricCard label="Reduction" value={formatTco2e(whatIf.reduction)} suffix="tCO2e" />
+            <MetricCard label="Reduction %" value={whatIf.reductionPct.toFixed(1)} suffix="%" />
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => { setWhatIfScope1("10"); setWhatIfScope2("10"); setWhatIfScope3("10"); }}>
@@ -777,11 +779,13 @@ function MetricCard({
 function LinkMetricCard({
   label,
   value,
+  suffix,
   name,
   href,
 }: {
   label: string;
   value: number | string;
+  suffix?: string;
   name: string;
   href: string;
 }) {
@@ -789,7 +793,7 @@ function LinkMetricCard({
     <Card>
       <CardContent className="pt-6">
         <div className="text-sm text-muted-foreground">{label}</div>
-        <div className="text-3xl font-semibold tabular-nums">{value}</div>
+        <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? ` ${suffix}` : ""}</div>
         <Link href={href} className="mt-2 inline-block max-w-full truncate text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-2">
           {name}
         </Link>

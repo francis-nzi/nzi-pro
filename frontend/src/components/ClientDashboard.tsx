@@ -225,7 +225,14 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Total Emissions</div>
+            <div className="text-3xl font-semibold">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+            <div className="text-xs text-muted-foreground">tCO2e ({displayYear})</div>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-sm text-muted-foreground">Benchmark Emissions</div>
@@ -235,13 +242,6 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="text-xs text-muted-foreground">
               {benchmarkCaption}
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Total Emissions</div>
-            <div className="text-3xl font-semibold">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
-            <div className="text-xs text-muted-foreground">tCO2e ({displayYear})</div>
           </CardContent>
         </Card>
         <Card>

@@ -10,7 +10,6 @@ import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from core.database import get_conn
 from api.auth import _current_user
-from services.tenancy import require_org
 from api.job_data_output_routes import _build_scope_summary, _load_data_output_rows
 from services.audit_log import fetch_row_dict, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
@@ -425,7 +424,6 @@ def get_job_scope_data(
     print(f"DEBUG: get_job_scope_data called with job_id={job_id}, scope={scope}")
     print(f"DEBUG: job_id type: {type(job_id)}, value: {repr(job_id)}")
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             cols = _table_columns(con, "job_scope_rows")
@@ -437,7 +435,7 @@ def get_job_scope_data(
             print(f"DEBUG: About to convert job_id to int")
             job_id_int = int(job_id)
             print(f"DEBUG: job_id converted to: {job_id_int}")
-            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s AND org_id = %s", [job_id_int, org_id]).fetchone()
+            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [job_id_int]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             resolver = JobMonthlyEmissionsResolver(con, job_id_int)
@@ -619,16 +617,15 @@ def get_previous_scope_rows(
 ):
     """Return reusable dataset-backed rows from recent prior jobs for the same client."""
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             current_job = con.execute(
                 """
                 SELECT client_db_id, reporting_period_start, reporting_period_end
                 FROM jobs
-                WHERE job_id=%s AND org_id = %s
+                WHERE job_id=%s
                 """,
-                [int(job_id), org_id],
+                [int(job_id)],
             ).fetchone()
             if not current_job:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -643,7 +640,7 @@ def get_previous_scope_rows(
                 """
                 SELECT job_id, job_number, title, reporting_period_start, reporting_period_end
                 FROM jobs
-                WHERE client_db_id=%s AND org_id = %s
+                WHERE client_db_id=%s
                   AND job_id <> %s
                   AND (
                     %s IS NULL
@@ -654,7 +651,7 @@ def get_previous_scope_rows(
                 ORDER BY reporting_period_end DESC NULLS LAST, reporting_period_start DESC NULLS LAST, job_id DESC
                 LIMIT 8
                 """,
-                [int(client_db_id), org_id, int(job_id), current_start, current_start, current_end, current_end],
+                [int(client_db_id), int(job_id), current_start, current_start, current_start, current_end, current_end],
             ).fetchall()
 
             prior_jobs: list[dict[str, Any]] = []
@@ -799,11 +796,10 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
     Get aggregated scope totals and emissions summary for a job.
     """
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             # Verify job exists
-            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s AND org_id = %s", [int(job_id), org_id]).fetchone()
+            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
@@ -847,11 +843,10 @@ def create_scope_data_row(
     Create a new scope data entry row.
     """
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             # Verify job exists
-            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s AND org_id = %s", [int(job_id), org_id]).fetchone()
+            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
             
@@ -908,18 +903,17 @@ def create_scope_data_row(
             result = con.execute(
                 """
                 INSERT INTO job_scope_rows (
-                    job_id, org_id, scope, site_id, dataset_id, factor_db_id, original_id,
+                    job_id, scope, site_id, dataset_id, factor_db_id, original_id,
                     category, level_1, level_2, level_3, level_4, column_text, report_label,
                     qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence, notes, is_custom_entry,
                     month_1, month_2, month_3, month_4, month_5, month_6,
                     month_7, month_8, month_9, month_10, month_11, month_12
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING row_id
                 """,
                 [
                     int(job_id),
-                    org_id,
                     scope,
                     site_id,
                     final_dataset_id,
@@ -995,14 +989,13 @@ def update_scope_data_row(
     Update an existing scope data entry row.
     """
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             before = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             # Verify row exists and belongs to job
             row_exists = con.execute(
-                "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s AND org_id = %s",
-                [int(row_id), int(job_id), org_id]
+                "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
+                [int(row_id), int(job_id)]
             ).fetchone()
             
             if not row_exists:
@@ -1076,10 +1069,10 @@ def update_scope_data_row(
             query = f"""
                 UPDATE job_scope_rows
                 SET {', '.join(update_fields)}
-                WHERE row_id=%s AND org_id = %s
+                WHERE row_id=%s
             """
-
-            con.execute(query, [*params, org_id])
+            
+            con.execute(query, params)
 
             after = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             record_audit_event(
@@ -1114,14 +1107,13 @@ def delete_scope_data_row(
     Delete (soft delete) a scope data entry row.
     """
     try:
-        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
             before = _job_scope_row_snapshot(con, int(job_id), int(row_id))
             # Verify row exists and belongs to job
             row_exists = con.execute(
-                "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s AND org_id = %s",
-                [int(row_id), int(job_id), org_id]
+                "SELECT 1 FROM job_scope_rows WHERE row_id=%s AND job_id=%s",
+                [int(row_id), int(job_id)]
             ).fetchone()
             
             if not row_exists:
@@ -1129,8 +1121,8 @@ def delete_scope_data_row(
             
             # Soft delete by setting enabled=FALSE
             con.execute(
-                "UPDATE job_scope_rows SET enabled=FALSE, updated_at=NOW() WHERE row_id=%s AND org_id = %s",
-                [int(row_id), org_id]
+                "UPDATE job_scope_rows SET enabled=FALSE, updated_at=NOW() WHERE row_id=%s",
+                [int(row_id)]
             )
 
             after = _job_scope_row_snapshot(con, int(job_id), int(row_id))

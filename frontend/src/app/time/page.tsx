@@ -308,7 +308,7 @@ function TimePageContent() {
         <PageHeader
           title="Time Tracking"
           subtitle="Log and review time entries"
-          breadcrumbs={[{ label: "Time Tracking", href: "/time" }]}
+          breadcrumbs={[{ label: "Time Tracking" }]}
         />
 
         <div className="space-y-6">

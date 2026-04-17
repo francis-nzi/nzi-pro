@@ -6,7 +6,6 @@ Run this after migrations and factor re-ingestion.
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-import pytest
 
 # Load environment variables first
 load_dotenv()
@@ -17,11 +16,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 from nzi_pages.generate_single_sheet_template import generate_single_sheet_template
 from api.parse_single_sheet_upload import parse_single_sheet_upload
 from core.database import get_conn
-
-
-@pytest.fixture(scope="module")
-def excel_bytes():
-    return test_template_generation()
 
 
 def test_template_generation():

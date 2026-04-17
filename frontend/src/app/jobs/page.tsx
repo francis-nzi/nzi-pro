@@ -180,7 +180,7 @@ export default function JobsPage() {
         <PageHeader
           title="Jobs"
           subtitle={`${total} total`}
-          breadcrumbs={[{ label: "Jobs", href: "/jobs" }]}
+          breadcrumbs={[{ label: "Jobs" }]}
           actions={
             <>
               <Button asChild>

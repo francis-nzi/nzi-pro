@@ -79,26 +79,6 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
     }
 
 
-def _attach_org_id(user: Dict[str, str]) -> Dict[str, str]:
-    """Attach the user's organisation id when it exists."""
-    user_id = str(user.get("user_id") or "").strip()
-    if not user_id:
-        user["org_id"] = None
-        return user
-
-    try:
-        with get_conn() as con:
-            row = con.execute(
-                "SELECT org_id FROM users WHERE user_id = ? LIMIT 1",
-                [user_id],
-            ).fetchone()
-    except Exception:
-        row = None
-
-    user["org_id"] = str(row[0]) if row and row[0] else None
-    return user
-
-
 def _current_user(
     request: Request,
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
@@ -137,7 +117,7 @@ def _current_user(
         user = _active_user_from_identifier(str(sub or ""))
         if not user:
             raise HTTPException(status_code=401, detail="Unknown or inactive user")
-        return _enforce_password_change(enrich_user_permissions(_attach_org_id(user)) or _attach_org_id(user))
+        return _enforce_password_change(enrich_user_permissions(user) or user)
 
     # Header-based compatibility mode (still strict; no anonymous access)
     ident = (x_user_email or x_user or "").strip()
@@ -153,4 +133,4 @@ def _current_user(
     user = _active_user_from_identifier(ident)
     if not user:
         raise HTTPException(status_code=401, detail="Unknown or inactive user")
-    return _enforce_password_change(enrich_user_permissions(_attach_org_id(user)) or _attach_org_id(user))
+    return _enforce_password_change(enrich_user_permissions(user) or user)

@@ -99,7 +99,7 @@ def render_quote_pdf_bytes(quote_id: int) -> bytes:
         raise ValueError("Quote not found")
 
     client_id = int(q.get("client_db_id"))
-    client = get_client(client_id, q.get("client_org_id"))
+    client = get_client(client_id)
 
     totals = compute_totals(q.get("lines"))
     currency_code = str(q.get("currency_code") or "GBP").strip().upper()

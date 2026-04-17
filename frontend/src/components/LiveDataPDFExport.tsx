@@ -361,16 +361,16 @@ export function LiveDataPDFExport({
 // ============================================================================
 
 const logger = {
-  info: (message: string, ...args: unknown[]) => {
+  info: (message: string, ...args: any[]) => {
     console.log(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  debug: (message: string, ...args: unknown[]) => {
+  debug: (message: string, ...args: any[]) => {
     console.debug(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  warn: (message: string, ...args: unknown[]) => {
+  warn: (message: string, ...args: any[]) => {
     console.warn(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  error: (message: string, ...args: unknown[]) => {
+  error: (message: string, ...args: any[]) => {
     console.error(`[LiveDataPDFExport] ${message}`, ...args);
   },
 };

@@ -310,18 +310,19 @@ export default function TemplatesPage() {
                       className="rounded-md border p-3 hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium">{t.template_name || t.template_key}</div>
-                          <div className="text-sm text-muted-foreground">{t.template_key}</div>
+                        <div className="flex-1">
+                          <div className="font-medium">{t.template_key}</div>
+                          {t.template_name && (
+                            <div className="text-sm text-muted-foreground">{t.template_name}</div>
+                          )}
                           <div className="mt-2 space-y-1 text-xs">
-                            <div className="break-words text-muted-foreground">
-                              Stored workbook path used by Job download:
-                              <span className="ml-1 break-all font-medium text-foreground">
-                                {t.file_path || "Not set"}
-                              </span>
-                            </div>
+                            {t.file_path && (
+                              <div className="text-muted-foreground">
+                                � File: {t.file_path}
+                              </div>
+                            )}
                             <div className="text-muted-foreground">
-                              Type: {t.template_type === 'dataset' ? 'Data Collection' : 'Report'}
+                              Type: {t.template_type === 'dataset' ? '📊 Data Collection' : '📄 Report'}
                             </div>
                           </div>
                           <div className="mt-2">
@@ -336,7 +337,7 @@ export default function TemplatesPage() {
                             </span>
                           </div>
                         </div>
-                        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                        <div className="flex gap-2">
                           <Button
                             size="sm"
                             variant="secondary"
@@ -475,21 +476,22 @@ export default function TemplatesPage() {
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
-                            <div className="font-medium">{t.template_name || t.template_key}</div>
-                            <div className="text-sm text-muted-foreground">{t.template_key}</div>
-                          <div className="mt-2 space-y-1 text-xs">
-                            <div className="break-words text-muted-foreground">
-                              Stored workbook path used by Job download:
-                              <span className="ml-1 break-all font-medium text-foreground">
-                                {t.file_path || "Not set"}
-                              </span>
+                              <div className="font-medium">{t.template_key}</div>
+                              {t.template_name && (
+                                <div className="text-sm text-muted-foreground">{t.template_name}</div>
+                              )}
+                              <div className="mt-2 space-y-1 text-xs">
+                                {t.file_path && (
+                                  <div className="text-muted-foreground">
+                                    📁 File: {t.file_path}
+                                  </div>
+                                )}
+                                <div className="text-muted-foreground">
+                                  Type: {t.template_type === 'dataset' ? '📊 Data Collection' : '📄 Report'}
+                                </div>
+                              </div>
                             </div>
-                            <div className="text-muted-foreground">
-                              Type: {t.template_type === 'dataset' ? 'Data Collection' : 'Report'}
-                            </div>
-                          </div>
-                            </div>
-                            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                            <div className="flex gap-2">
                               <Button
                                 size="sm"
                                 variant="outline"

@@ -47,9 +47,7 @@ export type JobWorkspaceJob = {
   jobNumber: string;
   jobTitle: string;
   clientName: string;
-  clientDbId?: number;
   reportingPeriodLabel: string;
-  benchmarkPeriodLabel?: string;
   statusLabel: string;
   ownerLabel: string;
   crmLabel?: string;
