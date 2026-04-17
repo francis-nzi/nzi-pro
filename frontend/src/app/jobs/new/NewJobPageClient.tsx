@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  return "/api/backend";
 }
 
 type Client = {
@@ -364,7 +364,7 @@ function NewJobPageContent() {
 
   async function loadDatasets() {
     try {
-      const res = await fetch(`${baseUrl}/datasets?limit=500`, {
+      const res = await fetch(`${baseUrl}/admin/datasets`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -372,7 +372,8 @@ function NewJobPageContent() {
         return;
       }
       const json = await res.json();
-      setDatasets(json.items || []);
+      const activeDatasets = (json.items || []).filter((dataset: Dataset) => !dataset.archived);
+      setDatasets(activeDatasets);
     } catch (err) {
       console.error("Error loading datasets:", err);
     } finally {
