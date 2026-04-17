@@ -510,11 +510,6 @@ export default function DatasetsPage() {
   }, [datasets]);
 
   // Get unique countries and years for filters
-  const datasetCountryOptions = useMemo(() => {
-    const options = new Set([...STANDARD_COUNTRIES, ...datasetCountries]);
-    return Array.from(options).sort((a, b) => a.localeCompare(b));
-  }, [datasetCountries]);
-
   const countryDatasetCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     datasets.forEach((ds) => {
@@ -525,6 +520,16 @@ export default function DatasetsPage() {
     });
     return counts;
   }, [datasets]);
+
+  const datasetCountryOptions = useMemo(() => {
+    const options = new Set([...STANDARD_COUNTRIES, ...datasetCountries]);
+    return Array.from(options).sort((a, b) => {
+      const aCount = countryDatasetCounts[a] || 0;
+      const bCount = countryDatasetCounts[b] || 0;
+      if (aCount !== bCount) return bCount - aCount;
+      return a.localeCompare(b);
+    });
+  }, [datasetCountries, countryDatasetCounts]);
 
   const filteredCountryOptions = useMemo(() => {
     const query = countrySearchStarted ? country.trim().toLowerCase() : "";
