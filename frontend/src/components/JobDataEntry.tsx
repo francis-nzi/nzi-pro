@@ -754,7 +754,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     try {
       const payload = {
         scope: row.scope,
-        site_id: row.site_id,
         original_id: row.original_id,
         category: row.category,
         level_1: row.level_1 ?? null,
@@ -807,7 +806,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       for (const row of rowsToAdd) {
         const payload = {
           scope: row.scope,
-          site_id: row.site_id,
           original_id: row.original_id,
           category: row.category,
           level_1: row.level_1 ?? null,
@@ -1545,9 +1543,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     return (
                       <div
                         key={`previous-${row.row_id}`}
-                        className={`p-3 transition-colors ${alreadyAdded ? "opacity-60" : "cursor-pointer"} ${isSelected ? "bg-muted/60" : alreadyAdded ? "" : "hover:bg-muted/40"}`}
+                        className={`p-3 transition-colors ${alreadyAdded ? "opacity-70" : "cursor-pointer"} ${isSelected ? "bg-muted/60" : "hover:bg-muted/40"}`}
                         onClick={() => {
-                          if (alreadyAdded) return;
                           setSelectedPreviousRowIds((prev) => {
                             const next = new Set(prev);
                             if (next.has(row.row_id)) next.delete(row.row_id);
@@ -1561,7 +1558,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             type="checkbox"
                             className="h-4 w-4 rounded border-gray-300 mt-1"
                             checked={isSelected}
-                            disabled={alreadyAdded}
+                            disabled={false}
                             onChange={() => {}}
                             onClick={(e) => e.stopPropagation()}
                           />
@@ -1583,7 +1580,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               </span>
                               {alreadyAdded && (
                                 <span className="shrink-0 inline-block px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-700">
-                                  Added ✓
+                                  Added - Add Again
                                 </span>
                               )}
                             </div>
