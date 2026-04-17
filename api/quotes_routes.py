@@ -545,7 +545,10 @@ def _other_cost_totals(items: list[dict[str, Any]]) -> dict[str, float]:
 
 
 def _write_invoice_lines(con, invoice_id: int, lines: list[dict[str, Any]], org_id: str | None = None) -> None:
-    con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
+    con.execute(
+        "DELETE FROM invoice_lines WHERE invoice_id = %s AND COALESCE(org_id, %s) = %s",
+        [int(invoice_id), org_id, org_id],
+    )
     for idx, line in enumerate(lines):
         qty = _safe_float(line.get("qty"), 0.0)
         rate = _safe_float(line.get("rate"), 0.0)
@@ -1663,8 +1666,8 @@ def email_quote(quote_id: int, body: dict = Body(...), _user: dict = Depends(_cu
                 [int(quote_id), org_id, sent_to, subject, message, sender],
             )
             con.execute(
-                "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s" + (" AND org_id = %s" if org_id else ""),
-                [int(quote_id)] + ([org_id] if org_id else []),
+                "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s AND org_id = %s",
+                [int(quote_id), org_id],
             )
             return {"ok": True, "message": "Quote email logged", "quote_id": int(quote_id), "sent_to": sent_to}
     except HTTPException:
@@ -1757,7 +1760,10 @@ def email_quote_pdf(quote_id: int, body: dict = Body(...), _user: dict = Depends
                 [int(quote_id), org_id, to_email, rendered["subject"], rendered["body_html"], sender],
             )
             if str(send_res.get("status") or "") == "sent":
-                con.execute("UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s", [int(quote_id)])
+                con.execute(
+                    "UPDATE quotes SET status = 'Sent', updated_at = NOW() WHERE quote_id = %s AND org_id = %s",
+                    [int(quote_id), org_id],
+                )
             else:
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
         return {"ok": True, "quote_id": int(quote_id), "sent_to": to_email, "email_id": int(send_res.get('email_id') or 0)}
@@ -2441,7 +2447,10 @@ def delete_invoice(invoice_id: int, _user: dict = Depends(_current_user)):
             ).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Invoice not found")
-            con.execute("DELETE FROM invoice_lines WHERE invoice_id = %s", [int(invoice_id)])
+            con.execute(
+                "DELETE FROM invoice_lines WHERE invoice_id = %s AND COALESCE(org_id, %s) = %s",
+                [int(invoice_id), org_id, org_id],
+            )
             con.execute("DELETE FROM xero_invoice_links WHERE invoice_id = %s", [int(invoice_id)])
             con.execute("DELETE FROM invoices WHERE invoice_id = %s AND org_id = %s", [int(invoice_id), org_id])
         return {"ok": True, "invoice_id": int(invoice_id)}
@@ -2721,9 +2730,10 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                 JOIN jobs j ON j.job_id = tl.job_id
                 LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
                 WHERE j.client_db_id = %s
+                  AND COALESCE(tl.org_id, %s) = %s
                   AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(client_id), org_id, org_id],
+                [int(client_id), org_id, org_id, org_id, org_id],
             ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
@@ -2743,9 +2753,10 @@ def client_financial_summary(client_id: int, _user: dict = Depends(_current_user
                 FROM job_other_costs oc
                 JOIN jobs j ON j.job_id = oc.job_id
                 WHERE j.client_db_id = %s
+                  AND COALESCE(oc.org_id, %s) = %s
                   AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(client_id), org_id, org_id],
+                [int(client_id), org_id, org_id, org_id, org_id],
             ).df()
             other_subtotal = 0.0
             other_vat = 0.0
@@ -2894,9 +2905,10 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                 JOIN jobs j ON j.job_id = tl.job_id
                 LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id
                 WHERE tl.job_id = %s
+                  AND COALESCE(tl.org_id, %s) = %s
                   AND COALESCE(j.org_id, %s) = %s
                 """,
-                [int(job_id), org_id, org_id],
+                [int(job_id), org_id, org_id, org_id, org_id],
             ).df()
             actual_cost_from_time = 0.0
             logged_hours = 0.0
@@ -2915,9 +2927,9 @@ def job_financial_summary(job_id: int, _user: dict = Depends(_current_user)):
                 SELECT amount_ex_vat, vat_amount, total_inc_vat
                 FROM job_other_costs
                 WHERE job_id = %s
-                  AND org_id = %s
+                  AND COALESCE(org_id, %s) = %s
                 """,
-                [int(job_id), org_id],
+                [int(job_id), org_id, org_id],
             ).df()
             other_subtotal = 0.0
             other_vat = 0.0
