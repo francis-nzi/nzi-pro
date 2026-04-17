@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,9 @@ function apiBaseUrl(): string {
   }
   return envBase;
 }
+
+const ALL_COUNTRIES_FILTER = "All Countries";
+const ALL_YEARS_FILTER = "All Years";
 
 async function fetchWithAuth(input: string, init: RequestInit = {}) {
   return fetch(input, {
@@ -121,12 +125,12 @@ export default function DatasetsPage() {
   
   // Factor search
   const [searchQuery, setSearchQuery] = useState("");
-  const [factorCountry, setFactorCountry] = useState<string>("All");
-  const [factorYear, setFactorYear] = useState<string>("All");
+  const [factorCountry, setFactorCountry] = useState<string>(ALL_COUNTRIES_FILTER);
+  const [factorYear, setFactorYear] = useState<string>(ALL_YEARS_FILTER);
   
   // Dataset filters
-  const [filterCountry, setFilterCountry] = useState<string>("All");
-  const [filterYear, setFilterYear] = useState<string>("All");
+  const [filterCountry, setFilterCountry] = useState<string>(ALL_COUNTRIES_FILTER);
+  const [filterYear, setFilterYear] = useState<string>(ALL_YEARS_FILTER);
   
   // Edit mode
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
@@ -381,8 +385,8 @@ export default function DatasetsPage() {
     try {
       const params = new URLSearchParams();
       params.set("q", searchQuery);
-      if (factorCountry !== "All") params.set("country", factorCountry);
-      if (factorYear !== "All") params.set("year", factorYear);
+      if (factorCountry !== ALL_COUNTRIES_FILTER) params.set("country", factorCountry);
+      if (factorYear !== ALL_YEARS_FILTER) params.set("year", factorYear);
       params.set("limit", "100");
 
       const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
@@ -520,12 +524,12 @@ export default function DatasetsPage() {
 
   const uniqueCountries = useMemo(() => {
     const countries = new Set(datasets.map(ds => ds.country));
-    return ["All", ...Array.from(countries).sort()];
+    return [ALL_COUNTRIES_FILTER, ...Array.from(countries).sort()];
   }, [datasets]);
 
   const uniqueYears = useMemo(() => {
     const years = new Set(datasets.map(ds => ds.year));
-    return ["All", ...Array.from(years).sort((a, b) => b - a)];
+    return [ALL_YEARS_FILTER, ...Array.from(years).sort((a, b) => b - a).map((year) => String(year))];
   }, [datasets]);
 
   // Filter and group datasets
@@ -533,8 +537,8 @@ export default function DatasetsPage() {
     return datasets.filter(ds => {
       // Exclude archived datasets from main list
       if (ds.archived) return false;
-      if (filterCountry !== "All" && ds.country !== filterCountry) return false;
-      if (filterYear !== "All" && ds.year !== Number(filterYear)) return false;
+      if (filterCountry !== ALL_COUNTRIES_FILTER && ds.country !== filterCountry) return false;
+      if (filterYear !== ALL_YEARS_FILTER && ds.year !== Number(filterYear)) return false;
       return true;
     });
   }, [datasets, filterCountry, filterYear]);
@@ -578,7 +582,7 @@ export default function DatasetsPage() {
             <CardTitle>Search Conversion Factors</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="searchQuery">Search Text</Label>
                 <Input
@@ -594,40 +598,28 @@ export default function DatasetsPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="factorCountry">Country</Label>
-                <Select value={factorCountry} onValueChange={setFactorCountry}>
-                  <SelectTrigger id="factorCountry">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All Countries</SelectItem>
-                    {uniqueCountries
-                      .filter((country) => country !== "All")
-                      .map((country) => (
-                        <SelectItem key={country} value={country}>
-                          {country}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <div className="w-full max-w-[220px]">
+                  <SearchableStringSelect
+                    id="factorCountry"
+                    value={factorCountry}
+                    options={uniqueCountries}
+                    placeholder="Search countries..."
+                    onValueChange={setFactorCountry}
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="factorYear">Year</Label>
-                <Select value={factorYear} onValueChange={setFactorYear}>
-                  <SelectTrigger id="factorYear">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="All">All Years</SelectItem>
-                    {uniqueYears
-                      .filter((value) => value !== "All")
-                      .map((value) => (
-                        <SelectItem key={value} value={String(value)}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                <div className="w-full max-w-[160px]">
+                  <SearchableStringSelect
+                    id="factorYear"
+                    value={factorYear}
+                    options={uniqueYears}
+                    placeholder="Search years..."
+                    onValueChange={setFactorYear}
+                  />
+                </div>
               </div>
             </div>
 
@@ -993,29 +985,27 @@ export default function DatasetsPage() {
               <div className="mb-4 grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="filterCountry">Filter by Country</Label>
-                  <Select value={filterCountry} onValueChange={setFilterCountry}>
-                    <SelectTrigger id="filterCountry">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {uniqueCountries.map(c => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="w-full max-w-[260px]">
+                    <SearchableStringSelect
+                      id="filterCountry"
+                      value={filterCountry}
+                      options={uniqueCountries}
+                      placeholder="Search countries..."
+                      onValueChange={setFilterCountry}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="filterYear">Filter by Year</Label>
-                  <Select value={filterYear} onValueChange={setFilterYear}>
-                    <SelectTrigger id="filterYear">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {uniqueYears.map(y => (
-                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="w-full max-w-[180px]">
+                    <SearchableStringSelect
+                      id="filterYear"
+                      value={filterYear}
+                      options={uniqueYears}
+                      placeholder="Search years..."
+                      onValueChange={setFilterYear}
+                    />
+                  </div>
                 </div>
               </div>
 
