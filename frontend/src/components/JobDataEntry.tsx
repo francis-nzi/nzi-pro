@@ -1916,19 +1916,24 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 Factor: {factor.factor?.toFixed(5) || "N/A"}
                               </span>
                               <span className="text-muted-foreground">
-                                {factor.uom} → {factor.ghg_unit}
+                                {factor.uom} {"->"} {factor.ghg_unit}
                               </span>
                             </div>
+                            {alreadyAdded && (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Already in this job - you can add it again for a different site.
+                              </div>
+                            )}
                           </div>
                           <div className="md:justify-self-end">
                             <Button
-                            size="sm"
-                            onClick={() => addFactorToJob(factor)}
-                            disabled={alreadyAdded || isAdding}
-                            variant={alreadyAdded ? "outline" : "default"}
+                              size="sm"
+                              onClick={() => addFactorToJob(factor)}
+                              disabled={isAdding}
+                              variant={alreadyAdded ? "outline" : "default"}
                               className="w-full md:w-auto"
                             >
-                            {isAdding ? "Adding..." : alreadyAdded ? "Added ✓" : "Add to Job"}
+                              {isAdding ? "Adding..." : alreadyAdded ? "Add Again" : "Add to Job"}
                             </Button>
                           </div>
                         </div>
