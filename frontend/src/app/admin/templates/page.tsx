@@ -67,6 +67,7 @@ export default function TemplatesPage() {
   const [datasetCountry, setDatasetCountry] = useState("");
   const [datasetYear, setDatasetYear] = useState("");
   const [datasetCatalog, setDatasetCatalog] = useState<DatasetCatalogItem[]>([]);
+  const [datasetWorkbookHint, setDatasetWorkbookHint] = useState("");
   const lastAutoTemplateKey = useRef("");
   const lastAutoTemplateName = useRef("");
 
@@ -119,8 +120,10 @@ export default function TemplatesPage() {
       (datasetCountry && availableCountries.includes(datasetCountry) ? datasetCountry : "") ||
       (availableCountries.includes("UK") ? "UK" : availableCountries[0]);
 
+    let workbookHint = "";
     if (preferredCountry && preferredCountry !== datasetCountry) {
       setDatasetCountry(preferredCountry);
+      workbookHint = `Using ${preferredCountry} because it is the first available country with dataset rows.`;
     }
 
     const yearsForCountry = activeDatasets
@@ -136,7 +139,10 @@ export default function TemplatesPage() {
     const preferredYear = String(yearsForCountry[0]);
     if (!datasetYear || !yearsForCountry.includes(Number(datasetYear))) {
       setDatasetYear(preferredYear);
+      workbookHint = `Using the latest available year (${preferredYear}) for ${preferredCountry}.`;
     }
+
+    setDatasetWorkbookHint(workbookHint);
   }, [datasetCatalog, datasetCountry, datasetYear]);
 
   useEffect(() => {
@@ -344,6 +350,12 @@ export default function TemplatesPage() {
     const effectiveYear = matchingDatasetYears.includes(Number(year))
       ? year
       : String(matchingDatasetYears[0] || year);
+
+    if (effectiveYear !== year) {
+      setDatasetWorkbookHint(`Using the latest available year (${effectiveYear}) for ${country}.`);
+    } else {
+      setDatasetWorkbookHint(`Using ${country} / ${effectiveYear} for the workbook download.`);
+    }
 
     const defaults = buildDatasetTemplateDefaults(country, effectiveYear);
     const currentKey = templateKey.trim();
@@ -561,21 +573,26 @@ export default function TemplatesPage() {
                         placeholder="e.g., UK"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="datasetYear">Year</Label>
-                      <Input
-                        id="datasetYear"
-                        type="number"
+                <div className="space-y-2">
+                  <Label htmlFor="datasetYear">Year</Label>
+                  <Input
+                    id="datasetYear"
+                    type="number"
                         value={datasetYear}
                         onChange={(e) => setDatasetYear(e.target.value)}
-                        placeholder="e.g., 2025"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button type="button" variant="secondary" onClick={downloadDatasetWorkbook}>
-                      Download Workbook
-                    </Button>
+                    placeholder="e.g., 2025"
+                  />
+                </div>
+              </div>
+              {datasetWorkbookHint && (
+                <div className="text-xs text-muted-foreground">
+                  {datasetWorkbookHint}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button type="button" variant="secondary" onClick={downloadDatasetWorkbook}>
+                  Download Workbook
+                </Button>
                   </div>
                 </div>
               )}
