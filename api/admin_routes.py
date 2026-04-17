@@ -2648,6 +2648,7 @@ def list_lookup_items(
     if table_name not in allowed_tables:
         raise HTTPException(status_code=400, detail="Invalid table name")
     org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+    org_match = str(org_id or "").strip()
     
     # Get the actual table name to query - handle the currency_lookup alias
     table_map = {
@@ -2680,8 +2681,12 @@ def list_lookup_items(
             if has_active_flag and not include_archived:
                 active_filter = "WHERE COALESCE(is_active, TRUE) = TRUE"
             if org_id is not None:
-                active_filter = f"{active_filter} AND org_id = %s" if active_filter else "WHERE org_id = %s"
-                active_params = [org_id]
+                active_filter = (
+                    f"{active_filter} AND COALESCE(org_id, '') = %s"
+                    if active_filter
+                    else "WHERE COALESCE(org_id, '') = %s"
+                )
+                active_params = [org_match]
             else:
                 active_params = []
             # Different tables might have different sort columns
@@ -2816,6 +2821,7 @@ def create_lookup_item(
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            org_match = str(org_id or "").strip()
             # This is simplified - you'd need table-specific logic for different schemas
             if table_name == "vat_rates_lookup":
                 name = str(body.get("name", "")).strip()
@@ -2890,8 +2896,24 @@ def create_lookup_item(
                 if not name:
                     raise HTTPException(status_code=400, detail="Name is required")
 
+                existing = con.execute(
+                    f"""
+                    SELECT 1
+                    FROM {table_name}
+                    WHERE lower(name) = lower(%s)
+                      AND COALESCE(org_id, '') = %s
+                    LIMIT 1
+                    """,
+                    [name, org_match],
+                ).fetchone()
+                if existing:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"{table_name.replace('_', ' ').title()} '{name}' already exists",
+                    )
+
                 columns = ["org_id", "name", "is_active"]
-                values = [org_id, name, body.get("is_active", True)]
+                values = [org_id if org_match else None, name, body.get("is_active", True)]
                 if table_name == "time_subjects":
                     columns.append("budget_hours")
                     values.append(float(body.get("budget_hours", 0) or 0))
@@ -2960,6 +2982,7 @@ def update_lookup_item(
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            org_match = str(org_id or "").strip()
             # Build update query
             updates = []
             params = []
@@ -3003,8 +3026,8 @@ def update_lookup_item(
             
             params.append(int(item_id))
             if org_id is not None:
-                params.append(org_id)
-                query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s AND org_id = %s"
+                params.append(org_match)
+                query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s AND COALESCE(org_id, '') = %s"
             else:
                 query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s"
             
