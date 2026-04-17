@@ -121,6 +121,20 @@ export default function TemplatesPage() {
     return countries;
   }, [activeDatasetCatalog]);
 
+  const datasetCountryStats = useMemo(() => {
+    const stats: Record<string, { count: number; latestYear: string }> = {};
+    for (const item of activeDatasetCatalog) {
+      if (!item.country || !item.year) continue;
+      const current = stats[item.country] || { count: 0, latestYear: String(item.year) };
+      current.count += 1;
+      if (Number(item.year) > Number(current.latestYear)) {
+        current.latestYear = String(item.year);
+      }
+      stats[item.country] = current;
+    }
+    return stats;
+  }, [activeDatasetCatalog]);
+
   const filteredDatasetCountryOptions = useMemo(() => {
     const query = datasetCountrySearchStarted ? datasetCountry.trim().toLowerCase() : "";
     const filtered = !query
@@ -139,6 +153,13 @@ export default function TemplatesPage() {
       .filter((value, index, arr) => arr.indexOf(value) === index)
       .sort((a, b) => Number(b) - Number(a));
   }, [activeDatasetCatalog, datasetCountry]);
+
+  const latestDatasetYear = useMemo(() => {
+    if (!datasetCountry) {
+      return "";
+    }
+    return datasetCountryStats[datasetCountry]?.latestYear || "";
+  }, [datasetCountry, datasetCountryStats]);
 
   useEffect(() => {
     if (!activeDatasetCatalog.length) {
@@ -627,7 +648,7 @@ export default function TemplatesPage() {
                                 <button
                                   key={countryOption}
                                   type="button"
-                                  className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => {
                                     setDatasetCountry(countryOption);
@@ -643,7 +664,10 @@ export default function TemplatesPage() {
                                     }
                                   }}
                                 >
-                                  {countryOption}
+                                  <span>{countryOption}</span>
+                                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                    {(datasetCountryStats[countryOption]?.count ?? 0)} datasets
+                                  </span>
                                 </button>
                               ))
                             )}
@@ -652,14 +676,21 @@ export default function TemplatesPage() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="datasetYear">Year</Label>
-                      <Select value={datasetYear} onValueChange={setDatasetYear}>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label htmlFor="datasetYear">Year</Label>
+                        {latestDatasetYear && (
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800">
+                            Latest: {latestDatasetYear}
+                          </span>
+                        )}
+                      </div>
+                      <Select value={datasetYear || "__none__"} onValueChange={setDatasetYear}>
                         <SelectTrigger id="datasetYear">
                           <SelectValue placeholder="Select year..." />
                         </SelectTrigger>
                         <SelectContent>
                           {datasetYearOptions.length === 0 ? (
-                            <SelectItem value="" disabled>
+                            <SelectItem value="__none__" disabled>
                               No years available
                             </SelectItem>
                           ) : (
