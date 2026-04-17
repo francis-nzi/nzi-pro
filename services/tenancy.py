@@ -13,6 +13,19 @@ def get_default_org_id() -> str | None:
             if row and row[0]:
                 return str(row[0])
 
+            try:
+                con.execute(
+                    """
+                    INSERT INTO organisations (name, slug, plan, plan_status, max_users, max_clients)
+                    SELECT 'NZI Internal', 'nzi-internal', 'trial', 'active', 999, 999
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM organisations WHERE slug = 'nzi-internal'
+                    )
+                    """
+                )
+            except Exception:
+                pass
+
             row = con.execute(
                 "SELECT org_id FROM organisations ORDER BY created_at ASC LIMIT 1"
             ).fetchone()

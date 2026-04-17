@@ -12,6 +12,7 @@ from fastapi import Header, HTTPException, Request
 from core.auth import get_user_by_id
 from core.database import get_conn
 from services.permissions import enrich_user_permissions
+from services.tenancy import get_default_org_id
 
 try:
     import jwt
@@ -86,7 +87,6 @@ def _attach_org_id(user: Dict[str, str]) -> Dict[str, str]:
         user["org_id"] = None
         return user
 
-    default_org_id = None
     try:
         with get_conn() as con:
             row = con.execute(
@@ -96,22 +96,19 @@ def _attach_org_id(user: Dict[str, str]) -> Dict[str, str]:
             if row and row[0]:
                 user["org_id"] = str(row[0])
                 return user
-
-            default_row = con.execute(
-                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
-            ).fetchone()
-            default_org_id = str(default_row[0]) if default_row and default_row[0] else None
-            if default_org_id:
-                try:
-                    con.execute(
-                        "UPDATE users SET org_id = ? WHERE user_id = ? AND org_id IS NULL",
-                        [default_org_id, user_id],
-                    )
-                except Exception:
-                    pass
     except Exception:
-        default_org_id = None
+        pass
 
+    default_org_id = get_default_org_id()
+    if default_org_id:
+        try:
+            with get_conn() as con:
+                con.execute(
+                    "UPDATE users SET org_id = ? WHERE user_id = ? AND org_id IS NULL",
+                    [default_org_id, user_id],
+                )
+        except Exception:
+            pass
     user["org_id"] = default_org_id
     return user
 
