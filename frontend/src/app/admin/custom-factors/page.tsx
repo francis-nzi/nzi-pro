@@ -194,7 +194,7 @@ export default function CustomFactorsPage() {
 
   const loadClients = useCallback(async () => {
     try {
-      const res = await apiFetch("/clients?limit=500&offset=0");
+      const res = await apiFetch("/clients?limit=200&offset=0");
       if (!res.ok) return;
       const json = (await res.json()) as ClientsResponse;
       const items = Array.isArray(json?.items) ? json.items : [];
