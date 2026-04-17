@@ -598,6 +598,7 @@ function overviewSubtitle(data: DashboardOverview | null): string {
 
 export default function InsightsPageClient() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const [activeTab, setActiveTab] = useState("portfolio");
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
   const [financialData, setFinancialData] = useState<FinancialOverview>(EMPTY_FINANCIAL);
@@ -787,8 +788,9 @@ export default function InsightsPageClient() {
   }, [loadInsights]);
 
   useEffect(() => {
+    if (activeTab !== "reports") return;
     void loadReportView();
-  }, [loadReportView]);
+  }, [activeTab, loadReportView]);
 
   useEffect(() => {
     void loadSavedReports();
@@ -1210,7 +1212,7 @@ export default function InsightsPageClient() {
         </div>
       )}
 
-      <Tabs defaultValue="portfolio" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-1">
           <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
           <TabsTrigger value="emissions">Emissions</TabsTrigger>
