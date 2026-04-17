@@ -2734,51 +2734,53 @@ def download_dataset_template_workbook(
 def search_factors(
     q: str = "",
     dataset_id: int | None = None,
+    country: str = "",
+    year: int | None = None,
     limit: int = 100,
     _user: dict = Depends(_current_user)
 ):
     """Search conversion factors (excludes archived datasets)."""
     try:
         with get_conn() as con:
+            params: list[object] = []
+            where_parts = [
+                """
+                (
+                    fl.column_text ILIKE %s
+                    OR COALESCE(fl.report_label, '') ILIKE %s
+                    OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
+                )
+                """
+            ]
+            params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+
             if dataset_id:
-                df = con.execute(
-                    """
-                    SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
-                           fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
-                    FROM factor_lookup fl
-                    LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE fl.dataset_id = %s
-                          AND (
-                              fl.column_text ILIKE %s
-                              OR COALESCE(fl.report_label, '') ILIKE %s
-                              OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
-                          )
-                          AND (d.archived IS NULL OR d.archived = FALSE)
-                    ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
-                    LIMIT %s
-                    """,
-                    [dataset_id, f"%{q}%", f"%{q}%", f"%{q}%", limit],
-                ).df()
-            else:
-                df = con.execute(
-                    """
-                    SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
-                           fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
-                           fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
-                    FROM factor_lookup fl
-                    LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
-                    WHERE (
-                              fl.column_text ILIKE %s
-                              OR COALESCE(fl.report_label, '') ILIKE %s
-                              OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
-                          )
-                          AND (d.archived IS NULL OR d.archived = FALSE)
-                    ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
-                    LIMIT %s
-                    """,
-                    [f"%{q}%", f"%{q}%", f"%{q}%", limit],
-                ).df()
+                where_parts.append("fl.dataset_id = %s")
+                params.append(dataset_id)
+            if country.strip():
+                where_parts.append("LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))")
+                params.append(country.strip())
+            if year is not None:
+                where_parts.append("d.year = %s")
+                params.append(int(year))
+
+            where_parts.append("(d.archived IS NULL OR d.archived = FALSE)")
+            where_sql = " AND ".join(where_parts)
+            params.append(limit)
+
+            df = con.execute(
+                f"""
+                SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
+                       fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
+                       fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
+                FROM factor_lookup fl
+                LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                WHERE {where_sql}
+                ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
+                LIMIT %s
+                """,
+                params,
+            ).df()
         
         items = []
         if df is not None and not df.empty:

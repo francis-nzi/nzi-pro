@@ -121,7 +121,8 @@ export default function DatasetsPage() {
   
   // Factor search
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDataset, setSelectedDataset] = useState<number | null>(null);
+  const [factorCountry, setFactorCountry] = useState<string>("All");
+  const [factorYear, setFactorYear] = useState<string>("All");
   
   // Dataset filters
   const [filterCountry, setFilterCountry] = useState<string>("All");
@@ -380,7 +381,8 @@ export default function DatasetsPage() {
     try {
       const params = new URLSearchParams();
       params.set("q", searchQuery);
-      if (selectedDataset) params.set("dataset_id", String(selectedDataset));
+      if (factorCountry !== "All") params.set("country", factorCountry);
+      if (factorYear !== "All") params.set("year", factorYear);
       params.set("limit", "100");
 
       const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
@@ -570,6 +572,107 @@ export default function DatasetsPage() {
         </div>
 
         {status && <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>}
+
+        <Card className="mb-6 w-full">
+          <CardHeader>
+            <CardTitle>Search Conversion Factors</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="searchQuery">Search Text</Label>
+                <Input
+                  id="searchQuery"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search factors..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="factorCountry">Country</Label>
+                <Select value={factorCountry} onValueChange={setFactorCountry}>
+                  <SelectTrigger id="factorCountry">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Countries</SelectItem>
+                    {uniqueCountries
+                      .filter((country) => country !== "All")
+                      .map((country) => (
+                        <SelectItem key={country} value={country}>
+                          {country}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="factorYear">Year</Label>
+                <Select value={factorYear} onValueChange={setFactorYear}>
+                  <SelectTrigger id="factorYear">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Years</SelectItem>
+                    {uniqueYears
+                      .filter((value) => value !== "All")
+                      .map((value) => (
+                        <SelectItem key={value} value={String(value)}>
+                          {value}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button onClick={searchFactors} className="w-full">
+              Search Factors
+            </Button>
+
+            <div className="text-xs text-muted-foreground">
+              Use country and year to narrow the conversion factor search before applying the text query.
+            </div>
+
+            {factors.length > 0 && (
+              <div className="mt-4 max-h-96 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="p-2 text-left">ID</th>
+                      <th className="p-2 text-left">Dataset</th>
+                      <th className="p-2 text-left">Scope</th>
+                      <th className="p-2 text-left">Category</th>
+                      <th className="p-2 text-left">Level 1</th>
+                      <th className="p-2 text-left">Report Label</th>
+                      <th className="p-2 text-right">Factor</th>
+                      <th className="p-2 text-left">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {factors.map((f) => (
+                      <tr key={f.db_id} className="border-t">
+                        <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
+                        <td className="p-2">{f.dataset}</td>
+                        <td className="p-2">{f.scope}</td>
+                        <td className="p-2">{f.category || "-"}</td>
+                        <td className="p-2">{f.level_1 || "-"}</td>
+                        <td className="p-2">{f.report_label || f.column_text}</td>
+                        <td className="p-2 text-right">{f.factor}</td>
+                        <td className="p-2">{f.ghg_unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Create/Edit Dataset */}
@@ -877,86 +980,6 @@ export default function DatasetsPage() {
                   </div>
                 )}
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Factor Search */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Search Conversion Factors</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="searchQuery">Search Text</Label>
-                  <Input
-                    id="searchQuery"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search factors..."
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") searchFactors();
-                    }}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="datasetFilter">Dataset</Label>
-                  <Select
-                    value={selectedDataset ? String(selectedDataset) : "all"}
-                    onValueChange={(v) => setSelectedDataset(v === "all" ? null : Number(v))}
-                  >
-                    <SelectTrigger id="datasetFilter">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Datasets</SelectItem>
-                      {datasets.map((ds) => (
-                        <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
-                          [{ds.dataset_id}] {ds.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <Button onClick={searchFactors} className="w-full">
-                Search Factors
-              </Button>
-
-              {factors.length > 0 && (
-                <div className="mt-4 max-h-96 overflow-auto rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-muted">
-                      <tr>
-                        <th className="p-2 text-left">ID</th>
-                        <th className="p-2 text-left">Dataset</th>
-                        <th className="p-2 text-left">Scope</th>
-                        <th className="p-2 text-left">Category</th>
-                        <th className="p-2 text-left">Level 1</th>
-                        <th className="p-2 text-left">Report Label</th>
-                        <th className="p-2 text-right">Factor</th>
-                        <th className="p-2 text-left">Unit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {factors.map((f) => (
-                        <tr key={f.db_id} className="border-t">
-                          <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
-                          <td className="p-2">{f.dataset}</td>
-                          <td className="p-2">{f.scope}</td>
-                          <td className="p-2">{f.category || "-"}</td>
-                          <td className="p-2">{f.level_1 || "-"}</td>
-                          <td className="p-2">{f.report_label || f.column_text}</td>
-                          <td className="p-2 text-right">{f.factor}</td>
-                          <td className="p-2">{f.ghg_unit}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </CardContent>
           </Card>
 
