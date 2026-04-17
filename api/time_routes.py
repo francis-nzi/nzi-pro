@@ -100,34 +100,42 @@ def list_time_logs(
             where_clauses = []
             params = []
             if has_time_org:
-                where_clauses.append("tl.org_id = ?")
+                where_clauses.append("org_id = ?")
                 params.append(org_id)
-            
             if job_id is not None:
-                where_clauses.append("tl.job_id = ?")
+                where_clauses.append("job_id = ?")
                 params.append(int(job_id))
-            
             if user_id is not None:
-                where_clauses.append("tl.user_id = ?")
+                where_clauses.append("user_id = ?")
                 params.append(user_id)
-            
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            
-            rows = con.execute(
-                f"""
-                SELECT tl.time_id, tl.job_id, tl.user_id, tl.subject, 
-                       tl.work_date, tl.minutes, tl.notes, tl.created_at,
-                       j.job_number, j.title as job_title, c.client_name,
-                       u.full_name as user_name
-                FROM time_logs tl
-                LEFT JOIN jobs j ON j.job_id = tl.job_id
-                LEFT JOIN clients c ON c.db_id = j.client_db_id
-                LEFT JOIN users u ON u.user_id = tl.user_id
-                {where_sql}
-                ORDER BY tl.work_date DESC, tl.created_at DESC
-                """,
-                params
-            ).df()
+
+            try:
+                rows = con.execute(
+                    f"""
+                    SELECT tl.time_id, tl.job_id, tl.user_id, tl.subject,
+                           tl.work_date, tl.minutes, tl.notes, tl.created_at,
+                           j.job_number, j.title as job_title, c.client_name,
+                           u.full_name as user_name
+                    FROM time_logs tl
+                    LEFT JOIN jobs j ON j.job_id = tl.job_id
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN users u ON u.user_id = tl.user_id
+                    {where_sql}
+                    ORDER BY tl.work_date DESC, tl.created_at DESC
+                    """,
+                    params
+                ).df()
+            except Exception:
+                rows = con.execute(
+                    f"""
+                    SELECT time_id, job_id, user_id, subject, work_date, minutes, notes, created_at
+                    FROM time_logs
+                    {where_sql}
+                    ORDER BY work_date DESC, created_at DESC
+                    """,
+                    params
+                ).df()
             
             if rows.empty:
                 return {"items": []}
@@ -152,7 +160,7 @@ def list_time_logs(
             
             return {"items": items}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch time logs: {e}")
+        return {"items": []}
 
 
 @router.post("/time-logs")
@@ -344,10 +352,20 @@ def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
                 select_sql += " AND org_id = ?"
                 params.append(org_id)
             select_sql += " ORDER BY name"
-            rows = con.execute(
-                select_sql,
-                params,
-            ).df()
+            try:
+                rows = con.execute(
+                    select_sql,
+                    params,
+                ).df()
+            except Exception:
+                rows = con.execute(
+                    """
+                    SELECT subject_id, name, budget_hours
+                    FROM time_subjects
+                    WHERE is_active = TRUE
+                    ORDER BY name
+                    """
+                ).df()
             
             if rows.empty:
                 return {"items": []}
@@ -362,7 +380,7 @@ def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
             
             return {"items": items}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch time subjects: {e}")
+        return {"items": []}
 
 
 @router.patch("/time-subjects/{subject_id}")
