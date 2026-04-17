@@ -692,12 +692,26 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     closeMonthlyModal();
   }
 
+  function getActiveSiteId(): number | null {
+    if (selectedSiteId === "All") return null;
+    const parsed = Number(selectedSiteId);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function getActiveSiteLabel(): string {
+    if (selectedSiteId === "All") return "All sites";
+    const match = sites.find((site) => String(site.site_id) === selectedSiteId);
+    return match?.site_name ? `Site: ${match.site_name}` : `Site ID: ${selectedSiteId}`;
+  }
+
   async function addFactorToJob(factor: TemplateFactor) {
     console.log("addFactorToJob called with factor:", factor);
     setAddingFactorId(factor.original_id);
     try {
+      const activeSiteId = getActiveSiteId();
       const payload = {
         scope: factor.scope,
+        site_id: activeSiteId,
         original_id: factor.original_id,
         category: factor.category,
         level_1: factor.level_1 ?? null,
@@ -1050,9 +1064,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     ]).join(" • ");
   }
 
-  // Check if a factor is already added to the job
-  const isFactorAdded = (originalId: string) => {
-    return scopeData.some(row => row.original_id === originalId);
+  // Check if a factor is already added for the active site.
+  const isFactorAdded = (originalId: string, siteId: number | null = getActiveSiteId()) => {
+    return scopeData.some((row) => row.original_id === originalId && (siteId == null ? row.site_id == null : row.site_id === siteId));
   };
 
   const visibleColumnCount =
@@ -1838,6 +1852,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             `(${(factorsTotal || templateFactors.length).toLocaleString()} factors available)`}
         </Button>
       </div>
+      <div className="text-center text-sm text-muted-foreground">
+        Current add scope: {getActiveSiteLabel()}.
+        {selectedSiteId === "All"
+          ? " The same factor ID can be added separately for each site."
+          : " New factors will be tied to the selected site."}
+      </div>
 
       {/* Factor Browser */}
       {showFactorBrowser && (
@@ -1846,6 +1866,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             <CardTitle>Browse & Add Factors</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 min-w-0">
+            <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              Adding a factor now respects the currently selected site filter, so the same factor ID can be reused on a different site without colliding.
+            </div>
             {/* Factor Search & Filter */}
             <div className="space-y-3">
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
