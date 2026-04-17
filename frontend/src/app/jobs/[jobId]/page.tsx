@@ -912,7 +912,6 @@ export default function JobDetailPage() {
   const [jobStatus, setJobStatus] = useState<string>("");
   const [jobType, setJobType] = useState<string>("");
   const [crmName, setCrmName] = useState<string>("");
-  const [legacyJobNo, setLegacyJobNo] = useState<string>("");
   const [jobStartDate, setJobStartDate] = useState<string>("");
   const [jobEndDate, setJobEndDate] = useState<string>("");
 
@@ -1461,7 +1460,6 @@ export default function JobDetailPage() {
         setJobStatus(jJson.status || "Draft");
         setJobType(jJson.job_type || "");
         setCrmName(jJson.crm_name || "");
-        setLegacyJobNo(jJson.legacy_job_no || "");
         setJobStartDate(jJson.start_date || "");
         setJobEndDate(jJson.due_date || "");
         
@@ -1983,7 +1981,6 @@ export default function JobDetailPage() {
             status: jobStatus,
             job_type: jobType,
             crm_name: crmName,
-          legacy_job_no: legacyJobNo || null,
           start_date: jobStartDate || null,
           due_date: jobEndDate || null,
           milestone_template_id: selectedMilestoneTemplateId && selectedMilestoneTemplateId !== "__none__" ? Number(selectedMilestoneTemplateId) : null,
@@ -2011,7 +2008,6 @@ export default function JobDetailPage() {
           status: jobStatus,
           job_type: jobType,
           crm_name: crmName,
-          legacy_job_no: legacyJobNo || null,
           start_date: jobStartDate || null,
           due_date: jobEndDate || null,
         } : prev));
@@ -2413,16 +2409,6 @@ export default function JobDetailPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="legacyJobNo">Legacy Job No</Label>
-                <Input
-                  id="legacyJobNo"
-                  value={legacyJobNo}
-                  onChange={(e) => setLegacyJobNo(e.target.value)}
-                  placeholder="Reference from old system"
-                />
               </div>
 
               <div className="space-y-2">
