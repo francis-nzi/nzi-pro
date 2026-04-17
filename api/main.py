@@ -4003,7 +4003,7 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
                     """,
                     [int(client_db_id)]
                 ).df()
-            
+
             contacts = []
             if df is not None and not df.empty:
                 for _, row in df.iterrows():
@@ -4016,7 +4016,7 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
                         "phone": row["phone"],
                         "is_primary": bool(row["is_primary"]) if row["is_primary"] is not None else False,
                     })
-            
+
             return {"client_db_id": int(client_db_id), "contacts": contacts}
     except Exception:
         # Keep the page usable while the tenant schema rollout is still in flight.
@@ -4199,10 +4199,10 @@ def client_jobs(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    assert_permission(_user, "jobs.view")
-    assert_client_access(_user, int(client_db_id))
-    org_id = require_org(_user)
     try:
+        assert_permission(_user, "jobs.view")
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
         with get_conn() as con:
             try:
                 if org_id:
