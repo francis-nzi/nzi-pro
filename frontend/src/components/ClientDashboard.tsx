@@ -282,8 +282,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                   <div className="py-12 text-center text-sm text-muted-foreground">No scope data available</div>
                 ) : (
                   <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
-                    <div className="relative mx-auto aspect-square w-full max-w-[520px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                    <div className="relative mx-auto w-full max-w-[520px]">
+                      <ResponsiveContainer width="100%" aspect={1}>
                         <PieChart>
                           <Pie data={scopeData} dataKey="value" nameKey="name" innerRadius="77%" outerRadius="96%" paddingAngle={2}>
                             {scopeData.map((_, idx) => (
