@@ -403,6 +403,7 @@ type Job = {
   reporting_period_end: string | null;
   is_benchmark: boolean | null;
   status: string | null;
+  job_type?: string | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number;
@@ -615,6 +616,13 @@ type TeamMember = {
   role?: string;
   position?: string;
   status?: string;
+};
+
+type JobType = {
+  job_type_id: number;
+  name: string;
+  is_active: boolean;
+  is_crp?: boolean;
 };
 
 const JOB_SETUP_METADATA_KEYS = [
@@ -902,6 +910,7 @@ export default function JobDetailPage() {
   // Job details editing state
   const [jobTitle, setJobTitle] = useState<string>("");
   const [jobStatus, setJobStatus] = useState<string>("");
+  const [jobType, setJobType] = useState<string>("");
   const [crmName, setCrmName] = useState<string>("");
   const [legacyJobNo, setLegacyJobNo] = useState<string>("");
   const [jobStartDate, setJobStartDate] = useState<string>("");
@@ -909,6 +918,7 @@ export default function JobDetailPage() {
 
   // Lookup data
   const [jobStatuses, setJobStatuses] = useState<Array<{status_id: number; name: string}>>([]);
+  const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [milestoneTemplates, setMilestoneTemplates] = useState<MilestoneTemplateOption[]>([]);
   const [milestoneTemplateCompletions, setMilestoneTemplateCompletions] = useState<MilestoneTemplateCompletion[]>([]);
@@ -1449,6 +1459,7 @@ export default function JobDetailPage() {
         // Initialize job details fields
         setJobTitle(jJson.title || "");
         setJobStatus(jJson.status || "Draft");
+        setJobType(jJson.job_type || "");
         setCrmName(jJson.crm_name || "");
         setLegacyJobNo(jJson.legacy_job_no || "");
         setJobStartDate(jJson.start_date || "");
@@ -1529,6 +1540,30 @@ export default function JobDetailPage() {
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadJobTypes() {
+      try {
+        const res = await fetch(`${baseUrl}/admin/lookups/job_types`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setJobTypes(Array.isArray(json.items) ? (json.items as JobType[]).filter((jt) => jt.is_active) : []);
+      } catch {
+        if (!cancelled) setJobTypes([]);
+      }
+    }
+
+    void loadJobTypes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1946,7 +1981,8 @@ export default function JobDetailPage() {
           body: JSON.stringify({ 
             title: jobTitle,
             status: jobStatus,
-          crm_name: crmName,
+            job_type: jobType,
+            crm_name: crmName,
           legacy_job_no: legacyJobNo || null,
           start_date: jobStartDate || null,
           due_date: jobEndDate || null,
@@ -1973,6 +2009,7 @@ export default function JobDetailPage() {
           ...prev, 
           title: jobTitle, 
           status: jobStatus,
+          job_type: jobType,
           crm_name: crmName,
           legacy_job_no: legacyJobNo || null,
           start_date: jobStartDate || null,
@@ -2337,6 +2374,28 @@ export default function JobDetailPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="jobType">Job Type</Label>
+                <Select value={jobType || "__none__"} onValueChange={(v) => setJobType(v === "__none__" ? "" : v)}>
+                  <SelectTrigger id="jobType">
+                    <SelectValue placeholder="Select job type..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobType && !jobTypes.some((jt) => jt.name === jobType) ? (
+                      <SelectItem value={jobType}>{jobType}</SelectItem>
+                    ) : null}
+                    {jobTypes.map((jt) => (
+                      <SelectItem key={jt.job_type_id} value={jt.name}>
+                        {jt.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  This controls how the job is grouped on client pages and in reporting.
+                </p>
               </div>
 
               <div className="space-y-2">

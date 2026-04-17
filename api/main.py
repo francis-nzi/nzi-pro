@@ -1456,6 +1456,23 @@ def update_job(
                 updates.append("legacy_job_no = ?")
                 params.append(body["legacy_job_no"])
             
+            if "job_type" in body:
+                job_type_name = str(body.get("job_type") or "").strip()
+                if not job_type_name:
+                    raise HTTPException(status_code=400, detail="job_type is required")
+                job_type_row = con.execute(
+                    "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
+                    [job_type_name],
+                ).fetchone()
+                if not job_type_row:
+                    raise HTTPException(status_code=400, detail=f"Job type '{job_type_name}' not found or inactive")
+                updates.append("job_type_id = ?")
+                params.append(int(job_type_row[0]))
+                updates.append("job_type = ?")
+                params.append(job_type_name)
+                updates.append("is_crp = ?")
+                params.append(bool(job_type_row[1]) if job_type_row[1] is not None else False)
+
             if "milestone_template_id" in body:
                 updates.append("milestone_template_id = ?")
                 params.append(body["milestone_template_id"])
