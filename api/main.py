@@ -361,6 +361,28 @@ def _resolve_job_template_file_path(raw_path: str | None) -> Path | None:
 
     return None
 
+
+def _seeded_job_template_fallbacks(template_key: str | None, template_type: str | None) -> list[Path]:
+    """Return known seeded workbook/document paths for legacy templates."""
+    key = str(template_key or "").strip().lower()
+    typ = str(template_type or "").strip().lower()
+    fallbacks: list[Path] = []
+
+    if typ == "dataset":
+        if "standard_uk" in key:
+            fallbacks.append(PROJECT_ROOT / "templates" / "NZI Data Upload Template - Standard UK.xlsx")
+            fallbacks.append(PROJECT_ROOT / "templates" / "NZI Data Upload Template - Standard UK.csv")
+            fallbacks.append(PROJECT_ROOT / "templates" / "NZI Data Colection Upload Template - Standard UK.csv")
+        if "basic_uk" in key or key == "basic_uk":
+            fallbacks.append(PROJECT_ROOT / "templates" / "NZI Data Upload Template - Basic UK.xlsx")
+    elif typ in ("report", "crp"):
+        if "basic_uk" in key or key == "basic_uk":
+            fallbacks.append(PROJECT_ROOT / "templates" / "DEMOCO Carbon Reduction Plan Dec 2025 - Second Year Onwards.docx")
+        if "quote" in key:
+            fallbacks.append(PROJECT_ROOT / "templates" / "NZI Standard Quote.docx")
+
+    return fallbacks
+
 # Include admin routes
 app.include_router(admin_router)
 
@@ -1838,7 +1860,7 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
         template_key = str(row[0] or f"template_{template_id}")
         template_name = str(row[1] or "").strip()
         template_type = str(row[2] or "").strip().lower()
-        candidate_paths = [row[3], row[4], row[5]]
+        candidate_paths = [row[3], row[4], row[5], *[str(p) for p in _seeded_job_template_fallbacks(template_key, template_type)]]
         file_path = None
         for candidate in candidate_paths:
             file_path = _resolve_job_template_file_path(candidate)
@@ -1950,6 +1972,7 @@ async def update_job_template(
             template_row = con.execute(
                 """
                 SELECT
+                    template_key,
                     template_type,
                     file_path,
                     excel_template_path,
@@ -1963,9 +1986,11 @@ async def update_job_template(
             if not template_row:
                 raise HTTPException(status_code=404, detail="Template not found")
 
-            current_file_path = template_row[1]
-            current_excel_path = template_row[2]
-            current_crp_path = template_row[3]
+            current_template_key = str(template_row[0] or "").strip()
+            current_template_type = str(template_row[1] or "").strip().lower()
+            current_file_path = template_row[2]
+            current_excel_path = template_row[3]
+            current_crp_path = template_row[4]
             
             # Build update query
             updates = []
@@ -2007,7 +2032,11 @@ async def update_job_template(
                 current_file_resolved = _resolve_job_template_file_path(current_file_path)
                 current_resolved_path = current_file_resolved
                 if current_resolved_path is None:
-                    fallback_candidates = [current_excel_path, current_crp_path]
+                    fallback_candidates = [
+                        current_excel_path,
+                        current_crp_path,
+                        *[str(p) for p in _seeded_job_template_fallbacks(current_template_key or template_key, current_template_type or template_type)],
+                    ]
                     for candidate in fallback_candidates:
                         current_resolved_path = _resolve_job_template_file_path(candidate)
                         if current_resolved_path is not None:
