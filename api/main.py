@@ -706,6 +706,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
     """Create a new job with automatic period calculation."""
     try:
         from datetime import date, timedelta
+        import calendar
         from dateutil.relativedelta import relativedelta
         assert_permission(_user, "jobs.create")
 
@@ -762,6 +763,40 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 "dec": 12,
             }
             return month_map.get(str(value).strip().lower())
+
+        def _build_reporting_period_end(reporting_year_value, month_value, day_value):
+            try:
+                reporting_year_int = int(reporting_year_value)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot determine reporting year/period. Please provide reporting_year or ensure client has benchmark period set.",
+                ) from exc
+
+            month_int = month_value or 12
+            if month_int < 1 or month_int > 12:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Client financial year end month is invalid. Please update the client benchmark settings.",
+                )
+
+            try:
+                day_int = int(day_value) if day_value is not None else 31
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Client financial year end day is invalid. Please update the client benchmark settings.",
+                ) from exc
+
+            if day_int < 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Client financial year end day is invalid. Please update the client benchmark settings.",
+                )
+
+            last_day = calendar.monthrange(reporting_year_int, month_int)[1]
+            safe_day = min(day_int, last_day)
+            return date(reporting_year_int, month_int, safe_day)
 
         def _next_job_number(con) -> str:
             rows = con.execute(
@@ -853,15 +888,11 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                         reporting_year = benchmark_end.year
                 elif reporting_year:
                     # Calculate from reporting_year and financial year end
-                    fy_month = fy_month or 12
-                    fy_day = fy_day or 31
-                    reporting_period_end = date(int(reporting_year), fy_month, fy_day)
+                    reporting_period_end = _build_reporting_period_end(reporting_year, fy_month, fy_day)
                     reporting_period_start = reporting_period_end - relativedelta(years=1) + timedelta(days=1)
             elif reporting_year:
                 # Subsequent job - calculate period based on reporting_year
-                fy_month = fy_month or 12
-                fy_day = fy_day or 31
-                reporting_period_end = date(int(reporting_year), fy_month, fy_day)
+                reporting_period_end = _build_reporting_period_end(reporting_year, fy_month, fy_day)
                 reporting_period_start = reporting_period_end - relativedelta(years=1) + timedelta(days=1)
             elif benchmark_start and benchmark_end:
                 # Auto-calculate next period after benchmark
