@@ -325,6 +325,42 @@ def _resolve_uploaded_logo_path(raw_url: str | None) -> Path | None:
         return None
     return PROJECT_ROOT / "frontend" / "public" / rel
 
+
+def _resolve_job_template_file_path(raw_path: str | None) -> Path | None:
+    path_text = str(raw_path or "").strip()
+    if not path_text:
+        return None
+
+    candidate_paths: list[Path] = []
+    raw_path_obj = Path(path_text)
+    if raw_path_obj.is_absolute():
+        candidate_paths.append(raw_path_obj)
+    else:
+        candidate_paths.extend(
+            [
+                PROJECT_ROOT / raw_path_obj,
+                PROJECT_ROOT / "frontend" / raw_path_obj,
+                PROJECT_ROOT / "frontend" / "public" / raw_path_obj,
+                PROJECT_ROOT / "templates" / raw_path_obj.name,
+                PROJECT_ROOT / "uploaded_templates" / raw_path_obj.name,
+            ]
+        )
+
+    seen: set[str] = set()
+    for candidate in candidate_paths:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        if resolved.exists() and resolved.is_file():
+            return resolved
+
+    return None
+
 # Include admin routes
 app.include_router(admin_router)
 
@@ -1769,15 +1805,8 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
         template_key = str(row[0] or f"template_{template_id}")
         template_name = str(row[1] or "").strip()
         template_type = str(row[2] or "").strip().lower()
-        file_path_raw = str(row[3] or "").strip()
-
-        if not file_path_raw:
-            raise HTTPException(status_code=404, detail="Template file path is missing")
-
-        file_path = Path(file_path_raw)
-        if not file_path.is_absolute():
-            file_path = Path.cwd() / file_path
-        if not file_path.exists() or not file_path.is_file():
+        file_path = _resolve_job_template_file_path(row[3])
+        if file_path is None:
             raise HTTPException(status_code=404, detail="Template file not found on disk")
 
         suffix = file_path.suffix
