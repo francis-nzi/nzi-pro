@@ -95,6 +95,7 @@ function NewJobPageContent() {
     start: string;
     end: string;
   } | null>(null);
+  const [clientBenchmarkLoaded, setClientBenchmarkLoaded] = useState(false);
   const [scopeDatasetIds, setScopeDatasetIds] = useState<Record<string, string>>({
     "Scope 1": "__none__",
     "Scope 2": "__none__",
@@ -301,6 +302,34 @@ function NewJobPageContent() {
     }
   }, [preselectedClientId, clients]);
 
+  useEffect(() => {
+    if (!preselectedClientId) return;
+    void hydrateClientDetails(preselectedClientId);
+  }, [preselectedClientId]);
+
+  async function hydrateClientDetails(clientDbId: string) {
+    setClientBenchmarkLoaded(false);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientDbId}`);
+      if (!res.ok) return;
+
+      const clientData = await res.json();
+      setCrmName(clientData.crm_owner || "");
+      if (clientData.benchmark_period_start && clientData.benchmark_period_end) {
+        setClientBenchmarkPeriod({
+          start: clientData.benchmark_period_start,
+          end: clientData.benchmark_period_end,
+        });
+      } else {
+        setClientBenchmarkPeriod(null);
+      }
+    } catch (e) {
+      console.error("Error fetching client details:", e);
+    } finally {
+      setClientBenchmarkLoaded(true);
+    }
+  }
+
   async function loadClients() {
     setLoading(true);
     try {
@@ -309,20 +338,6 @@ function NewJobPageContent() {
         const json = await res.json();
         const allClients = json.items || [];
         setClients(allClients);
-
-        if (preselectedClientId) {
-          const clientRes = await fetch(`${baseUrl}/clients/${preselectedClientId}`);
-          if (clientRes.ok) {
-            const clientData = await clientRes.json();
-            setCrmName(clientData.crm_owner || "");
-            if (clientData.benchmark_period_start && clientData.benchmark_period_end) {
-              setClientBenchmarkPeriod({
-                start: clientData.benchmark_period_start,
-                end: clientData.benchmark_period_end,
-              });
-            }
-          }
-        }
       }
     } catch (e) {
       setStatus(`Error loading clients: ${(e as Error).message}`);
@@ -338,27 +353,12 @@ function NewJobPageContent() {
     if (newClientId) {
       const matchedClient = clients.find((client) => client.client_db_id === Number(newClientId));
       setClientSearch(matchedClient?.client_name || "");
-      try {
-        const res = await fetch(`${baseUrl}/clients/${newClientId}`);
-        if (res.ok) {
-          const clientData = await res.json();
-          setCrmName(clientData.crm_owner || "");
-          if (clientData.benchmark_period_start && clientData.benchmark_period_end) {
-            setClientBenchmarkPeriod({
-              start: clientData.benchmark_period_start,
-              end: clientData.benchmark_period_end,
-            });
-          } else {
-            setClientBenchmarkPeriod(null);
-          }
-        }
-      } catch (e) {
-        console.error("Error fetching client details:", e);
-      }
+      void hydrateClientDetails(newClientId);
     } else {
       setClientSearch("");
       setCrmName("");
       setClientBenchmarkPeriod(null);
+      setClientBenchmarkLoaded(false);
     }
   }
 
@@ -844,10 +844,10 @@ function NewJobPageContent() {
                     </div>
                   )}
 
-                  {!clientBenchmarkPeriod && clientId && (
+                  {clientBenchmarkLoaded && !clientBenchmarkPeriod && clientId && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
                       <p className="text-sm text-amber-800">
-                        ⚠️ This client does not have a benchmark period defined. The reporting period will be
+                        This client does not have a benchmark period defined. The reporting period will be
                         calculated from the reporting year and financial year end. Consider updating the client
                         profile to include benchmark period dates for better period management.
                       </p>
