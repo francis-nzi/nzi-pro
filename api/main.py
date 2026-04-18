@@ -1823,7 +1823,9 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
                     template_key,
                     template_name,
                     template_type,
-                    COALESCE(file_path, excel_template_path, crp_template_path) AS resolved_path
+                    file_path,
+                    excel_template_path,
+                    crp_template_path
                 FROM job_templates
                 WHERE job_template_id = %s
                 """,
@@ -1836,7 +1838,12 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
         template_key = str(row[0] or f"template_{template_id}")
         template_name = str(row[1] or "").strip()
         template_type = str(row[2] or "").strip().lower()
-        file_path = _resolve_job_template_file_path(row[3])
+        candidate_paths = [row[3], row[4], row[5]]
+        file_path = None
+        for candidate in candidate_paths:
+            file_path = _resolve_job_template_file_path(candidate)
+            if file_path is not None:
+                break
         if file_path is None:
             raise HTTPException(status_code=404, detail="Template file not found on disk")
 
