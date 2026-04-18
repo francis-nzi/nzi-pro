@@ -22,7 +22,7 @@ import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS, MCKINSEY_SCOPE_COLORS }
 import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
+  return "/api/backend";
 }
 
 type DashboardOverview = {
@@ -434,9 +434,9 @@ function tco2e(v: number): string {
 
 function gbp(v: number): string {
   const a = Math.abs(v);
-  if (a >= 1_000_000) return `Â£${Number(v / 1_000_000).toLocaleString("en-GB", { maximumFractionDigits: 1 })}M`;
-  if (a >= 1_000) return `Â£${Math.round(v / 1_000)}k`;
-  return `Â£${Math.round(v).toLocaleString("en-GB")}`;
+  if (a >= 1_000_000) return `£${Number(v / 1_000_000).toLocaleString("en-GB", { maximumFractionDigits: 1 })}M`;
+  if (a >= 1_000) return `£${Math.round(v / 1_000)}k`;
+  return `£${Math.round(v).toLocaleString("en-GB")}`;
 }
 function n(v: unknown, dp = 1): string {
   return Number(v || 0).toLocaleString("en-GB", { maximumFractionDigits: dp });
@@ -462,7 +462,7 @@ function formatDate(value: string | null | undefined): string {
 }
 
 function reportPresetLabel(view: string): string {
-  return REPORT_PRESETS.find((preset) => preset.key === view)?.label ?? view;
+  return REPORT_PRESETS.find((preset) => preset.key === view)?.label || view;
 }
 
 function reportFilterSummary(filters: {
@@ -534,7 +534,7 @@ function buildReportBreakdownData(rows: ReportRow[], config: ReportChartConfig):
   for (const row of rows) {
     const label = reportDimensionValue(row, config.breakdownKey);
     const nextValue = config.breakdownValueKey ? reportNumericValue(row, config.breakdownValueKey) : 1;
-    bucket.set(label, (bucket.get(label) ?? 0) + nextValue);
+    bucket.set(label, (bucket.get(label) || 0) + nextValue);
   }
   return Array.from(bucket.entries())
     .map(([label, value]) => ({
@@ -551,7 +551,7 @@ function buildReportTopData(rows: ReportRow[], config: ReportChartConfig): Repor
   const bucket = new Map<string, number>();
   for (const row of rows) {
     const label = reportDimensionValue(row, config.topKey);
-    bucket.set(label, (bucket.get(label) ?? 0) + reportNumericValue(row, config.topValueKey));
+    bucket.set(label, (bucket.get(label) || 0) + reportNumericValue(row, config.topValueKey));
   }
   return Array.from(bucket.entries())
     .map(([label, value]) => ({
@@ -813,7 +813,7 @@ export default function InsightsPageClient() {
         const json = await res.json();
         if (cancelled) return;
         const activeMembers = ((json.items ?? []) as TeamUser[])
-          .filter((member) => String(member.status ?? "Active").toLowerCase() === "active")
+          .filter((member) => String(member.status ?? "").toLowerCase() === "active")
           .sort((a, b) => (a.full_name || a.email || "").localeCompare(b.full_name || b.email || ""));
         setTeamMembers(activeMembers);
       } catch {
@@ -919,7 +919,7 @@ export default function InsightsPageClient() {
   [data]);
 
   const topEmittersChartData = useMemo(() =>
-    (data?.top_emitting_clients ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "â€¦" : c.client_name, emissions: +c.emissions || 0, id: c.client_id })),
+    (data?.top_emitting_clients ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "…" : c.client_name, emissions: +c.emissions || 0, id: c.client_id })),
   [data]);
 
   const jobStatusChartData = useMemo(() =>
@@ -927,7 +927,7 @@ export default function InsightsPageClient() {
   [data]);
 
   const timeSubjectChartData = useMemo(() =>
-    (operationsData.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "â€¦" : d.subject, hours: +d.hours || 0 })),
+    (operationsData.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "…" : d.subject, hours: +d.hours || 0 })),
   [operationsData]);
 
   const monthlyChartData = useMemo(() => {
@@ -942,7 +942,7 @@ export default function InsightsPageClient() {
   [financialData]);
 
   const topClientsChartData = useMemo(() =>
-    (financialData.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "â€¦" : c.client_name, value: +c.invoice_total || 0, id: c.client_id })),
+    (financialData.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.invoice_total || 0, id: c.client_id })),
   [financialData]);
 
   // â”€â”€â”€ BI Portfolio chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -970,7 +970,7 @@ export default function InsightsPageClient() {
   [biPortfolio]);
 
   const topClientsEmissionsData = useMemo(() =>
-    (biPortfolio.top_clients_detail ?? []).slice(0, 10).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "â€¦" : c.client_name, value: +c.emissions || 0, id: c.client_id })),
+    (biPortfolio.top_clients_detail ?? []).slice(0, 10).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.emissions || 0, id: c.client_id })),
   [biPortfolio]);
 
   const crmOpts = useMemo(() => data?.available_crm ?? [], [data]);
@@ -1155,7 +1155,7 @@ export default function InsightsPageClient() {
           <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Insights</h2>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-            <span>{isSuperuser ? "All CRMs â€” Portfolio View" : `Viewing: ${selectedCrm}`}</span>
+            <span>{isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1319,7 +1319,7 @@ export default function InsightsPageClient() {
               <Card>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">Top Clients â€” All Jobs</CardTitle>
+                    <CardTitle className="text-sm font-semibold">Top Clients — All Jobs</CardTitle>
                     <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/clients">View all</Link></Button>
                   </div>
                 </CardHeader>
@@ -1344,8 +1344,8 @@ export default function InsightsPageClient() {
           {/* â•â• EMISSIONS â•â• */}
           <TabsContent value="emissions" className="space-y-5 pt-3">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <InsightsKpi label="Total Emissions"  value={data ? tco2e(data.metrics.total_emissions) : "â€”"}                                              icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : "all years"} />
-              <InsightsKpi label="YoY Change"       value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "â€”"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
+              <InsightsKpi label="Total Emissions"  value={data ? tco2e(data.metrics.total_emissions) : "—"}                                              icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : "all years"} />
+              <InsightsKpi label="YoY Change"       value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "—"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
               <InsightsKpi label="Scope 1"          value={tco2e(biPortfolio.emissions_by_scope.scope_1)}                                                 icon={<Flame className="h-4 w-4" />}        accent="blue"   sub="direct" />
               <InsightsKpi label="Scope 2 + 3"      value={tco2e(biPortfolio.emissions_by_scope.scope_2 + biPortfolio.emissions_by_scope.scope_3)}         icon={<Layers className="h-4 w-4" />}       accent="purple" sub="indirect + value chain" />
             </div>
@@ -1577,7 +1577,7 @@ export default function InsightsPageClient() {
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Invoice Status Breakdown</CardTitle></CardHeader>
               <CardContent className="pt-0 space-y-2.5">
                 {(financialData.invoice_status_breakdown ?? []).length === 0 ? <InsightsEmpty /> :
-                  financialData.invoice_status_breakdown.map((row, i) => {
+                  (financialData.invoice_status_breakdown ?? []).map((row, i) => {
                     const total = financialData.metrics.invoice_total || 1;
                     const pct = (+row.total_value / total) * 100;
                     const isOverdue = row.status.toLowerCase().includes("overdue");
@@ -1585,7 +1585,7 @@ export default function InsightsPageClient() {
                       <div key={i} className="space-y-0.5">
                         <div className="flex justify-between text-xs">
                           <span className={`font-medium ${isOverdue ? "text-red-600" : ""}`}>{row.status}</span>
-                          <span className="text-muted-foreground">{gbp(+row.total_value || 0)} Â· {row.count} inv.</span>
+                          <span className="text-muted-foreground">{gbp(+row.total_value || 0)} · {row.count} inv.</span>
                         </div>
                         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: isOverdue ? "#dc2626" : MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} />
@@ -1604,7 +1604,7 @@ export default function InsightsPageClient() {
               <InsightsKpi label="On Track"       value={operationsData.metrics.healthy_jobs}                                                                              icon={<CheckCircle2 className="h-4 w-4" />}  accent="green"  sub="green milestone" />
               <InsightsKpi label="Due Soon"       value={operationsData.metrics.due_soon_jobs}                                                                             icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
               <InsightsKpi label="Overdue"        value={operationsData.metrics.overdue_jobs}                                                                              icon={<Flame className="h-4 w-4" />}         accent="red"    />
-              <InsightsKpi label="Utilisation"    value={operationsData.metrics.utilisation_pct != null ? `${n(operationsData.metrics.utilisation_pct)}%` : "â€”"}          icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={`${hrs(operationsData.metrics.time_logged_hours)} logged`} />
+              <InsightsKpi label="Utilisation"    value={operationsData.metrics.utilisation_pct != null ? `${n(operationsData.metrics.utilisation_pct)}%` : "—"}          icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={`${hrs(operationsData.metrics.time_logged_hours)} logged`} />
               <InsightsKpi label="Due in 30 days" value={operationsData.metrics.upcoming_milestones_30d}                                                                   icon={<Clock className="h-4 w-4" />}         accent="orange" sub="milestones" />
             </div>
 
@@ -1697,14 +1697,14 @@ export default function InsightsPageClient() {
                                 {rp > 0 && <div style={{ width: `${rp}%`, backgroundColor: MS_COLORS.red }} />}
                               </div>
                               <div className="flex justify-between mt-0.5 text-[10px]">
-                                <span className="text-green-600">{c.green_jobs} âœ“</span>
-                                <span className="text-amber-600">{c.amber_jobs} âš </span>
-                                <span className="text-red-600">{c.red_jobs} âœ—</span>
+                                <span className="text-green-600">{c.green_jobs} ✓</span>
+                                <span className="text-amber-600">{c.amber_jobs} ⚠</span>
+                                <span className="text-red-600">{c.red_jobs} ✕</span>
                               </div>
                             </td>
                             <td className="text-right py-2.5 text-muted-foreground">{hrs(c.logged_hours)}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "â€”"}</td>
-                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "â€”"}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
+                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
                           </tr>
                         );
                       })}
@@ -1744,18 +1744,18 @@ export default function InsightsPageClient() {
                           <td className="py-2.5">
                             <Link href={`/jobs/${job.job_id}`} className="hover:underline flex items-center gap-1 group font-medium">
                               <span className="text-muted-foreground text-xs">{job.job_number}</span>
-                              <span className="truncate max-w-[150px]">{job.title ?? `Job ${job.job_id}`}</span>
+                              <span className="truncate max-w-[150px]">{job.title || `Job ${job.job_id}`}</span>
                               <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
                             </Link>
                           </td>
-                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[110px]">{job.client_name ?? "â€”"}</td>
-                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name ?? "â€”"}</td>
+                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[110px]">{job.client_name ?? "—"}</td>
+                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name ?? "—"}</td>
                           <td className="py-2.5 text-xs">
-                            <div className="text-muted-foreground capitalize">{job.next_due_name?.replace(/_/g, " ") ?? "â€”"}</div>
-                            <div className="font-medium">{job.next_due_date ? formatDate(job.next_due_date) : "â€”"}</div>
+                            <div className="text-muted-foreground capitalize">{job.next_due_name?.replace(/_/g, " ") ?? "—"}</div>
+                            <div className="font-medium">{job.next_due_date ? formatDate(job.next_due_date) : "—"}</div>
                           </td>
                           <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_next_due == null ? "text-muted-foreground" : job.days_to_next_due < 0 ? "text-red-600" : job.days_to_next_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
-                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "â€”"}
+                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "—"}
                           </td>
                           <td className="py-2.5 pl-3">
                             <div className="flex flex-wrap gap-1">
@@ -2147,7 +2147,7 @@ export default function InsightsPageClient() {
 // â”€â”€â”€ Sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function InsightsKpi({ label, value, sub, icon, accent = "blue" }: { label: string; value: string | number; sub?: string; icon?: React.ReactNode; accent?: string }) {
-  const s = ACCENT[accent] ?? ACCENT.blue;
+  const s = ACCENT[accent as keyof typeof ACCENT] ?? ACCENT.blue;
   return (
     <Card className={`border-l-4 ${s.border}`}>
       <CardContent className="pt-4 pb-3">

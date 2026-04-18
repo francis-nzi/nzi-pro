@@ -106,9 +106,9 @@ function norm(url: string) { return String(url || "").trim().replace(/\/+$/, "")
 function n(v: unknown, dp = 1) { return Number(v || 0).toLocaleString("en-GB", { maximumFractionDigits: dp }); }
 function gbp(v: number) {
   const a = Math.abs(v);
-  if (a >= 1_000_000) return `Â£${n(v / 1_000_000)}M`;
-  if (a >= 1_000) return `Â£${Math.round(v / 1_000)}k`;
-  return `Â£${Math.round(v).toLocaleString("en-GB")}`;
+  if (a >= 1_000_000) return `£${n(v / 1_000_000)}M`;
+  if (a >= 1_000) return `£${Math.round(v / 1_000)}k`;
+  return `£${Math.round(v).toLocaleString("en-GB")}`;
 }
 function hrs(h: number) { return `${n(h)}h`; }
 function mon(s: string) {
@@ -116,7 +116,7 @@ function mon(s: string) {
   catch { return s.slice(0, 7); }
 }
 function dt(s: string | null) {
-  if (!s) return "â€”";
+  if (!s) return "—";
   try { return new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
   catch { return s; }
 }
@@ -157,7 +157,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       if (r1.status === "fulfilled" && r1.value.ok) {
         const d = (await r1.value.json()) as OverviewData;
         setOv(d);
-        setYear(prev => prev ?? d.selected_year);
+        setYear(d.selected_year);
       } else setError("Could not load dashboard data.");
       if (r2.status === "fulfilled" && r2.value.ok) setFin((await r2.value.json()) as FinancialData);
       if (r3.status === "fulfilled" && r3.value.ok) setOps((await r3.value.json()) as OperationsData);
@@ -198,7 +198,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   [fin]);
 
   const topClients = useMemo(() =>
-    (fin?.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "â€¦" : c.client_name, value: +c.total_invoiced || 0, id: c.client_id })),
+    (fin?.top_clients_by_invoiced_total ?? []).slice(0, 8).map(c => ({ name: c.client_name.length > 20 ? c.client_name.slice(0, 18) + "…" : c.client_name, value: +c.total_invoiced || 0, id: c.client_id })),
   [fin]);
 
   const industryData = useMemo(() =>
@@ -206,7 +206,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   [ov]);
 
   const timeSubject = useMemo(() =>
-    (ops?.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "â€¦" : d.subject, hours: +d.hours || 0 })),
+    (ops?.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "…" : d.subject, hours: +d.hours || 0 })),
   [ops]);
 
   // â”€â”€â”€ Filter options â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -229,13 +229,13 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
           <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Dashboard</h2>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-            <span>{isSuperuser ? "All CRMs â€” Superuser View" : `Viewing: ${crm}`}</span>
+            <span>{isSuperuser ? "All CRMs — Superuser View" : `Viewing: ${crm}`}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {showFilters && (
             <>
-              <FilterSelect label="Year"     value={year?.toString() ?? ""}    onValue={v => setYear(+v)}             options={yearOpts.map(y => ({ label: String(y), value: String(y) }))} placeholder="Yearâ€¦"    w="w-28" />
+              <FilterSelect label="Year"     value={year?.toString() ?? ""}    onValue={v => setYear(+v)}             options={yearOpts.map(y => ({ label: String(y), value: String(y) }))} placeholder="Year…"    w="w-28" />
               {indOpts.length > 0 && <FilterSelect label="Industry" value={ind ?? ALL} onValue={v => setInd(v === ALL ? null : v)} options={[{ label: "All", value: ALL }, ...indOpts.map(i => ({ label: i, value: i }))]} placeholder="All" w="w-40" />}
               {crmOpts.length > 0 && <FilterSelect label="CRM"      value={crm ?? ALL} onValue={v => setCrm(v === ALL ? null : v)} options={[{ label: "All CRMs", value: ALL }, ...crmOpts.map(c => ({ label: c, value: c }))]} placeholder="All CRMs" w="w-44" />}
             </>
@@ -275,17 +275,17 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
 
-          {/* â•â• OVERVIEW â•â• */}
+          {/* Overview */}
           <TabsContent value="overview" className="space-y-5 pt-3">
 
             {/* KPI strip */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <Kpi label="Active Jobs"     value={ops?.metrics.active_jobs ?? ov?.metrics.active_jobs ?? "â€”"}              icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
-              <Kpi label="Overdue Jobs"    value={ops?.metrics.overdue_jobs ?? mil?.red ?? "â€”"}                            icon={<Flame className="h-4 w-4" />}         accent="red"    sub="milestone overdue" />
-              <Kpi label="Due Soon"        value={ops?.metrics.due_soon_jobs ?? mil?.amber ?? "â€”"}                         icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
-              <Kpi label="Outstanding"     value={fin ? gbp(fin.metrics.outstanding_total) : "â€”"}                            icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
-              <Kpi label="Quote Pipeline"  value={fin ? gbp(fin.metrics.quote_value_total) : "â€”"}                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
-              <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "â€”"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
+              <Kpi label="Active Jobs"     value={ops?.metrics.active_jobs ?? ov?.metrics.active_jobs ?? "—"}              icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
+              <Kpi label="Overdue Jobs"    value={ops?.metrics.overdue_jobs ?? mil?.red ?? "—"}                            icon={<Flame className="h-4 w-4" />}         accent="red"    sub="milestone overdue" />
+              <Kpi label="Due Soon"        value={ops?.metrics.due_soon_jobs ?? mil?.amber ?? "—"}                         icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
+              <Kpi label="Outstanding"     value={fin ? gbp(fin.metrics.outstanding_total) : "—"}                            icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
+              <Kpi label="Quote Pipeline"  value={fin ? gbp(fin.metrics.quote_value_total) : "—"}                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
+              <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
             </div>
 
             {/* CRM Workload */}
@@ -294,7 +294,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">CRM Workload</CardTitle>
-                    {crm && <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setCrm(null)}>â† All CRMs</Button>}
+                    {crm && <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setCrm(null)}>← All CRMs</Button>}
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0 overflow-x-auto">
@@ -329,14 +329,14 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                                 {rp > 0 && <div style={{ width: `${rp}%`, backgroundColor: MS_COLORS.red }} />}
                               </div>
                               <div className="flex justify-between mt-0.5 text-[10px]">
-                                <span className="text-green-600">{c.green_jobs} âœ“</span>
-                                <span className="text-amber-600">{c.amber_jobs} âš </span>
-                                <span className="text-red-600">{c.red_jobs} âœ—</span>
+                                <span className="text-green-600">{c.green_jobs} ✓</span>
+                                <span className="text-amber-600">{c.amber_jobs} ⚠</span>
+                                <span className="text-red-600">{c.red_jobs} ✕</span>
                               </div>
                             </td>
                             <td className="text-right py-2.5 text-muted-foreground">{hrs(c.logged_hours)}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "â€”"}</td>
-                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "â€”"}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
+                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
                             <td className="py-2.5 pl-1"><ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></td>
                           </tr>
                         );
@@ -388,7 +388,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                             <div className="font-medium">{dt(job.next_due_date)}</div>
                           </td>
                           <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_next_due == null ? "text-muted-foreground" : job.days_to_next_due < 0 ? "text-red-600" : job.days_to_next_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
-                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "â€”"}
+                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "—"}
                           </td>
                           <td className="py-2.5 pl-3">
                             <div className="flex flex-wrap gap-1">
@@ -420,7 +420,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                       <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
                       <div className="flex-1 min-w-0">
                         <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
-                        <div className="text-xs text-muted-foreground">{job.client_name} Â· {job.reporting_year ?? "N/A"}</div>
+                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
                       </div>
                       <StatusBadge status={job.status} />
                     </div>
@@ -430,7 +430,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             )}
           </TabsContent>
 
-          {/* â•â• FINANCIAL â•â• */}
+          {/* Financial */}
           <TabsContent value="financial" className="space-y-5 pt-3">
             {!fin ? <Loading /> : (
               <>
@@ -547,7 +547,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                         <div key={i} className="space-y-0.5">
                           <div className="flex justify-between text-xs">
                             <span className={`font-medium ${ov2 ? "text-red-600" : ""}`}>{row.status}</span>
-                            <span className="text-muted-foreground">{gbp(+row.total_value || 0)} Â· {row.count} inv.</span>
+                            <span className="text-muted-foreground">{gbp(+row.total_value || 0)} · {row.count} inv.</span>
                           </div>
                           <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: ov2 ? "#dc2626" : MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} />
@@ -561,7 +561,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             )}
           </TabsContent>
 
-          {/* â•â• OPERATIONS â•â• */}
+          {/* Operations */}
           <TabsContent value="operations" className="space-y-5 pt-3">
             {!ops ? <Loading /> : (
               <>
@@ -570,7 +570,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                   <Kpi label="On Track"       value={ops.metrics.healthy_jobs}                    icon={<CheckCircle2 className="h-4 w-4" />}   accent="green"  sub="green milestone" />
                   <Kpi label="Due Soon"       value={ops.metrics.due_soon_jobs}                   icon={<AlertTriangle className="h-4 w-4" />}  accent="amber"  sub="within 7 days" />
                   <Kpi label="Overdue"        value={ops.metrics.overdue_jobs}                    icon={<Flame className="h-4 w-4" />}          accent="red"    />
-                  <Kpi label="Utilisation"    value={ops.metrics.utilisation_pct != null ? `${n(ops.metrics.utilisation_pct)}%` : "â€”"} icon={<TrendingUp className="h-4 w-4" />} accent="purple" sub={`${hrs(ops.metrics.time_logged_hours)} logged`} />
+                  <Kpi label="Utilisation"    value={ops.metrics.utilisation_pct != null ? `${n(ops.metrics.utilisation_pct)}%` : "—"} icon={<TrendingUp className="h-4 w-4" />} accent="purple" sub={`${hrs(ops.metrics.time_logged_hours)} logged`} />
                   <Kpi label="Due in 30 days" value={ops.metrics.upcoming_milestones_30d}         icon={<Clock className="h-4 w-4" />}          accent="orange" sub="milestones" />
                 </div>
 
@@ -639,9 +639,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                           <tr className="border-b text-xs text-muted-foreground">
                             <th className="text-left pb-2 font-medium">CRM</th>
                             <th className="text-right pb-2 font-medium">Jobs</th>
-                            <th className="text-right pb-2 font-medium text-green-600">âœ“</th>
-                            <th className="text-right pb-2 font-medium text-amber-600">âš </th>
-                            <th className="text-right pb-2 font-medium text-red-600">âœ—</th>
+                            <th className="text-right pb-2 font-medium text-green-600">✓</th>
+                            <th className="text-right pb-2 font-medium text-amber-600">⚠</th>
+                            <th className="text-right pb-2 font-medium text-red-600">✕</th>
                             <th className="text-right pb-2 font-medium">Logged</th>
                             <th className="text-right pb-2 font-medium">Est.</th>
                             <th className="text-right pb-2 font-medium">Util.</th>
@@ -658,8 +658,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                                 <td className="text-right py-2 font-medium text-amber-600">{c.amber_jobs}</td>
                                 <td className="text-right py-2 font-medium text-red-600">{c.red_jobs}</td>
                                 <td className="text-right py-2 text-muted-foreground">{hrs(c.logged_hours)}</td>
-                                <td className="text-right py-2 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "â€”"}</td>
-                                <td className={`text-right py-2 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "â€”"}</td>
+                                <td className="text-right py-2 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
+                                <td className={`text-right py-2 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
                               </tr>
                             );
                           })}
@@ -691,13 +691,13 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             )}
           </TabsContent>
 
-          {/* â•â• EMISSIONS â•â• */}
+          {/* Emissions */}
           <TabsContent value="emissions" className="space-y-5 pt-3">
             {!ov ? <Loading /> : (
               <>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   <Kpi label="Total Emissions" value={`${n(ov.metrics.total_emissions)} tCO₂e`} icon={<Flame className="h-4 w-4" />}    accent="orange" sub={`${ov.selected_year}`} />
-                  <Kpi label="YoY Change"      value={ov.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "â€”"} icon={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} />
+                  <Kpi label="YoY Change"      value={ov.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "—"} icon={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} />
                   <Kpi label="Clients"         value={ov.metrics.total_clients}               icon={<Users className="h-4 w-4" />}    accent="blue"   />
                   <Kpi label="Datasets"        value={ov.metrics.total_datasets}              icon={<Layers className="h-4 w-4" />}   accent="purple" sub="available" />
                 </div>
@@ -749,7 +749,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                       {ov.top_emitting_clients.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No emissions data for {ov.selected_year}</div> : (
                         <div className="h-[220px]">
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={ov.top_emitting_clients.slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "â€¦" : c.client_name, emissions: +c.emissions || 0 }))} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                            <BarChart data={ov.top_emitting_clients.slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "…" : c.client_name, emissions: +c.emissions || 0 }))} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                               <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${n(+v)} t`} />
                               <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
                               <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO₂e`, "Emissions"]} />
@@ -767,7 +767,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             )}
           </TabsContent>
 
-          {/* â•â• TASKS â•â• */}
+          {/* Tasks */}
           <TabsContent value="tasks" className="pt-3">
             <TaskCalendar baseUrl={api} crmOwner={crm} />
           </TabsContent>
@@ -780,7 +780,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 // â”€â”€â”€ Reusable sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Kpi({ label, value, sub, icon, accent = "blue" }: { label: string; value: string | number; sub?: string; icon?: React.ReactNode; accent?: string }) {
-  const s = ACCENT[accent] ?? ACCENT.blue;
+  const s = ACCENT[accent as keyof typeof ACCENT] ?? ACCENT.blue;
   return (
     <Card className={`border-l-4 ${s.border}`}>
       <CardContent className="pt-4 pb-3">
@@ -818,7 +818,7 @@ function FilterSelect({ label, value, onValue, options, placeholder, w }: { labe
 }
 
 function Loading() {
-  return <div className="flex items-center justify-center py-16 gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4 animate-spin" />Loadingâ€¦</div>;
+  return <div className="flex items-center justify-center py-16 gap-2 text-sm text-muted-foreground"><Clock className="h-4 w-4 animate-spin" />Loading…</div>;
 }
 
 function Empty() {

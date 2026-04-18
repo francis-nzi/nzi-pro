@@ -376,7 +376,7 @@ function MilestoneRow({
       </div>
       {readOnly ? (
         <div className="flex items-center gap-2 rounded-full border border-dashed border-muted-foreground/30 px-3 py-1 text-xs text-muted-foreground">
-          {helperText ?? "Template milestone"}
+          {helperText || "Template milestone"}
         </div>
       ) : (
         <label className="flex items-center gap-2 cursor-pointer">
@@ -938,7 +938,7 @@ export default function JobDetailPage() {
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
   const ownerLabel = (clientOwnerLabel || job?.crm_owner || "Unassigned").trim() || "Unassigned";
   const jobNumberLabel =
-    (job?.job_number ?? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job")).trim() ||
+    ((job?.job_number ? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job") : "Job").trim()) ||
     "Job";
   const jobTitleLabel = (jobTitle || job?.title || "").trim();
     const clientLabel = (job?.client_name || "Client").trim() || "Client";
@@ -1172,7 +1172,7 @@ export default function JobDetailPage() {
       const isCompleted = Boolean(completion?.is_complete);
       return {
         itemId: Number(item.item_id),
-        key: `${selectedMilestoneTemplate?.template_id ?? "template"}-${index + 4}`,
+        key: `${selectedMilestoneTemplate?.template_id != null ? "template" : "manual"}-${index + 4}`,
         label: item.milestone_name || `Milestone ${index + 4}`,
         dueDate: dueDate.toISOString(),
         status: isCompleted ? "completed" : milestoneStatusFromDate(dueDate),
@@ -1205,7 +1205,7 @@ export default function JobDetailPage() {
   }, [reportMetadataFieldsForSetup]);
 
   const activeTeamMembers = useMemo(
-    () => teamMembers.filter((m) => String(m.status ?? "Active").toLowerCase() === "active"),
+    () => teamMembers.filter((m) => String(m.status ?? "").toLowerCase() === "active"),
     [teamMembers]
   );
 
@@ -2206,7 +2206,7 @@ export default function JobDetailPage() {
             setImportConflicts(conflicts);
             setUploadStatus("");
             setBusy(false);
-            return; // Show conflict warning â€” user must acknowledge
+            return; // Show conflict warning — user must acknowledge
           }
         }
       } catch {
@@ -2285,7 +2285,7 @@ export default function JobDetailPage() {
       // Extract filename from Content-Disposition header
       const filenameMatch = contentDisposition.match(/filename="([^"]+)"/i);
       const filename =
-        filenameMatch?.[1] ??
+        filenameMatch?.[1] ||
         [
           safeNamePart(jobNumberLabel),
           safeNamePart(clientLabel),
@@ -2571,7 +2571,7 @@ export default function JobDetailPage() {
                   <SelectContent>
                     {templates.filter(t => t.is_active).map((t) => (
                       <SelectItem key={t.job_template_id} value={String(t.job_template_id)}>
-                        {(t.template_key ?? "template") + (t.template_name ? ` - ${t.template_name}` : "")}
+                        {(t.template_key || "template") + (t.template_name ? ` - ${t.template_name}` : "")}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2594,7 +2594,7 @@ export default function JobDetailPage() {
                     {sites
                       .filter((s) => s.site_id != null && (s.site_name ?? "").trim().length > 0)
                       .map((s) => (
-                        <SelectItem key={s.site_id ?? ""} value={String(s.site_id)}>
+                        <SelectItem key={String(s.site_id)} value={String(s.site_id)}>
                           {s.site_name}
                         </SelectItem>
                       ))}
@@ -2743,7 +2743,7 @@ export default function JobDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground mb-4">
-                    These custom fields are configured in Admin â†’ Custom Fields. Required fields must be completed before
+                    These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
                     saving.
                   </p>
                   <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
@@ -2883,7 +2883,7 @@ export default function JobDetailPage() {
                     {scopeAutoResolution ? (
                       <div className="text-xs text-muted-foreground space-y-1">
                         <div>
-                          Resolution context: {(scopeAutoResolution.country || "Unspecified country")} â€¢ {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
+                          Resolution context: {(scopeAutoResolution.country || "Unspecified country")} • {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
                         </div>
                         {scopeAutoResolution.uses_legacy_fallback ? (
                           <div>Automatic mode is currently using some legacy fallback datasets.</div>
@@ -2991,7 +2991,7 @@ export default function JobDetailPage() {
                     {scopeCatalogStatus ? (
                       <div className="rounded border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                         {scopeCatalogStatus}
-                        {Number.isFinite(scopeCatalogCount ?? NaN)
+                        {scopeCatalogCount != null
                           ? ` (${scopeCatalogCount} total)`
                           : ""}
                       </div>
@@ -3017,7 +3017,7 @@ export default function JobDetailPage() {
                                   {ds.name || `Dataset ${id}`}
                                 </div>
                                 <div className="text-muted-foreground">
-                                  {ds.country || "Unknown"} â€¢ {ds.year || "n/a"} â€¢ {ds.analysis_type || "n/a"}
+                                  {ds.country || "Unknown"} • {ds.year || "n/a"} • {ds.analysis_type || "n/a"}
                                 </div>
                               </div>
                               <input
@@ -3156,7 +3156,7 @@ export default function JobDetailPage() {
                         {sites
                           .filter((s) => s.site_id != null && (s.site_name ?? "").trim().length > 0)
                           .map((s) => (
-                            <SelectItem key={s.site_id ?? ""} value={String(s.site_id)}>
+                            <SelectItem key={String(s.site_id)} value={String(s.site_id)}>
                               {s.site_name}
                             </SelectItem>
                           ))}
@@ -3211,7 +3211,7 @@ export default function JobDetailPage() {
                   {importConflicts.length > 0 ? (
                     <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm space-y-3">
                       <div className="font-medium text-amber-800">
-                        âš ï¸ {importConflicts.length} row{importConflicts.length > 1 ? "s" : ""} already have data entered â€” uploading will overwrite their quantities.
+                        ⚠️ {importConflicts.length} row{importConflicts.length > 1 ? "s" : ""} already have data entered — uploading will overwrite their quantities.
                       </div>
                       <div className="max-h-48 overflow-y-auto rounded border border-amber-200 bg-white">
                         <table className="w-full text-xs">
@@ -3229,7 +3229,7 @@ export default function JobDetailPage() {
                                 <td className="p-2">{c.scope}</td>
                                 <td className="p-2">{c.report_label}</td>
                                 <td className="p-2 text-right font-mono text-amber-700">{c.existing_qty.toLocaleString()}</td>
-                                <td className="p-2 text-right font-mono">{c.upload_qty?.toLocaleString() ?? "â€”"}</td>
+                                <td className="p-2 text-right font-mono">{c.upload_qty?.toLocaleString() ?? "—"}</td>
                               </tr>
                             ))}
                           </tbody>

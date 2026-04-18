@@ -24,7 +24,7 @@ import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { withAuditHeaders } from "@/lib/auth-client";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend";
+  return "/api/backend";
 }
 
 type ScopeTotals = {
@@ -465,7 +465,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       row.level_2,
       row.level_1,
       row.original_id,
-    ]).join(" â€¢ ");
+    ]).join(" • ");
   }
 
   async function updateQuantity(rowId: number, newQty: number | null) {
@@ -1041,7 +1041,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       factor.level_1,
       factor.original_id,
       factor.source,
-    ]).join(" â€¢ ");
+    ]).join(" • ");
   }
 
   // Check if a factor is already added to the job
@@ -1589,9 +1589,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             </div>
                             <div className="text-xs text-muted-foreground">
                               From {row.source_job_number || `Job ${row.job_id}`}
-                              {row.source_job_title ? ` â€¢ ${row.source_job_title}` : ""}
+                              {row.source_job_title ? ` • ${row.source_job_title}` : ""}
                               {row.source_reporting_period_start && row.source_reporting_period_end
-                                ? ` â€¢ ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
+                                ? ` • ${row.source_reporting_period_start} to ${row.source_reporting_period_end}`
                                 : ""}
                             </div>
                             <div className="flex flex-wrap gap-3 text-xs">
@@ -1969,7 +1969,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     monthlyEditRow.scope,
                     monthlyEditRow.category,
                     monthlyEditRow.original_id,
-                  ]).join(" â€¢ ")}
+                  ]).join(" • ")}
                 </div>
               </div>
             )}
@@ -2038,7 +2038,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               {monthlyEditRow && !isLegacyFallbackRow(monthlyEditRow) && monthlyEditRow.qty && Math.abs(monthlyEditRow.qty - getMonthlySum()) > 0.01 && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                   <div className="flex items-start gap-2">
-                    <span className="text-yellow-600 font-semibold text-sm">âš ï¸ Warning:</span>
+                    <span className="text-yellow-600 font-semibold text-sm">⚠️ Warning:</span>
                     <div className="text-sm text-yellow-800">
                       <p>Monthly total ({getMonthlySum().toFixed(2)}) does not match Annual Qty ({monthlyEditRow.qty.toFixed(2)}).</p>
                       <p className="mt-1">When you save, the Annual Qty will be updated to match the monthly total.</p>
