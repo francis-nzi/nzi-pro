@@ -1947,13 +1947,25 @@ async def update_job_template(
     try:
         with get_conn() as con:
             # Check template exists
-            exists = con.execute(
-                "SELECT 1 FROM job_templates WHERE job_template_id = %s",
+            template_row = con.execute(
+                """
+                SELECT
+                    template_type,
+                    file_path,
+                    excel_template_path,
+                    crp_template_path
+                FROM job_templates
+                WHERE job_template_id = %s
+                """,
                 [int(template_id)]
             ).fetchone()
             
-            if not exists:
+            if not template_row:
                 raise HTTPException(status_code=404, detail="Template not found")
+
+            current_file_path = template_row[1]
+            current_excel_path = template_row[2]
+            current_crp_path = template_row[3]
             
             # Build update query
             updates = []
@@ -1991,6 +2003,19 @@ async def update_job_template(
                 
                 updates.append("file_path = %s")
                 params.append(str(file_path))
+            else:
+                current_file_resolved = _resolve_job_template_file_path(current_file_path)
+                current_resolved_path = current_file_resolved
+                if current_resolved_path is None:
+                    fallback_candidates = [current_excel_path, current_crp_path]
+                    for candidate in fallback_candidates:
+                        current_resolved_path = _resolve_job_template_file_path(candidate)
+                        if current_resolved_path is not None:
+                            break
+                if current_resolved_path is not None and current_file_resolved is None:
+                    # Backfill a working file reference so Edit and Download resolve the same workbook.
+                    updates.append("file_path = %s")
+                    params.append(str(current_resolved_path))
             
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
