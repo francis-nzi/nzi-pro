@@ -125,11 +125,6 @@ function NewJobPageContent() {
     },
   ];
 
-  const hasDataset = ["Scope 1", "Scope 2", "Scope 3"].some(
-    (scope) => scopeDatasetIds[scope] && scopeDatasetIds[scope] !== "__none__"
-  );
-  const scopeDatasetsAvailable = datasets.length > 0;
-
   const reportingYearLocked = isBenchmark && !!clientBenchmarkPeriod;
 
   const stepCompletion = [
@@ -138,7 +133,7 @@ function NewJobPageContent() {
       Boolean(dueDate) &&
       (reportingYearLocked || Boolean(reportingYear.trim())) &&
       (!startDate || !dueDate || new Date(dueDate) >= new Date(startDate)),
-    !scopeDatasetsAvailable || hasDataset,
+    true,
   ];
 
   const validationCount = Object.keys(formErrors).length;
@@ -211,11 +206,6 @@ function NewJobPageContent() {
       if (due < start) {
         nextErrors.dueDate = "Due date cannot be before start date.";
       }
-    }
-
-    if (scopeDatasetsAvailable && !hasDataset) {
-      nextErrors.scopeDatasets =
-        "Select at least one scope dataset to continue.";
     }
 
     return nextErrors;
@@ -900,18 +890,13 @@ function NewJobPageContent() {
                 <CardContent className="space-y-4">
                   <div>
                     <h3 className="text-sm font-medium mb-2">
-                      Scope Dataset Configuration{scopeDatasetsAvailable ? " *" : ""}
+                      Scope Dataset Configuration
                     </h3>
                     <p className="text-xs text-muted-foreground mb-3">
-                      Assign conversion factor datasets to each scope. If no datasets are available yet, you can still
-                      create the job and add scope datasets later when the new year datasets are seeded.
+                      Dataset allocation is automatic based on the client country and reporting period.
+                      You can leave these as None to use the automatic resolution, or override them here if needed.
                     </p>
-                    {!scopeDatasetsAvailable && (
-                      <p className="text-xs text-amber-700 mb-3">
-                        No datasets are currently available for this job. Leave the scope fields as None for now.
-                      </p>
-                    )}
-                    {formErrors.scopeDatasets && scopeDatasetsAvailable && (
+                    {formErrors.scopeDatasets && (
                       <p className="text-xs text-destructive">{formErrors.scopeDatasets}</p>
                     )}
                   </div>
@@ -930,7 +915,7 @@ function NewJobPageContent() {
                         }}
                       >
                         <SelectTrigger id={`dataset-${scope}`}>
-                          <SelectValue placeholder="Select dataset..." />
+                          <SelectValue placeholder="Auto / None" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none__">None</SelectItem>
