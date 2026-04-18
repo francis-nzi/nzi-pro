@@ -14,6 +14,15 @@ CATEGORY_OPTIONS = ["Fleet", "Travel", "Equipment"]
 ROLLUP_METHOD_OPTIONS = ["sum", "weighted_sum", "headcount_scaled", "average"]
 
 
+def _safe_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except Exception:
+        return None
+
+
 def _safe_filename_part(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
