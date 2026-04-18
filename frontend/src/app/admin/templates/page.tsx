@@ -511,10 +511,10 @@ export default function TemplatesPage() {
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                          <div className="break-words font-medium">
+                          <div className="break-words text-base font-semibold">
                             {t.template_name || t.template_key}
                           </div>
-                          <div className="break-words text-sm text-muted-foreground">
+                          <div className="break-words text-xs text-muted-foreground">
                             {t.template_key}
                           </div>
                           <div className="mt-2 space-y-1 text-xs">
@@ -785,10 +785,10 @@ export default function TemplatesPage() {
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
-                              <div className="font-medium">
+                              <div className="text-base font-semibold">
                                 {t.template_name || t.template_key}
                               </div>
-                              <div className="text-sm text-muted-foreground">
+                              <div className="text-xs text-muted-foreground">
                                 {t.template_key}
                               </div>
                               <div className="mt-2 space-y-1 text-xs">

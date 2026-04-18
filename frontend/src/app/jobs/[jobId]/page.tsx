@@ -2571,7 +2571,9 @@ export default function JobDetailPage() {
                   <SelectContent>
                     {templates.filter(t => t.is_active).map((t) => (
                       <SelectItem key={t.job_template_id} value={String(t.job_template_id)}>
-                        {t.template_name || t.template_key || "template"}
+                        <span className="font-semibold">
+                          {t.template_name || t.template_key || "template"}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
