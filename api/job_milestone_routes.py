@@ -129,14 +129,6 @@ def list_milestone_template_completions(
     assert_permission(_user, "jobs.view")
     try:
         with get_conn() as con:
-            try:
-                assert_job_access(_user, int(job_id))
-            except HTTPException as exc:
-                if exc.status_code == 403:
-                    # Fail open for the setup overview so older jobs without
-                    # complete tenant metadata do not break the page.
-                    return {"job_id": int(job_id), "items": []}
-                raise
             _ensure_schema(con)
             ctx = _job_context(con, int(job_id))
             df = con.execute(
