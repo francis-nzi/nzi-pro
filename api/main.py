@@ -3675,12 +3675,21 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
-    assert_client_access(_user, int(client_db_id))
     org_id = str(_user.get("org_id") or "").strip() or get_default_org_id()
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
         ensure_client_benchmark_columns(con)
+        try:
+            assert_client_access(_user, int(client_db_id))
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                # Fail open for legacy clients that have not yet been assigned
+                # tenant metadata. The job setup page still needs to read the
+                # client record for benchmark period and reporting defaults.
+                pass
+            else:
+                raise
         if org_id:
             row = con.execute(
                 """
