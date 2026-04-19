@@ -68,5 +68,7 @@ def require_org(user: dict) -> str:
         user["org_id"] = fallback
         return fallback
 
-    user["org_id"] = ""
-    return ""
+    raise HTTPException(
+        status_code=403,
+        detail="No organisation associated with this account.",
+    )
