@@ -483,6 +483,7 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                 client_org_id = str(row[0] or "").strip()
                 if client_org_id:
                     return client_org_id == user_org_id
+                return False
         except Exception:
             # Older live databases may not have tenant columns yet; fall back to the legacy path.
             pass
@@ -526,6 +527,7 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
                 job_org_id = str(row[0] or "").strip()
                 if job_org_id:
                     return job_org_id == user_org_id
+                return False
         except Exception:
             # Older live databases may not have tenant columns yet; fall back to the legacy path.
             pass
