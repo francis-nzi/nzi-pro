@@ -1228,6 +1228,8 @@ export default function InsightsPageClient() {
 
           {/* â•â• PORTFOLIO â•â• */}
           <TabsContent value="portfolio" className="space-y-5 pt-3">
+            {activeTab === "portfolio" ? (
+              <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <InsightsKpi label="Total Clients"    value={biPortfolio.portfolio.total_clients}                                                                    icon={<Users className="h-4 w-4" />}         accent="blue"   sub="in portfolio" />
               <InsightsKpi label="Active Clients"   value={biPortfolio.portfolio.active_clients}                                                                   icon={<Users className="h-4 w-4" />}         accent="green"  sub="currently active" />
@@ -1339,10 +1341,14 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
             </div>
+              </>
+            ) : null}
           </TabsContent>
 
           {/* â•â• EMISSIONS â•â• */}
           <TabsContent value="emissions" className="space-y-5 pt-3">
+            {activeTab === "emissions" ? (
+              <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <InsightsKpi label="Total Emissions"  value={data ? tco2e(data.metrics.total_emissions) : "—"}                                              icon={<Flame className="h-4 w-4" />}        accent="orange" sub={data?.selected_year ? String(data.selected_year) : "all years"} />
               <InsightsKpi label="YoY Change"       value={data?.metrics.yoy_change != null ? `${data.metrics.yoy_change > 0 ? "+" : ""}${n(data.metrics.yoy_change)}%` : "—"} icon={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={data?.metrics.yoy_change != null && data.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
@@ -1465,10 +1471,14 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
             </div>
+              </>
+            ) : null}
           </TabsContent>
 
           {/* â•â• FINANCIAL â•â• */}
           <TabsContent value="financial" className="space-y-5 pt-3">
+            {activeTab === "financial" ? (
+              <>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               <InsightsKpi label="Quote Pipeline"  value={gbp(financialData.metrics.quote_value_total)} sub={`${financialData.metrics.quote_count} quotes`}    accent="blue"   icon={<TrendingUp className="h-4 w-4" />} />
               <InsightsKpi label="Approved"        value={gbp(financialData.metrics.approved_quote_value)}                                                      accent="purple" icon={<CheckCircle2 className="h-4 w-4" />} sub="signed or approved" />
@@ -1595,10 +1605,14 @@ export default function InsightsPageClient() {
                   })}
               </CardContent>
             </Card>
+              </>
+            ) : null}
           </TabsContent>
 
           {/* â•â• OPERATIONS â•â• */}
           <TabsContent value="operations" className="space-y-5 pt-3">
+            {activeTab === "operations" ? (
+              <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               <InsightsKpi label="Active Jobs"    value={operationsData.metrics.active_jobs}                                                                               icon={<Briefcase className="h-4 w-4" />}     accent="blue"   />
               <InsightsKpi label="On Track"       value={operationsData.metrics.healthy_jobs}                                                                              icon={<CheckCircle2 className="h-4 w-4" />}  accent="green"  sub="green milestone" />
@@ -1771,10 +1785,14 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
             )}
+              </>
+            ) : null}
           </TabsContent>
 
           {/* â•â• REPORTS â•â• */}
           <TabsContent value="reports" className="space-y-5 pt-3">
+            {activeTab === "reports" ? (
+              <>
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Saved Reports</CardTitle></CardHeader>
               <CardContent className="space-y-4">
@@ -2138,6 +2156,8 @@ export default function InsightsPageClient() {
                 )}
               </CardContent>
             </Card>
+              </>
+            ) : null}
           </TabsContent>
         </Tabs>
     </div>
