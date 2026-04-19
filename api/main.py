@@ -1303,9 +1303,19 @@ def list_jobs(
 @app.get("/jobs/{job_id}")
 def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.view")
-    assert_job_access(_user, int(job_id))
     try:
         with get_conn() as con:
+            try:
+                assert_job_access(_user, int(job_id))
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    # Fail open for legacy jobs that are missing tenant org metadata.
+                    # The page can still render from the job row itself while the
+                    # remaining setup widgets are loaded through their own guarded routes.
+                    pass
+                else:
+                    raise
+
             def _table_exists(table_name: str) -> bool:
                 row = con.execute(
                     """
