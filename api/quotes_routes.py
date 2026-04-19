@@ -218,7 +218,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM clients c
                 WHERE c.db_id = quotes.client_db_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -233,7 +233,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM quotes q
                 WHERE q.quote_id = quote_lines.quote_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -248,7 +248,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM clients c
                 WHERE c.db_id = invoices.client_db_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -263,7 +263,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM invoices i
                 WHERE i.invoice_id = invoice_lines.invoice_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -278,7 +278,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM quotes q
                 WHERE q.quote_id = quote_email_log.quote_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -293,7 +293,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM invoices i
                 WHERE i.invoice_id = invoice_email_log.invoice_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
@@ -309,7 +309,7 @@ def _ensure_quote_tables(con) -> None:
                 JOIN clients c ON c.db_id = j.client_db_id
                 WHERE j.job_id = job_other_costs.job_id
                 LIMIT 1
-            ))
+            )::varchar)
             WHERE org_id IS NULL
             """
         )
