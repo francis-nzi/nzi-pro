@@ -515,7 +515,7 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
             with get_conn() as con:
                 row = con.execute(
                     """
-                    SELECT c.org_id
+                    SELECT j.client_db_id, c.org_id
                     FROM jobs j
                     JOIN clients c ON c.db_id = j.client_db_id
                     WHERE j.job_id = ?
@@ -524,9 +524,15 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
                     [int(job_id)],
                 ).fetchone()
             if row:
-                job_org_id = str(row[0] or "").strip()
+                client_db_id = int(row[0]) if row[0] is not None else None
+                job_org_id = str(row[1] or "").strip()
                 if job_org_id:
                     return job_org_id == user_org_id
+                # Older live jobs may still be missing tenant data on the job row.
+                # In that case, fall back to the client-based access check so the
+                # existing job remains reachable while the rollout completes.
+                if client_db_id is not None:
+                    return user_can_access_client(user, client_db_id)
                 return False
         except Exception:
             # Older live databases may not have tenant columns yet; fall back to the legacy path.
