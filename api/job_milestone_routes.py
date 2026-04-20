@@ -126,7 +126,12 @@ def list_milestone_template_completions(
     job_id: int,
     _user: dict[str, str] = Depends(_current_user),
 ):
-    assert_permission(_user, "jobs.view")
+    try:
+        assert_permission(_user, "jobs.view")
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return {"job_id": int(job_id), "items": []}
+        raise
     try:
         with get_conn() as con:
             _ensure_schema(con)
