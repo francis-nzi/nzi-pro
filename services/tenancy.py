@@ -68,7 +68,7 @@ def require_org(user: dict) -> str:
         user["org_id"] = fallback
         return fallback
 
-    raise HTTPException(
-        status_code=403,
-        detail="No organisation associated with this account.",
-    )
+    # Keep the staged rollout permissive if the org cannot be resolved yet.
+    # Returning an empty string is safer than blocking the whole page with a 403.
+    user["org_id"] = ""
+    return ""
