@@ -2287,18 +2287,84 @@ def list_datasets(_user: dict = Depends(_current_user)):
     """List all datasets with factor counts."""
     try:
         with get_conn() as con:
+            def _table_exists(name: str) -> bool:
+                try:
+                    row = con.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = %s
+                        LIMIT 1
+                        """,
+                        [name],
+                    ).fetchone()
+                    return bool(row)
+                except Exception:
+                    return False
+
+            def _column_exists(table_name: str, column_name: str) -> bool:
+                try:
+                    row = con.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = %s
+                          AND column_name = %s
+                        LIMIT 1
+                        """,
+                        [table_name, column_name],
+                    ).fetchone()
+                    return bool(row)
+                except Exception:
+                    return False
+
+            dataset_columns = [
+                "dataset_id",
+                "name",
+                "source",
+                "analysis_type",
+                "country",
+                "region",
+                "currency",
+                "year",
+                "version",
+                "license",
+                "notes",
+                "valid_from",
+                "valid_to",
+                "archived",
+                "archived_at",
+                "archived_by",
+            ]
+
+            select_parts: list[str] = []
+            group_parts: list[str] = []
+            for column in dataset_columns:
+                if _column_exists("datasets", column):
+                    select_parts.append(f"d.{column} AS {column}")
+                    group_parts.append(f"d.{column}")
+                else:
+                    select_parts.append(f"NULL AS {column}")
+
+            if _table_exists("factor_lookup"):
+                select_parts.append("COUNT(f.db_id) AS factor_count")
+                factor_join = "LEFT JOIN factor_lookup f ON f.dataset_id = d.dataset_id"
+            else:
+                select_parts.append("0 AS factor_count")
+                factor_join = ""
+
+            group_by_sql = ", ".join(group_parts) if group_parts else "d.dataset_id"
+            select_sql = ",\n                       ".join(select_parts)
+
             df = con.execute(
-                """
-                SELECT d.dataset_id, d.name, d.source, d.analysis_type, d.country, d.region, d.currency, 
-                       d.year, d.version, d.license, d.notes, d.valid_from, d.valid_to,
-                       d.archived, d.archived_at, d.archived_by,
-                       COUNT(f.db_id) as factor_count
+                f"""
+                SELECT {select_sql}
                 FROM datasets d
-                LEFT JOIN factor_lookup f ON f.dataset_id = d.dataset_id
-                GROUP BY d.dataset_id, d.name, d.source, d.analysis_type, d.country, d.region, d.currency,
-                         d.year, d.version, d.license, d.notes, d.valid_from, d.valid_to,
-                         d.archived, d.archived_at, d.archived_by
-                ORDER BY d.year DESC, d.name
+                {factor_join}
+                GROUP BY {group_by_sql}
+                ORDER BY year DESC NULLS LAST, name
                 """
             ).df()
         
