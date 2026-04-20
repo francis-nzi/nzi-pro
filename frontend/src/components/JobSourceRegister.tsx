@@ -129,6 +129,7 @@ export default function JobSourceRegister({
   showEmissionsSummary?: boolean;
 }) {
   const isBusinessTravel = sourceType === "business_travel";
+  const groupLabel = isBusinessTravel ? "Travel Group" : "Asset Group";
   const recordLabel = isBusinessTravel ? "Travel Source" : "Asset";
   const recordPlural = isBusinessTravel ? "Travel Sources" : "Assets";
   const recordIdentityLabel = isBusinessTravel ? "Travel identity" : "Asset identity";
@@ -612,24 +613,24 @@ export default function JobSourceRegister({
 
           <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
             <p>
-              Use matching <span className="font-medium text-foreground">Asset Group</span> values to link{" "}
-              {recordPlural.toLowerCase()} to shared roll-up groups. The Asset Group name is the business roll-up label, while
-              the factor ID lives in <span className="font-medium text-foreground">Original ID</span> or{" "}
+              Use matching <span className="font-medium text-foreground">{groupLabel}</span> values to link{" "}
+              {recordPlural.toLowerCase()} to shared roll-up groups. The {groupLabel} name is the business roll-up label,
+              while the factor ID lives in <span className="font-medium text-foreground">Original ID</span> or{" "}
               <span className="font-medium text-foreground">Factor DB ID</span> on each {recordLabel.toLowerCase()} row.
             </p>
             <p>
               <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
-              usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register or{" "}
-              <span className="font-medium text-foreground">business_travel</span> for Business Travel.
+              usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register and{" "}
+              <span className="font-medium text-foreground">business_travel</span> for the Business Travel Register.
             </p>
             <p>
               Suggested pattern:{" "}
-              <span className="font-medium text-foreground">[Category] - [Asset or Mode] - [Site or Team]</span>.
+              <span className="font-medium text-foreground">[Category] - [{isBusinessTravel ? "Mode" : "Asset"}] - [Site or Team]</span>.
             </p>
             <p>
               For fleet-style reporting, use the group as the factor family bucket, for example{" "}
               <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
-              {recordLabel.toLowerCase()} as the individual asset record underneath it.
+              {recordLabel.toLowerCase()} as the individual record underneath it.
             </p>
             <p>Search is live on the factor picker, and the workbook download can be limited to a single site.</p>
           </div>
@@ -742,7 +743,7 @@ export default function JobSourceRegister({
                     <div className="min-w-0">
                       <div className="truncate font-medium">{factor.report_label}</div>
                       <div className="text-xs text-muted-foreground">
-                        {factor.scope} Â· {factor.category} Â· UOM {factor.uom || "-"} Â· {factor.original_id}
+                        {factor.scope} · {factor.category} · UOM {factor.uom || "-"} · {factor.original_id}
                       </div>
                     </div>
                     <Button variant={selectedFactor?.original_id === factor.original_id ? "secondary" : "outline"} size="sm" onClick={() => chooseFactor(factor)}>
@@ -757,7 +758,7 @@ export default function JobSourceRegister({
                 <div className="rounded-md border bg-background p-3 text-sm">
                   <div className="font-medium">Selected factor</div>
                   <div className="text-muted-foreground">
-                    {selectedFactor.report_label} Â· {selectedFactor.original_id} Â· {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} Â· UOM {selectedFactor.uom || "-"}
+                {selectedFactor.report_label} · {selectedFactor.original_id} · {selectedFactor.factor ?? "-"} {selectedFactor.ghg_unit ?? ""} · UOM {selectedFactor.uom || "-"}
                   </div>
                 </div>
               ) : null}
@@ -821,19 +822,21 @@ export default function JobSourceRegister({
             </div>
             <div className="rounded-md border bg-muted/10 p-4 text-sm text-muted-foreground space-y-2">
               <p>
-                Assets inherit scope, site, category, and factor from the selected group. Pick the group that
-                represents the roll-up bucket, then add each individual asset underneath it.
+                {recordPlural} inherit scope, site, category, and factor from the selected group. Pick the group
+                that represents the roll-up bucket, then add each individual {recordLabel.toLowerCase()} underneath
+                it.
               </p>
               {selectedGroup ? (
                 <p className="text-foreground">
-                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> Â· {selectedGroup.scope}
-                  {selectedGroup.site_name ? ` Â· ${selectedGroup.site_name}` : ""}
-                  {selectedGroup.factor_report_label ? ` Â· ${selectedGroup.factor_report_label}` : ""}
-                  {selectedGroup.uom ? ` Â· UOM ${selectedGroup.uom}` : ""}
+                  Selected group: <span className="font-medium">{selectedGroup.group_name}</span> · {selectedGroup.scope}
+                  {selectedGroup.site_name ? ` · ${selectedGroup.site_name}` : ""}
+                  {selectedGroup.factor_report_label ? ` · ${selectedGroup.factor_report_label}` : ""}
+                  {selectedGroup.uom ? ` · UOM ${selectedGroup.uom}` : ""}
                 </p>
               ) : (
                 <p className="text-amber-700">
-                  Choose or create a group first so the asset can inherit its factor and reporting details.
+                  Choose or create a group first so the {recordLabel.toLowerCase()} can inherit its factor and
+                  reporting details.
                 </p>
               )}
             </div>
@@ -874,7 +877,7 @@ export default function JobSourceRegister({
                   <td className="p-2">{g.site_name || "-"}</td>
                   <td className="p-2">
                     <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
-                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` Â· ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
+                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
                   </td>
                   <td className="p-2">{g.uom || "-"}</td>
                   <td className="p-2">{g.source_count ?? 0}</td>
