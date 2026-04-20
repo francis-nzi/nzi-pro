@@ -121,12 +121,12 @@ export default function JobSourceRegister({
   showEmissionsSummary?: boolean;
 }) {
   const isBusinessTravel = sourceType === "business_travel";
-  const groupLabel = isBusinessTravel ? "Travel Group" : "Asset Group";
-  const recordLabel = isBusinessTravel ? "Travel Source" : "Asset";
-  const recordPlural = isBusinessTravel ? "Travel Sources" : "Assets";
-  const recordIdentityLabel = isBusinessTravel ? "Travel identity" : "Asset identity";
-  const recordIdentityPlaceholder = isBusinessTravel ? "Employee ref / trip ref" : "Registration / asset tag";
-  const recordNamePlaceholder = isBusinessTravel ? "Employee travel pattern" : "Vehicle / Asset name";
+  const groupLabel = isBusinessTravel ? "Travel Factor Group" : "Asset Group";
+  const recordLabel = isBusinessTravel ? "Travel Entry" : "Asset";
+  const recordPlural = isBusinessTravel ? "Travel Entries" : "Assets";
+  const recordIdentityLabel = isBusinessTravel ? "Travel reference" : "Asset identity";
+  const recordIdentityPlaceholder = isBusinessTravel ? "Trip / booking ref" : "Registration / asset tag";
+  const recordNamePlaceholder = isBusinessTravel ? "Travel pattern / trip label" : "Vehicle / Asset name";
   const importButtonLabel = isBusinessTravel ? "Import into Data Entry" : "Import workbook";
   const confirmAction = useConfirmDialog();
   const apiBases = useMemo(() => apiBaseCandidates(), []);
@@ -399,7 +399,7 @@ export default function JobSourceRegister({
     setError("");
     try {
       if (!selectedGroup) {
-        throw new Error("Choose a group before adding an asset.");
+        throw new Error(isBusinessTravel ? "Choose a group before adding a travel entry." : "Choose a group before adding an asset.");
       }
       const payload = {
         source_type: sourceType,
@@ -410,7 +410,7 @@ export default function JobSourceRegister({
         employee_name: employeeName.trim() || null,
         qty: qty.trim() ? Number(qty) : null,
         apply_pct: applyPct.trim() ? Number(applyPct) : 100,
-        data_source: sourceType === "business_travel" ? "Business Travel Register" : "Asset Register",
+        data_source: sourceType === "business_travel" ? "Business Travel Data Upload" : "Asset Register",
         data_confidence: "M",
         notes: notes.trim() || null,
         detail_json: {},
@@ -575,7 +575,7 @@ export default function JobSourceRegister({
   async function removeSource(sourceId: number, label: string) {
     const confirmed = await confirmAction({
       title: `Delete ${recordLabel.toLowerCase()}`,
-      description: `Delete ${recordLabel.toLowerCase()} "${label}"? It will be hidden from the active register but kept in history.`,
+      description: `Delete ${recordLabel.toLowerCase()} "${label}"? It will be hidden from the active list but kept in history.`,
       confirmLabel: "Delete",
       destructive: true,
     });
@@ -647,7 +647,7 @@ export default function JobSourceRegister({
         <CardContent className="space-y-5">
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-2 min-w-[220px]">
-              <Label>Workbook site</Label>
+              <Label>{isBusinessTravel ? "Workbook site" : "Workbook site"}</Label>
               <Select value={downloadSiteId} onValueChange={setDownloadSiteId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -664,18 +664,20 @@ export default function JobSourceRegister({
             <Button variant="outline" onClick={() => void downloadRegisterWorkbook("example")} disabled={loading || importing}>
               Download example
             </Button>
-            <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
-              {importing ? "Importing previous year..." : "Import previous year"}
-            </Button>
+            {!isBusinessTravel ? (
+              <Button variant="secondary" onClick={importPreviousYear} disabled={loading || importing}>
+                {importing ? "Importing previous year..." : "Import previous year"}
+              </Button>
+            ) : null}
           </div>
 
           <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
             <p>
               {isBusinessTravel ? (
                 <>
-                  The download is a <span className="font-medium text-foreground">Data Upload</span> workbook for{" "}
-                  business travel. Keep the sheet titles filtered to the exact travel mode or hotel factor you want to
-                  use, then import the workbook into <span className="font-medium text-foreground">Data Entry</span>.
+                  Download a <span className="font-medium text-foreground">Data Upload</span> workbook for business
+                  travel, compare the current year against prior-year tabs, then import the completed workbook into{" "}
+                  <span className="font-medium text-foreground">Data Entry</span>.
                 </>
               ) : (
                 <>
@@ -691,18 +693,26 @@ export default function JobSourceRegister({
             <p>
               <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
               usually stays as <span className="font-medium text-foreground">asset</span> for the Asset Register and{" "}
-              <span className="font-medium text-foreground">business_travel</span> for the Business Travel Register.
+              <span className="font-medium text-foreground">business_travel</span> for the business travel upload.
             </p>
             <p>
               Suggested pattern:{" "}
               <span className="font-medium text-foreground">[Category] - [{isBusinessTravel ? "Mode" : "Asset"}] - [Site or Team]</span>.
             </p>
-            <p>
-              For fleet-style reporting, use the group as the factor family bucket, for example{" "}
-              <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
-              {recordLabel.toLowerCase()} as the individual record underneath it.
-            </p>
-            <p>Search is live on the factor picker, and the workbook download can be limited to a single site.</p>
+            {isBusinessTravel ? (
+              <p>
+                Each row in the workbook should use the filtered factor title that best matches the mode, vehicle, or
+                hotel stay you are comparing. Search is live on the factor picker, and the workbook download can be
+                limited to a single site.
+              </p>
+            ) : (
+              <p>
+                For fleet-style reporting, use the group as the factor family bucket, for example{" "}
+                <span className="font-medium text-foreground">Diesel Van Class 1 - Head Office</span>, and keep each{" "}
+                {recordLabel.toLowerCase()} as the individual record underneath it.
+              </p>
+            )}
+            {!isBusinessTravel ? <p>Search is live on the factor picker, and the workbook download can be limited to a single site.</p> : null}
           </div>
 
           <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
@@ -735,6 +745,20 @@ export default function JobSourceRegister({
       {status ? <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{status}</div> : null}
 
       <div className="space-y-6">
+        {isBusinessTravel ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Business Travel Workbook Guidance</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>Use the workbook to compare the current year with previous years and keep the same factor titles where possible.</p>
+              <p>Include new factor lines only when the business travel category needs something that was not used previously.</p>
+              <p>The import process writes into Data Entry rather than creating travel register rows.</p>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {!isBusinessTravel ? (
         <Card>
           <CardHeader>
             <CardTitle>Create Group</CardTitle>
@@ -852,7 +876,9 @@ export default function JobSourceRegister({
             </div>
           </CardContent>
         </Card>
+        ) : null}
 
+        {!isBusinessTravel ? (
         <Card>
           <CardHeader>
             <CardTitle>{`Add ${recordLabel}`}</CardTitle>
@@ -925,88 +951,104 @@ export default function JobSourceRegister({
             </div>
           </CardContent>
         </Card>
+        ) : null}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Groups</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="p-2">Name</th>
-                <th className="p-2">Scope</th>
-                <th className="p-2">Site</th>
-                <th className="p-2">Factor</th>
-                <th className="p-2">UOM</th>
-                <th className="p-2">Sources</th>
-                <th className="p-2 text-right">tCO₂e</th>
-                <th className="p-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.length ? groups.map((g) => (
-                <tr key={g.group_id} className="border-b">
-                  <td className="p-2">{g.group_name}</td>
-                  <td className="p-2">{g.scope}</td>
-                  <td className="p-2">{g.site_name || "-"}</td>
-                  <td className="p-2">
-                    <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
-                    <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
-                  </td>
-                  <td className="p-2">{g.uom || "-"}</td>
-                  <td className="p-2">{g.source_count ?? 0}</td>
-                  <td className="p-2 text-right">{(g.source_total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                  <td className="p-2 text-right">
-                    <Button variant="outline" size="sm" onClick={() => removeGroup(g.group_id, g.group_name)}>Delete</Button>
-                  </td>
-                </tr>
-              )) : (
-                <tr><td colSpan={8} className="p-4 text-muted-foreground">No groups yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      {isBusinessTravel ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Data Entry Destination</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
+            <p>Imported business travel rows land in the Data Entry section as job scope rows.</p>
+            <p>Use the workbook tabs to compare previous years and keep factor titles consistent before importing.</p>
+            <p>Factor families are still searchable above if you need to inspect the available travel categories.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Groups</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="p-2">Name</th>
+                    <th className="p-2">Scope</th>
+                    <th className="p-2">Site</th>
+                    <th className="p-2">Factor</th>
+                    <th className="p-2">UOM</th>
+                    <th className="p-2">Sources</th>
+                    <th className="p-2 text-right">tCO₂e</th>
+                    <th className="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.length ? groups.map((g) => (
+                    <tr key={g.group_id} className="border-b">
+                      <td className="p-2">{g.group_name}</td>
+                      <td className="p-2">{g.scope}</td>
+                      <td className="p-2">{g.site_name || "-"}</td>
+                      <td className="p-2">
+                        <div className="font-medium">{g.factor_report_label || g.original_id || "-"}</div>
+                        <div className="text-xs text-muted-foreground">{g.original_id || "-"}{g.factor != null ? ` · ${g.factor}` : ""}{g.ghg_unit ? ` ${g.ghg_unit}` : ""}</div>
+                      </td>
+                      <td className="p-2">{g.uom || "-"}</td>
+                      <td className="p-2">{g.source_count ?? 0}</td>
+                      <td className="p-2 text-right">{(g.source_total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td className="p-2 text-right">
+                        <Button variant="outline" size="sm" onClick={() => removeGroup(g.group_id, g.group_name)}>Delete</Button>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={8} className="p-4 text-muted-foreground">No groups yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{recordPlural}</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="p-2">Name</th>
-                <th className="p-2">Identity</th>
-                <th className="p-2">Group</th>
-                <th className="p-2 text-right">Qty</th>
-                <th className="p-2 text-right">tCO₂e</th>
-                <th className="p-2">Status</th>
-                <th className="p-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sources.length ? sources.map((s) => (
-                <tr key={s.source_id} className="border-b">
-                  <td className="p-2">{s.source_name}</td>
-                  <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
-                  <td className="p-2">{s.group_name || "-"}</td>
-                  <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
-                  <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                  <td className="p-2">{s.enabled ? "Active" : "Hidden"}</td>
-                  <td className="p-2 text-right">
-                    <Button variant="outline" size="sm" onClick={() => removeSource(s.source_id, s.source_name)}>Delete</Button>
-                  </td>
-                </tr>
-              )) : (
-                <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>{recordPlural}</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="p-2">Name</th>
+                    <th className="p-2">Identity</th>
+                    <th className="p-2">Group</th>
+                    <th className="p-2 text-right">Qty</th>
+                    <th className="p-2 text-right">tCO₂e</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sources.length ? sources.map((s) => (
+                    <tr key={s.source_id} className="border-b">
+                      <td className="p-2">{s.source_name}</td>
+                      <td className="p-2">{s.asset_identifier || s.employee_name || "-"}</td>
+                      <td className="p-2">{s.group_name || "-"}</td>
+                      <td className="p-2 text-right">{typeof s.qty === "number" ? s.qty.toLocaleString() : "-"}</td>
+                      <td className="p-2 text-right">{(s.calc_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td className="p-2">{s.enabled ? "Active" : "Hidden"}</td>
+                      <td className="p-2 text-right">
+                        <Button variant="outline" size="sm" onClick={() => removeSource(s.source_id, s.source_name)}>Delete</Button>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={7} className="p-4 text-muted-foreground">No records yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

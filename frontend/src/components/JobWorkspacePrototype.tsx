@@ -325,8 +325,8 @@ function WorkspacePanels({
             jobId={job.jobId}
             baseUrl={baseUrl}
             sourceType="business_travel"
-            title="Business Travel"
-            description="Manage business travel sources and their associated job data."
+            title="Business Travel Data Upload"
+            description="Download the business travel workbook, compare prior years, and import completed rows into Data Entry."
             jobNumber={job.jobNumber}
             clientName={job.clientName}
             reportingYear={2026}

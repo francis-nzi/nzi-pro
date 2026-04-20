@@ -3121,8 +3121,8 @@ export default function JobDetailPage() {
             jobId={jobId}
             baseUrl={baseUrl}
             sourceType="business_travel"
-            title="Business Travel Register"
-            description="Capture employee travel sources individually, then group them for Scope 3 reporting and inspection."
+            title="Business Travel Data Upload"
+            description="Download the business travel workbook, compare prior-year factors, and import completed rows into Data Entry."
             jobNumber={job?.job_number}
             clientName={job?.client_name}
             reportingYear={job?.reporting_year}
