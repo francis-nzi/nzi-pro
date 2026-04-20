@@ -543,27 +543,16 @@ export default function DatasetsPage() {
 
   const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
-  const factorYearOptions = useMemo(() => {
-    const rows =
-      !factorCountry
-        ? datasets
-        : datasets.filter((ds) => ds.country === factorCountry);
+  const allYearOptions = useMemo(() => {
     const years = Array.from(
-      new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
+      new Set(datasets.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
     ).sort((a, b) => b - a);
     return years.map((year) => String(year));
-  }, [datasets, factorCountry]);
+  }, [datasets]);
 
-  const filterYearOptions = useMemo(() => {
-    const rows =
-      !filterCountry
-        ? datasets
-        : datasets.filter((ds) => ds.country === filterCountry);
-    const years = Array.from(
-      new Set(rows.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
-    ).sort((a, b) => b - a);
-    return years.map((year) => String(year));
-  }, [datasets, filterCountry]);
+  const factorYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
+
+  const filterYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
 
   useEffect(() => {
     if (!factorCountry) {
@@ -687,7 +676,7 @@ export default function DatasetsPage() {
 
             <div className="text-xs text-muted-foreground">
               Use country and year to narrow the conversion factor search before applying the text query. The year list
-              follows the selected country.
+              shows all available dataset years; country still narrows the results.
             </div>
 
             {factors.length > 0 && (
