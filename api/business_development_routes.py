@@ -1081,8 +1081,9 @@ def _criteria_filters_match(
     if include_terms and not _matches_any_term(text, include_terms):
         return False
 
+    identity_text = _candidate_text(item, include_narrative=False)
     exclude_terms = [term for term in (exclude_keywords or []) if str(term).strip()]
-    if exclude_terms and any(term in text for term in exclude_terms):
+    if exclude_terms and any(term in identity_text for term in exclude_terms):
         return False
 
     return True
@@ -1555,7 +1556,7 @@ def _parse_market_scan_rows(
             regions=regions,
             include_keywords=include_keywords,
             exclude_keywords=exclude_keywords,
-            min_score=min_score,
+            min_score=0,
             revenue_min=revenue_min,
             revenue_max=revenue_max,
             strict_mode=strict_mode,
@@ -2405,7 +2406,7 @@ def _openai_generate_service_leads(
                     regions=regions,
                     include_keywords=include_keywords,
                     exclude_keywords=exclude_keywords,
-                    min_score=min_score,
+                    min_score=0,
                     revenue_min=revenue_min,
                     revenue_max=revenue_max,
                     strict_mode=strict_mode,
@@ -2600,7 +2601,7 @@ def _gemini_generate_service_leads(
                     regions=regions,
                     include_keywords=include_keywords,
                     exclude_keywords=exclude_keywords,
-                    min_score=min_score,
+                    min_score=0,
                     revenue_min=revenue_min,
                     revenue_max=revenue_max,
                     strict_mode=strict_mode,
@@ -3249,6 +3250,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                     item["source_provider"] = source_provider
                     item["likelihood_score"] = adjusted_score
                     item["score_breakdown"] = score_breakdown
+                    if min_score and adjusted_score < min_score:
+                        continue
                     if preview_only:
                         preview_item = {
                             "generated_lead_id": None,
