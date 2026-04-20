@@ -537,14 +537,14 @@ export default function DatasetsPage() {
 
   const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
-  const datasetYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
-
   const allYearOptions = useMemo(() => {
     const years = Array.from(
       new Set(datasets.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
     ).sort((a, b) => b - a);
     return years.map((year) => String(year));
   }, [datasets]);
+
+  const datasetYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
 
   const factorYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
 
