@@ -937,9 +937,7 @@ export default function JobDetailPage() {
 
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
   const ownerLabel = (clientOwnerLabel || job?.crm_owner || "Unassigned").trim() || "Unassigned";
-  const jobNumberLabel =
-    ((job?.job_number ? (Number.isFinite(jobId) ? `Job ${jobId}` : "Job") : "Job").trim()) ||
-    "Job";
+  const jobNumberLabel = job?.job_number?.trim() ? `Job No: ${job.job_number.trim()}` : `Job ${jobId}`;
   const jobTitleLabel = (jobTitle || job?.title || "").trim();
     const clientLabel = (job?.client_name || "Client").trim() || "Client";
     const benchmarkPeriodLabel = clientBenchmarkPeriodLabel.trim();
@@ -1478,17 +1476,13 @@ export default function JobDetailPage() {
               setClientOwnerLabel(clientJson.crm_owner.trim());
             }
             if (clientJson.benchmark_period_start && clientJson.benchmark_period_end) {
-              const start = new Date(clientJson.benchmark_period_start).toLocaleDateString("en-GB", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              });
-              const end = new Date(clientJson.benchmark_period_end).toLocaleDateString("en-GB", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              });
-              setClientBenchmarkPeriodLabel(`Benchmark Period: ${start} - ${end}`);
+              const start = formatDisplayDate(clientJson.benchmark_period_start);
+              const end = formatDisplayDate(clientJson.benchmark_period_end);
+              if (start && end) {
+                setClientBenchmarkPeriodLabel(`Benchmark Period: ${start} - ${end}`);
+              } else {
+                setClientBenchmarkPeriodLabel("");
+              }
             } else {
               setClientBenchmarkPeriodLabel("");
             }

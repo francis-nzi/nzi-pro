@@ -160,7 +160,7 @@ export default function JobSectionShell({
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
         jobId: job.job_id,
-        jobNumber: job.job_number ?? `Job ${job.job_id}`,
+        jobNumber: job.job_number?.trim() ? `Job No: ${job.job_number.trim()}` : `Job ${job.job_id}`,
         jobTitle: job.title ?? sectionLabel,
         clientName: job.client_name ?? "Client",
         reportingPeriodLabel:
@@ -180,7 +180,10 @@ export default function JobSectionShell({
         { label: "Clients", href: "/clients" },
         { label: job.client_name ?? "Client", href: `/clients/${job.client_db_id}?section=jobs` },
         { label: "Jobs", href: "/jobs" },
-        { label: job.job_number ?? `Job ${job.job_id}`, href: `/jobs/${job.job_id}` },
+        {
+          label: job.job_number?.trim() ? `Job No: ${job.job_number.trim()}` : `Job ${job.job_id}`,
+          href: `/jobs/${job.job_id}`,
+        },
         { label: sectionLabel, href: sectionHref ?? `/jobs/${job.job_id}` },
       ]
     : [{ label: sectionLabel, href: sectionHref ?? `/jobs/${jobId}` }];
