@@ -20,14 +20,8 @@ import {
 } from "@/components/ui/select";
 
 function apiBaseUrl(): string {
-  const envBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
-  if (!envBase) {
-    return "/api/backend";
-  }
-  if (envBase === "/api/backend") {
-    return "/api/backend";
-  }
-  return envBase;
+  // Use the app's proxy route so this page does not depend on cross-origin CORS.
+  return "/api/backend";
 }
 
 async function fetchWithAuth(input: string, init: RequestInit = {}) {

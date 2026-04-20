@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  return "/api/backend";
 }
 
 type Supplier = {
@@ -402,4 +402,3 @@ export default function SuppliersPage() {
     </div>
   );
 }
-

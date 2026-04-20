@@ -16,8 +16,7 @@ import { Save } from "lucide-react";
 import Link from "next/link";
 
 function apiBaseUrl() {
-  if (typeof window === "undefined") return "http://localhost:8000";
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return "/api/backend";
 }
 
 interface JobType {

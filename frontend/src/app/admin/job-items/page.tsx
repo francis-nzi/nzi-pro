@@ -33,8 +33,7 @@ import Link from "next/link";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl() {
-  if (typeof window === "undefined") return "http://localhost:8000";
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  return "/api/backend";
 }
 
 interface JobItem {

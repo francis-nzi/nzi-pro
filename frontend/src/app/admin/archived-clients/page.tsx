@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  return "/api/backend";
 }
 
 type ArchivedClient = {
