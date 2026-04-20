@@ -615,7 +615,17 @@ export default function DatasetsPage() {
           </Button>
         </div>
 
-        {status && <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>}
+        {status && (
+          <div
+            className={
+              status.toLowerCase().startsWith("error")
+                ? "mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-700"
+                : "mb-4 rounded-md bg-muted p-3 text-sm"
+            }
+          >
+            {status}
+          </div>
+        )}
 
         <Card className="mb-6 w-full">
           <CardHeader>
