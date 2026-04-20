@@ -144,10 +144,17 @@ def _job_audit_snapshot(con, job_id: int) -> dict | None:
 
 def _client_site_audit_snapshot(con, client_db_id: int, site_id: int, org_id: str | None = None) -> dict | None:
     if org_id is not None and str(org_id).strip():
-        return fetch_row_dict(
+        row = fetch_row_dict(
             con,
             "SELECT * FROM client_sites WHERE client_db_id = ? AND site_id = ? AND org_id = ?",
             [int(client_db_id), int(site_id), str(org_id).strip()],
+        )
+        if row:
+            return row
+        return fetch_row_dict(
+            con,
+            "SELECT * FROM client_sites WHERE client_db_id = ? AND site_id = ? AND org_id IS NULL",
+            [int(client_db_id), int(site_id)],
         )
     return fetch_row_dict(
         con,
@@ -4076,17 +4083,41 @@ def update_client_site(
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id), org_id)
             # Check site exists
             exists = con.execute(
-                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s AND org_id = %s",
+                """
+                SELECT site_id, org_id
+                FROM client_sites
+                WHERE site_id = %s
+                  AND client_db_id = %s
+                  AND (org_id = %s OR org_id IS NULL)
+                ORDER BY CASE WHEN org_id IS NULL THEN 1 ELSE 0 END
+                LIMIT 1
+                """,
                 [int(site_id), int(client_db_id), org_id]
             ).fetchone()
             
             if not exists:
                 raise HTTPException(status_code=404, detail="Site not found")
+
+            if len(exists) > 1 and exists[1] is None:
+                con.execute(
+                    """
+                    UPDATE client_sites
+                    SET org_id = %s
+                    WHERE site_id = %s AND client_db_id = %s AND org_id IS NULL
+                    """,
+                    [org_id, int(site_id), int(client_db_id)]
+                )
             
             # If this site is being marked as registered office, unset other registered offices
             if body.get("is_registered_office", False):
                 con.execute(
-                    "UPDATE client_sites SET is_registered_office = FALSE WHERE client_db_id = %s AND site_id != %s AND org_id = %s",
+                    """
+                    UPDATE client_sites
+                    SET is_registered_office = FALSE
+                    WHERE client_db_id = %s
+                      AND site_id != %s
+                      AND (org_id = %s OR org_id IS NULL)
+                    """,
                     [int(client_db_id), int(site_id), org_id]
                 )
             
@@ -4107,7 +4138,13 @@ def update_client_site(
             
             if updates:
                 params.extend([int(site_id), int(client_db_id), org_id])
-                query = f"UPDATE client_sites SET {', '.join(updates)} WHERE site_id = %s AND client_db_id = %s AND org_id = %s"
+                query = f"""
+                    UPDATE client_sites
+                    SET {', '.join(updates)}
+                    WHERE site_id = %s
+                      AND client_db_id = %s
+                      AND (org_id = %s OR org_id IS NULL)
+                """
                 con.execute(query, params)
             
             after = _client_site_audit_snapshot(con, int(client_db_id), int(site_id), org_id)
@@ -4150,12 +4187,30 @@ def vacate_client_site(
             before = _client_site_audit_snapshot(con, int(client_db_id), int(site_id), org_id)
             # Check site exists
             exists = con.execute(
-                "SELECT 1 FROM client_sites WHERE site_id = %s AND client_db_id = %s AND org_id = %s",
+                """
+                SELECT site_id, org_id
+                FROM client_sites
+                WHERE site_id = %s
+                  AND client_db_id = %s
+                  AND (org_id = %s OR org_id IS NULL)
+                ORDER BY CASE WHEN org_id IS NULL THEN 1 ELSE 0 END
+                LIMIT 1
+                """,
                 [int(site_id), int(client_db_id), org_id]
             ).fetchone()
             
             if not exists:
                 raise HTTPException(status_code=404, detail="Site not found")
+
+            if len(exists) > 1 and exists[1] is None:
+                con.execute(
+                    """
+                    UPDATE client_sites
+                    SET org_id = %s
+                    WHERE site_id = %s AND client_db_id = %s AND org_id IS NULL
+                    """,
+                    [org_id, int(site_id), int(client_db_id)]
+                )
             
             vacated_date = body.get("vacated_date")
             if not vacated_date:
@@ -4170,7 +4225,7 @@ def vacate_client_site(
                     archived = TRUE,
                     archived_by = %s,
                     archived_at = CURRENT_TIMESTAMP
-                WHERE site_id = %s AND client_db_id = %s AND org_id = %s
+                WHERE site_id = %s AND client_db_id = %s AND (org_id = %s OR org_id IS NULL)
                 """,
                 [vacated_date, _user.get("email", "unknown"), int(site_id), int(client_db_id), org_id]
             )
