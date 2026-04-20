@@ -3799,21 +3799,24 @@ def update_client(
             _ensure_client_billing_columns(con)
             ensure_client_benchmark_columns(con)
             before = _client_audit_snapshot(con, int(client_db_id), org_id)
-            # Check client exists
-            exists = con.execute("SELECT 1 FROM clients WHERE db_id = ? AND org_id = ?", [int(client_db_id), org_id]).fetchone()
-            if not exists:
-                raise HTTPException(status_code=404, detail="Client not found")
-
             existing_client = con.execute(
                 """
-                SELECT addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
-                       billing_same_as_main, billing_addr_line1, billing_addr_line2, billing_addr_city,
-                       billing_addr_region, billing_addr_postcode, billing_addr_country
+                SELECT
+                    org_id,
+                    addr_line1, addr_line2, addr_city, addr_region, addr_postcode, addr_country,
+                    billing_same_as_main, billing_addr_line1, billing_addr_line2, billing_addr_city,
+                    billing_addr_region, billing_addr_postcode, billing_addr_country
                 FROM clients
-                WHERE db_id = ? AND org_id = ?
+                WHERE db_id = ? AND (org_id = ? OR org_id IS NULL)
+                ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END
+                LIMIT 1
                 """,
-                [int(client_db_id), org_id],
+                [int(client_db_id), org_id, org_id],
             ).fetchone()
+            if not existing_client:
+                raise HTTPException(status_code=404, detail="Client not found")
+
+            existing_client_org_id = existing_client[0]
             
             # Build update query dynamically based on provided fields
             updates = []
@@ -3836,14 +3839,14 @@ def update_client(
             }
             if any(field in normalized_body for field in billing_related_fields):
                 current_main_addr = {
-                    "addr_line1": existing_client[0] if existing_client else None,
-                    "addr_line2": existing_client[1] if existing_client else None,
-                    "addr_city": existing_client[2] if existing_client else None,
-                    "addr_region": existing_client[3] if existing_client else None,
-                    "addr_postcode": existing_client[4] if existing_client else None,
-                    "addr_country": existing_client[5] if existing_client else None,
+                    "addr_line1": existing_client[1] if existing_client else None,
+                    "addr_line2": existing_client[2] if existing_client else None,
+                    "addr_city": existing_client[3] if existing_client else None,
+                    "addr_region": existing_client[4] if existing_client else None,
+                    "addr_postcode": existing_client[5] if existing_client else None,
+                    "addr_country": existing_client[6] if existing_client else None,
                 }
-                billing_same_default = bool(existing_client[6]) if existing_client and existing_client[6] is not None else True
+                billing_same_default = bool(existing_client[7]) if existing_client and existing_client[7] is not None else True
                 billing_same_as_main = bool(normalized_body.get("billing_same_as_main", billing_same_default))
                 normalized_body["billing_same_as_main"] = billing_same_as_main
                 if billing_same_as_main:
@@ -3908,9 +3911,15 @@ def update_client(
                     params.append(normalized_body[field_name])
             
             if updates:
-                params.append(int(client_db_id))
-                query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id = ?"
-                con.execute(query, [*params, org_id])
+                if existing_client_org_id is None:
+                    updates.append("org_id = ?")
+                    params.append(org_id)
+                    query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id IS NULL"
+                    con.execute(query, [*params, int(client_db_id)])
+                else:
+                    params.append(int(client_db_id))
+                    query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id = ?"
+                    con.execute(query, [*params, org_id])
             
             # Handle site creation/update if requested
             if body.get("create_site_from_address", False):
