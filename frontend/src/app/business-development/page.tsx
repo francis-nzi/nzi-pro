@@ -174,6 +174,16 @@ type BinReason = {
   is_active?: boolean;
 };
 
+type ProviderStatus = {
+  provider: string;
+  label: string;
+  configured: boolean;
+  enabled: boolean;
+  status: "ok" | "error" | "unconfigured";
+  detail: string;
+  usage?: Record<string, unknown>;
+};
+
 type BdSection = "overview" | "lead-generator" | "market-database" | "leads" | "opportunities" | "funnel-settings";
 
 const LEAD_GENERATOR_PROFILES_STORAGE_KEY = "nzi.business-development.lead-generator-profiles.v1";
@@ -305,6 +315,9 @@ export default function BusinessDevelopmentPage() {
   const [activeSection, setActiveSection] = useState<BdSection>("overview");
   const [focusLeadId, setFocusLeadId] = useState<number | null>(null);
   const [totals, setTotals] = useState({ lead_count: 0, open_opportunities: 0, pipeline_value: 0 });
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
+  const [enabledProviders, setEnabledProviders] = useState<string[]>(["apollo", "openai", "gemini"]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
 
   function normalizeLeadGeneratorProfile(item: any): LeadGeneratorProfile {
     const generationMode: "market-scan" | "daily-leads" = item?.generationMode === "daily-leads" ? "daily-leads" : "market-scan";
@@ -515,6 +528,44 @@ export default function BusinessDevelopmentPage() {
     void loadMarketDatabase();
   }, [loadMarketDatabase]);
 
+  const fetchProviderStatus = useCallback(async () => {
+    try {
+      setLoadingProviders(true);
+      const res = await fetch(`${baseUrl}/bd/lead-generator/provider-status`, {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const providers: ProviderStatus[] = Array.isArray(data?.providers) ? data.providers : [];
+      setProviderStatuses(providers);
+      const configured = providers.filter((p) => p.configured).map((p) => p.provider);
+      if (configured.length > 0) {
+        setEnabledProviders((prev) => {
+          const still = prev.filter((p) => configured.includes(p));
+          return still.length > 0 ? still : configured;
+        });
+      }
+    } catch {
+      // Provider status is optional — silently ignore.
+    } finally {
+      setLoadingProviders(false);
+    }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    void fetchProviderStatus();
+  }, [fetchProviderStatus]);
+
+  function toggleProvider(provider: string) {
+    setEnabledProviders((prev) => {
+      if (prev.includes(provider)) {
+        const next = prev.filter((p) => p !== provider);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, provider];
+    });
+  }
+
   async function createLead() {
     try {
       const res = await fetch(`${baseUrl}/bd/leads`, {
@@ -710,6 +761,7 @@ export default function BusinessDevelopmentPage() {
       source_weight_fallback: Number(sourceWeightFallback || 1),
       leads_per_service: Number(leadsPerService || 10),
       service_keys: serviceKeys,
+      providers: enabledProviders,
       replace_existing: true,
       allow_fallback: false,
       preview_only: previewOnly,
@@ -819,7 +871,7 @@ export default function BusinessDevelopmentPage() {
       });
       const txt = await res.text();
       if (!res.ok) throw new Error(`Failed to generate leads (${res.status})${txt ? `: ${txt}` : ""}`);
-      let responsePayload: { inserted_or_updated?: number; preview_count?: number; preview_items?: GeneratedLead[]; services?: Record<string, number>; diagnostics?: Record<string, string> } = {};
+      let responsePayload: { inserted_or_updated?: number; preview_count?: number; preview_items?: GeneratedLead[]; services?: Record<string, number>; diagnostics?: Record<string, string>; providers_used?: string[] } = {};
       if (txt && txt.trim()) {
         try {
           responsePayload = JSON.parse(txt) as {
@@ -828,6 +880,7 @@ export default function BusinessDevelopmentPage() {
             preview_items?: GeneratedLead[];
             services?: Record<string, number>;
             diagnostics?: Record<string, string>;
+            providers_used?: string[];
           };
         } catch {
           responsePayload = {};
@@ -835,21 +888,24 @@ export default function BusinessDevelopmentPage() {
       }
       const diagParts = Object.entries(responsePayload?.diagnostics || {}).map(([k, v]) => `${k}: ${v}`);
       const diagText = diagParts.length ? ` Diagnostics: ${diagParts.join("; ")}` : "";
+      const providersText = Array.isArray(responsePayload?.providers_used) && responsePayload.providers_used.length
+        ? ` [Providers: ${responsePayload.providers_used.join(", ")}]`
+        : "";
       if (previewOnly) {
         const previewItems = Array.isArray(responsePayload?.preview_items) ? responsePayload.preview_items : [];
         setPreviewLeads(previewItems);
         setStatus(
           generationMode === "market-scan"
-            ? `Preview complete: ${previewItems.length} companies match your criteria. Nothing was written to the bin.${diagText}`
-            : `Preview complete: ${previewItems.length} criteria-matched leads were found. Nothing was written to the bin.${diagText}`
+            ? `Preview complete: ${previewItems.length} companies match your criteria. Nothing was written to the bin.${providersText}${diagText}`
+            : `Preview complete: ${previewItems.length} criteria-matched leads were found. Nothing was written to the bin.${providersText}${diagText}`
         );
       } else {
         const inserted = Number(responsePayload?.inserted_or_updated || 0);
         setPreviewLeads([]);
         setStatus(
           generationMode === "market-scan"
-            ? `Market scan generated: ${inserted} companies matched your criteria and were added to today's bin.${diagText}`
-            : `Lead generation complete: ${inserted} criteria-matched leads added to today's bin.${diagText}`
+            ? `Market scan generated: ${inserted} companies matched your criteria and were added to today's bin.${providersText}${diagText}`
+            : `Lead generation complete: ${inserted} criteria-matched leads added to today's bin.${providersText}${diagText}`
         );
         await loadLeadBins();
         await load();
@@ -1283,6 +1339,78 @@ export default function BusinessDevelopmentPage() {
             <div className="text-xs text-muted-foreground">
               These criteria are used by both generation modes to filter, score, and explain the leads that get added to the bin. Source weighting nudges the final score
               toward better evidence sources.
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-muted-foreground">Data Providers</div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => void fetchProviderStatus()}
+                  disabled={loadingProviders}
+                >
+                  {loadingProviders ? "Checking..." : "Refresh Status"}
+                </Button>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+                {providerStatuses.map((p) => {
+                  const isOn = enabledProviders.includes(p.provider);
+                  const statusColor =
+                    p.status === "ok" ? "text-green-600" : p.status === "error" ? "text-red-500" : "text-yellow-500";
+                  const statusDot =
+                    p.status === "ok" ? "bg-green-500" : p.status === "error" ? "bg-red-500" : "bg-yellow-500";
+                  return (
+                    <button
+                      key={p.provider}
+                      type="button"
+                      onClick={() => p.configured && toggleProvider(p.provider)}
+                      className={`rounded-lg border p-3 text-left transition-colors ${
+                        isOn && p.configured
+                          ? "border-[#1c5026] bg-[#1c5026]/5"
+                          : "border-border bg-background opacity-60"
+                      } ${p.configured ? "cursor-pointer hover:border-[#1c5026]/50" : "cursor-not-allowed"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{p.label}</span>
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${statusDot}`} />
+                      </div>
+                      <div className={`mt-1 text-xs ${statusColor}`}>
+                        {p.status === "ok" ? "Connected" : p.status === "error" ? "Error" : "Not configured"}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground" title={p.detail}>
+                        {p.detail.length > 60 ? p.detail.slice(0, 60) + "..." : p.detail}
+                      </div>
+                      {p.configured && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <span
+                            className={`inline-block h-3 w-6 rounded-full transition-colors ${
+                              isOn ? "bg-[#1c5026]" : "bg-gray-300"
+                            }`}
+                          >
+                            <span
+                              className={`block h-3 w-3 rounded-full bg-white shadow transition-transform ${
+                                isOn ? "translate-x-3" : "translate-x-0"
+                              }`}
+                            />
+                          </span>
+                          <span className="text-xs text-muted-foreground">{isOn ? "Enabled" : "Disabled"}</span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+                {providerStatuses.length === 0 && !loadingProviders && (
+                  <div className="col-span-full text-xs text-muted-foreground">
+                    Click &quot;Refresh Status&quot; to check provider availability.
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Toggle providers on/off. Apollo is the primary source. OpenAI and Gemini are used as fallbacks when Apollo returns no results or is disabled.
+              </div>
             </div>
 
             <div className="space-y-2">

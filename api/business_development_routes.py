@@ -1093,6 +1093,7 @@ def _parse_source_weighting(body: dict[str, Any]) -> dict[str, float]:
     source_weighting = {
         "open_web": 1.0,
         "companies_house": 1.05,
+        "apollo": 1.1,
         "fallback": 0.85,
     }
     raw = body.get("source_weighting")
@@ -1102,6 +1103,7 @@ def _parse_source_weighting(body: dict[str, Any]) -> dict[str, float]:
     for key, body_key in (
         ("open_web", "source_weight_open_web"),
         ("companies_house", "source_weight_companies_house"),
+        ("apollo", "source_weight_apollo"),
         ("fallback", "source_weight_fallback"),
     ):
         if body_key in body:
@@ -1113,6 +1115,8 @@ def _source_provider_key(value: Any) -> str:
     text = str(value or "").strip().lower()
     if text in {"companies_house", "companies-house", "ch"}:
         return "companies_house"
+    if text in {"apollo", "apollo.io"}:
+        return "apollo"
     if text in {"fallback", "placeholder", "synthetic"}:
         return "fallback"
     return "open_web"
@@ -2017,6 +2021,203 @@ def _apollo_enrich_lead(
         "source_references": " | ".join(source_parts) if source_parts else "",
         "source_provider": "apollo",
     }, None
+
+
+def _apollo_generate_leads(
+    *,
+    regions: list[str],
+    revenue_min: float,
+    revenue_max: float,
+    limit: int,
+    target_industries: list[str],
+    target_roles: list[str],
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_score: float = 0,
+    strict_mode: bool = False,
+    generation_mode: str = "market-scan",
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Use Apollo org search + people search as a primary lead generation source."""
+    api_key = _apollo_api_key()
+    if not api_key:
+        return [], "APOLLO_API_KEY missing."
+
+    industry_keywords = [ind.strip().lower() for ind in target_industries if ind.strip()]
+    if not industry_keywords:
+        return [], "No target industries provided for Apollo search."
+
+    region_keywords = [r.strip() for r in regions if r.strip()]
+
+    org_payload: dict[str, Any] = {
+        "per_page": min(limit * 2, 100),
+        "page": 1,
+    }
+    if industry_keywords:
+        org_payload["organization_industry_tag_ids"] = []
+        org_payload["q_organization_keyword_tags"] = industry_keywords[:10]
+    if region_keywords:
+        country_codes = []
+        for r in region_keywords:
+            rl = r.lower()
+            if rl in ("united kingdom", "uk", "gb", "great britain"):
+                country_codes.append("GB")
+            elif rl in ("europe", "eu"):
+                country_codes.extend(["GB", "DE", "FR", "NL", "IE", "ES", "IT", "SE", "DK", "NO", "BE", "AT", "CH"])
+            elif rl in ("united states", "usa", "us"):
+                country_codes.append("US")
+            else:
+                country_codes.append(r)
+        if country_codes:
+            org_payload["organization_locations"] = list(dict.fromkeys(country_codes))[:20]
+    if revenue_min > 0 or revenue_max > 0:
+        rev_min_usd = int(revenue_min * 1_000_000 * 1.25)
+        rev_max_usd = int(revenue_max * 1_000_000 * 1.25)
+        if rev_min_usd > 0:
+            org_payload["organization_revenue_min"] = str(rev_min_usd)
+        if rev_max_usd > 0:
+            org_payload["organization_revenue_max"] = str(rev_max_usd)
+
+    try:
+        companies, _raw_orgs = _apollo_search_organizations(org_payload)
+    except Exception as e:
+        return [], f"Apollo org search failed: {e}"
+
+    if not companies:
+        return [], "Apollo org search returned 0 companies for your criteria."
+
+    role_keywords = [
+        "sustainability", "esg", "environment", "net zero", "carbon",
+        "social value", "climate", "bid", "procurement",
+        "business development", "sales",
+    ]
+    title_terms = list(dict.fromkeys(
+        [r.strip().lower() for r in target_roles if r.strip()] + role_keywords
+    ))
+
+    collected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    errors: list[str] = []
+
+    for comp in companies:
+        if len(collected) >= limit:
+            break
+
+        company_name = str(comp.get("company_name") or "").strip()
+        if not company_name:
+            continue
+        company_key = _normalize_company_key(company_name)
+        if company_key in seen_keys:
+            continue
+
+        domain = str(comp.get("domain") or "").strip()
+        website = str(comp.get("website") or "").strip()
+        industry = str(comp.get("industry") or "").strip()
+        country = str(comp.get("country") or "").strip()
+        city = str(comp.get("city") or "").strip()
+        region = str(comp.get("region") or "").strip()
+        revenue_gbp_m = _safe_float(comp.get("revenue_gbp_millions"), 0)
+
+        people_payload: dict[str, Any] = {
+            "per_page": 5,
+            "person_titles": title_terms[:15],
+        }
+        if domain:
+            people_payload["q_organization_domains"] = domain
+        elif company_name:
+            people_payload["q_organization_name"] = company_name
+
+        contact_name = ""
+        contact_role = ""
+        contact_email = ""
+        contact_phone = ""
+        linkedin_url = ""
+        try:
+            people, _raw_ppl = _apollo_search_people(people_payload)
+            if people:
+                role_lower = [r.strip().lower() for r in target_roles if r.strip()]
+                best: dict[str, Any] | None = None
+                best_score = -1
+                for person in people:
+                    title = str(person.get("job_title") or "").lower()
+                    seniority = str(person.get("seniority") or "").lower()
+                    pscore = 0
+                    for role in role_lower:
+                        if role in title or title in role:
+                            pscore += 10
+                            break
+                    for kw in role_keywords:
+                        if kw in title:
+                            pscore += 5
+                            break
+                    if seniority in ("director", "vp", "c_suite", "owner", "founder"):
+                        pscore += 3
+                    elif seniority in ("manager", "senior"):
+                        pscore += 2
+                    if person.get("email"):
+                        pscore += 4
+                    if person.get("linkedin_url"):
+                        pscore += 2
+                    if pscore > best_score:
+                        best_score = pscore
+                        best = person
+                if best:
+                    contact_name = str(best.get("full_name") or "").strip()
+                    contact_role = str(best.get("job_title") or "").strip()
+                    contact_email = str(best.get("email") or "").strip()
+                    contact_phone = str(best.get("phone") or "").strip()
+                    linkedin_url = str(best.get("linkedin_url") or "").strip()
+        except Exception as e:
+            errors.append(f"People search for {company_name}: {e}")
+
+        source_refs = []
+        if website:
+            source_refs.append(website)
+        if linkedin_url:
+            source_refs.append(linkedin_url)
+
+        base_score = 55.0
+        if contact_name:
+            base_score += 10
+        if contact_email:
+            base_score += 5
+        if revenue_gbp_m > 0:
+            base_score += 5
+        base_score = min(base_score, 85.0)
+
+        lead_item: dict[str, Any] = {
+            "company_name": company_name,
+            "industry": industry,
+            "country": country,
+            "city": city or region,
+            "website": website,
+            "contact_name": contact_name,
+            "contact_role": contact_role,
+            "contact_email": contact_email,
+            "contact_phone": contact_phone,
+            "linkedin_url": linkedin_url,
+            "revenue_gbp_millions": revenue_gbp_m,
+            "likelihood_score": base_score,
+            "why_good_lead": f"Found via Apollo database search. Industry: {industry}. {f'Revenue ~{revenue_gbp_m:.1f}M GBP.' if revenue_gbp_m else ''}",
+            "trigger_reason": f"Apollo company match for {', '.join(target_industries[:3])} in {', '.join(region_keywords[:2])}.",
+            "source_references": " | ".join(source_refs) if source_refs else "",
+            "source_provider": "apollo",
+        }
+
+        seen_keys.add(company_key)
+        collected.append(lead_item)
+
+    collected.sort(
+        key=lambda x: (
+            0 if x.get("contact_name") else 1,
+            0 if _safe_float(x.get("revenue_gbp_millions"), 0) > 0 else 1,
+            -_safe_float(x.get("likelihood_score"), 0),
+        )
+    )
+
+    if collected:
+        return collected[:limit], None
+    error_summary = "; ".join(errors[:5]) if errors else "Apollo returned companies but none matched all criteria."
+    return [], error_summary
 
 
 def _enrich_single_lead_with_ai(
@@ -3023,6 +3224,109 @@ def list_bin_reasons(_user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to load bin reasons: {e}")
 
 
+@router.get("/bd/lead-generator/provider-status")
+def lead_generator_provider_status(_user: dict = Depends(_current_user)):
+    """Return configuration and health status for each lead generation provider."""
+    providers: list[dict[str, Any]] = []
+
+    # Apollo
+    apollo_key = _apollo_api_key()
+    apollo_status: dict[str, Any] = {
+        "provider": "apollo",
+        "label": "Apollo (Primary)",
+        "configured": bool(apollo_key),
+        "enabled": bool(apollo_key),
+        "status": "unconfigured",
+        "detail": "",
+    }
+    if apollo_key:
+        try:
+            health = _apollo_health()
+            apollo_status["status"] = "ok"
+            apollo_status["detail"] = "API key valid, connection healthy."
+            usage = health.get("usage_stats")
+            if isinstance(usage, dict):
+                apollo_status["usage"] = {
+                    k: v for k, v in usage.items()
+                    if k in ("credits_used", "credits_limit", "credits_remaining", "plan_name")
+                }
+        except Exception as e:
+            apollo_status["status"] = "error"
+            apollo_status["detail"] = str(e)[:200]
+    else:
+        apollo_status["detail"] = "APOLLO_API_KEY not set in environment."
+    providers.append(apollo_status)
+
+    # OpenAI
+    openai_key = _env_value("OPENAI_API_KEY", "")
+    openai_status: dict[str, Any] = {
+        "provider": "openai",
+        "label": "OpenAI",
+        "configured": bool(openai_key),
+        "enabled": bool(openai_key),
+        "status": "unconfigured",
+        "detail": "",
+    }
+    if openai_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_key)
+            client.models.list()
+            openai_status["status"] = "ok"
+            openai_status["detail"] = f"API key valid. Model: {_env_value('OPENAI_MODEL', 'gpt-4.1')}"
+        except Exception as e:
+            openai_status["status"] = "error"
+            openai_status["detail"] = str(e)[:200]
+    else:
+        openai_status["detail"] = "OPENAI_API_KEY not set in environment."
+    providers.append(openai_status)
+
+    # Gemini
+    gemini_key = _env_value("GEMINI_API_KEY", "")
+    gemini_status: dict[str, Any] = {
+        "provider": "gemini",
+        "label": "Google Gemini",
+        "configured": bool(gemini_key),
+        "enabled": bool(gemini_key),
+        "status": "unconfigured",
+        "detail": "",
+    }
+    if gemini_key:
+        try:
+            model = _env_value("GEMINI_MODEL", "gemini-2.0-flash")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}?key={gemini_key}"
+            req = Request(url, method="GET", headers={"User-Agent": "NZI-Pro-LeadGen/1.0"})
+            with urlopen(req, timeout=10) as resp:
+                resp.read()
+            gemini_status["status"] = "ok"
+            gemini_status["detail"] = f"API key valid. Model: {model}"
+        except Exception as e:
+            gemini_status["status"] = "error"
+            gemini_status["detail"] = str(e)[:200]
+    else:
+        gemini_status["detail"] = "GEMINI_API_KEY not set in environment."
+    providers.append(gemini_status)
+
+    # Companies House
+    ch_key = _env_value("COMPANIES_HOUSE_API_KEY", "")
+    ch_status: dict[str, Any] = {
+        "provider": "companies_house",
+        "label": "Companies House",
+        "configured": bool(ch_key),
+        "enabled": bool(ch_key),
+        "status": "unconfigured",
+        "detail": "",
+    }
+    if ch_key:
+        ch_status["status"] = "ok"
+        ch_status["detail"] = "API key configured."
+    else:
+        ch_status["detail"] = "COMPANIES_HOUSE_API_KEY not set in environment."
+    providers.append(ch_status)
+
+    return {"providers": providers}
+
+
 @router.post("/bd/lead-generator/generate")
 def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
     try:
@@ -3079,6 +3383,25 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             regions = [part.strip() for part in raw.split(",") if part.strip()]
         if not regions:
             regions = ["United Kingdom", "Europe"]
+
+        providers_input = body.get("providers")
+        if isinstance(providers_input, list):
+            enabled_providers = [str(p).strip().lower() for p in providers_input if str(p).strip()]
+        else:
+            enabled_providers = []
+        if not enabled_providers:
+            apollo_available = bool(_apollo_api_key())
+            openai_available = bool(_env_value("OPENAI_API_KEY", ""))
+            gemini_available = bool(_env_value("GEMINI_API_KEY", ""))
+            enabled_providers = []
+            if apollo_available:
+                enabled_providers.append("apollo")
+            if openai_available:
+                enabled_providers.append("openai")
+            if gemini_available:
+                enabled_providers.append("gemini")
+            if not enabled_providers:
+                enabled_providers = ["apollo", "openai", "gemini"]
 
         with get_conn() as con:
             _ensure_tables(con)
@@ -3154,20 +3477,33 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             for svc in selected_services:
                 service_key = svc["service_key"]
                 service_name = svc["service_name"]
-                if generation_mode == "market-scan":
-                    generated, ai_diag = _openai_generate_market_scan_leads(
+                generated: list[dict[str, Any]] = []
+                provider_diags: list[str] = []
+
+                # --- Apollo (primary when enabled) ---
+                if "apollo" in enabled_providers and not generated:
+                    apollo_leads, apollo_diag = _apollo_generate_leads(
                         regions=regions,
                         revenue_min=revenue_min,
                         revenue_max=revenue_max,
                         limit=leads_per_service,
                         target_industries=target_industries,
+                        target_roles=target_roles,
                         include_keywords=include_keywords,
                         exclude_keywords=exclude_keywords,
                         min_score=min_score,
                         strict_mode=strict_mode,
+                        generation_mode=generation_mode,
                     )
-                    if not generated:
-                        generated, gemini_diag = _gemini_generate_market_scan_leads(
+                    if apollo_leads:
+                        generated = apollo_leads
+                    if apollo_diag:
+                        provider_diags.append(f"Apollo: {apollo_diag}")
+
+                # --- OpenAI fallback ---
+                if "openai" in enabled_providers and not generated:
+                    if generation_mode == "market-scan":
+                        openai_leads, openai_diag = _openai_generate_market_scan_leads(
                             regions=regions,
                             revenue_min=revenue_min,
                             revenue_max=revenue_max,
@@ -3178,29 +3514,8 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             min_score=min_score,
                             strict_mode=strict_mode,
                         )
-                        combined_diags = [d for d in [ai_diag, gemini_diag] if d]
-                        if combined_diags:
-                            diagnostics[service_key] = " | ".join(combined_diags)
-                    elif ai_diag:
-                        diagnostics[service_key] = ai_diag
-                else:
-                    generated, ai_diag = _openai_generate_service_leads(
-                        service_name=service_name,
-                        service_key=service_key,
-                        regions=regions,
-                        revenue_min=revenue_min,
-                        revenue_max=revenue_max,
-                        limit=leads_per_service,
-                        target_industries=target_industries,
-                        target_roles=target_roles,
-                        allow_fallback=allow_fallback,
-                        include_keywords=include_keywords,
-                        exclude_keywords=exclude_keywords,
-                        min_score=min_score,
-                        strict_mode=strict_mode,
-                    )
-                    if not generated:
-                        generated, gemini_diag = _gemini_generate_service_leads(
+                    else:
+                        openai_leads, openai_diag = _openai_generate_service_leads(
                             service_name=service_name,
                             service_key=service_key,
                             regions=regions,
@@ -3215,11 +3530,48 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             min_score=min_score,
                             strict_mode=strict_mode,
                         )
-                        combined_diags = [d for d in [ai_diag, gemini_diag] if d]
-                        if combined_diags:
-                            diagnostics[service_key] = " | ".join(combined_diags)
-                    elif ai_diag:
-                        diagnostics[service_key] = ai_diag
+                    if openai_leads:
+                        generated = openai_leads
+                    if openai_diag:
+                        provider_diags.append(f"OpenAI: {openai_diag}")
+
+                # --- Gemini fallback ---
+                if "gemini" in enabled_providers and not generated:
+                    if generation_mode == "market-scan":
+                        gemini_leads, gemini_diag = _gemini_generate_market_scan_leads(
+                            regions=regions,
+                            revenue_min=revenue_min,
+                            revenue_max=revenue_max,
+                            limit=leads_per_service,
+                            target_industries=target_industries,
+                            include_keywords=include_keywords,
+                            exclude_keywords=exclude_keywords,
+                            min_score=min_score,
+                            strict_mode=strict_mode,
+                        )
+                    else:
+                        gemini_leads, gemini_diag = _gemini_generate_service_leads(
+                            service_name=service_name,
+                            service_key=service_key,
+                            regions=regions,
+                            revenue_min=revenue_min,
+                            revenue_max=revenue_max,
+                            limit=leads_per_service,
+                            target_industries=target_industries,
+                            target_roles=target_roles,
+                            allow_fallback=allow_fallback,
+                            include_keywords=include_keywords,
+                            exclude_keywords=exclude_keywords,
+                            min_score=min_score,
+                            strict_mode=strict_mode,
+                        )
+                    if gemini_leads:
+                        generated = gemini_leads
+                    if gemini_diag:
+                        provider_diags.append(f"Gemini: {gemini_diag}")
+
+                if provider_diags:
+                    diagnostics[service_key] = " | ".join(provider_diags)
                 if not generated:
                     diagnostics[service_key] = diagnostics.get(service_key) or "No verifiable open-source leads returned for current filters."
                 inserted_for_service = 0
@@ -3376,6 +3728,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "services": generated_by_service,
                 "preview_count": preview_count,
                 "preview_items": preview_items,
+                "providers_used": enabled_providers,
                 "criteria": {
                     "generation_mode": generation_mode,
                     "regions": regions,
@@ -3392,17 +3745,18 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
             }
 
         if inserted_count == 0:
-            if not _env_value("OPENAI_API_KEY", "") and not _env_value("GEMINI_API_KEY", ""):
+            has_any_key = bool(_apollo_api_key()) or bool(_env_value("OPENAI_API_KEY", "")) or bool(_env_value("GEMINI_API_KEY", ""))
+            if not has_any_key:
                 raise HTTPException(
                     status_code=422,
-                    detail="No verifiable leads generated. Set OPENAI_API_KEY and/or GEMINI_API_KEY, or enable allow_fallback=true.",
+                    detail="No lead providers configured. Set APOLLO_API_KEY, OPENAI_API_KEY, and/or GEMINI_API_KEY.",
                 )
             diag_msg = ""
             if diagnostics:
                 diag_msg = " Diagnostics: " + "; ".join([f"{k}: {v}" for k, v in diagnostics.items()])
             raise HTTPException(
                 status_code=422,
-                detail="No verifiable leads generated from open sources. Try broader regions/filters, or allow_fallback=true for placeholder research candidates." + diag_msg,
+                detail="No verifiable leads generated. Try broader regions/filters, check provider status, or enable allow_fallback=true." + diag_msg,
             )
 
         return {
@@ -3414,22 +3768,19 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 "previously_binned": excluded_binned_count,
                 "consultancy_competitor": excluded_competitor_count,
             },
-                "criteria": {
-                    "generation_mode": generation_mode,
-                    "regions": regions,
-                    "revenue_min_m_gbp": revenue_min,
-                    "revenue_max_m_gbp": revenue_max,
-                    "target_industries": target_industries,
-                    "target_roles": target_roles,
-                    "leads_per_service": leads_per_service,
-                    "source_weighting": source_weighting,
-                },
-            "note": "Leads are AI-generated candidates and should be team-qualified before outreach.",
-            "suggestions": [
-                "Add paid data providers (procurement feeds, LinkedIn/Snov/RocketReach) for stronger contact quality.",
-                "Track conversion rates by service/industry to retrain scoring prompts.",
-                "Use automated compliance-signal scraping for tender portals and supplier questionnaires.",
-            ],
+            "providers_used": enabled_providers,
+            "criteria": {
+                "generation_mode": generation_mode,
+                "regions": regions,
+                "revenue_min_m_gbp": revenue_min,
+                "revenue_max_m_gbp": revenue_max,
+                "target_industries": target_industries,
+                "target_roles": target_roles,
+                "leads_per_service": leads_per_service,
+                "source_weighting": source_weighting,
+            },
+            "diagnostics": diagnostics,
+            "note": "Leads are generated candidates and should be team-qualified before outreach.",
             "generated_by": actor,
         }
     except HTTPException:
