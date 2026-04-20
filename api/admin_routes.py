@@ -2808,13 +2808,44 @@ def search_factors(
     """Search conversion factors (excludes archived datasets)."""
     try:
         with get_conn() as con:
+            def _column_exists(table_name: str, column_name: str) -> bool:
+                try:
+                    row = con.execute(
+                        """
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = %s
+                          AND column_name = %s
+                        LIMIT 1
+                        """,
+                        [table_name, column_name],
+                    ).fetchone()
+                    return bool(row)
+                except Exception:
+                    return False
+
+            def _fl_col(name: str, default_sql: str = "NULL") -> str:
+                return f"fl.{name}" if _column_exists("factor_lookup", name) else default_sql
+
+            def _d_col(name: str, default_sql: str = "NULL") -> str:
+                return f"d.{name}" if _column_exists("datasets", name) else default_sql
+
+            fl_report_label = _fl_col("report_label", "''")
+            fl_category = _fl_col("category", "NULL")
+            fl_level_1 = _fl_col("level_1", "NULL")
+            fl_year = _fl_col("year", "NULL")
+            d_country = _d_col("country", "''")
+            d_year = _d_col("year", "NULL")
+            d_archived = _d_col("archived", "FALSE")
+
             params: list[object] = []
             where_parts = [
-                """
+                f"""
                 (
                     fl.column_text ILIKE %s
-                    OR COALESCE(fl.report_label, '') ILIKE %s
-                    OR COALESCE(fl.category, fl.level_1, '') ILIKE %s
+                    OR COALESCE({fl_report_label}, '') ILIKE %s
+                    OR COALESCE({fl_category}, {fl_level_1}, '') ILIKE %s
                 )
                 """
             ]
@@ -2824,25 +2855,44 @@ def search_factors(
                 where_parts.append("fl.dataset_id = %s")
                 params.append(dataset_id)
             if country.strip():
-                where_parts.append("LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))")
+                where_parts.append(f"LOWER(TRIM(COALESCE({d_country}, ''))) = LOWER(TRIM(%s))")
                 params.append(country.strip())
             if year is not None:
-                where_parts.append("d.year = %s")
+                where_parts.append(f"{d_year} = %s")
                 params.append(int(year))
 
-            where_parts.append("(d.archived IS NULL OR d.archived = FALSE)")
+            where_parts.append(f"({d_archived} IS NULL OR {d_archived} = FALSE)")
             where_sql = " AND ".join(where_parts)
             params.append(limit)
 
+            select_cols = [
+                "fl.db_id",
+                f"{_fl_col('original_id')} AS original_id",
+                "d.name AS dataset",
+                f"{_d_col('analysis_type')} AS analysis_type",
+                f"{d_country} AS country",
+                f"{fl_year} AS year",
+                "fl.scope",
+                f"{fl_category} AS category",
+                f"{fl_level_1} AS level_1",
+                f"{_fl_col('level_2')} AS level_2",
+                f"{_fl_col('level_3')} AS level_3",
+                f"{_fl_col('level_4')} AS level_4",
+                "fl.column_text",
+                "fl.uom",
+                f"{_fl_col('ghg_unit')} AS ghg_unit",
+                "fl.factor",
+                f"{fl_report_label} AS report_label",
+            ]
+            select_sql = ",\n                       ".join(select_cols)
+
             df = con.execute(
                 f"""
-                SELECT fl.db_id, fl.original_id, d.name AS dataset, d.analysis_type, d.country,
-                       fl.year, fl.scope, fl.category, fl.level_1, fl.level_2, fl.level_3, fl.level_4,
-                       fl.column_text, fl.uom, fl.ghg_unit, fl.factor, fl.report_label
+                SELECT {select_sql}
                 FROM factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
-                ORDER BY fl.year DESC, COALESCE(fl.category, fl.level_1), fl.column_text
+                ORDER BY year DESC NULLS LAST, COALESCE(category, level_1), fl.column_text
                 LIMIT %s
                 """,
                 params,
