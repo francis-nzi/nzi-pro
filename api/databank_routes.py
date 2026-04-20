@@ -10,7 +10,7 @@ from core.database import get_conn
 
 router = APIRouter(prefix="/databank", tags=["databank"])
 
-TEAM_ROLES = {"admin", "consultant", "readonly", "crm", "qa", "support"}
+TEAM_ROLES = {"superadmin", "admin", "consultant", "readonly", "crm", "qa", "support"}
 DEFAULT_SUBJECTS = [
     "Legislation & Regulations",
     "COP",
