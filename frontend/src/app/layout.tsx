@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NZI Pro - Carbon Reporting Platform",
+  title: "NZ Insights Pro - Carbon Reporting Platform",
   description: "Professional carbon footprint reporting and net zero planning",
 };
 

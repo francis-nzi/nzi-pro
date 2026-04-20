@@ -206,7 +206,7 @@ function LoginPageContent() {
       <div className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">
         <div className="w-full rounded-xl border bg-card p-6 shadow-sm">
           <h1 className="mb-1 text-2xl font-semibold">Sign In</h1>
-          <p className="mb-6 text-sm text-muted-foreground">NZI Pro team access</p>
+          <p className="mb-6 text-sm text-muted-foreground">NZ Insights Pro team access</p>
 
           {!mfaRequired ? (
             <form className="space-y-4" onSubmit={onSubmit}>
@@ -253,7 +253,7 @@ function LoginPageContent() {
                 {busy ? "Signing in..." : "Sign in"}
               </Button>
               <div className="text-center text-xs text-muted-foreground">
-                By using NZI Pro, you agree to the{" "}
+                By using NZ Insights Pro, you agree to the{" "}
                 <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms of Use</Link>
                 {" and acknowledge the "}
                 <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>

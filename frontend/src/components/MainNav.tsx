@@ -142,12 +142,12 @@ export function MainNav() {
             {logoErrorUrl !== logoUrl ? (
               <img
                 src={logoUrl}
-                alt="NZI Pro"
+                alt="NZ Insights Pro"
                 className="h-8 w-auto object-contain"
                 onError={() => setLogoErrorUrl(logoUrl)}
               />
             ) : null}
-            <span className="text-xl font-bold">NZI Pro</span>
+            <span className="text-xl font-bold">NZ Insights Pro</span>
           </Link>
 
           <div className="flex items-center gap-1">
