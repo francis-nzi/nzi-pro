@@ -99,6 +99,7 @@ type JobReportNewProps = {
   baseUrl?: string;
   onOpenActions?: () => void;
   showEmissionsSummary?: boolean;
+  isActive?: boolean;
 };
 
 const PROFILE_LIBRARY: ReportProfile[] = [
@@ -390,6 +391,7 @@ export default function JobReportNew({
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   onOpenActions,
   showEmissionsSummary = false,
+  isActive = true,
 }: JobReportNewProps) {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [assignment, setAssignment] = useState<TemplateAssignment | null>(null);
@@ -460,8 +462,11 @@ export default function JobReportNew({
   }, [baseUrl, jobId]);
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     void loadWorkspace();
-  }, [loadWorkspace]);
+  }, [isActive, loadWorkspace]);
 
   const selectedProfile = useMemo(
     () => PROFILE_LIBRARY.find((profile) => profile.key === selectedKey) || PROFILE_LIBRARY[0],

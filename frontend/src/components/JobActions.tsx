@@ -61,6 +61,7 @@ type JobActionsProps = {
   jobId: number;
   baseUrl?: string;
   onOpenReportNew?: () => void;
+  isActive?: boolean;
 };
 
 function blankCustomAction(termOptions: TermOption[], sortOrder: number): JobActionItem {
@@ -89,6 +90,7 @@ export default function JobActions({
   jobId,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
   onOpenReportNew,
+  isActive = true,
 }: JobActionsProps) {
   const [items, setItems] = useState<JobActionItem[]>([]);
   const [suggestedOptions, setSuggestedOptions] = useState<SuggestedActionOption[]>([]);
@@ -128,8 +130,11 @@ export default function JobActions({
   }, [baseUrl, jobId]);
 
   useEffect(() => {
+    if (!isActive) {
+      return;
+    }
     void loadData();
-  }, [loadData]);
+  }, [isActive, loadData]);
 
   const selectedOptionIds = useMemo(
     () =>

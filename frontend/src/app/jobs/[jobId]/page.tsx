@@ -3374,6 +3374,7 @@ export default function JobDetailPage() {
               jobId={jobId}
               baseUrl={baseUrl}
               onOpenReportNew={() => setActiveTab("report-new")}
+              isActive={activeTab === "actions"}
             />
           </TabsContent>
 
@@ -3382,6 +3383,7 @@ export default function JobDetailPage() {
               jobId={jobId}
               baseUrl={baseUrl}
               onOpenActions={() => setActiveTab("actions")}
+              isActive={activeTab === "report-new"}
             />
           </TabsContent>
 
