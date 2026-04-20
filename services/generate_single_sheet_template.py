@@ -1,7 +1,9 @@
 """Generate single-sheet Excel template from factor lookup data."""
 
+import csv
 import os
 from io import BytesIO
+from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -25,6 +27,7 @@ def generate_single_sheet_template(
     report_to: str = "",
     include_custom_factors: bool = True,
     include_prev_year: bool = True,
+    reference_template_path: str | None = None,
 ) -> tuple[bytes, str]:
     wb = Workbook()
     ws = wb.active
@@ -59,7 +62,7 @@ def generate_single_sheet_template(
         cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    factors = _load_reference_template_rows()
+    factors = _load_reference_template_rows(reference_template_path)
     existing_data = fetch_existing_scope_entries(job_id)
 
     current_row = 5
@@ -160,46 +163,93 @@ def generate_single_sheet_template(
     return buffer.getvalue(), filename
 
 
-def _load_reference_template_rows() -> list[dict]:
+def _load_reference_template_rows(reference_template_path: str | None = None) -> list[dict]:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    template_path = os.path.join(project_root, "templates", "NZI Data Upload Template - Standard UK.xlsx")
+    template_path = reference_template_path or os.path.join(project_root, "templates", "NZI Data Upload Template - Standard UK.xlsx")
 
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"Reference template not found at: {template_path}")
 
-    wb = load_workbook(template_path, data_only=True)
-    ws = wb.active
-
-    header_row = None
-    for r in range(1, 20):
-        vals = [ws.cell(r, c).value for c in range(1, 25)]
-        norm = [str(x).strip().lower() if x else "" for x in vals]
-        if "scope" in norm and "id" in norm:
-            header_row = r
-            break
-
-    if not header_row:
-        raise ValueError("Could not find header row in reference template")
-
     factors = []
-    for r in range(header_row + 1, ws.max_row + 1):
-        scope = ws.cell(r, 1).value
-        category = ws.cell(r, 2).value
-        report_label = ws.cell(r, 3).value
-        factor_id = ws.cell(r, 4).value
-        uom = ws.cell(r, 5).value
 
-        if factor_id:
-            factors.append(
-                {
-                    "scope": scope or "",
-                    "category": category or "",
-                    "report_label": report_label or "",
-                    "id": str(factor_id).strip(),
-                    "uom": uom or "",
-                }
-            )
+    if str(template_path).lower().endswith(".csv"):
+        with open(template_path, "r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.reader(handle)
+            rows = list(reader)
+
+        header_row = None
+        headers: list[str] = []
+        for idx, row in enumerate(rows[:40]):
+            norm = [str(x).strip().lower() if x else "" for x in row]
+            if "scope" in norm and "id" in norm:
+                header_row = idx
+                headers = norm
+                break
+
+        if header_row is None:
+            raise ValueError("Could not find header row in reference template")
+
+        def _col(name: str) -> int | None:
+            try:
+                return headers.index(name.lower())
+            except ValueError:
+                return None
+
+        scope_col = _col("scope")
+        category_col = _col("category")
+        report_label_col = _col("report label")
+        id_col = _col("id")
+        uom_col = _col("uom")
+        if scope_col is None or category_col is None or report_label_col is None or id_col is None or uom_col is None:
+            raise ValueError("Could not find required columns in reference template")
+
+        for row in rows[header_row + 1 :]:
+            if len(row) <= max(scope_col, category_col, report_label_col, id_col, uom_col):
+                continue
+            factor_id = row[id_col]
+            if factor_id:
+                factors.append(
+                    {
+                        "scope": row[scope_col] or "",
+                        "category": row[category_col] or "",
+                        "report_label": row[report_label_col] or "",
+                        "id": str(factor_id).strip(),
+                        "uom": row[uom_col] or "",
+                    }
+                )
+    else:
+        wb = load_workbook(template_path, data_only=True)
+        ws = wb.active
+
+        header_row = None
+        for r in range(1, 20):
+            vals = [ws.cell(r, c).value for c in range(1, 25)]
+            norm = [str(x).strip().lower() if x else "" for x in vals]
+            if "scope" in norm and "id" in norm:
+                header_row = r
+                break
+
+        if not header_row:
+            raise ValueError("Could not find header row in reference template")
+
+        for r in range(header_row + 1, ws.max_row + 1):
+            scope = ws.cell(r, 1).value
+            category = ws.cell(r, 2).value
+            report_label = ws.cell(r, 3).value
+            factor_id = ws.cell(r, 4).value
+            uom = ws.cell(r, 5).value
+
+            if factor_id:
+                factors.append(
+                    {
+                        "scope": scope or "",
+                        "category": category or "",
+                        "report_label": report_label or "",
+                        "id": str(factor_id).strip(),
+                        "uom": uom or "",
+                    }
+                )
 
     return factors
 

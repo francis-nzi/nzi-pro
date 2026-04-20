@@ -127,6 +127,7 @@ export default function JobSourceRegister({
   const recordIdentityLabel = isBusinessTravel ? "Travel identity" : "Asset identity";
   const recordIdentityPlaceholder = isBusinessTravel ? "Employee ref / trip ref" : "Registration / asset tag";
   const recordNamePlaceholder = isBusinessTravel ? "Employee travel pattern" : "Vehicle / Asset name";
+  const importButtonLabel = isBusinessTravel ? "Import into Data Entry" : "Import workbook";
   const confirmAction = useConfirmDialog();
   const apiBases = useMemo(() => apiBaseCandidates(), []);
   const [activeApiBase, setActiveApiBase] = useState<string | null>(null);
@@ -300,7 +301,7 @@ export default function JobSourceRegister({
       safeFilenamePart(jobNumber || `job_${jobId}`),
       safeFilenamePart(clientName || "client"),
       selectedDownloadSite ? safeFilenamePart(selectedDownloadSite) : "",
-      safeFilenamePart(sourceType === "business_travel" ? "business_travel_register" : "asset_register"),
+      safeFilenamePart(sourceType === "business_travel" ? "business_travel_data_upload" : "asset_register"),
       safeFilenamePart(yearValue),
     ].filter(Boolean);
     const suffix = kind === "example" ? "_example" : "";
@@ -332,7 +333,11 @@ export default function JobSourceRegister({
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-      setStatus(`${kind === "example" ? "Example" : "Template"} workbook downloaded.`);
+      setStatus(
+        sourceType === "business_travel"
+          ? `${kind === "example" ? "Example" : "Business travel"} workbook downloaded for Data Entry.`
+          : `${kind === "example" ? "Example" : "Template"} workbook downloaded.`
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to download workbook");
     } finally {
@@ -445,11 +450,14 @@ export default function JobSourceRegister({
     setError("");
     setImportProgress(0);
     try {
-      const fd = new FormData();
-      fd.append("file", uploadFile);
-      const res = await uploadFormDataWithProgress(
-        `/jobs/${jobId}/emission-registers/import-workbook?source_type=${encodeURIComponent(sourceType)}`,
-        {
+      if (sourceType === "business_travel") {
+        if (downloadSiteId === "__all__") {
+          throw new Error("Select a specific workbook site before importing business travel data.");
+        }
+
+        const fd = new FormData();
+        fd.append("file", uploadFile);
+        const validateRes = await uploadFormDataWithProgress(`/jobs/${jobId}/excel-upload`, {
           method: "POST",
           headers: (() => {
             const token = getToken();
@@ -462,18 +470,76 @@ export default function JobSourceRegister({
           credentials: "include",
           body: fd,
           onProgress: ({ percent }) => setImportProgress(percent),
+        });
+
+        const validateText = await validateRes.text();
+        let validateJson: any = null;
+        try {
+          validateJson = JSON.parse(validateText);
+        } catch {
+          validateJson = null;
         }
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `Workbook import failed (${res.status})`);
+
+        if (!validateRes.ok) {
+          const message = validateJson?.errors?.length
+            ? validateJson.errors[0]
+            : validateJson?.detail || validateText || `Workbook validation failed (${validateRes.status})`;
+          throw new Error(message);
+        }
+
+        const rowsReady = Array.isArray(validateJson?.rows_ready) ? validateJson.rows_ready : [];
+        if (rowsReady.length === 0) {
+          throw new Error("No business travel rows were found in the workbook.");
+        }
+
+        const importRes = await apiFetch(`/jobs/${jobId}/excel-import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            site_id: Number(downloadSiteId),
+            rows_ready: rowsReady,
+          }),
+        });
+        if (!importRes.ok) {
+          const text = await importRes.text().catch(() => "");
+          throw new Error(text || `Workbook import failed (${importRes.status})`);
+        }
+        const importJson = await importRes.json().catch(() => null);
+        setUploadFile(null);
+        setStatus(
+          `Workbook imported into Data Entry: ${importJson?.inserted ?? 0} inserted, ${importJson?.updated ?? 0} updated.`
+        );
+      } else {
+        const fd = new FormData();
+        fd.append("file", uploadFile);
+        const res = await uploadFormDataWithProgress(
+          `/jobs/${jobId}/emission-registers/import-workbook?source_type=${encodeURIComponent(sourceType)}`,
+          {
+            method: "POST",
+            headers: (() => {
+              const token = getToken();
+              const userIdentifier = getAuthUserIdentifier();
+              const headers: Record<string, string> = {};
+              if (token) headers.Authorization = `Bearer ${token}`;
+              else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
+              return headers;
+            })(),
+            credentials: "include",
+            body: fd,
+            onProgress: ({ percent }) => setImportProgress(percent),
+          }
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Workbook import failed (${res.status})`);
+        }
+        const data = await res.json();
+        setUploadFile(null);
+        setStatus(
+          `Workbook imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups.`
+        );
+        await reloadRegisterAndSummary();
       }
-      const data = await res.json();
-      setUploadFile(null);
-      setStatus(
-        `Workbook imported: ${data?.inserted_sources ?? 0} sources, ${data?.inserted_groups ?? 0} groups.`
-      );
-      await reloadRegisterAndSummary();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to import workbook");
     } finally {
@@ -605,10 +671,22 @@ export default function JobSourceRegister({
 
           <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground space-y-2">
             <p>
-              Use matching <span className="font-medium text-foreground">{groupLabel}</span> values to link{" "}
-              {recordPlural.toLowerCase()} to shared roll-up groups. The {groupLabel} name is the business roll-up label,
-              while the factor ID lives in <span className="font-medium text-foreground">Original ID</span> or{" "}
-              <span className="font-medium text-foreground">Factor DB ID</span> on each {recordLabel.toLowerCase()} row.
+              {isBusinessTravel ? (
+                <>
+                  The download is a <span className="font-medium text-foreground">Data Upload</span> workbook for{" "}
+                  business travel. Keep the sheet titles filtered to the exact travel mode or hotel factor you want to
+                  use, then import the workbook into <span className="font-medium text-foreground">Data Entry</span>.
+                </>
+              ) : (
+                <>
+                  Use matching <span className="font-medium text-foreground">{groupLabel}</span> values to link{" "}
+                  {recordPlural.toLowerCase()} to shared roll-up groups. The {groupLabel} name is the business roll-up
+                  label, while the factor ID lives in{" "}
+                  <span className="font-medium text-foreground">Original ID</span> or{" "}
+                  <span className="font-medium text-foreground">Factor DB ID</span> on each{" "}
+                  {recordLabel.toLowerCase()} row.
+                </>
+              )}
             </p>
             <p>
               <span className="font-medium text-foreground">group_type</span> is handled internally by the system and
@@ -629,7 +707,9 @@ export default function JobSourceRegister({
 
           <div className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
             <div className="space-y-2">
-              <Label htmlFor="asset-register-upload">Import workbook (.xlsx)</Label>
+              <Label htmlFor="asset-register-upload">
+                {isBusinessTravel ? "Import workbook for Data Entry (.xlsx)" : "Import workbook (.xlsx)"}
+              </Label>
               <Input
                 id="asset-register-upload"
                 type="file"
@@ -638,8 +718,12 @@ export default function JobSourceRegister({
               />
             </div>
             <div className="flex items-end">
-              <Button onClick={importWorkbook} disabled={loading || importing || !uploadFile} className="w-full">
-                {importing ? "Importing workbook..." : "Import workbook"}
+              <Button
+                onClick={importWorkbook}
+                disabled={loading || importing || !uploadFile || (isBusinessTravel && downloadSiteId === "__all__")}
+                className="w-full"
+              >
+                {importing ? "Importing workbook..." : importButtonLabel}
               </Button>
             </div>
           </div>

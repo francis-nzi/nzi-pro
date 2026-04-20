@@ -10,6 +10,7 @@ from api.auth import _current_user
 from api.job_scope_data_routes import _lookup_factor_from_reference, _safe_float, _safe_int
 from core.database import get_conn
 from openpyxl import load_workbook
+from services.business_travel_upload_template import generate_business_travel_upload_template
 from services.emission_register_template import build_emission_register_workbook
 from services.audit_log import record_audit_event
 
@@ -700,13 +701,35 @@ def download_emission_register_template(
                 ).fetchone()
                 if not site_row:
                     raise HTTPException(status_code=400, detail="Selected site does not belong to this job")
-            payload, file_name = build_emission_register_workbook(
-                con,
-                job_id=int(job_id),
-                source_type=str(source_type or "asset").strip() or "asset",
-                kind=str(kind or "template").strip() or "template",
-                site_id=_safe_int(site_id),
-            )
+            source_type_value = str(source_type or "asset").strip() or "asset"
+            if source_type_value == "business_travel":
+                client_row = con.execute(
+                    """
+                    SELECT c.client_name, j.job_number, j.reporting_year, cs.site_name
+                    FROM jobs j
+                    JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN client_sites cs ON cs.site_id = %s
+                    WHERE j.job_id=%s
+                    """,
+                    [_safe_int(site_id), int(job_id)],
+                ).fetchone()
+                payload, file_name = generate_business_travel_upload_template(
+                    job_id=int(job_id),
+                    client_name=str(client_row[0]) if client_row and client_row[0] is not None else "",
+                    site_name=str(client_row[3]) if client_row and len(client_row) > 3 and client_row[3] is not None else "",
+                    job_number=str(client_row[1]) if client_row and client_row[1] is not None else "",
+                    reporting_year=str(client_row[2]) if client_row and client_row[2] is not None else "",
+                    site_id=_safe_int(site_id),
+                    include_prev_year=str(kind or "template").strip().lower() != "example",
+                )
+            else:
+                payload, file_name = build_emission_register_workbook(
+                    con,
+                    job_id=int(job_id),
+                    source_type=source_type_value,
+                    kind=str(kind or "template").strip() or "template",
+                    site_id=_safe_int(site_id),
+                )
         return Response(
             content=payload,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
