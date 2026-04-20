@@ -819,7 +819,7 @@ export default function BusinessDevelopmentPage() {
       });
       const txt = await res.text();
       if (!res.ok) throw new Error(`Failed to generate leads (${res.status})${txt ? `: ${txt}` : ""}`);
-      let responsePayload: { inserted_or_updated?: number; preview_count?: number; preview_items?: GeneratedLead[]; services?: Record<string, number> } = {};
+      let responsePayload: { inserted_or_updated?: number; preview_count?: number; preview_items?: GeneratedLead[]; services?: Record<string, number>; diagnostics?: Record<string, string> } = {};
       if (txt && txt.trim()) {
         try {
           responsePayload = JSON.parse(txt) as {
@@ -827,26 +827,29 @@ export default function BusinessDevelopmentPage() {
             preview_count?: number;
             preview_items?: GeneratedLead[];
             services?: Record<string, number>;
+            diagnostics?: Record<string, string>;
           };
         } catch {
           responsePayload = {};
         }
       }
+      const diagParts = Object.entries(responsePayload?.diagnostics || {}).map(([k, v]) => `${k}: ${v}`);
+      const diagText = diagParts.length ? ` Diagnostics: ${diagParts.join("; ")}` : "";
       if (previewOnly) {
         const previewItems = Array.isArray(responsePayload?.preview_items) ? responsePayload.preview_items : [];
         setPreviewLeads(previewItems);
         setStatus(
           generationMode === "market-scan"
-            ? `Preview complete: ${previewItems.length} companies match your criteria. Nothing was written to the bin.`
-            : `Preview complete: ${previewItems.length} criteria-matched leads were found. Nothing was written to the bin.`
+            ? `Preview complete: ${previewItems.length} companies match your criteria. Nothing was written to the bin.${diagText}`
+            : `Preview complete: ${previewItems.length} criteria-matched leads were found. Nothing was written to the bin.${diagText}`
         );
       } else {
         const inserted = Number(responsePayload?.inserted_or_updated || 0);
         setPreviewLeads([]);
         setStatus(
           generationMode === "market-scan"
-            ? `Market scan generated: ${inserted} companies matched your criteria and were added to today's bin.`
-            : `Lead generation complete: ${inserted} criteria-matched leads added to today's bin.`
+            ? `Market scan generated: ${inserted} companies matched your criteria and were added to today's bin.${diagText}`
+            : `Lead generation complete: ${inserted} criteria-matched leads added to today's bin.${diagText}`
         );
         await loadLeadBins();
         await load();
