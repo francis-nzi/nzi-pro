@@ -2898,11 +2898,30 @@ def search_factors(
                 params,
             ).df()
         
-        items = []
+        items: list[dict] = []
         if df is not None and not df.empty:
-            items = df.to_dict(orient="records")
-        
+            # pandas turns SQL NULL numerics into NaN, which is not JSON-serialisable
+            # and would otherwise escape the try/except during response encoding.
+            safe_df = df.astype(object).where(df.notna(), None)
+            for record in safe_df.to_dict(orient="records"):
+                clean: dict = {}
+                for key, value in record.items():
+                    if value is None:
+                        clean[key] = None
+                    elif isinstance(value, float) and (value != value):  # NaN
+                        clean[key] = None
+                    elif hasattr(value, "item"):  # numpy scalar → Python scalar
+                        try:
+                            clean[key] = value.item()
+                        except Exception:
+                            clean[key] = str(value)
+                    else:
+                        clean[key] = value
+                items.append(clean)
+
         return {"items": items, "count": len(items)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to search factors: {e}")
 
