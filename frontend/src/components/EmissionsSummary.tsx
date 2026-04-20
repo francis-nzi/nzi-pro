@@ -20,7 +20,7 @@ type EmissionsSummaryProps = {
 
 export default function EmissionsSummary({
   jobId,
-  baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
+  baseUrl = "/api/backend",
   variant = "card",
   className,
 }: EmissionsSummaryProps) {
@@ -34,9 +34,6 @@ export default function EmissionsSummary({
         [
           (baseUrl || "").trim(),
           "/api/backend",
-          (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim(),
-          "http://127.0.0.1:8002",
-          "http://localhost:8000",
         ].filter(Boolean)
       )
     );

@@ -18,16 +18,8 @@ import {
 import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
-function apiBaseCandidates(baseUrl?: string): string[] {
-  const out: string[] = ["/api/backend"];
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname || "localhost";
-    out.push(`http://${host}:8002`);
-    out.push(`http://${host}:8000`);
-  }
-  if (baseUrl && String(baseUrl).trim()) out.push(String(baseUrl).trim());
-  out.push("http://127.0.0.1:8002", "http://localhost:8000");
-  return Array.from(new Set(out));
+function apiBaseCandidates(): string[] {
+  return ["/api/backend"];
 }
 
 type Site = { site_id: number | null; site_name: string | null };
@@ -136,7 +128,7 @@ export default function JobSourceRegister({
   const recordIdentityPlaceholder = isBusinessTravel ? "Employee ref / trip ref" : "Registration / asset tag";
   const recordNamePlaceholder = isBusinessTravel ? "Employee travel pattern" : "Vehicle / Asset name";
   const confirmAction = useConfirmDialog();
-  const apiBases = useMemo(() => apiBaseCandidates(baseUrl), [baseUrl]);
+  const apiBases = useMemo(() => apiBaseCandidates(), []);
   const [activeApiBase, setActiveApiBase] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

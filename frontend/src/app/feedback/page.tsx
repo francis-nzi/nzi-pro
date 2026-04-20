@@ -28,7 +28,7 @@ type FeedbackItem = {
 const DEFAULT_PROCESS_OPTIONS = ["Client Onboarding", "Job Start", "Job Report", "General"];
 
 function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  return "/api/backend";
 }
 
 function formatTs(ts: string | null): string {

@@ -35,18 +35,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [authReady, setAuthReady] = useState(false)
 
   const candidateApiBases = (): string[] => {
-    const out: string[] = []
-    out.push("/api/backend")
-    if (typeof window !== "undefined") {
-      const host = window.location.hostname || "localhost"
-      out.push(`http://${host}:8002`)
-      out.push(`http://${host}:8000`)
-    }
-    const envBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim()
-    if (envBase) out.push(envBase)
-    out.push("http://127.0.0.1:8002")
-    out.push("http://localhost:8000")
-    return Array.from(new Set(out))
+    return ["/api/backend"]
   }
 
   const fetchTheme = useCallback(async () => {

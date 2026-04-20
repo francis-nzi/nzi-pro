@@ -45,17 +45,8 @@ type JobCustomFactor = {
   archived_by?: string | null;
 };
 
-function apiBaseCandidates(baseUrl?: string): string[] {
-  const out: string[] = ["/api/backend"];
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname || "localhost";
-    out.push(`http://${host}:8002`);
-    out.push(`http://${host}:8000`);
-  }
-  if (baseUrl && String(baseUrl).trim()) out.push(String(baseUrl).trim());
-  out.push("http://127.0.0.1:8002");
-  out.push("http://localhost:8000");
-  return Array.from(new Set(out));
+function apiBaseCandidates(): string[] {
+  return ["/api/backend"];
 }
 
 function cleanText(value?: string | null): string {
@@ -71,7 +62,7 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export default function JobCustomFactors({
   jobId,
-  baseUrl,
+  baseUrl: _baseUrl,
   jobNumber,
   clientName,
   reportingYear,
@@ -83,7 +74,10 @@ export default function JobCustomFactors({
   reportingYear?: number | null;
 }) {
   const confirmAction = useConfirmDialog();
-  const apiBases = useMemo(() => apiBaseCandidates(baseUrl), [baseUrl]);
+  const apiBases = useMemo(() => {
+    void _baseUrl;
+    return apiBaseCandidates();
+  }, [_baseUrl]);
   const defaultFactorYear = reportingYear ?? new Date().getFullYear();
 
   const [activeApiBase, setActiveApiBase] = useState<string | null>(null);
