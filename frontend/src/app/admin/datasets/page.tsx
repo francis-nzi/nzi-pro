@@ -537,6 +537,8 @@ export default function DatasetsPage() {
 
   const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
+  const datasetYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
+
   const allYearOptions = useMemo(() => {
     const years = Array.from(
       new Set(datasets.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
@@ -816,12 +818,20 @@ export default function DatasetsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="year">Year</Label>
-                  <Input
-                    id="year"
-                    type="number"
-                    value={year}
-                    onChange={(e) => setYear(Number(e.target.value))}
-                  />
+                  <div className="w-full max-w-[150px]">
+                    <SearchableStringSelect
+                      id="year"
+                      value={String(year)}
+                      options={datasetYearOptions}
+                      placeholder="Search years..."
+                      onValueChange={(value) => {
+                        const parsed = Number(String(value).trim());
+                        if (Number.isFinite(parsed)) {
+                          setYear(parsed);
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
