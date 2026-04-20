@@ -186,6 +186,15 @@ def build_emission_register_workbook(
     sites = [selected_site_name] if selected_site_name else _job_sites(con, context.get("client_db_id"))
     site_choices = ["No site", *sites] if sites else ["No site"]
     example_site = selected_site_name or (sites[0] if sites else "No site")
+    is_business_travel = source_type_value == "business_travel"
+    register_title = "Business Travel Register Workbook" if is_business_travel else "Asset Register Workbook"
+    register_description = (
+        "Add groups and travel rows here, then import the workbook back into the job. "
+        "Groups own the scope, site, and factor family; travel rows inherit that configuration."
+        if is_business_travel
+        else "Add groups and asset rows here, then import the workbook back into the job. "
+        "Groups own the scope, site, and factor family; asset rows inherit that configuration."
+    )
 
     wb = Workbook()
     instructions = wb.active
@@ -196,12 +205,9 @@ def build_emission_register_workbook(
 
     title_fill = PatternFill(fill_type="solid", fgColor="E8F0FE")
 
-    instructions["A1"] = "Asset Register Workbook"
+    instructions["A1"] = register_title
     instructions["A1"].font = Font(bold=True, size=14)
-    instructions["A2"] = (
-        "Add groups and asset rows here, then import the workbook back into the job. "
-        "Groups own the scope, site, and factor family; asset rows inherit that configuration."
-    )
+    instructions["A2"] = register_description
     instructions["A4"] = "Job Number"
     instructions["B4"] = job_number
     instructions["A5"] = "Client"
