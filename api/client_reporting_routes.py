@@ -88,11 +88,9 @@ def get_client_reporting(
             if not client_check:
                 raise HTTPException(status_code=404, detail="Client not found")
             
-            # Prefer CRP jobs for reporting, but fall back to all client jobs when
-            # the client has no CRP-tagged jobs yet.
-            jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=True)
-            if jobs_df is None or jobs_df.empty:
-                jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
+            # Use all client jobs so the comparison table reflects every reporting
+            # year that exists for the client, including non-CRP historical jobs.
+            jobs_df = _load_client_jobs(con, int(client_db_id), crp_only=False)
             
             if jobs_df is None or jobs_df.empty:
                 return {
