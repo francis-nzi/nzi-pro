@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 type CommunicationsIndexPageProps = {
-  params: { jobId: string };
+  params: Promise<{ jobId: string }>;
 };
 
 export default async function CommunicationsIndexPage({ params }: CommunicationsIndexPageProps) {
-  const { jobId } = params;
+  const { jobId } = await params;
   redirect(`/jobs/${jobId}/communications/timeline`);
 }
