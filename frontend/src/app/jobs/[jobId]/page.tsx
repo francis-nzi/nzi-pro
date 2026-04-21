@@ -72,6 +72,9 @@ const JobSourceRegister = dynamic(() => import("@/components/JobSourceRegister")
 const SpendDataCollection = dynamic(() => import("@/components/SpendDataCollection"), {
   loading: () => <LazyTabPanel title="Spend Data" description="Loading spend data collection..." />,
 });
+const JobNotesSummary = dynamic(() => import("@/components/JobNotesSummary"), {
+  loading: () => <LazyTabPanel title="Job Notes" description="Loading job notes..." />,
+});
 const EmployeeCommutingData = dynamic(() => import("@/components/EmployeeCommutingData"), {
   loading: () => <LazyTabPanel title="Employee Commuting" description="Loading commuting data..." />,
 });
@@ -177,6 +180,7 @@ const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "custom-dataset", label: "Custom Dataset" },
       { key: "custom-factors", label: "Job-Only Factors" },
       { key: "spend-data", label: "Spend Data" },
+      { key: "notes", label: "Notes" },
     ],
   },
   {
@@ -254,6 +258,7 @@ const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
   "custom-dataset": "data",
   "custom-factors": "data",
   "spend-data": "data",
+  notes: "data",
   "data-output": "outputs",
   actions: "outputs",
   "report-new": "report",
@@ -3357,6 +3362,10 @@ export default function JobDetailPage() {
             <div className="space-y-6">
               <SpendDataCollection jobId={jobId} baseUrl={baseUrl} />
             </div>
+          </TabsContent>
+
+          <TabsContent value="notes" className="mt-0">
+            <JobNotesSummary jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
 
           <TabsContent value="data-output" className="mt-0">

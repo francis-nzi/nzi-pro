@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from core.database import get_conn
 from api.auth import _current_user
 from api.job_data_output_routes import _build_scope_summary, _load_data_output_rows
-from services.audit_log import fetch_row_dict, record_audit_event
+from services.audit_log import ensure_audit_log_table, fetch_row_dict, parse_json_text, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 
@@ -605,6 +605,150 @@ def get_job_scope_data(
         print(f"Exception type: {type(e)}")
         print(f"Exception args: {e.args}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch scope data: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/notes-summary")
+def get_job_notes_summary(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Return a consolidated list of notes across job scope rows with row context and audit metadata."""
+    try:
+        with get_conn() as con:
+            _ensure_job_scope_rows_schema(con)
+            ensure_audit_log_table(con)
+
+            job_row = con.execute(
+                """
+                SELECT job_id, job_number, title
+                FROM jobs
+                WHERE job_id=%s
+                """,
+                [int(job_id)],
+            ).fetchone()
+            if not job_row:
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            notes_df = con.execute(
+                """
+                SELECT
+                    jsr.row_id,
+                    jsr.job_id,
+                    jsr.scope,
+                    jsr.site_id,
+                    cs.site_name,
+                    jsr.category,
+                    jsr.level_1,
+                    jsr.level_2,
+                    jsr.level_3,
+                    jsr.level_4,
+                    jsr.column_text,
+                    jsr.report_label,
+                    jsr.original_id,
+                    jsr.notes,
+                    jsr.created_at,
+                    jsr.updated_at
+                FROM job_scope_rows jsr
+                LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
+                WHERE jsr.job_id = %s
+                  AND COALESCE(TRIM(CAST(jsr.notes AS VARCHAR)), '') <> ''
+                ORDER BY jsr.updated_at DESC NULLS LAST, jsr.created_at DESC NULLS LAST, jsr.row_id DESC
+                """,
+                [int(job_id)],
+            ).df()
+
+            audit_df = con.execute(
+                """
+                SELECT audit_id, entity_id, created_at, actor_email, actor_name, action, diff_json, metadata_json
+                FROM audit_log
+                WHERE job_id = %s
+                  AND entity_type = 'job_scope_row'
+                ORDER BY created_at DESC, audit_id DESC
+                """,
+                [int(job_id)],
+            ).df()
+
+            latest_note_events: dict[str, dict[str, Any]] = {}
+            if audit_df is not None and not audit_df.empty:
+                for _, audit_row in audit_df.iterrows():
+                    entity_id = str(audit_row.get("entity_id") or "").strip()
+                    if not entity_id or entity_id in latest_note_events:
+                        continue
+
+                    diff_data = parse_json_text(audit_row.get("diff_json"))
+                    meta_data = parse_json_text(audit_row.get("metadata_json"))
+                    note_change_detected = False
+
+                    if isinstance(diff_data, dict) and "notes" in diff_data:
+                        note_change_detected = True
+
+                    if not note_change_detected and isinstance(meta_data, dict):
+                        updated_fields = meta_data.get("updated_fields")
+                        if isinstance(updated_fields, list) and any(str(field).strip() == "notes" for field in updated_fields):
+                            note_change_detected = True
+
+                    if not note_change_detected:
+                        continue
+
+                    actor_label = str(audit_row.get("actor_name") or audit_row.get("actor_email") or "").strip() or None
+                    latest_note_events[entity_id] = {
+                        "updated_at": audit_row.get("created_at").isoformat() if audit_row.get("created_at") else None,
+                        "updated_by": actor_label,
+                    }
+
+            items: list[dict[str, Any]] = []
+            if notes_df is not None and not notes_df.empty:
+                for _, row in notes_df.iterrows():
+                    row_id = int(row.get("row_id"))
+                    note_text = str(row.get("notes") or "").strip()
+                    if not note_text:
+                        continue
+
+                    site_name = str(row.get("site_name") or "").strip() or (
+                        f"Site {row.get('site_id')}" if row.get("site_id") is not None else "No Site Assigned"
+                    )
+                    location_parts = [
+                        site_name,
+                        str(row.get("scope") or "").strip(),
+                        str(row.get("category") or row.get("level_2") or row.get("level_1") or "").strip(),
+                        str(row.get("report_label") or row.get("column_text") or row.get("original_id") or "").strip(),
+                    ]
+                    note_location = " • ".join(part for part in location_parts if part)
+                    note_event = latest_note_events.get(str(row_id), {})
+                    updated_at = note_event.get("updated_at") or (
+                        row.get("updated_at").isoformat() if row.get("updated_at") else None
+                    )
+
+                    items.append(
+                        {
+                            "row_id": row_id,
+                            "job_id": int(row.get("job_id") or job_id),
+                            "scope": str(row.get("scope") or ""),
+                            "site_id": int(row.get("site_id")) if row.get("site_id") is not None else None,
+                            "site_name": site_name,
+                            "category": str(row.get("category") or row.get("level_2") or row.get("level_1") or ""),
+                            "report_label": str(row.get("report_label") or row.get("column_text") or row.get("original_id") or ""),
+                            "original_id": str(row.get("original_id") or ""),
+                            "note_text": note_text,
+                            "note_location": note_location,
+                            "note_updated_at": updated_at,
+                            "note_updated_by": note_event.get("updated_by"),
+                            "row_created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
+                            "row_updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
+                        }
+                    )
+
+            return {
+                "job_id": int(job_id),
+                "job_number": str(job_row[1]) if len(job_row) > 1 and job_row[1] is not None else None,
+                "job_title": str(job_row[2]) if len(job_row) > 2 and job_row[2] is not None else None,
+                "total": len(items),
+                "items": items,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch job notes summary: {e}")
 
 
 @router.get("/jobs/{job_id}/previous-scope-rows")

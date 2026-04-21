@@ -52,6 +52,7 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
     { key: "custom-dataset", label: "Custom Dataset", href: "/jobs/__JOB_ID__?tab=custom-dataset" },
     { key: "custom-factors", label: "Job-Only Factors", href: "/jobs/__JOB_ID__?tab=custom-factors" },
     { key: "spend-data", label: "Spend Data", href: "/jobs/__JOB_ID__?tab=spend-data" },
+    { key: "notes", label: "Notes", href: "/jobs/__JOB_ID__?tab=notes" },
   ],
   outputs: [
     { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__?tab=data-output" },
