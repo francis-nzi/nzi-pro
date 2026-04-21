@@ -1292,8 +1292,14 @@ export default function JobDetailPage() {
         .join(" | ")
     : "Automatic dataset resolution is active. Additional job datasets are hidden unless needed.";
   const primaryScopeDatasets = useMemo(
-    () =>
-      SCOPE_KEYS.map((scope) => {
+    () => {
+      type ScopeDatasetSummary = {
+        key: string;
+        label: (typeof SCOPE_KEYS)[number];
+        title: string;
+        detail: string;
+      };
+      return SCOPE_KEYS.map((scope) => {
         const dsId = scopeEffectiveDatasetIds[scope];
         const dataset =
           dsId && dsId !== "__none__" ? datasets.find((entry) => String(entry.dataset_id) === dsId) : null;
@@ -1309,12 +1315,8 @@ export default function JobDetailPage() {
           title: dataset.name?.trim() || `Dataset ${dataset.dataset_id}`,
           detail: detailBits.join(" | "),
         };
-      }).filter((item): item is {
-        key: string;
-        label: string;
-        title: string;
-        detail: string;
-      } => Boolean(item)),
+      }).filter(Boolean) as ScopeDatasetSummary[];
+    },
     [datasets, scopeEffectiveDatasetIds]
   );
 
@@ -1340,8 +1342,14 @@ export default function JobDetailPage() {
   );
 
   const manualFallbackDatasets = useMemo(
-    () =>
-      SCOPE_KEYS.map((scope) => {
+    () => {
+      type ScopeDatasetSummary = {
+        key: string;
+        label: (typeof SCOPE_KEYS)[number];
+        title: string;
+        detail: string;
+      };
+      return SCOPE_KEYS.map((scope) => {
         const dsId = scopeDatasetIds[scope];
         const dataset =
           dsId && dsId !== "__none__" ? datasets.find((entry) => String(entry.dataset_id) === dsId) : null;
@@ -1357,12 +1365,8 @@ export default function JobDetailPage() {
           title: dataset.name?.trim() || `Dataset ${dataset.dataset_id}`,
           detail: detailBits.join(" | "),
         };
-      }).filter((item): item is {
-        key: string;
-        label: string;
-        title: string;
-        detail: string;
-      } => Boolean(item)),
+      }).filter(Boolean) as ScopeDatasetSummary[];
+    },
     [datasets, scopeDatasetIds]
   );
 
