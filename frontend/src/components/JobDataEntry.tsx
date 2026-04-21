@@ -185,6 +185,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [confidenceFilter, setConfidenceFilter] = useState<string>("All");
   const [siteFilter, setSiteFilter] = useState<string>("All");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
+  const [monthlyCompletenessFilter, setMonthlyCompletenessFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showColumnManager, setShowColumnManager] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -950,6 +951,34 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     );
   }
 
+  function getMonthlyFilledCount(row: ScopeDataRow | PreviousYearRow): number {
+    const monthlyValues = [
+      row.month_1,
+      row.month_2,
+      row.month_3,
+      row.month_4,
+      row.month_5,
+      row.month_6,
+      row.month_7,
+      row.month_8,
+      row.month_9,
+      row.month_10,
+      row.month_11,
+      row.month_12,
+    ];
+    return monthlyValues.filter((value) => value !== null && value !== undefined).length;
+  }
+
+  function matchesMonthlyCompleteness(row: ScopeDataRow | PreviousYearRow): boolean {
+    if (monthlyCompletenessFilter === "All") return true;
+    const filledCount = getMonthlyFilledCount(row);
+    if (monthlyCompletenessFilter === "Complete") return filledCount === 12;
+    if (monthlyCompletenessFilter === "Partial") return filledCount > 0 && filledCount < 12;
+    if (monthlyCompletenessFilter === "Empty") return filledCount === 0;
+    if (monthlyCompletenessFilter === "Any") return filledCount > 0;
+    return true;
+  }
+
   const filteredData = scopeData.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (confidenceFilter !== "All") {
@@ -960,6 +989,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
       return false;
     }
+    if (!matchesMonthlyCompleteness(row)) return false;
     if (searchQuery) {
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
@@ -984,6 +1014,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
       return false;
     }
+    if (!matchesMonthlyCompleteness(row)) return false;
     if (searchQuery) {
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
@@ -1136,7 +1167,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_8rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_12rem_8rem]">
             <div className="min-w-0">
               <Label htmlFor="search">Search</Label>
               <Input
@@ -1207,6 +1238,21 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </SelectContent>
               </Select>
             </div>
+            <div className="min-w-0">
+              <Label htmlFor="monthlyCompletenessFilter">Monthly</Label>
+              <Select value={monthlyCompletenessFilter} onValueChange={setMonthlyCompletenessFilter}>
+                <SelectTrigger id="monthlyCompletenessFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Monthly</SelectItem>
+                  <SelectItem value="Complete">Complete (12/12)</SelectItem>
+                  <SelectItem value="Partial">Partial (1-11/12)</SelectItem>
+                  <SelectItem value="Empty">Empty (0/12)</SelectItem>
+                  <SelectItem value="Any">Has Monthly Data</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end">
               <Button onClick={() => setShowColumnManager(true)} variant="outline">
                 Columns
@@ -1231,6 +1277,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                   setConfidenceFilter("All");
                   setSiteFilter("All");
                   setCategoryFilter("All");
+                  setMonthlyCompletenessFilter("All");
                 }}
               >
                 Clear Filters
