@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +26,26 @@ export default function EmissionsSummary({
 }: EmissionsSummaryProps) {
   const [loading, setLoading] = useState(true);
   const [scopeTotals, setScopeTotals] = useState<ScopeTotals | null>(null);
+  const [updatedJustNow, setUpdatedJustNow] = useState(false);
+  const updatedFlashTimeoutRef = useRef<number | null>(null);
 
-  const loadScopeTotals = useCallback(async () => {
+  const clearUpdatedFlash = useCallback(() => {
+    if (updatedFlashTimeoutRef.current !== null) {
+      window.clearTimeout(updatedFlashTimeoutRef.current);
+      updatedFlashTimeoutRef.current = null;
+    }
+  }, []);
+
+  const showUpdatedFlash = useCallback(() => {
+    clearUpdatedFlash();
+    setUpdatedJustNow(true);
+    updatedFlashTimeoutRef.current = window.setTimeout(() => {
+      setUpdatedJustNow(false);
+      updatedFlashTimeoutRef.current = null;
+    }, 2500);
+  }, [clearUpdatedFlash]);
+
+  const loadScopeTotals = useCallback(async (opts?: { flash?: boolean }) => {
     setLoading(true);
     const candidateBases = Array.from(
       new Set(
@@ -48,6 +66,9 @@ export default function EmissionsSummary({
           if (res.ok) {
             const data = await res.json();
             setScopeTotals(data);
+            if (opts?.flash) {
+              showUpdatedFlash();
+            }
             return;
           }
           lastError = new Error(`Scope totals request failed (${res.status})`);
@@ -62,7 +83,7 @@ export default function EmissionsSummary({
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, jobId]);
+  }, [baseUrl, jobId, showUpdatedFlash]);
 
   useEffect(() => {
     void loadScopeTotals();
@@ -70,11 +91,17 @@ export default function EmissionsSummary({
 
   useEffect(() => {
     const handleRefresh = () => {
-      void loadScopeTotals();
+      void loadScopeTotals({ flash: true });
     };
     window.addEventListener("nzi-job-scope-refresh", handleRefresh);
     return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
   }, [loadScopeTotals]);
+
+  useEffect(() => {
+    return () => {
+      clearUpdatedFlash();
+    };
+  }, [clearUpdatedFlash]);
 
   const formatNumber = (num: number) => {
     return num.toLocaleString('en-GB', { 
@@ -91,7 +118,10 @@ export default function EmissionsSummary({
             <div className="text-[0.68rem] uppercase tracking-[0.36em] text-slate-500">Emissions Summary</div>
             <div className="text-xs text-slate-600">Current job totals</div>
           </div>
-          {loading ? <div className="text-xs text-slate-500">Loading...</div> : null}
+          <div className="flex items-center gap-2">
+            {updatedJustNow ? <div className="text-xs font-medium text-emerald-700">Updated just now</div> : null}
+            {loading ? <div className="text-xs text-slate-500">Loading...</div> : null}
+          </div>
         </div>
 
         {scopeTotals ? (
@@ -131,7 +161,10 @@ export default function EmissionsSummary({
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle>Emissions Summary</CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Emissions Summary</CardTitle>
+          {updatedJustNow ? <div className="text-xs font-medium text-emerald-700">Updated just now</div> : null}
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
