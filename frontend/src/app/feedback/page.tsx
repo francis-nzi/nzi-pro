@@ -105,6 +105,13 @@ export default function FeedbackPage() {
   const [aiTimeHorizon, setAiTimeHorizon] = useState("12 months");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiIdeas, setAiIdeas] = useState<Array<{ title: string; details: string }>>([]);
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [editingDraft, setEditingDraft] = useState({
+    title: "",
+    details: "",
+    process_name: "",
+    page_path: "",
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -256,9 +263,169 @@ export default function FeedbackPage() {
     }
   }
 
+  function startEditing(item: FeedbackItem) {
+    setEditingItemId(item.feedback_id);
+    setEditingDraft({
+      title: item.title || "",
+      details: item.details || "",
+      process_name: item.process_name || "",
+      page_path: item.page_path || "",
+    });
+  }
+
+  function cancelEditing() {
+    setEditingItemId(null);
+    setEditingDraft({
+      title: "",
+      details: "",
+      process_name: "",
+      page_path: "",
+    });
+  }
+
+  async function saveEditing(item: FeedbackItem) {
+    const title = editingDraft.title.trim();
+    if (!title) {
+      setStatus("Title is required");
+      return;
+    }
+    setSaving(true);
+    setStatus("Saving changes...");
+    try {
+      const res = await fetch(`${baseUrl}/feedback/items/${item.feedback_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          details: editingDraft.details.trim(),
+          process_name: editingDraft.process_name.trim(),
+          page_path: editingDraft.page_path.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      cancelEditing();
+      await loadItems();
+      setStatus("Saved");
+      setTimeout(() => setStatus(""), 1500);
+    } catch (e) {
+      setStatus(`Error saving changes: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const wishlistItems = items.filter((item) => item.feedback_type === "wishlist");
   const bugItems = items.filter((item) => item.feedback_type === "bug");
   const bizDevItems = items.filter((item) => item.feedback_type === "business_dev");
+
+  function renderItemLink(pagePath: string) {
+    const trimmed = pagePath.trim();
+    if (!trimmed) return null;
+    if (!trimmed.startsWith("/")) {
+      return <span>{trimmed}</span>;
+    }
+    return (
+      <Link href={trimmed} className="text-primary underline underline-offset-2">
+        {trimmed}
+      </Link>
+    );
+  }
+
+  function renderFeedbackItem(item: FeedbackItem) {
+    const isEditing = editingItemId === item.feedback_id;
+    return (
+      <div key={item.feedback_id} className="rounded-md border p-3">
+        {isEditing ? (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor={`edit-title-${item.feedback_id}`}>Title</Label>
+              <Input
+                id={`edit-title-${item.feedback_id}`}
+                value={editingDraft.title}
+                onChange={(e) => setEditingDraft((current) => ({ ...current, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-process-${item.feedback_id}`}>Process</Label>
+              <Select
+                value={editingDraft.process_name || "General"}
+                onValueChange={(value) => setEditingDraft((current) => ({ ...current, process_name: value }))}
+              >
+                <SelectTrigger id={`edit-process-${item.feedback_id}`}>
+                  <SelectValue placeholder="Select process" />
+                </SelectTrigger>
+                <SelectContent>
+                  {processOptions.map((processName) => (
+                    <SelectItem key={`edit-${item.feedback_id}-${processName}`} value={processName}>
+                      {processName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-page-${item.feedback_id}`}>Page Path</Label>
+              <Input
+                id={`edit-page-${item.feedback_id}`}
+                value={editingDraft.page_path}
+                onChange={(e) => setEditingDraft((current) => ({ ...current, page_path: e.target.value }))}
+                placeholder="e.g. /jobs/[jobId]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-details-${item.feedback_id}`}>Details</Label>
+              <Textarea
+                id={`edit-details-${item.feedback_id}`}
+                value={editingDraft.details}
+                onChange={(e) => setEditingDraft((current) => ({ ...current, details: e.target.value }))}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => saveEditing(item)} disabled={saving}>
+                Save
+              </Button>
+              <Button size="sm" variant="outline" onClick={cancelEditing} disabled={saving}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={item.is_completed}
+              onChange={(e) => toggleCompleted(item, e.target.checked)}
+              className="mt-1"
+            />
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className={`font-medium ${item.is_completed ? "line-through text-muted-foreground" : ""}`}>{item.title}</div>
+              {item.details && <div className="text-sm text-muted-foreground">{item.details}</div>}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>Process: {item.process_name || "-"}</span>
+                <span>Page: {renderItemLink(item.page_path) || "-"}</span>
+              </div>
+              <div className="pt-1 text-xs text-muted-foreground">
+                Created: {formatTs(item.created_at)} by {item.created_by || "-"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Completed: {formatTs(item.completed_at)}{item.completed_by ? ` by ${item.completed_by}` : ""}
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button size="sm" variant="outline" onClick={() => startEditing(item)}>
+                  Edit
+                </Button>
+                {item.page_path?.trim().startsWith("/") ? (
+                  <Button size="sm" variant="ghost" asChild>
+                    <Link href={item.page_path.trim()}>Open page</Link>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   async function generateBizDevIdeas() {
     setAiGenerating(true);
@@ -384,7 +551,7 @@ export default function FeedbackPage() {
               </Button>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-6 lg:grid-cols-2">
               <Card>
                 <CardHeader>
                   <CardTitle>Wishlist</CardTitle>
@@ -562,7 +729,7 @@ export default function FeedbackPage() {
               </CardContent>
             </Card>
 
-            <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <div className="mt-6 grid gap-6 xl:grid-cols-2">
               <Card>
                 <CardHeader>
                   <CardTitle>Wishlist Checklist ({wishlistItems.length})</CardTitle>
@@ -573,28 +740,7 @@ export default function FeedbackPage() {
                   ) : wishlistItems.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No wishlist items.</div>
                   ) : (
-                    wishlistItems.map((item) => (
-                      <div key={item.feedback_id} className="rounded-md border p-3">
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={item.is_completed}
-                            onChange={(e) => toggleCompleted(item, e.target.checked)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className={`font-medium ${item.is_completed ? "line-through text-muted-foreground" : ""}`}>{item.title}</div>
-                            {item.details && <div className="mt-1 text-sm text-muted-foreground">{item.details}</div>}
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Created: {formatTs(item.created_at)} by {item.created_by || "-"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Completed: {formatTs(item.completed_at)}{item.completed_by ? ` by ${item.completed_by}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                    wishlistItems.map((item) => renderFeedbackItem(item))
                   )}
                 </CardContent>
               </Card>
@@ -609,28 +755,7 @@ export default function FeedbackPage() {
                   ) : bugItems.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No bug items.</div>
                   ) : (
-                    bugItems.map((item) => (
-                      <div key={item.feedback_id} className="rounded-md border p-3">
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={item.is_completed}
-                            onChange={(e) => toggleCompleted(item, e.target.checked)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className={`font-medium ${item.is_completed ? "line-through text-muted-foreground" : ""}`}>{item.title}</div>
-                            {item.details && <div className="mt-1 text-sm text-muted-foreground">{item.details}</div>}
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Created: {formatTs(item.created_at)} by {item.created_by || "-"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Completed: {formatTs(item.completed_at)}{item.completed_by ? ` by ${item.completed_by}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                    bugItems.map((item) => renderFeedbackItem(item))
                   )}
                 </CardContent>
               </Card>
@@ -645,28 +770,7 @@ export default function FeedbackPage() {
                   ) : bizDevItems.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No business development ideas.</div>
                   ) : (
-                    bizDevItems.map((item) => (
-                      <div key={item.feedback_id} className="rounded-md border p-3">
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={item.is_completed}
-                            onChange={(e) => toggleCompleted(item, e.target.checked)}
-                            className="mt-1"
-                          />
-                          <div className="flex-1">
-                            <div className={`font-medium ${item.is_completed ? "line-through text-muted-foreground" : ""}`}>{item.title}</div>
-                            {item.details && <div className="mt-1 text-sm text-muted-foreground">{item.details}</div>}
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Created: {formatTs(item.created_at)} by {item.created_by || "-"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Completed: {formatTs(item.completed_at)}{item.completed_by ? ` by ${item.completed_by}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                    bizDevItems.map((item) => renderFeedbackItem(item))
                   )}
                 </CardContent>
               </Card>
