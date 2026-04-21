@@ -27,15 +27,15 @@ type Job = {
 };
 
 const JOB_TABS = [
-  { key: "setup", label: "Setup", href: "/jobs/__JOB_ID__?tab=setup" },
-  { key: "data", label: "Data", href: "/jobs/__JOB_ID__?tab=data-entry" },
-  { key: "outputs", label: "Outputs", href: "/jobs/__JOB_ID__?tab=data-output" },
+  { key: "setup", label: "Setup", href: "/jobs/__JOB_ID__/setup" },
+  { key: "data", label: "Data", href: "/jobs/__JOB_ID__/data-entry" },
+  { key: "outputs", label: "Outputs", href: "/jobs/__JOB_ID__/outputs" },
   { key: "report", label: "Report", href: "/jobs/__JOB_ID__/report-new" },
   { key: "analysis", label: "Analysis", href: "/jobs/__JOB_ID__/lca" },
   { key: "insights", label: "Insights", href: "/jobs/__JOB_ID__/insights" },
   { key: "communications", label: "Communications", href: "/jobs/__JOB_ID__/communications-timeline" },
   { key: "financial", label: "Financial", href: "/jobs/__JOB_ID__/financial-quotes" },
-  { key: "admin", label: "Admin", href: "/jobs/__JOB_ID__?tab=admin" },
+  { key: "admin", label: "Admin", href: "/jobs/__JOB_ID__" },
 ] as const;
 
 export default function JobInsightsPage() {

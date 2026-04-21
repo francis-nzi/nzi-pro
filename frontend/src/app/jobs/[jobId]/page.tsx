@@ -2463,7 +2463,16 @@ export default function JobDetailPage() {
               tabs={JOB_WORKSPACE_GROUPS.map((group) => ({
                 key: group.key,
                 label: group.label,
-                href: group.key === "insights" ? `/jobs/${jobId}/insights` : undefined,
+                href:
+                  group.key === "setup" ? `/jobs/${jobId}/setup` :
+                  group.key === "data" ? `/jobs/${jobId}/data-entry` :
+                  group.key === "outputs" ? `/jobs/${jobId}/outputs` :
+                  group.key === "report" ? `/jobs/${jobId}/report-new` :
+                  group.key === "analysis" ? `/jobs/${jobId}/lca` :
+                  group.key === "insights" ? `/jobs/${jobId}/insights` :
+                  group.key === "communications" ? `/jobs/${jobId}/communications-timeline` :
+                  group.key === "financial" ? `/jobs/${jobId}/financial-quotes` :
+                  undefined,
               }))}
               onTabChange={handleWorkspaceGroupChange}
             />

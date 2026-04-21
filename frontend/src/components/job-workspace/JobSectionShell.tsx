@@ -39,9 +39,9 @@ function apiBaseUrl(): string {
 
 const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   setup: [
-    { key: "setup-overview", label: "Setup Overview", href: "/jobs/__JOB_ID__?tab=setup" },
-    { key: "setup-custom-fields", label: "Custom Fields", href: "/jobs/__JOB_ID__?tab=setup" },
-    { key: "setup-report-variables", label: "Job Report Variables", href: "/jobs/__JOB_ID__?tab=setup" },
+    { key: "setup-overview", label: "Setup Overview", href: "/jobs/__JOB_ID__/setup" },
+    { key: "setup-custom-fields", label: "Custom Fields", href: "/jobs/__JOB_ID__/setup" },
+    { key: "setup-report-variables", label: "Job Report Variables", href: "/jobs/__JOB_ID__/setup" },
   ],
   data: [
     { key: "data-entry", label: "Data Entry", href: "/jobs/__JOB_ID__/data-entry" },
@@ -55,7 +55,7 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
     { key: "notes", label: "Notes", href: "/jobs/__JOB_ID__?tab=notes" },
   ],
   outputs: [
-    { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__?tab=data-output" },
+    { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__/outputs" },
     { key: "actions", label: "Actions", href: "/jobs/__JOB_ID__?tab=actions" },
   ],
   report: [{ key: "report-new", label: "Report (New)", href: "/jobs/__JOB_ID__/report-new" }],
@@ -191,9 +191,9 @@ export default function JobSectionShell({
 
   const activeWorkspaceGroup = activeGroup || "setup";
   const workspaceTabs: WorkspaceTab[] = [
-    { key: "setup", label: "Setup", href: `/jobs/${jobId}?tab=setup` },
+    { key: "setup", label: "Setup", href: `/jobs/${jobId}/setup` },
     { key: "data", label: "Data", href: `/jobs/${jobId}/data-entry` },
-    { key: "outputs", label: "Outputs", href: `/jobs/${jobId}?tab=outputs` },
+    { key: "outputs", label: "Outputs", href: `/jobs/${jobId}/outputs` },
     { key: "report", label: "Report", href: `/jobs/${jobId}/report-new` },
     { key: "analysis", label: "Analysis", href: `/jobs/${jobId}/lca` },
     { key: "insights", label: "Insights", href: `/jobs/${jobId}/insights` },
