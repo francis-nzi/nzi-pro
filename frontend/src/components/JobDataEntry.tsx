@@ -149,6 +149,22 @@ type PreviousYearRow = {
   source_reporting_period_end?: string | null;
 };
 
+type MonthlyFilterRow = {
+  previous_month_count?: number | null;
+  month_1?: number | null;
+  month_2?: number | null;
+  month_3?: number | null;
+  month_4?: number | null;
+  month_5?: number | null;
+  month_6?: number | null;
+  month_7?: number | null;
+  month_8?: number | null;
+  month_9?: number | null;
+  month_10?: number | null;
+  month_11?: number | null;
+  month_12?: number | null;
+};
+
 type ScopeDataDebugRow = ScopeDataRow & {
   enabled?: boolean;
   site_name?: string | null;
@@ -951,7 +967,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     );
   }
 
-  function getMonthlyFilledCount(row: ScopeDataRow | PreviousYearRow): number {
+  function getMonthlyFilledCount(row: MonthlyFilterRow): number {
+    if (typeof row.previous_month_count === "number") {
+      return row.previous_month_count;
+    }
     const monthlyValues = [
       row.month_1,
       row.month_2,
@@ -969,7 +988,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return monthlyValues.filter((value) => value !== null && value !== undefined).length;
   }
 
-  function matchesMonthlyCompleteness(row: ScopeDataRow | PreviousYearRow): boolean {
+  function matchesMonthlyCompleteness(row: MonthlyFilterRow): boolean {
     if (monthlyCompletenessFilter === "All") return true;
     const filledCount = getMonthlyFilledCount(row);
     if (monthlyCompletenessFilter === "Complete") return filledCount === 12;
