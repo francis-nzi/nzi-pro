@@ -1302,7 +1302,6 @@ export default function JobDetailPage() {
           dataset.country?.trim() || null,
           dataset.year ? String(dataset.year) : null,
           dataset.analysis_type?.trim() || null,
-          dataset.month_coverage?.trim() || null,
         ].filter(Boolean);
         return {
           key: `primary-${scope}-${dataset.dataset_id}`,
@@ -1329,7 +1328,6 @@ export default function JobDetailPage() {
             dataset.country?.trim() || null,
             dataset.year ? String(dataset.year) : null,
             dataset.analysis_type?.trim() || null,
-            dataset.month_coverage?.trim() || null,
           ].filter(Boolean);
           return {
             key: `additional-${dataset.dataset_id}`,
@@ -1352,7 +1350,6 @@ export default function JobDetailPage() {
           dataset.country?.trim() || null,
           dataset.year ? String(dataset.year) : null,
           dataset.analysis_type?.trim() || null,
-          dataset.month_coverage?.trim() || null,
         ].filter(Boolean);
         return {
           key: `fallback-${scope}-${dataset.dataset_id}`,
