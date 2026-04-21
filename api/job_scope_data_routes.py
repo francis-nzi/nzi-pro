@@ -613,6 +613,18 @@ def get_job_notes_summary(
     _user: dict[str, str] = Depends(_current_user),
 ):
     """Return a consolidated list of notes across job scope rows with row context and audit metadata."""
+
+    def _to_iso(value: Any) -> str | None:
+        if value is None:
+            return None
+        try:
+            if hasattr(value, "isoformat"):
+                return value.isoformat()
+        except Exception:
+            pass
+        text_value = str(value).strip()
+        return text_value or None
+
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
@@ -692,7 +704,7 @@ def get_job_notes_summary(
 
                     actor_label = str(audit_row.get("actor_name") or audit_row.get("actor_email") or "").strip() or None
                     latest_note_events[entity_id] = {
-                        "updated_at": audit_row.get("created_at").isoformat() if audit_row.get("created_at") else None,
+                        "updated_at": _to_iso(audit_row.get("created_at")),
                         "updated_by": actor_label,
                     }
 
@@ -713,11 +725,9 @@ def get_job_notes_summary(
                         str(row.get("category") or row.get("level_2") or row.get("level_1") or "").strip(),
                         str(row.get("report_label") or row.get("column_text") or row.get("original_id") or "").strip(),
                     ]
-                    note_location = " • ".join(part for part in location_parts if part)
+                    note_location = " | ".join(part for part in location_parts if part)
                     note_event = latest_note_events.get(str(row_id), {})
-                    updated_at = note_event.get("updated_at") or (
-                        row.get("updated_at").isoformat() if row.get("updated_at") else None
-                    )
+                    updated_at = note_event.get("updated_at") or _to_iso(row.get("updated_at"))
 
                     items.append(
                         {
@@ -733,8 +743,8 @@ def get_job_notes_summary(
                             "note_location": note_location,
                             "note_updated_at": updated_at,
                             "note_updated_by": note_event.get("updated_by"),
-                            "row_created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
-                            "row_updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
+                            "row_created_at": _to_iso(row.get("created_at")),
+                            "row_updated_at": _to_iso(row.get("updated_at")),
                         }
                     )
 
