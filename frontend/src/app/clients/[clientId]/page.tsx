@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
 import ClientCommunications from "@/components/ClientCommunications";
+import ClientNotesSummary from "@/components/ClientNotesSummary";
 import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import ClientReporting from "@/components/ClientReporting";
@@ -172,6 +173,7 @@ type QuoteLookupItem = {
 type ClientSection =
   | "dashboard"
   | "timeline"
+  | "notes"
   | "details"
   | "sites"
   | "contacts"
@@ -185,6 +187,7 @@ type FinancialView = "quotes" | "invoices" | "profit-loss";
 const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "timeline", label: "Communications" },
+  { id: "notes", label: "Notes" },
   { id: "details", label: "Details" },
   { id: "sites", label: "Sites" },
   { id: "contacts", label: "Contacts" },
@@ -435,7 +438,7 @@ function ClientDetailPageContent() {
     if (activeSection === "contacts" && contacts.length === 0) {
       void reloadContacts();
     }
-    if ((activeSection === "jobs" || activeSection === "timeline") && jobs.length === 0) {
+    if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && jobs.length === 0) {
       void reloadJobs();
     }
   }, [activeSection, contacts.length, jobs.length, reloadContacts, reloadJobs]);
@@ -1470,8 +1473,17 @@ function ClientDetailPageContent() {
       const commJobs = (jobs || []).map((j) => ({
         ...j,
         job_number: j.job_number ?? `Job ${j.job_id}`,
+        job_title: j.title ?? null,
       }));
       return <ClientCommunications clientId={clientId} baseUrl={baseUrl} jobs={commJobs} />;
+    }
+    if (activeSection === "notes") {
+      const noteJobs = (jobs || []).map((j) => ({
+        ...j,
+        job_number: j.job_number ?? `Job ${j.job_id}`,
+        job_title: j.title ?? null,
+      }));
+      return <ClientNotesSummary clientId={clientId} baseUrl={baseUrl} jobs={noteJobs} />;
     }
     if (activeSection === "details") return renderDetailsSection();
     if (activeSection === "sites") return renderSitesSection();
