@@ -2943,62 +2943,76 @@ export default function JobDetailPage() {
                   ) : null}
 
                   {!showAdvancedDatasetConfig && (primaryScopeDatasets.length > 0 || additionalAllocatedDatasets.length > 0 || manualFallbackDatasets.length > 0) ? (
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div className="rounded-md border bg-background p-3 space-y-2">
-                        <div className="text-sm font-medium">Primary scope datasets</div>
-                        <div className="text-xs text-muted-foreground">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <div className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-700">
+                          Primary scope = automatic resolution
+                        </div>
+                        <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+                          Additional = job-specific extras
+                        </div>
+                        <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700">
+                          Fallback = manual override
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div className="rounded-md border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+                          <div className="text-sm font-medium text-sky-900">Primary scope datasets</div>
+                          <div className="text-xs text-sky-800/80">
                           Automatically resolved from the client country and reporting period.
-                        </div>
-                        {primaryScopeDatasets.length > 0 ? (
-                          <div className="space-y-2">
-                            {primaryScopeDatasets.map((dataset) => (
-                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
-                                <div className="font-medium">{dataset.label}: {dataset.title}</div>
-                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
-                              </div>
-                            ))}
                           </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">No primary scope datasets resolved.</div>
-                        )}
-                      </div>
+                          {primaryScopeDatasets.length > 0 ? (
+                            <div className="space-y-2">
+                              {primaryScopeDatasets.map((dataset) => (
+                                <div key={dataset.key} className="rounded border border-sky-100 bg-white/80 px-3 py-2 text-xs">
+                                  <div className="font-medium text-sky-950">{dataset.label}: {dataset.title}</div>
+                                  {dataset.detail ? <div className="text-sky-800/80">{dataset.detail}</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-sky-800/80">No primary scope datasets resolved.</div>
+                          )}
+                        </div>
 
-                      <div className="rounded-md border bg-background p-3 space-y-2">
-                        <div className="text-sm font-medium">Additional datasets</div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
+                          <div className="text-sm font-medium text-emerald-900">Additional datasets</div>
+                          <div className="text-xs text-emerald-800/80">
                           Extra datasets added manually to supplement the primary scope allocation.
-                        </div>
-                        {additionalAllocatedDatasets.length > 0 ? (
-                          <div className="space-y-2">
-                            {additionalAllocatedDatasets.map((dataset) => (
-                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
-                                <div className="font-medium">{dataset.title}</div>
-                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
-                              </div>
-                            ))}
                           </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">No additional datasets selected.</div>
-                        )}
-                      </div>
+                          {additionalAllocatedDatasets.length > 0 ? (
+                            <div className="space-y-2">
+                              {additionalAllocatedDatasets.map((dataset) => (
+                                <div key={dataset.key} className="rounded border border-emerald-100 bg-white/80 px-3 py-2 text-xs">
+                                  <div className="font-medium text-emerald-950">{dataset.title}</div>
+                                  {dataset.detail ? <div className="text-emerald-800/80">{dataset.detail}</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-emerald-800/80">No additional datasets selected.</div>
+                          )}
+                        </div>
 
-                      <div className="rounded-md border bg-background p-3 space-y-2">
-                        <div className="text-sm font-medium">Manual fallback datasets</div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                          <div className="text-sm font-medium text-amber-900">Manual fallback datasets</div>
+                          <div className="text-xs text-amber-800/80">
                           Scope-by-scope fallback selections used when automatic resolution needs a manual override.
-                        </div>
-                        {manualFallbackDatasets.length > 0 ? (
-                          <div className="space-y-2">
-                            {manualFallbackDatasets.map((dataset) => (
-                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
-                                <div className="font-medium">{dataset.label}: {dataset.title}</div>
-                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
-                              </div>
-                            ))}
                           </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">No manual fallback datasets selected.</div>
-                        )}
+                          {manualFallbackDatasets.length > 0 ? (
+                            <div className="space-y-2">
+                              {manualFallbackDatasets.map((dataset) => (
+                                <div key={dataset.key} className="rounded border border-amber-100 bg-white/80 px-3 py-2 text-xs">
+                                  <div className="font-medium text-amber-950">{dataset.label}: {dataset.title}</div>
+                                  {dataset.detail ? <div className="text-amber-800/80">{dataset.detail}</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-amber-800/80">No manual fallback datasets selected.</div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : null}
