@@ -33,9 +33,9 @@ const JOB_TABS = [
   { key: "report", label: "Report", href: "/jobs/__JOB_ID__/report-new" },
   { key: "analysis", label: "Analysis", href: "/jobs/__JOB_ID__/lca" },
   { key: "insights", label: "Insights", href: "/jobs/__JOB_ID__/insights" },
-  { key: "communications", label: "Communications", href: "/jobs/__JOB_ID__/communications-timeline" },
-  { key: "financial", label: "Financial", href: "/jobs/__JOB_ID__/financial-quotes" },
-  { key: "admin", label: "Admin", href: "/jobs/__JOB_ID__" },
+  { key: "communications", label: "Communications", href: "/jobs/__JOB_ID__/communications/timeline" },
+  { key: "financial", label: "Financial", href: "/jobs/__JOB_ID__/financial/quotes" },
+  { key: "admin", label: "Admin", href: "/jobs/__JOB_ID__/admin/files" },
 ] as const;
 
 export default function JobInsightsPage() {

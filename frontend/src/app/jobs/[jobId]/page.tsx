@@ -2434,9 +2434,20 @@ export default function JobDetailPage() {
         const routeHrefByKey: Record<string, string> = {
           "data-entry": `/jobs/${jobId}/data-entry`,
           "report-new": `/jobs/${jobId}/report-new`,
-          "communications-timeline": `/jobs/${jobId}/communications-timeline`,
-          "financial-quotes": `/jobs/${jobId}/financial-quotes`,
+          "communications-timeline": `/jobs/${jobId}/communications/timeline`,
+          "communications-inbox": `/jobs/${jobId}/communications/inbox`,
+          "communications-notes": `/jobs/${jobId}/communications/notes`,
+          "communications-email": `/jobs/${jobId}/communications/email`,
+          "communications-tasks": `/jobs/${jobId}/communications/tasks`,
+          "communications-automation": `/jobs/${jobId}/communications/automation`,
+          "communications-crm": `/jobs/${jobId}/communications/crm`,
+          "financial-quotes": `/jobs/${jobId}/financial/quotes`,
+          "financial-invoices": `/jobs/${jobId}/financial/invoices`,
+          "financial-other-costs": `/jobs/${jobId}/financial/other-costs`,
+          "financial-profit-loss": `/jobs/${jobId}/financial/profit-loss`,
           lca: `/jobs/${jobId}/lca`,
+          files: `/jobs/${jobId}/admin/files`,
+          time: `/jobs/${jobId}/admin/time`,
         };
         return routeHrefByKey[subtab.key] ? { ...subtab, href: routeHrefByKey[subtab.key] } : subtab;
       }),
@@ -2470,8 +2481,9 @@ export default function JobDetailPage() {
                   group.key === "report" ? `/jobs/${jobId}/report-new` :
                   group.key === "analysis" ? `/jobs/${jobId}/lca` :
                   group.key === "insights" ? `/jobs/${jobId}/insights` :
-                  group.key === "communications" ? `/jobs/${jobId}/communications-timeline` :
-                  group.key === "financial" ? `/jobs/${jobId}/financial-quotes` :
+                  group.key === "communications" ? `/jobs/${jobId}/communications/timeline` :
+                  group.key === "financial" ? `/jobs/${jobId}/financial/quotes` :
+                  group.key === "admin" ? `/jobs/${jobId}/admin/files` :
                   undefined,
               }))}
               onTabChange={handleWorkspaceGroupChange}
