@@ -158,7 +158,7 @@ class JobMonthlyEmissionsResolver:
         try:
             row = self.con.execute(
                 """
-                SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit
+                SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
                 FROM factor_lookup
                 WHERE db_id = %s
                 LIMIT 1
@@ -177,6 +177,10 @@ class JobMonthlyEmissionsResolver:
                 "original_id": str(row[3]).strip() if row[3] is not None else None,
                 "factor": _safe_float(row[4]),
                 "ghg_unit": str(row[5]).strip() if row[5] is not None else None,
+                "level_1": str(row[6]).strip() if row[6] is not None else None,
+                "level_2": str(row[7]).strip() if row[7] is not None else None,
+                "column_text": str(row[8]).strip() if row[8] is not None else None,
+                "report_label": str(row[9]).strip() if row[9] is not None else None,
             }
 
         self._factor_cache_by_dbid[factor_id] = result
@@ -196,7 +200,7 @@ class JobMonthlyEmissionsResolver:
         try:
             row = self.con.execute(
                 """
-                SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit
+                SELECT db_id, dataset_id, scope, original_id, factor, ghg_unit, level_1, level_2, column_text, report_label
                 FROM factor_lookup
                 WHERE dataset_id = %s
                   AND original_id = %s
@@ -218,6 +222,10 @@ class JobMonthlyEmissionsResolver:
                 "original_id": str(row[3]).strip() if row[3] is not None else None,
                 "factor": _safe_float(row[4]),
                 "ghg_unit": str(row[5]).strip() if row[5] is not None else None,
+                "level_1": str(row[6]).strip() if row[6] is not None else None,
+                "level_2": str(row[7]).strip() if row[7] is not None else None,
+                "column_text": str(row[8]).strip() if row[8] is not None else None,
+                "report_label": str(row[9]).strip() if row[9] is not None else None,
             }
 
         self._factor_cache_by_key[cache_key] = result
@@ -344,6 +352,8 @@ class JobMonthlyEmissionsResolver:
             "factor_year": int(factor_year) if factor_year is not None else None,
             "ghg_unit": custom.get("ghg_unit"),
             "uom": custom.get("uom"),
+            "level_1": None,
+            "level_2": None,
         }
 
     def _resolve_standard_factor_for_month(self, row: Mapping[str, Any], month_idx: int) -> dict[str, Any] | None:
@@ -366,6 +376,8 @@ class JobMonthlyEmissionsResolver:
                 "original_id": row_original_id or None,
                 "factor": row_factor,
                 "ghg_unit": row_ghg_unit,
+                "level_1": str(row.get("lookup_level_1") or row.get("level_1") or "").strip() or None,
+                "level_2": str(row.get("lookup_level_2") or row.get("level_2") or "").strip() or None,
             }
 
         lookup = self._lookup_factor(month_dataset_id, scope, row_original_id)
@@ -377,6 +389,8 @@ class JobMonthlyEmissionsResolver:
                 "original_id": lookup.get("original_id") or row_original_id or None,
                 "factor": _safe_float(lookup.get("factor")),
                 "ghg_unit": lookup.get("ghg_unit") or row_ghg_unit,
+                "level_1": lookup.get("level_1"),
+                "level_2": lookup.get("level_2"),
             }
 
         if row_factor_db_id is not None:
@@ -390,6 +404,8 @@ class JobMonthlyEmissionsResolver:
                     "original_id": db_lookup.get("original_id") or row_original_id or None,
                     "factor": _safe_float(db_lookup.get("factor")) or row_factor,
                     "ghg_unit": db_lookup.get("ghg_unit") or row_ghg_unit,
+                    "level_1": db_lookup.get("level_1"),
+                    "level_2": db_lookup.get("level_2"),
                 }
 
         if row_factor is None:
@@ -402,6 +418,8 @@ class JobMonthlyEmissionsResolver:
             "original_id": row_original_id or None,
             "factor": row_factor,
             "ghg_unit": row_ghg_unit,
+            "level_1": str(row.get("lookup_level_1") or row.get("level_1") or "").strip() or None,
+            "level_2": str(row.get("lookup_level_2") or row.get("level_2") or "").strip() or None,
         }
 
     def _build_monthly_factor_summary(self, month_details: list[dict[str, Any]]) -> tuple[float | None, str | None, str | None]:
@@ -412,12 +430,13 @@ class JobMonthlyEmissionsResolver:
         if not non_zero_factor_details:
             return None, None, None
 
-        unique_factors = {round(float(detail["factor"]), 12) for detail in non_zero_factor_details}
-        if len(unique_factors) == 1:
-            factor_val = float(non_zero_factor_details[0]["factor"])
-            dataset_names = {str(detail.get("dataset_name") or "").strip() for detail in non_zero_factor_details if detail.get("dataset_name")}
-            dataset_label = ", ".join(sorted(v for v in dataset_names if v)) or None
-            return factor_val, None, dataset_label
+        qty_total = 0.0
+        weighted_sum = 0.0
+        for detail in non_zero_factor_details:
+            qty_val = _safe_float(detail.get("qty")) or 0.0
+            factor_val = _safe_float(detail.get("factor")) or 0.0
+            qty_total += qty_val
+            weighted_sum += qty_val * factor_val
 
         grouped: list[str] = []
         current: dict[str, Any] | None = None
@@ -440,18 +459,17 @@ class JobMonthlyEmissionsResolver:
             }
             grouped.append(current)
 
-        factor_parts: list[str] = []
         dataset_parts: list[str] = []
         for group in grouped:
             if group["start_label"] == group["end_label"]:
                 month_range = str(group["start_label"] or "")
             else:
                 month_range = f"{group['start_label']}-{group['end_label']}"
-            factor_parts.append(f"{month_range}: {float(group['factor']):.5f}")
             dataset_name = str(group.get("dataset_name") or "").strip() or "Unspecified dataset"
             dataset_parts.append(f"{month_range}: {dataset_name}")
 
-        return None, "Monthly factors", "; ".join(dataset_parts) if dataset_parts else None
+        factor_val = (weighted_sum / qty_total) if qty_total > 0 else _safe_float(non_zero_factor_details[0].get("factor"))
+        return factor_val, None, "; ".join(dataset_parts) if dataset_parts else None
 
     def row_metrics(self, row: Mapping[str, Any]) -> dict[str, Any]:
         scope = str(row.get("scope") or "").strip()
@@ -555,6 +573,7 @@ class JobMonthlyEmissionsResolver:
                 month_ghg_unit = (factor_info or {}).get("ghg_unit") or storage_ghg_unit
                 month_dataset_id = _safe_int((factor_info or {}).get("dataset_id"))
                 month_original_id = (factor_info or {}).get("original_id") or str(row.get("original_id") or "").strip() or None
+                month_dataset_category = (factor_info or {}).get("level_1") or (factor_info or {}).get("category")
 
                 month_before = _calc_tco2e(month_qty, month_factor, month_ghg_unit, 100.0)
                 month_after = _calc_tco2e(month_qty, month_factor, month_ghg_unit, apply_pct)
@@ -570,6 +589,7 @@ class JobMonthlyEmissionsResolver:
                         "uom": storage_uom,
                         "dataset_id": month_dataset_id,
                         "dataset_name": (factor_info or {}).get("dataset_name") or self.dataset_name_by_id.get(month_dataset_id or -1),
+                        "dataset_category": month_dataset_category,
                         "factor": month_factor,
                         "ghg_unit": month_ghg_unit,
                         "original_id": month_original_id,

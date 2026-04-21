@@ -533,6 +533,7 @@ def get_job_scope_data(
                         "site_id": safe_int(r.get("site_id")),
                         "site_name": r.get("site_name"),
                         "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
+                        "dataset_category": r.get("lookup_level_1") or r.get("level_1") or r.get("category"),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
                         "category": r.get("category") or r.get("lookup_level_2") or r.get("lookup_level_1"),

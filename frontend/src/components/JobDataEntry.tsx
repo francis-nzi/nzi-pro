@@ -51,17 +51,21 @@ type ScopeDataRow = {
   factor: number | null;
   factor_label?: string | null;
   dataset_label?: string | null;
+  dataset_category?: string | null;
   uses_monthly_factors?: boolean;
   monthly_factor_details?: Array<{
     month_index: number;
     month_label?: string | null;
+    year?: number | null;
     dataset_id?: number | null;
     dataset_name?: string | null;
+    dataset_category?: string | null;
     factor_db_id?: number | null;
     factor_original_id?: string | null;
     factor?: number | null;
     ghg_unit?: string | null;
     qty?: number | null;
+    uom?: string | null;
     emissions?: number | null;
   }>;
   source_qty?: number | null;
@@ -1021,11 +1025,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       }
       return row.factor_reference || row.original_id || "Monthly factors";
     }
+    if (row.factor !== null && row.factor !== undefined && !Number.isNaN(row.factor)) {
+      return row.factor.toFixed(5);
+    }
     if (row.uses_monthly_factors) {
       return row.factor_label || "Monthly factors";
     }
-    if (row.factor === null || row.factor === undefined || Number.isNaN(row.factor)) return "-";
-    return row.factor.toFixed(5);
+    return "-";
   }
 
   function monthlyStoredSummary(row: ScopeDataRow): string {
@@ -1112,7 +1118,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       if (confidence !== confidenceFilter) return false;
     }
     if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
-    if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
+    if (categoryFilter !== "All" && String(row.dataset_category || row.level_1 || row.category || row.level_2 || "").trim() !== categoryFilter) {
       return false;
     }
     if (!matchesMonthlyCompleteness(row)) return false;
@@ -1120,6 +1126,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
         rowDisplaySubtitle(row),
+        row.dataset_category,
         row.category,
         row.original_id,
         row.level_1,
@@ -1198,7 +1205,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const availableCategories = useMemo(() => {
     const seen = new Set<string>();
     for (const row of [...scopeData, ...previousYearRows]) {
-      const category = String(row.category || row.level_2 || row.level_1 || "").trim();
+      const category = String(
+        ("dataset_category" in row ? row.dataset_category : undefined) ||
+        row.level_1 ||
+        row.category ||
+        row.level_2 ||
+        ""
+      ).trim();
       if (category) seen.add(category);
     }
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
@@ -1679,7 +1692,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Category</div>
-                                <div>{row.category || "-"}</div>
+                                <div>{row.dataset_category || row.level_1 || row.category || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">UOM</div>
@@ -1740,9 +1753,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                       {(row.monthly_factor_details || []).map((detail) => (
                                         <div key={`${row.row_id}-${detail.month_index}`} className="rounded border px-2 py-2 text-[11px]">
                                           <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
+                                          <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
                                           <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
+                                          <div className="text-muted-foreground">{detail.dataset_category || row.dataset_category || row.level_1 || row.category || "-"}</div>
                                           <div className="font-mono">
-                                            Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
+                                            Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
+                                              ? detail.qty.toFixed(2)
+                                              : "-"} {detail.uom || ""}
+                                          </div>
+                                          <div className="font-mono">
+                                            Conversion Factor: {detail.factor !== null && detail.factor !== undefined && !Number.isNaN(detail.factor)
                                               ? detail.factor.toFixed(5)
                                               : "-"}
                                           </div>
