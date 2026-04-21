@@ -1204,8 +1204,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_12rem_8rem]">
-            <div className="min-w-0">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+            <div className="min-w-0 sm:col-span-2 xl:col-span-2">
               <Label htmlFor="search">Search</Label>
               <Input
                 id="search"
@@ -1305,7 +1305,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 Review Rows
               </Button>
             </div>
-            <div className="flex items-end md:col-span-2">
+            <div className="flex flex-wrap items-end gap-2 sm:col-span-2 xl:col-span-6">
               <Button
                 variant="outline"
                 onClick={() => {
