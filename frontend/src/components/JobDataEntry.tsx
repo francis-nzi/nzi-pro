@@ -1029,7 +1029,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   function monthlyStoredSummary(row: ScopeDataRow): string {
-    const monthLabels = getMonthLabels();
+    const monthLabels = getOrderedMonths();
     const values = [
       row.month_1,
       row.month_2,
