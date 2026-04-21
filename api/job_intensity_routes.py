@@ -4,6 +4,7 @@ Manages intensity metrics for jobs (employees, turnover, etc.)
 """
 
 import json
+from typing import Any
 from fastapi import APIRouter, HTTPException, Depends, Body
 from psycopg.types.json import Jsonb
 from core.database import get_conn
@@ -38,6 +39,27 @@ def _load_job_intensity_metrics(job_id: int, *, con=None) -> dict:
     return {}
 
 
+def _load_global_intensity_metric_defaults(con) -> dict[str, dict[str, Any]]:
+    """Load reusable metric defaults from system settings."""
+    row = con.execute(
+        "SELECT setting_value FROM system_settings WHERE setting_key = %s",
+        ["intensity_metric_defaults"],
+    ).fetchone()
+    if not row or row[0] is None:
+        return {}
+    raw = row[0]
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
 @router.get("/jobs/{job_id}/intensity-metrics")
 def get_job_intensity_metrics(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Get intensity metrics for a job"""
@@ -50,9 +72,11 @@ def get_job_intensity_metrics(job_id: int, _user: dict[str, str] = Depends(_curr
             if not result:
                 raise HTTPException(status_code=404, detail="Job not found")
             metrics = _load_job_intensity_metrics(int(job_id), con=con)
+            defaults = _load_global_intensity_metric_defaults(con)
             return {
                 "job_id": int(job_id),
-                "metrics": metrics
+                "metrics": metrics,
+                "defaults": defaults,
             }
     except HTTPException:
         raise

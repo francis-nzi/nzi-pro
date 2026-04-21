@@ -44,6 +44,7 @@ const DIVIDER_OPTIONS = [
 export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, currency = "GBP" }: IntensityMetricsProps) {
   const confirmAction = useConfirmDialog();
   const [metrics, setMetrics] = useState<IntensityMetrics>({});
+  const [defaultMetrics, setDefaultMetrics] = useState<IntensityMetrics>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddMetric, setShowAddMetric] = useState(false);
@@ -58,15 +59,20 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       const res = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`);
       if (!res.ok) throw new Error("Failed to load intensity metrics");
       const data = await res.json();
-      
-      if (data.metrics && Object.keys(data.metrics).length > 0) {
-        setMetrics(data.metrics);
+      const jobMetrics = data.metrics && typeof data.metrics === "object" ? data.metrics : {};
+      const globalDefaults = data.defaults && typeof data.defaults === "object" ? data.defaults : {};
+      setDefaultMetrics(globalDefaults);
+      if (jobMetrics && Object.keys(jobMetrics).length > 0) {
+        setMetrics(jobMetrics);
+      } else if (globalDefaults && Object.keys(globalDefaults).length > 0) {
+        setMetrics(globalDefaults);
       } else {
         setMetrics({});
       }
     } catch (e) {
       console.error("Failed to load intensity metrics:", e);
       setMetrics({});
+      setDefaultMetrics({});
     } finally {
       setLoading(false);
     }
@@ -107,6 +113,14 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       },
     }));
   }, []);
+
+  const useGlobalDefaults = useCallback(() => {
+    if (Object.keys(defaultMetrics).length === 0) {
+      alert("No global defaults have been defined yet.");
+      return;
+    }
+    setMetrics(defaultMetrics);
+  }, [defaultMetrics]);
 
   const addMetric = useCallback(() => {
     if (!newMetricKey || !newMetricLabel) {
@@ -178,22 +192,32 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Intensity Metrics</CardTitle>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => setShowAddMetric(!showAddMetric)}>
-              + Add Metric
-            </Button>
-            <Button size="sm" onClick={() => saveMetrics()} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Intensity Metrics</CardTitle>
+            <div className="flex gap-2">
+              {Object.keys(defaultMetrics).length > 0 ? (
+                <Button size="sm" variant="outline" onClick={useGlobalDefaults} disabled={saving}>
+                  Use Global Defaults
+                </Button>
+              ) : null}
+              <Button size="sm" variant="outline" onClick={() => setShowAddMetric(!showAddMetric)}>
+                + Add Metric
+              </Button>
+              <Button size="sm" onClick={() => saveMetrics()} disabled={saving}>
+                {saving ? "Saving..." : "Save"}
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          {Object.keys(defaultMetrics).length > 0 ? (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+              Global defaults are available for this job. Use them as a starting point, then edit the wording, values, or dividers before saving.
+            </div>
+          ) : null}
           {showAddMetric && (
             <div className="rounded-md border p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -260,8 +284,14 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                 <div key={key} className="rounded-md border p-4">
                   <div className="grid grid-cols-12 gap-3 items-end">
                     <div className="col-span-3 space-y-2">
-                      <Label className="text-xs text-muted-foreground">Metric</Label>
-                      <div className="font-medium">{metric.label}</div>
+                      <Label htmlFor={`label-${key}`} className="text-xs text-muted-foreground">Metric wording</Label>
+                      <Input
+                        id={`label-${key}`}
+                        value={metric.label}
+                        onChange={(e) => updateMetric(key, "label", e.target.value)}
+                        className="h-9"
+                        placeholder="Metric wording"
+                      />
                     </div>
                     <div className="col-span-3 space-y-2">
                       <Label htmlFor={`value-${key}`} className="text-xs text-muted-foreground">Value</Label>

@@ -33,6 +33,21 @@ type CompanyProfileResponse = {
   fields: CompanyProfileField[];
 };
 
+type IntensityMetricDefaults = Record<string, {
+  label: string;
+  value: number;
+  divider: number;
+}>;
+
+const DEFAULT_INTENSITY_METRICS: IntensityMetricDefaults = {
+  employees: { label: "Employees", value: 0, divider: 1 },
+  turnover: { label: "Turnover", value: 0, divider: 1 },
+  premises_owned: { label: "Premises Owned", value: 0, divider: 1 },
+  premises_leased: { label: "Premises Leased", value: 0, divider: 1 },
+  vehicles_owned: { label: "Vehicles Owned", value: 0, divider: 1 },
+  vehicles_leased: { label: "Vehicles Leased", value: 0, divider: 1 },
+};
+
 type XeroConnection = {
   connection_key?: string | null;
   integration_type?: string | null;
@@ -73,6 +88,10 @@ export default function SystemSettingsPage() {
   const [xeroOrgName, setXeroOrgName] = useState("");
   const [xeroScope, setXeroScope] = useState("accounting.contacts accounting.invoices");
   const [xeroInvoiceId, setXeroInvoiceId] = useState("");
+  const [intensityMetricDefaultsText, setIntensityMetricDefaultsText] = useState(() => JSON.stringify(DEFAULT_INTENSITY_METRICS, null, 2));
+  const [intensityMetricDefaultsSaving, setIntensityMetricDefaultsSaving] = useState(false);
+  const [intensityMetricDefaultsStatus, setIntensityMetricDefaultsStatus] = useState("");
+  const [intensityMetricDefaultsError, setIntensityMetricDefaultsError] = useState("");
   const xeroHeaderBadge = xeroConnection?.status === "connected"
     ? { label: "Xero Connected", variant: "default" as const }
     : xeroConnection?.status === "configured"
@@ -104,6 +123,23 @@ export default function SystemSettingsPage() {
       } else {
         setNziLogoFile(null);
       }
+      const intensityRes = await fetch(`${baseUrl}/system-settings/intensity_metric_defaults`, { credentials: "include" });
+      if (intensityRes.ok) {
+        const intensityJson = await intensityRes.json();
+        const raw = String(intensityJson.setting_value || "").trim();
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as IntensityMetricDefaults;
+            setIntensityMetricDefaultsText(JSON.stringify(parsed, null, 2));
+          } catch {
+            setIntensityMetricDefaultsText(raw);
+          }
+        } else {
+          setIntensityMetricDefaultsText(JSON.stringify(DEFAULT_INTENSITY_METRICS, null, 2));
+        }
+      } else {
+        setIntensityMetricDefaultsText(JSON.stringify(DEFAULT_INTENSITY_METRICS, null, 2));
+      }
       setLogoVersion(Date.now());
     } catch (e) {
       setError((e as Error).message);
@@ -111,6 +147,34 @@ export default function SystemSettingsPage() {
       setLoading(false);
     }
   }, [baseUrl]);
+
+  async function saveIntensityMetricDefaults() {
+    setIntensityMetricDefaultsSaving(true);
+    setIntensityMetricDefaultsError("");
+    setIntensityMetricDefaultsStatus("Saving intensity metric defaults...");
+    try {
+      const parsed = JSON.parse(intensityMetricDefaultsText || "{}") as IntensityMetricDefaults;
+      const res = await fetch(`${baseUrl}/system-settings/intensity_metric_defaults`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ setting_value: JSON.stringify(parsed) }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Failed to save intensity metric defaults");
+      }
+      setIntensityMetricDefaultsText(JSON.stringify(parsed, null, 2));
+      setIntensityMetricDefaultsStatus("Intensity metric defaults saved.");
+      setTimeout(() => setIntensityMetricDefaultsStatus(""), 2500);
+    } catch (e) {
+      setIntensityMetricDefaultsError((e as Error).message);
+      setIntensityMetricDefaultsStatus("");
+    } finally {
+      setIntensityMetricDefaultsSaving(false);
+    }
+  }
 
   const loadXeroStatus = useCallback(async () => {
     setXeroLoading(true);
@@ -589,6 +653,57 @@ export default function SystemSettingsPage() {
             {xeroStatus ? <div className="rounded-md bg-muted p-3 text-sm">{xeroStatus}</div> : null}
             {xeroError ? <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{xeroError}</div> : null}
             {xeroLoading ? <div className="text-sm text-muted-foreground">Working...</div> : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Global Intensity Metrics</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Define reusable intensity metric defaults here. These are the starting values shown in Job &gt; Data &gt; Intensity Metrics when a job has no saved metrics yet.
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
+              Edit the JSON to add or rename global metrics such as Employee, Premises, Vehicles, or any organisation-wide denominator you want available across jobs.
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="intensityMetricDefaultsText">Default metrics JSON</Label>
+              <Textarea
+                id="intensityMetricDefaultsText"
+                className="font-mono text-sm min-h-[220px]"
+                value={intensityMetricDefaultsText}
+                onChange={(e) => setIntensityMetricDefaultsText(e.target.value)}
+                spellCheck={false}
+              />
+              <p className="text-xs text-muted-foreground">
+                Keys become the reusable metric IDs. Each item should include a display label, value, and divider.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void saveIntensityMetricDefaults()} disabled={intensityMetricDefaultsSaving}>
+                {intensityMetricDefaultsSaving ? "Saving..." : "Save Global Metrics"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setIntensityMetricDefaultsText(JSON.stringify(DEFAULT_INTENSITY_METRICS, null, 2))}
+                disabled={intensityMetricDefaultsSaving}
+              >
+                Reset Example
+              </Button>
+            </div>
+
+            {intensityMetricDefaultsStatus ? (
+              <div className="rounded-md bg-muted p-3 text-sm">{intensityMetricDefaultsStatus}</div>
+            ) : null}
+            {intensityMetricDefaultsError ? (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {intensityMetricDefaultsError}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
