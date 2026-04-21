@@ -1291,27 +1291,82 @@ export default function JobDetailPage() {
         .filter(Boolean)
         .join(" | ")
     : "Automatic dataset resolution is active. Additional job datasets are hidden unless needed.";
-  const automaticAllocatedDatasets = useMemo(
+  const primaryScopeDatasets = useMemo(
     () =>
-      Array.isArray(scopeAutoResolution?.datasets_for_report)
-        ? scopeAutoResolution.datasets_for_report
-            .map((dataset) => {
-              const label = dataset.name?.trim() || `Dataset ${dataset.dataset_id}`;
-              const detailBits = [
-                dataset.country?.trim() || null,
-                dataset.year ? String(dataset.year) : null,
-                dataset.analysis_type?.trim() || null,
-                dataset.month_coverage?.trim() || null,
-              ].filter(Boolean);
-              return {
-                id: dataset.dataset_id,
-                label,
-                detail: detailBits.join(" | "),
-              };
-            })
-            .sort((a, b) => a.label.localeCompare(b.label))
-        : [],
-    [scopeAutoResolution?.datasets_for_report]
+      SCOPE_KEYS.map((scope) => {
+        const dsId = scopeEffectiveDatasetIds[scope];
+        const dataset =
+          dsId && dsId !== "__none__" ? datasets.find((entry) => String(entry.dataset_id) === dsId) : null;
+        if (!dataset) return null;
+        const detailBits = [
+          dataset.country?.trim() || null,
+          dataset.year ? String(dataset.year) : null,
+          dataset.analysis_type?.trim() || null,
+          dataset.month_coverage?.trim() || null,
+        ].filter(Boolean);
+        return {
+          key: `primary-${scope}-${dataset.dataset_id}`,
+          label: scope,
+          title: dataset.name?.trim() || `Dataset ${dataset.dataset_id}`,
+          detail: detailBits.join(" | "),
+        };
+      }).filter((item): item is {
+        key: string;
+        label: string;
+        title: string;
+        detail: string;
+      } => Boolean(item)),
+    [datasets, scopeEffectiveDatasetIds]
+  );
+
+  const additionalAllocatedDatasets = useMemo(
+    () =>
+      additionalDatasetIds
+        .map((id) => datasets.find((entry) => String(entry.dataset_id) === id))
+        .filter((dataset): dataset is Dataset => Boolean(dataset))
+        .map((dataset) => {
+          const detailBits = [
+            dataset.country?.trim() || null,
+            dataset.year ? String(dataset.year) : null,
+            dataset.analysis_type?.trim() || null,
+            dataset.month_coverage?.trim() || null,
+          ].filter(Boolean);
+          return {
+            key: `additional-${dataset.dataset_id}`,
+            title: dataset.name?.trim() || `Dataset ${dataset.dataset_id}`,
+            detail: detailBits.join(" | "),
+          };
+        })
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [additionalDatasetIds, datasets]
+  );
+
+  const manualFallbackDatasets = useMemo(
+    () =>
+      SCOPE_KEYS.map((scope) => {
+        const dsId = scopeDatasetIds[scope];
+        const dataset =
+          dsId && dsId !== "__none__" ? datasets.find((entry) => String(entry.dataset_id) === dsId) : null;
+        if (!dataset) return null;
+        const detailBits = [
+          dataset.country?.trim() || null,
+          dataset.year ? String(dataset.year) : null,
+          dataset.analysis_type?.trim() || null,
+          dataset.month_coverage?.trim() || null,
+        ].filter(Boolean);
+        return {
+          key: `fallback-${scope}-${dataset.dataset_id}`,
+          label: scope,
+          title: dataset.name?.trim() || `Dataset ${dataset.dataset_id}`,
+          detail: detailBits.join(" | "),
+        };
+      }).filter((item): item is {
+        key: string;
+        label: string;
+        title: string;
+        detail: string;
+      } => Boolean(item)),
+    [datasets, scopeDatasetIds]
   );
 
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
@@ -2887,22 +2942,63 @@ export default function JobDetailPage() {
                     </div>
                   ) : null}
 
-                  {!showAdvancedDatasetConfig && automaticAllocatedDatasets.length > 0 ? (
-                    <div className="rounded-md border bg-background p-3 space-y-2">
-                      <div className="text-sm font-medium">Automatically allocated datasets</div>
-                      <div className="text-xs text-muted-foreground">
-                        These datasets are assigned automatically from the client country, reporting period, and scope resolution.
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {automaticAllocatedDatasets.map((dataset) => (
-                          <div
-                            key={`auto-dataset-${dataset.id}`}
-                            className="rounded border bg-muted/20 px-3 py-2 text-xs"
-                          >
-                            <div className="font-medium">{dataset.label}</div>
-                            {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
+                  {!showAdvancedDatasetConfig && (primaryScopeDatasets.length > 0 || additionalAllocatedDatasets.length > 0 || manualFallbackDatasets.length > 0) ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-md border bg-background p-3 space-y-2">
+                        <div className="text-sm font-medium">Primary scope datasets</div>
+                        <div className="text-xs text-muted-foreground">
+                          Automatically resolved from the client country and reporting period.
+                        </div>
+                        {primaryScopeDatasets.length > 0 ? (
+                          <div className="space-y-2">
+                            {primaryScopeDatasets.map((dataset) => (
+                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
+                                <div className="font-medium">{dataset.label}: {dataset.title}</div>
+                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No primary scope datasets resolved.</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border bg-background p-3 space-y-2">
+                        <div className="text-sm font-medium">Additional datasets</div>
+                        <div className="text-xs text-muted-foreground">
+                          Extra datasets added manually to supplement the primary scope allocation.
+                        </div>
+                        {additionalAllocatedDatasets.length > 0 ? (
+                          <div className="space-y-2">
+                            {additionalAllocatedDatasets.map((dataset) => (
+                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
+                                <div className="font-medium">{dataset.title}</div>
+                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No additional datasets selected.</div>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border bg-background p-3 space-y-2">
+                        <div className="text-sm font-medium">Manual fallback datasets</div>
+                        <div className="text-xs text-muted-foreground">
+                          Scope-by-scope fallback selections used when automatic resolution needs a manual override.
+                        </div>
+                        {manualFallbackDatasets.length > 0 ? (
+                          <div className="space-y-2">
+                            {manualFallbackDatasets.map((dataset) => (
+                              <div key={dataset.key} className="rounded border bg-muted/20 px-3 py-2 text-xs">
+                                <div className="font-medium">{dataset.label}: {dataset.title}</div>
+                                {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No manual fallback datasets selected.</div>
+                        )}
                       </div>
                     </div>
                   ) : null}
