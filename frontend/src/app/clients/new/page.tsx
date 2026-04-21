@@ -97,6 +97,8 @@ export default function NewClientPage() {
   const [postcode, setPostcode] = useState("");
   const [country, setCountry] = useState("");
   const [billingSameAsMain, setBillingSameAsMain] = useState(true);
+  const [billingCompany, setBillingCompany] = useState("");
+  const [billingCompanyTouched, setBillingCompanyTouched] = useState(false);
   const [billingAddrLine1, setBillingAddrLine1] = useState("");
   const [billingAddrLine2, setBillingAddrLine2] = useState("");
   const [billingCity, setBillingCity] = useState("");
@@ -231,6 +233,12 @@ export default function NewClientPage() {
         );
     return filtered.slice(0, 100);
   }, [billingCountry, billingCountrySearchStarted]);
+
+  useEffect(() => {
+    if (!billingCompanyTouched) {
+      setBillingCompany(clientName);
+    }
+  }, [clientName, billingCompanyTouched]);
 
   function clearFieldError(field: ClientRequiredField) {
     if (!formErrors[field]) return;
@@ -386,46 +394,47 @@ export default function NewClientPage() {
           ),
           body: JSON.stringify({
             client_name: clientName.trim(),
-          industry: industry || null,
-          description_long: description || null,
-          website: website || null,
-          year_end_month: yearEndMonth || null,
-          company_reg: companyReg || null,
-          sic_code: sicCode || null,
-          headquarters: headquarters || null,
-          addr_line1: addrLine1 || null,
-          addr_line2: addrLine2 || null,
-          addr_city: city || null,
-          addr_region: region || null,
-          addr_postcode: postcode || null,
-          addr_country: country || null,
-          billing_same_as_main: billingSameAsMain,
-          billing_addr_line1: billingAddrLine1 || null,
-          billing_addr_line2: billingAddrLine2 || null,
-          billing_addr_city: billingCity || null,
-          billing_addr_region: billingRegion || null,
-          billing_addr_postcode: billingPostcode || null,
-          billing_addr_country: billingCountry || null,
-          logo_url: logoUrl || null,
-          portfolio: portfolio || null,
-          crm_owner: crmOwner || null,
-          currency: (currency || "GBP").toUpperCase(),
-          status: "Active",
-          create_site_from_address: createSiteFromAddress,
-          net_zero_year: netZeroYear ? Number(netZeroYear) : null,
-          benchmark_year: benchmarkYear ? Number(benchmarkYear) : null,
-          benchmark_scope_1_tco2e: benchmarkScope1 ? Number(benchmarkScope1) : null,
-          benchmark_scope_2_tco2e: benchmarkScope2 ? Number(benchmarkScope2) : null,
-          benchmark_scope_3_tco2e: benchmarkScope3 ? Number(benchmarkScope3) : null,
-          benchmark_total_tco2e: benchmarkTotal ? Number(benchmarkTotal) : null,
-          benchmark_period_start: benchmarkPeriodStart || null,
-          benchmark_period_end: benchmarkPeriodEnd || null,
-          target_s1_year: targetS1Year ? Number(targetS1Year) : null,
-          target_s1_pct: targetS1Pct ? Number(targetS1Pct) : null,
-          target_s2_year: targetS2Year ? Number(targetS2Year) : null,
-          target_s2_pct: targetS2Pct ? Number(targetS2Pct) : null,
-          target_s3_year: targetS3Year ? Number(targetS3Year) : null,
-          target_s3_pct: targetS3Pct ? Number(targetS3Pct) : null,
+            billing_company: billingCompany.trim() || clientName.trim() || null,
+            industry: industry || null,
+            description_long: description || null,
+            website: website || null,
+            year_end_month: yearEndMonth || null,
+            company_reg: companyReg || null,
+            sic_code: sicCode || null,
+            headquarters: headquarters || null,
+            addr_line1: addrLine1 || null,
+            addr_line2: addrLine2 || null,
+            addr_city: city || null,
+            addr_region: region || null,
+            addr_postcode: postcode || null,
+            addr_country: country || null,
+            billing_same_as_main: billingSameAsMain,
+            billing_addr_line1: billingAddrLine1 || null,
+            billing_addr_line2: billingAddrLine2 || null,
+            billing_addr_city: billingCity || null,
+            billing_addr_region: billingRegion || null,
+            billing_addr_postcode: billingPostcode || null,
+            billing_addr_country: billingCountry || null,
+            logo_url: logoUrl || null,
+            portfolio: portfolio || null,
+            crm_owner: crmOwner || null,
+            currency: (currency || "GBP").toUpperCase(),
+            status: "Active",
+            create_site_from_address: createSiteFromAddress,
+            net_zero_year: netZeroYear ? Number(netZeroYear) : null,
+            benchmark_year: benchmarkYear ? Number(benchmarkYear) : null,
+            benchmark_scope_1_tco2e: benchmarkScope1 ? Number(benchmarkScope1) : null,
+            benchmark_scope_2_tco2e: benchmarkScope2 ? Number(benchmarkScope2) : null,
+            benchmark_scope_3_tco2e: benchmarkScope3 ? Number(benchmarkScope3) : null,
+            benchmark_total_tco2e: benchmarkTotal ? Number(benchmarkTotal) : null,
+            benchmark_period_start: benchmarkPeriodStart || null,
+            benchmark_period_end: benchmarkPeriodEnd || null,
+            target_s1_year: targetS1Year ? Number(targetS1Year) : null,
+            target_s1_pct: targetS1Pct ? Number(targetS1Pct) : null,
+            target_s2_year: targetS2Year ? Number(targetS2Year) : null,
+            target_s2_pct: targetS2Pct ? Number(targetS2Pct) : null,
+            target_s3_year: targetS3Year ? Number(targetS3Year) : null,
+            target_s3_pct: targetS3Pct ? Number(targetS3Pct) : null,
         }),
       });
 
@@ -872,6 +881,22 @@ export default function NewClientPage() {
                   >
                     Billing address same as main address
                   </Label>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="billingCompany">Billing Company</Label>
+                  <Input
+                    id="billingCompany"
+                    value={billingCompany}
+                    onChange={(e) => {
+                      setBillingCompany(e.target.value);
+                      setBillingCompanyTouched(true);
+                    }}
+                    placeholder={clientName || "Client name"}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Defaults to the client name, but you can override it for invoicing.
+                  </p>
                 </div>
 
                 {!billingSameAsMain && (

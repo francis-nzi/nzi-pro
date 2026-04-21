@@ -624,6 +624,7 @@ def _ensure_client_billing_columns(con) -> None:
     statements = [
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id VARCHAR",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS create_site_from_address BOOLEAN",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_company VARCHAR",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_same_as_main BOOLEAN DEFAULT TRUE",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line1 VARCHAR",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_addr_line2 VARCHAR",
@@ -3198,6 +3199,7 @@ def create_client(
             raise HTTPException(status_code=400, detail="client_name is required")
 
         billing_same_as_main = bool(body.get("billing_same_as_main", True))
+        billing_company = str(body.get("billing_company") or client_name).strip() or client_name
         main_addr_line1 = body.get("addr_line1")
         main_addr_line2 = body.get("addr_line2")
         main_addr_city = body.get("addr_city")
@@ -3235,7 +3237,7 @@ def create_client(
             row = con.execute(
                 """
                 INSERT INTO clients (
-                    org_id, client_name, industry, description_long, website, year_end_month,
+                    org_id, client_name, billing_company, industry, description_long, website, year_end_month,
                     company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
                     crm_owner, currency, status, net_zero_year, benchmark_year,
@@ -3247,12 +3249,13 @@ def create_client(
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
                     org_id,
                     client_name,
+                    billing_company,
                     body.get("industry"),
                     body.get("description_long"),
                     body.get("website"),
@@ -3776,7 +3779,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                        c.billing_addr_postcode, c.billing_addr_country,
                        c.create_site_from_address,
                        c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
+                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
+                       COALESCE(c.billing_company, c.client_name)
                 FROM clients c
                 WHERE c.db_id=? AND c.org_id=?
                 """,
@@ -3797,7 +3801,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                        c.billing_addr_postcode, c.billing_addr_country,
                        c.create_site_from_address,
                        c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e
+                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
+                       COALESCE(c.billing_company, c.client_name)
                 FROM clients c
                 WHERE c.db_id=?
                 """,
@@ -3850,6 +3855,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "benchmark_scope_2_tco2e": float(row[37]) if row[37] is not None else None,
         "benchmark_scope_3_tco2e": float(row[38]) if row[38] is not None else None,
         "benchmark_total_tco2e": float(row[39]) if row[39] is not None else None,
+        "billing_company": row[40] if len(row) > 40 else row[1],
     }
 
 
@@ -3966,6 +3972,7 @@ def update_client(
                 "target_s2_pct": "target_s2_pct",
                 "target_s3_year": "target_s3_year",
                 "target_s3_pct": "target_s3_pct",
+                "billing_company": "billing_company",
                 "billing_same_as_main": "billing_same_as_main",
                 "billing_addr_line1": "billing_addr_line1",
                 "billing_addr_line2": "billing_addr_line2",

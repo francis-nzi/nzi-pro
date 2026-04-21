@@ -76,6 +76,7 @@ type Client = {
   addr_postcode: string | null;
   addr_country: string | null;
   billing_same_as_main: boolean | null;
+  billing_company: string | null;
   billing_addr_line1: string | null;
   billing_addr_line2: string | null;
   billing_addr_city: string | null;
@@ -169,6 +170,7 @@ export default function EditClientPage() {
   const [addrPostcode, setAddrPostcode] = useState<string>("");
   const [addrCountry, setAddrCountry] = useState<string>("");
   const [billingSameAsMain, setBillingSameAsMain] = useState<boolean>(true);
+  const [billingCompany, setBillingCompany] = useState<string>("");
   const [billingAddrLine1, setBillingAddrLine1] = useState<string>("");
   const [billingAddrLine2, setBillingAddrLine2] = useState<string>("");
   const [billingAddrCity, setBillingAddrCity] = useState<string>("");
@@ -332,6 +334,7 @@ export default function EditClientPage() {
         setAddrPostcode(json.addr_postcode || "");
         setAddrCountry(json.addr_country || "");
         setBillingSameAsMain(json.billing_same_as_main ?? true);
+        setBillingCompany(json.billing_company || json.client_name || "");
         setBillingAddrLine1(json.billing_addr_line1 || "");
         setBillingAddrLine2(json.billing_addr_line2 || "");
         setBillingAddrCity(json.billing_addr_city || "");
@@ -502,6 +505,7 @@ export default function EditClientPage() {
         ),
         body: JSON.stringify({
           client_name: clientName || null,
+          billing_company: billingCompany || clientName || null,
           industry: industry || null,
           description_long: descriptionLong || null,
           website: website || null,
@@ -1048,6 +1052,19 @@ export default function EditClientPage() {
                 <Label htmlFor="billingSameAsMain" className="font-normal cursor-pointer">
                   Billing address same as main address
                 </Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="billingCompany">Billing Company</Label>
+                <Input
+                  id="billingCompany"
+                  value={billingCompany}
+                  onChange={(e) => setBillingCompany(e.target.value)}
+                  placeholder={clientName || "Client name"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Defaults to the client name, but you can override it for invoicing.
+                </p>
               </div>
 
               {!billingSameAsMain && (
