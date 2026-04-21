@@ -403,6 +403,7 @@ type Job = {
   job_id: number;
   job_number: string | null;
   title: string | null;
+  original_portfolio?: string | null;
   reporting_year: number | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
@@ -629,6 +630,10 @@ type JobType = {
   name: string;
   is_active: boolean;
   is_crp?: boolean;
+};
+
+type PortfolioOption = {
+  name?: string | null;
 };
 
 const JOB_SETUP_METADATA_KEYS = [
@@ -918,6 +923,7 @@ export default function JobDetailPage() {
   const [jobTitle, setJobTitle] = useState<string>("");
   const [jobStatus, setJobStatus] = useState<string>("");
   const [jobType, setJobType] = useState<string>("");
+  const [originalPortfolio, setOriginalPortfolio] = useState<string>("NZI");
   const [crmName, setCrmName] = useState<string>("");
   const [jobStartDate, setJobStartDate] = useState<string>("");
   const [jobEndDate, setJobEndDate] = useState<string>("");
@@ -925,6 +931,7 @@ export default function JobDetailPage() {
   // Lookup data
   const [jobStatuses, setJobStatuses] = useState<Array<{status_id: number; name: string}>>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
+  const [portfolios, setPortfolios] = useState<PortfolioOption[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [milestoneTemplates, setMilestoneTemplates] = useState<MilestoneTemplateOption[]>([]);
   const [milestoneTemplateCompletions, setMilestoneTemplateCompletions] = useState<MilestoneTemplateCompletion[]>([]);
@@ -1545,6 +1552,7 @@ export default function JobDetailPage() {
         setJobTitle(jJson.title || "");
         setJobStatus(jJson.status || "Draft");
         setJobType(jJson.job_type || "");
+        setOriginalPortfolio(jJson.original_portfolio || "NZI");
         setCrmName(jJson.crm_name || "");
         setJobStartDate(jJson.start_date || "");
         setJobEndDate(jJson.due_date || "");
@@ -1654,6 +1662,35 @@ export default function JobDetailPage() {
     }
 
     void loadJobTypes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortfolios() {
+      try {
+        const res = await fetch(`${baseUrl}/admin/lookups/portfolios_lookup`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const items = Array.isArray(json.items) ? json.items : [];
+        setPortfolios(
+          items
+            .map((item: { name?: string | null }) => ({ name: item.name ? String(item.name) : null }))
+            .filter((item: PortfolioOption) => Boolean(item.name))
+        );
+      } catch {
+        if (!cancelled) setPortfolios([]);
+      }
+    }
+
+    void loadPortfolios();
 
     return () => {
       cancelled = true;
@@ -2086,6 +2123,7 @@ export default function JobDetailPage() {
             title: jobTitle,
             status: jobStatus,
             job_type: jobType,
+            original_portfolio: originalPortfolio || "NZI",
             crm_name: crmName,
           start_date: jobStartDate || null,
           due_date: jobEndDate || null,
@@ -2113,6 +2151,7 @@ export default function JobDetailPage() {
           title: jobTitle, 
           status: jobStatus,
           job_type: jobType,
+          original_portfolio: originalPortfolio || "NZI",
           crm_name: crmName,
           start_date: jobStartDate || null,
           due_date: jobEndDate || null,
@@ -2497,6 +2536,28 @@ export default function JobDetailPage() {
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   This controls how the job is grouped on client pages and in reporting.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="originalPortfolio">Original Portfolio</Label>
+                <Select value={originalPortfolio || "NZI"} onValueChange={setOriginalPortfolio}>
+                  <SelectTrigger id="originalPortfolio">
+                    <SelectValue placeholder="Select portfolio..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {originalPortfolio && !portfolios.some((p) => p.name === originalPortfolio) ? (
+                      <SelectItem value={originalPortfolio}>{originalPortfolio}</SelectItem>
+                    ) : null}
+                    {portfolios.map((portfolio) => (
+                      <SelectItem key={portfolio.name} value={portfolio.name || ""}>
+                        {portfolio.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Defaults to NZI and is used to record the original portfolio for this job.
                 </p>
               </div>
 

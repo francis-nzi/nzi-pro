@@ -619,6 +619,14 @@ def _ensure_job_additional_datasets_table() -> None:
         pass
 
 
+def _ensure_job_original_portfolio_column(con) -> None:
+    """Ensure jobs.original_portfolio exists for older deployments."""
+    try:
+        con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS original_portfolio VARCHAR DEFAULT 'NZI'")
+    except Exception:
+        pass
+
+
 def _ensure_client_billing_columns(con) -> None:
     """Ensure client billing-address columns exist for older deployments."""
     statements = [
@@ -741,6 +749,12 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         import calendar
         from dateutil.relativedelta import relativedelta
         assert_permission(_user, "jobs.create")
+
+        def _ensure_job_original_portfolio_column(con) -> None:
+            try:
+                con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS original_portfolio VARCHAR DEFAULT 'NZI'")
+            except Exception:
+                pass
 
         def _col_exists(con, table_name: str, col_name: str) -> bool:
             try:
@@ -869,6 +883,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         assert_client_access(_user, int(client_db_id))
 
         with get_conn() as con:
+            _ensure_job_original_portfolio_column(con)
             # Lookup job_type_id and is_crp from job_types table
             job_type_row = con.execute(
                 "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
@@ -957,17 +972,18 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             row = con.execute(
                 """
                 INSERT INTO jobs (
-                    client_db_id, job_type_id, job_type, job_number, title, reporting_year,
+                    client_db_id, job_type_id, job_type, original_portfolio, job_number, title, reporting_year,
                     reporting_period_start, reporting_period_end, is_benchmark, is_crp,
                     status, start_date, due_date, legacy_job_no
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING job_id
                 """,
                 [
                     int(client_db_id),
                     job_type_id,
                     job_type_name,
+                    "NZI",
                     "PENDING",
                     body.get("title", "Untitled").strip() or "Untitled",
                     int(reporting_year),
@@ -1315,6 +1331,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "jobs.view")
     try:
         with get_conn() as con:
+            _ensure_job_original_portfolio_column(con)
             try:
                 assert_job_access(_user, int(job_id))
             except HTTPException as exc:
@@ -1360,6 +1377,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
             job_template_expr = "j.job_template_id" if _col_exists("jobs", "job_template_id") else "NULL::integer AS job_template_id"
             has_job_types_table = _table_exists("job_types")
             job_type_name_expr = "jt.name" if has_job_types_table else "NULL::text AS job_type"
+            original_portfolio_expr = "COALESCE(j.original_portfolio, 'NZI')" if _col_exists("jobs", "original_portfolio") else "'NZI'::text AS original_portfolio"
 
             row = con.execute(
                 f"""
@@ -1369,7 +1387,8 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                        j.client_db_id, c.client_name,
                        {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
                        {job_type_name_expr},
-                       j.job_type_id
+                       j.job_type_id,
+                       {original_portfolio_expr}
                 FROM jobs j
                 LEFT JOIN clients c ON c.db_id = j.client_db_id
                 {"LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id" if has_job_types_table else ""}
@@ -1455,6 +1474,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         legacy_job_no,
         job_type,
         job_type_id,
+        original_portfolio,
     ) = row
 
     # Calculate traffic light status for each milestone
@@ -1512,6 +1532,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "legacy_job_no": legacy_job_no,
         "job_type": job_type,
         "job_type_id": (int(job_type_id) if job_type_id is not None else None),
+        "original_portfolio": str(original_portfolio or "NZI").strip() or "NZI",
         "estimated_hours": estimated_hours,
         **milestone_data,
     }
@@ -1529,6 +1550,7 @@ def update_job(
         assert_permission(_user, "jobs.edit")
         assert_job_access(_user, int(job_id))
         with get_conn() as con:
+            _ensure_job_original_portfolio_column(con)
             before = _job_audit_snapshot(con, int(job_id))
             # Check job exists
             exists = con.execute("SELECT 1 FROM jobs WHERE job_id = ?", [int(job_id)]).fetchone()
@@ -1570,7 +1592,12 @@ def update_job(
             if "legacy_job_no" in body:
                 updates.append("legacy_job_no = ?")
                 params.append(body["legacy_job_no"])
-            
+
+            if "original_portfolio" in body:
+                original_portfolio = str(body.get("original_portfolio") or "NZI").strip() or "NZI"
+                updates.append("original_portfolio = ?")
+                params.append(original_portfolio)
+
             if "job_type" in body:
                 job_type_name = str(body.get("job_type") or "").strip()
                 if not job_type_name:
