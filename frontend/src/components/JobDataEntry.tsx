@@ -183,6 +183,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [debugSearch, setDebugSearch] = useState("");
   const [selectedScope, setSelectedScope] = useState<string>("All");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("All");
+  const [siteFilter, setSiteFilter] = useState<string>("All");
+  const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showColumnManager, setShowColumnManager] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -954,6 +956,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       const confidence = String(row.data_confidence || "M").toUpperCase();
       if (confidence !== confidenceFilter) return false;
     }
+    if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
+    if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
+      return false;
+    }
     if (searchQuery) {
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
@@ -965,6 +971,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         row.level_3,
         row.level_4,
         row.column_text,
+        row.site_name,
+        row.data_source,
       ]);
     }
     return true;
@@ -972,6 +980,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
   const filteredPreviousYearRows = previousYearRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
+    if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
+    if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
+      return false;
+    }
     if (searchQuery) {
       return multiTokenMatch(searchQuery, [
         rowDisplayTitle(row),
@@ -986,6 +998,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         row.source_job_number,
         row.source_job_title,
         row.site_name,
+        row.data_confidence,
       ]);
     }
     return true;
@@ -994,6 +1007,27 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const addedOriginalIds = new Set(
     scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)
   );
+
+  const availableSites = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of [...scopeData, ...previousYearRows]) {
+      if (row.site_id == null) continue;
+      const key = String(row.site_id);
+      if (!seen.has(key)) {
+        seen.set(key, row.site_name || `Site ${row.site_id}`);
+      }
+    }
+    return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
+  }, [previousYearRows, scopeData]);
+
+  const availableCategories = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of [...scopeData, ...previousYearRows]) {
+      const category = String(row.category || row.level_2 || row.level_1 || "").trim();
+      if (category) seen.add(category);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [previousYearRows, scopeData]);
 
   const filteredDebugRows = debugRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
@@ -1102,12 +1136,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_8rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_8rem]">
             <div className="min-w-0">
               <Label htmlFor="search">Search</Label>
               <Input
                 id="search"
-                placeholder="Search by label, category, or ID..."
+                placeholder="Search by label, category, site, source, or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full min-w-0"
@@ -1141,6 +1175,38 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </SelectContent>
               </Select>
             </div>
+            <div className="min-w-0">
+              <Label htmlFor="siteFilter">Site</Label>
+              <Select value={siteFilter} onValueChange={setSiteFilter}>
+                <SelectTrigger id="siteFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Sites</SelectItem>
+                  {availableSites.map((site) => (
+                    <SelectItem key={site.siteId} value={site.siteId}>
+                      {site.siteName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor="categoryFilter">Category</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger id="categoryFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Categories</SelectItem>
+                  {availableCategories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end">
               <Button onClick={() => setShowColumnManager(true)} variant="outline">
                 Columns
@@ -1154,6 +1220,20 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             <div className="flex items-end">
               <Button onClick={openDebugModal} variant="outline">
                 Review Rows
+              </Button>
+            </div>
+            <div className="flex items-end md:col-span-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedScope("All");
+                  setConfidenceFilter("All");
+                  setSiteFilter("All");
+                  setCategoryFilter("All");
+                }}
+              >
+                Clear Filters
               </Button>
             </div>
           </div>
