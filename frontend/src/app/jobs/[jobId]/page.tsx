@@ -3019,36 +3019,43 @@ export default function JobDetailPage() {
 
                   {showAdvancedDatasetConfig ? (
                     <>
-                  <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-                    <div className="text-sm font-medium">
+                  <div className="rounded-md border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+                    <div className="text-sm font-medium text-sky-900">
                       Mode: {scopeConfigMode === "automatic" ? "Automatic resolution" : "Manual mapping"}
                     </div>
                     {scopeConfigMode === "automatic" ? (
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-sky-800/80">
                         Effective datasets are resolved from client country + reporting period. Manual selections below are fallback values only.
                       </div>
                     ) : (
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-sky-800/80">
                         Manual scope dataset mapping is active for factor lookup.
                       </div>
                     )}
 
                     {scopeAutoResolution ? (
-                      <div className="text-xs text-muted-foreground space-y-1">
-                        <div>
-                          Resolution context: {(scopeAutoResolution.country || "Unspecified country")} • {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
-                        </div>
+                      <div className="flex flex-wrap gap-2 text-[11px]">
+                        <span className="rounded-full border border-sky-200 bg-white/80 px-2 py-1 text-sky-800">
+                          {scopeAutoResolution.country || "Unspecified country"}
+                        </span>
+                        <span className="rounded-full border border-sky-200 bg-white/80 px-2 py-1 text-sky-800">
+                          {scopeAutoResolution.reporting_period_start || "?"} to {scopeAutoResolution.reporting_period_end || "?"}
+                        </span>
                         {scopeAutoResolution.uses_legacy_fallback ? (
-                          <div>Automatic mode is currently using some legacy fallback datasets.</div>
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                            Legacy fallback datasets in use
+                          </span>
                         ) : null}
                         {scopeAutoResolution.unresolved_scopes?.length ? (
-                          <div>Unresolved scopes: {scopeAutoResolution.unresolved_scopes.join(", ")}</div>
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                            Unresolved: {scopeAutoResolution.unresolved_scopes.join(", ")}
+                          </span>
                         ) : null}
                       </div>
                     ) : null}
 
                     {scopeConfigWarnings.length ? (
-                      <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                      <ul className="list-disc pl-5 text-xs text-sky-800/80 space-y-1">
                         {scopeConfigWarnings.map((warning, idx) => (
                           <li key={`scope-warning-${idx}`}>{warning}</li>
                         ))}
@@ -3061,8 +3068,8 @@ export default function JobDetailPage() {
                     </div>
 
                     {additionalDatasetIds.length > 0 ? (
-                      <div className="rounded-md border p-3 space-y-2">
-                        <div className="text-sm font-medium">Selected additional datasets</div>
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3 space-y-2">
+                        <div className="text-sm font-medium text-emerald-900">Selected additional datasets</div>
                         <div className="flex flex-wrap gap-2">
                           {additionalDatasetIds
                             .map((id) => datasets.find((d) => String(d.dataset_id) === id))
@@ -3070,11 +3077,11 @@ export default function JobDetailPage() {
                             .map((ds) => (
                               <div
                                 key={`selected-extra-${ds.dataset_id}`}
-                                className="flex items-center gap-2 rounded border bg-background px-3 py-2 text-xs"
+                                className="flex items-center gap-2 rounded border border-emerald-100 bg-white/80 px-3 py-2 text-xs"
                               >
                                 <div>
-                                  <div className="font-medium">{ds.name || `Dataset ${ds.dataset_id}`}</div>
-                                  <div className="text-muted-foreground">
+                                  <div className="font-medium text-emerald-950">{ds.name || `Dataset ${ds.dataset_id}`}</div>
+                                  <div className="text-emerald-800/80">
                                     {ds.country || "Unknown"} | {ds.year || "n/a"} | {ds.analysis_type || "n/a"}
                                   </div>
                                 </div>
@@ -3096,8 +3103,8 @@ export default function JobDetailPage() {
                     ) : null}
 
                   {scopeConfigMode === "automatic" ? (
-                    <div className="rounded-md border p-3 space-y-2">
-                      <div className="text-sm font-medium">Effective datasets in use</div>
+                    <div className="rounded-md border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+                      <div className="text-sm font-medium text-sky-900">Effective datasets in use</div>
                       <div className="grid gap-2 md:grid-cols-3 text-xs">
                         {SCOPE_KEYS.map((scope) => {
                           const dsId = scopeEffectiveDatasetIds[scope];
@@ -3106,9 +3113,9 @@ export default function JobDetailPage() {
                               ? datasets.find((d) => String(d.dataset_id) === dsId)
                               : null;
                           return (
-                            <div key={`effective-${scope}`} className="rounded border p-2">
-                              <div className="font-medium">{scope}</div>
-                              <div className="text-muted-foreground">
+                            <div key={`effective-${scope}`} className="rounded border border-sky-100 bg-white/80 p-2">
+                              <div className="font-medium text-sky-950">{scope}</div>
+                              <div className="text-sky-800/80">
                                 {ds
                                   ? `${ds.name || `Dataset ${ds.dataset_id}`}${ds.year ? ` (${ds.year})` : ""}`
                                   : "Not resolved"}
@@ -3120,11 +3127,11 @@ export default function JobDetailPage() {
                     </div>
                   ) : null}
 
-                  <div className="rounded-md border p-3 space-y-3">
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50/60 p-3 space-y-3">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-medium">Additional Datasets For This Job</div>
+                      <div className="text-sm font-medium text-emerald-900">Additional Datasets For This Job</div>
                       <div className="flex items-center gap-2">
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs text-emerald-800/80">
                           {additionalDatasetIds.length} selected
                         </div>
                         <Button
@@ -3138,11 +3145,11 @@ export default function JobDetailPage() {
                         </Button>
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-emerald-800/80">
                       Select any extra datasets the client needs for this job in addition to the default scope datasets.
                     </div>
                     {scopeCatalogStatus ? (
-                      <div className="rounded border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      <div className="rounded border border-emerald-100 bg-white/80 px-3 py-2 text-xs text-emerald-800/80">
                         {scopeCatalogStatus}
                         {scopeCatalogCount != null
                           ? ` (${scopeCatalogCount} total)`
@@ -3163,13 +3170,13 @@ export default function JobDetailPage() {
                           return (
                             <label
                               key={`extra-dataset-${id}`}
-                              className="flex cursor-pointer items-center justify-between rounded border px-2 py-1.5 text-xs hover:bg-muted/40"
+                              className="flex cursor-pointer items-center justify-between rounded border border-emerald-100 bg-white/80 px-2 py-1.5 text-xs hover:bg-emerald-100/60"
                             >
                               <div className="pr-2">
-                                <div className="font-medium">
+                                <div className="font-medium text-emerald-950">
                                   {ds.name || `Dataset ${id}`}
                                 </div>
-                                <div className="text-muted-foreground">
+                                <div className="text-emerald-800/80">
                                   {ds.country || "Unknown"} • {ds.year || "n/a"} • {ds.analysis_type || "n/a"}
                                 </div>
                               </div>
@@ -3192,8 +3199,8 @@ export default function JobDetailPage() {
                   
                   <div className="space-y-4">
                     {SCOPE_KEYS.map((scope) => (
-                      <div key={scope} className="space-y-2">
-                        <Label htmlFor={`dataset-${scope}`}>
+                      <div key={scope} className="space-y-2 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                        <Label htmlFor={`dataset-${scope}`} className="text-amber-900">
                           {scope}
                           {scopeConfigMode === "automatic" ? " (fallback)" : ""}
                         </Label>
@@ -3204,7 +3211,7 @@ export default function JobDetailPage() {
                             setStatus("");
                           }}
                         >
-                          <SelectTrigger id={`dataset-${scope}`} className="w-full">
+                          <SelectTrigger id={`dataset-${scope}`} className="w-full border-amber-200 bg-white/80">
                             <SelectValue placeholder="Select dataset..." />
                           </SelectTrigger>
                           <SelectContent>
