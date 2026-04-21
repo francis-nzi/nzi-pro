@@ -559,12 +559,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   function rowDisplaySubtitle(row: ScopeDataRow | PreviousYearRow): string {
     return uniqueDisplayParts([
       row.category,
-      row.column_text,
       row.level_4,
       row.level_3,
       row.level_2,
       row.level_1,
-      row.original_id,
+      row.uom,
     ]).join(" • ");
   }
 
@@ -1027,6 +1026,33 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
     if (row.factor === null || row.factor === undefined || Number.isNaN(row.factor)) return "-";
     return row.factor.toFixed(5);
+  }
+
+  function monthlyStoredSummary(row: ScopeDataRow): string {
+    const monthLabels = getMonthLabels();
+    const values = [
+      row.month_1,
+      row.month_2,
+      row.month_3,
+      row.month_4,
+      row.month_5,
+      row.month_6,
+      row.month_7,
+      row.month_8,
+      row.month_9,
+      row.month_10,
+      row.month_11,
+      row.month_12,
+    ];
+    const parts = values
+      .map((value, index) => {
+        if (value === null || value === undefined || Number.isNaN(value) || Math.abs(Number(value)) < 0.000001) {
+          return null;
+        }
+        return `${monthLabels[index]}: ${Number(value).toFixed(2)}`;
+      })
+      .filter(Boolean) as string[];
+    return parts.length ? parts.join(" • ") : "-";
   }
 
   function storageReasonText(reason: string | null | undefined): string {
@@ -1508,7 +1534,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     {visibleColumns.site && <th className="text-left p-2">Site</th>}
                     <th className="text-left p-2">Report Label</th>
                     {visibleColumns.qty && <th className="text-right p-2">Qty</th>}
-                    {visibleColumns.apply && <th className="text-right p-2">Apply %</th>}
+                    {visibleColumns.apply && <th className="text-right p-2">Factor</th>}
                     {visibleColumns.tco2e && <th className="text-right p-2">tCO₂e (After)</th>}
                     {visibleColumns.confidence && <th className="text-left p-2">Data Confidence</th>}
                     <th className="text-left p-2">Monthly</th>
@@ -1596,27 +1622,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                         )}
                         {visibleColumns.apply && (
                           <td className="p-2 text-right">
-                            {editingRowId === row.row_id && editingField === "apply" ? (
-                              <div className="flex gap-1 justify-end">
-                                <Input
-                                  type="number"
-                                  step="1"
-                                  value={editingApply}
-                                  onChange={(e) => setEditingApply(e.target.value)}
-                                  className="w-20 h-7 text-right font-mono text-sm"
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") saveEditApply(row.row_id);
-                                    if (e.key === "Escape") cancelEditQty();
-                                  }}
-                                />
-                                <Button size="sm" onClick={() => saveEditApply(row.row_id)} className="h-7 px-2">Save</Button>
-                              </div>
-                            ) : (
-                              <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditApply(row)}>
-                                {row.apply_pct}%
-                              </button>
-                            )}
+                            <span className="font-mono font-semibold">{factorDisplayText(row)}</span>
                           </td>
                         )}
                         {visibleColumns.tco2e && (
@@ -1684,8 +1690,36 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 <div className="font-mono break-all">{factorDisplayText(row)}</div>
                               </div>
                               <div className="text-xs">
+                                <div className="text-muted-foreground">Apply %</div>
+                                {editingRowId === row.row_id && editingField === "apply" ? (
+                                  <div className="flex gap-1">
+                                    <Input
+                                      type="number"
+                                      step="1"
+                                      value={editingApply}
+                                      onChange={(e) => setEditingApply(e.target.value)}
+                                      className="h-7 w-24 text-right font-mono text-sm"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") saveEditApply(row.row_id);
+                                        if (e.key === "Escape") cancelEditQty();
+                                      }}
+                                    />
+                                    <Button size="sm" onClick={() => saveEditApply(row.row_id)} className="h-7 px-2">Save</Button>
+                                  </div>
+                                ) : (
+                                  <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditApply(row)}>
+                                    {row.apply_pct}%
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-xs">
                                 <div className="text-muted-foreground">Factor ID</div>
                                 <div className="font-mono break-all">{row.factor_reference || row.original_id || "-"}</div>
+                              </div>
+                              <div className="text-xs">
+                                <div className="text-muted-foreground">Monthly</div>
+                                <div className="font-mono">{monthlyCount(row)}/12</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">tCO₂e (Before)</div>
@@ -1717,6 +1751,19 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                           </div>
                                         </div>
                                       ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              {!row.uses_monthly_factors && monthlyCount(row) > 0 && (
+                                <div className="text-xs md:col-span-2 lg:col-span-4">
+                                  <div className="text-muted-foreground mb-1">Monthly Input</div>
+                                  <div className="rounded border bg-background px-3 py-2">
+                                    <div className="text-[11px] text-muted-foreground mb-2">
+                                      Monthly values captured for this row.
+                                    </div>
+                                    <div className="mb-2 text-[11px] font-mono break-words">
+                                      {monthlyStoredSummary(row)}
                                     </div>
                                   </div>
                                 </div>
@@ -1955,7 +2002,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             {[
               { key: "site", label: "Site" },
               { key: "qty", label: "Qty" },
-              { key: "apply", label: "Apply %" },
+              { key: "apply", label: "Factor" },
               { key: "tco2e", label: "tCO₂e (After)" },
               { key: "confidence", label: "Data Confidence" },
             ].map((item) => (
