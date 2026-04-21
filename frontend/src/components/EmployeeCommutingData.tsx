@@ -17,6 +17,7 @@ import {
 import { withAuditHeaders } from "@/lib/auth-client";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 
 type SiteOption = {
   site_id: number | null;
@@ -344,21 +345,22 @@ export default function EmployeeCommutingData({
   }
 
   async function readError(
-    res: { status: number; statusText: string; text: () => Promise<string>; json: () => Promise<any> }
+    res: { status: number; statusText: string; text: () => Promise<string>; json: () => Promise<unknown> }
   ): Promise<{ message: string; preview?: PreviewPayload | null }> {
     try {
-      const data = await res.json();
-      const detail = data?.detail;
+      const data = (await res.json()) as Record<string, unknown>;
+      const detail = data.detail;
       if (typeof detail === "string") {
         return { message: detail };
       }
       if (detail && typeof detail === "object") {
+        const detailObj = detail as Record<string, unknown>;
         return {
-          message: String(detail.message || `Request failed (${res.status})`),
-          preview: detail.preview ?? null,
+          message: String(detailObj.message || `Request failed (${res.status})`),
+          preview: (detailObj.preview as PreviewPayload | null | undefined) ?? null,
         };
       }
-      return { message: data?.message || `Request failed (${res.status})` };
+      return { message: String(data.message || `Request failed (${res.status})`) };
     } catch {
       const text = await res.text().catch(() => "");
       return { message: text || `Request failed (${res.status})` };
@@ -449,7 +451,7 @@ export default function EmployeeCommutingData({
       );
       setPreview(null);
       await loadSummary();
-      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+      dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
@@ -523,7 +525,7 @@ export default function EmployeeCommutingData({
       clearManualForm();
       await loadSummary();
       await loadDirectEntries();
-      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+      dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Updating direct entry failed");
     } finally {
@@ -573,7 +575,7 @@ export default function EmployeeCommutingData({
       setManualEntries([]);
       await loadSummary();
       await loadDirectEntries();
-      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+      dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Saving direct entries failed");
     } finally {
@@ -605,7 +607,7 @@ export default function EmployeeCommutingData({
       setStatus("Direct entry archived.");
       await loadSummary();
       await loadDirectEntries();
-      window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+      dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to delete direct entry");
     } finally {

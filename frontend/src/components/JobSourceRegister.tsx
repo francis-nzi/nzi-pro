@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import {
   Select,
@@ -313,7 +314,7 @@ export default function JobSourceRegister({
     if (isBusinessTravel) {
       await loadBusinessTravelRows();
     }
-    window.dispatchEvent(new Event("nzi-job-scope-refresh"));
+    dispatchJobScopeRefresh("job-source-register");
   }
 
   async function loadFactors() {
@@ -582,17 +583,18 @@ export default function JobSourceRegister({
         });
 
         const validateText = await validateRes.text();
-        let validateJson: any = null;
+        let validateJson: Record<string, unknown> | null = null;
         try {
-          validateJson = JSON.parse(validateText);
+          validateJson = JSON.parse(validateText) as Record<string, unknown>;
         } catch {
           validateJson = null;
         }
 
         if (!validateRes.ok) {
-          const message = validateJson?.errors?.length
-            ? validateJson.errors[0]
-            : validateJson?.detail || validateText || `Workbook validation failed (${validateRes.status})`;
+          const errors = Array.isArray(validateJson?.errors) ? validateJson.errors : [];
+          const message = errors.length
+            ? String(errors[0])
+            : String(validateJson?.detail || validateText || `Workbook validation failed (${validateRes.status})`);
           throw new Error(message);
         }
 

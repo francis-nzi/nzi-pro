@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 
 function apiBaseCandidates(): string[] {
   return ["/api/backend"];
@@ -241,6 +242,7 @@ async function load() {
       }
 
       await load();
+      dispatchJobScopeRefresh("job-custom-dataset");
     } catch (e: unknown) {
       setError(errorMessage(e, "Failed to add factor"));
     } finally {
@@ -272,6 +274,7 @@ async function load() {
       }
 
       await load();
+      dispatchJobScopeRefresh("job-custom-dataset");
     } catch (e: unknown) {
       setError(errorMessage(e, "Failed to update row"));
     } finally {
@@ -302,6 +305,7 @@ async function load() {
       }
 
       await load();
+      dispatchJobScopeRefresh("job-custom-dataset");
     } catch (e: unknown) {
       setError(errorMessage(e, "Failed to delete row"));
     } finally {

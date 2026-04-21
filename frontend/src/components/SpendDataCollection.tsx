@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 
 type SpendEntry = {
   entry_id: number;
@@ -493,6 +494,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
       setStatus(
         `Spend sync complete. Created ${data?.created ?? 0}, updated ${data?.updated ?? 0}, deactivated ${data?.deactivated ?? 0}.`
       );
+      dispatchJobScopeRefresh("spend-data");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Sync failed");
     } finally {

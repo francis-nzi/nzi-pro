@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { withAuditHeaders } from "@/lib/auth-client";
+import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -274,11 +275,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }, [jobId]);
 
   useEffect(() => {
-    const handleRefresh = () => {
+    const handleRefresh = (event: Event) => {
+      const detail = event instanceof CustomEvent ? (event.detail as { source?: string } | undefined) : undefined;
+      if (detail?.source === "job-data-entry") return;
       void loadData();
     };
-    window.addEventListener("nzi-job-scope-refresh", handleRefresh);
-    return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
+    window.addEventListener(JOB_SCOPE_REFRESH_EVENT, handleRefresh);
+    return () => window.removeEventListener(JOB_SCOPE_REFRESH_EVENT, handleRefresh);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
@@ -585,6 +588,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         await loadData();
+        dispatchJobScopeRefresh("job-data-entry");
       } else {
         const text = await res.text();
         setError(`Update failed: ${text}`);
@@ -681,6 +685,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         await loadData();
+        dispatchJobScopeRefresh("job-data-entry");
       } else {
         const text = await res.text();
         let message = text;
@@ -838,6 +843,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         const result = await res.json();
         console.log("Factor added successfully:", result);
         await loadData();
+        dispatchJobScopeRefresh("job-data-entry");
         setError("");
       } else {
         const text = await res.text();
@@ -889,6 +895,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         await loadData();
+        dispatchJobScopeRefresh("job-data-entry");
         setError("");
       } else {
         const text = await res.text();
@@ -975,6 +982,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       if (res.ok) {
         await loadData();
+        dispatchJobScopeRefresh("job-data-entry");
       } else {
         const text = await res.text();
         setError(`Delete failed: ${text}`);
