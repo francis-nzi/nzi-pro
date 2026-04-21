@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
 import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
@@ -632,10 +633,6 @@ type JobType = {
   is_crp?: boolean;
 };
 
-type PortfolioOption = {
-  name?: string | null;
-};
-
 const JOB_SETUP_METADATA_KEYS = [
   "premises_owned",
   "premises_leased",
@@ -931,7 +928,7 @@ export default function JobDetailPage() {
   // Lookup data
   const [jobStatuses, setJobStatuses] = useState<Array<{status_id: number; name: string}>>([]);
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
-  const [portfolios, setPortfolios] = useState<PortfolioOption[]>([]);
+  const [portfolios, setPortfolios] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [milestoneTemplates, setMilestoneTemplates] = useState<MilestoneTemplateOption[]>([]);
   const [milestoneTemplateCompletions, setMilestoneTemplateCompletions] = useState<MilestoneTemplateCompletion[]>([]);
@@ -1679,12 +1676,11 @@ export default function JobDetailPage() {
         if (!res.ok) return;
         const json = await res.json();
         if (cancelled) return;
-        const items = Array.isArray(json.items) ? json.items : [];
-        setPortfolios(
-          items
-            .map((item: { name?: string | null }) => ({ name: item.name ? String(item.name) : null }))
-            .filter((item: PortfolioOption) => Boolean(item.name))
-        );
+        const items = Array.isArray(json.items) ? (json.items as Array<{ name?: string | null }>) : [];
+        const portfolioItems = items
+          .map((item) => String(item.name || "").trim())
+          .filter((item): item is string => Boolean(item));
+        setPortfolios(Array.from(new Set<string>(portfolioItems)).sort((a, b) => a.localeCompare(b)));
       } catch {
         if (!cancelled) setPortfolios([]);
       }
@@ -2541,21 +2537,14 @@ export default function JobDetailPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="originalPortfolio">Original Portfolio</Label>
-                <Select value={originalPortfolio || "NZI"} onValueChange={setOriginalPortfolio}>
-                  <SelectTrigger id="originalPortfolio">
-                    <SelectValue placeholder="Select portfolio..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {originalPortfolio && !portfolios.some((p) => p.name === originalPortfolio) ? (
-                      <SelectItem value={originalPortfolio}>{originalPortfolio}</SelectItem>
-                    ) : null}
-                    {portfolios.map((portfolio) => (
-                      <SelectItem key={portfolio.name} value={portfolio.name || ""}>
-                        {portfolio.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableStringSelect
+                  id="originalPortfolio"
+                  value={originalPortfolio || "NZI"}
+                  options={portfolios}
+                  placeholder="Search portfolios..."
+                  noMatchesText="Type a portfolio name and press Enter"
+                  onValueChange={setOriginalPortfolio}
+                />
                 <p className="text-xs text-muted-foreground">
                   Defaults to NZI and is used to record the original portfolio for this job.
                 </p>
