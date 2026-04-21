@@ -1020,7 +1020,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         row.level_3,
         row.level_4,
         row.column_text,
-        row.site_name,
+        getSiteName(row.site_id),
         row.data_source,
       ]);
     }
@@ -1047,7 +1047,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         row.column_text,
         row.source_job_number,
         row.source_job_title,
-        row.site_name,
+        getSiteName(row.site_id),
         row.data_confidence,
       ]);
     }
@@ -1063,12 +1063,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     for (const row of [...scopeData, ...previousYearRows]) {
       if (row.site_id == null) continue;
       const key = String(row.site_id);
-      if (!seen.has(key)) {
-        seen.set(key, row.site_name || `Site ${row.site_id}`);
-      }
+      if (!seen.has(key)) seen.set(key, siteNameById.get(key) || `Site ${row.site_id}`);
     }
     return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
-  }, [previousYearRows, scopeData]);
+  }, [previousYearRows, scopeData, siteNameById]);
 
   const availableCategories = useMemo(() => {
     const seen = new Set<string>();
@@ -1078,6 +1076,26 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [previousYearRows, scopeData]);
+
+  const siteNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const site of sites) {
+      map.set(String(site.site_id), site.site_name);
+    }
+    for (const row of previousYearRows) {
+      if (row.site_id == null) continue;
+      const key = String(row.site_id);
+      if (!map.has(key) && row.site_name) {
+        map.set(key, row.site_name);
+      }
+    }
+    return map;
+  }, [previousYearRows, sites]);
+
+  function getSiteName(siteId: number | null | undefined): string {
+    if (siteId == null) return "";
+    return siteNameById.get(String(siteId)) || `Site ${siteId}`;
+  }
 
   const filteredDebugRows = debugRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
