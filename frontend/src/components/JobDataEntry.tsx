@@ -1058,25 +1058,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)
   );
 
-  const availableSites = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const row of [...scopeData, ...previousYearRows]) {
-      if (row.site_id == null) continue;
-      const key = String(row.site_id);
-      if (!seen.has(key)) seen.set(key, siteNameById.get(key) || `Site ${row.site_id}`);
-    }
-    return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
-  }, [previousYearRows, scopeData, siteNameById]);
-
-  const availableCategories = useMemo(() => {
-    const seen = new Set<string>();
-    for (const row of [...scopeData, ...previousYearRows]) {
-      const category = String(row.category || row.level_2 || row.level_1 || "").trim();
-      if (category) seen.add(category);
-    }
-    return Array.from(seen).sort((a, b) => a.localeCompare(b));
-  }, [previousYearRows, scopeData]);
-
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const site of sites) {
@@ -1096,6 +1077,25 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (siteId == null) return "";
     return siteNameById.get(String(siteId)) || `Site ${siteId}`;
   }
+
+  const availableSites = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const row of [...scopeData, ...previousYearRows]) {
+      if (row.site_id == null) continue;
+      const key = String(row.site_id);
+      if (!seen.has(key)) seen.set(key, siteNameById.get(key) || `Site ${row.site_id}`);
+    }
+    return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
+  }, [previousYearRows, scopeData, siteNameById]);
+
+  const availableCategories = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of [...scopeData, ...previousYearRows]) {
+      const category = String(row.category || row.level_2 || row.level_1 || "").trim();
+      if (category) seen.add(category);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [previousYearRows, scopeData]);
 
   const filteredDebugRows = debugRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
