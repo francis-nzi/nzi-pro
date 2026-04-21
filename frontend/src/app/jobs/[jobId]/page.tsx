@@ -1291,6 +1291,28 @@ export default function JobDetailPage() {
         .filter(Boolean)
         .join(" | ")
     : "Automatic dataset resolution is active. Additional job datasets are hidden unless needed.";
+  const automaticAllocatedDatasets = useMemo(
+    () =>
+      Array.isArray(scopeAutoResolution?.datasets_for_report)
+        ? scopeAutoResolution.datasets_for_report
+            .map((dataset) => {
+              const label = dataset.name?.trim() || `Dataset ${dataset.dataset_id}`;
+              const detailBits = [
+                dataset.country?.trim() || null,
+                dataset.year ? String(dataset.year) : null,
+                dataset.analysis_type?.trim() || null,
+                dataset.month_coverage?.trim() || null,
+              ].filter(Boolean);
+              return {
+                id: dataset.dataset_id,
+                label,
+                detail: detailBits.join(" | "),
+              };
+            })
+            .sort((a, b) => a.label.localeCompare(b.label))
+        : [],
+    [scopeAutoResolution?.datasets_for_report]
+  );
 
   function renderReportMetadataInput(field: ReportMetadataField, idPrefix: string) {
     const inputId = `${idPrefix}-${field.key}`;
@@ -2862,6 +2884,26 @@ export default function JobDetailPage() {
                   {!showAdvancedDatasetConfig ? (
                     <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
                       The job will use automatically resolved datasets by default. Open this section only if you need to review unresolved scopes, add extra datasets, or set manual fallback mappings.
+                    </div>
+                  ) : null}
+
+                  {!showAdvancedDatasetConfig && automaticAllocatedDatasets.length > 0 ? (
+                    <div className="rounded-md border bg-background p-3 space-y-2">
+                      <div className="text-sm font-medium">Automatically allocated datasets</div>
+                      <div className="text-xs text-muted-foreground">
+                        These datasets are assigned automatically from the client country, reporting period, and scope resolution.
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {automaticAllocatedDatasets.map((dataset) => (
+                          <div
+                            key={`auto-dataset-${dataset.id}`}
+                            className="rounded border bg-muted/20 px-3 py-2 text-xs"
+                          >
+                            <div className="font-medium">{dataset.label}</div>
+                            {dataset.detail ? <div className="text-muted-foreground">{dataset.detail}</div> : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
 
