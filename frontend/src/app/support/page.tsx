@@ -24,6 +24,7 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   { page: "Job Workspace", path: "/jobs/[jobId]", purpose: "Main work hub for a specific job.", process: ["Complete setup and data entry.", "Upload data/files as needed.", "Generate and review outputs/reports."] },
   { page: "Job Actions", path: "/jobs/[jobId] -> Actions", purpose: "Build a report-ready action plan for a job.", process: ["Add suggested actions from the shared library.", "Tailor names, descriptions, and time horizons for the client.", "Save and confirm the actions appear in the report output."] },
   { page: "Time Tracking", path: "/time", purpose: "Log and review team time entries.", process: ["Select subject/client/job.", "Enter hours and notes.", "Submit and review totals."] },
+  { page: "Methodology Library", path: "/support/methodology", purpose: "Maintain the company-suggested conversion-factor methodology by country, scope, and label.", process: ["Start with the default country filter (UK).", "Add rows for the factor families the company recommends.", "Use these defaults as the baseline for job data-entry searches."] },
   { page: "Data Bank", path: "/support/data-bank", purpose: "Curate data cards used to enrich AI insights.", process: ["Add or edit Data Cards with source links.", "Tag by category, country, year and subject.", "Use AI Suggestions to draft and save new cards."] },
   { page: "Admin Center", path: "/admin", purpose: "System configuration and management entry point.", process: ["Open target admin section.", "Apply changes in small batches.", "Validate changes in live workflow pages."] },
   { page: "Admin Team", path: "/admin/team", purpose: "Invite and manage team access.", process: ["Invite users and set roles/positions.", "Re-invite expired invites.", "Reset passwords when needed."] },
@@ -95,6 +96,23 @@ export default function SupportPage() {
             </p>
             <Button asChild>
               <Link href="/support/legal">Open Legal Documents</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Methodology Library</CardTitle>
+            <CardDescription>
+              Maintain the company&apos;s recommended conversion-factor choices by country, scope, category, report label and descriptor.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              Use this as the company baseline for default factor selection, then let jobs surface matching rows as Default in Data Entry.
+            </p>
+            <Button asChild>
+              <Link href="/support/methodology">Open Methodology Library</Link>
             </Button>
           </CardContent>
         </Card>

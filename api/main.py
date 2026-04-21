@@ -96,6 +96,7 @@ from api.report_actions_routes import router as report_actions_router
 from api.system_settings_routes import router as system_settings_router
 from api.custom_fields_routes import router as custom_fields_router
 from api.databank_routes import router as databank_router
+from api.methodology_routes import router as methodology_router
 from api.feedback_routes import router as feedback_router
 from api.messaging_templates_routes import router as messaging_templates_router
 from api.user_settings_routes import router as user_settings_router
@@ -463,6 +464,7 @@ _safe_startup_log("OK", f"System settings router registered with {len(system_set
 # Include custom fields routes
 app.include_router(custom_fields_router)
 app.include_router(databank_router)
+app.include_router(methodology_router)
 app.include_router(feedback_router)
 app.include_router(auth_router)
 app.include_router(spend_data_router)

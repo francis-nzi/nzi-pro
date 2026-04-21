@@ -119,6 +119,23 @@ type TemplateFactor = {
   column_text?: string | null;
   is_custom?: boolean;
   source?: string;
+  methodology_default?: boolean;
+  methodology_default_label?: string | null;
+};
+
+type MethodologyRow = {
+  methodology_id: number;
+  country: string;
+  scope: string;
+  category: string;
+  report_label: string;
+  descriptor: string;
+  uom: string;
+  suggested_original_id: string;
+  suggested_factor_db_id: number | null;
+  notes: string;
+  is_default: boolean;
+  is_active: boolean;
 };
 
 type PreviousYearRow = {
@@ -185,10 +202,17 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [scopeTotals, setScopeTotals] = useState<ScopeTotals | null>(null);
   const [scopeData, setScopeData] = useState<ScopeDataRow[]>([]);
   const [templateFactors, setTemplateFactors] = useState<TemplateFactor[]>([]);
+  const [methodologyDefaults, setMethodologyDefaults] = useState<MethodologyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [jobData, setJobData] = useState<{ reporting_period_start?: string | null; client_db_id?: number | null } | null>(null);
+  const [jobData, setJobData] = useState<{
+    reporting_period_start?: string | null;
+    client_db_id?: number | null;
+    addr_country?: string | null;
+    billing_addr_country?: string | null;
+  } | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
+  const [methodologyCountry, setMethodologyCountry] = useState<string>("UK");
   const [previousYearRows, setPreviousYearRows] = useState<PreviousYearRow[]>([]);
   const [previousYearLoading, setPreviousYearLoading] = useState(false);
   const [previousYearError, setPreviousYearError] = useState("");
@@ -284,15 +308,39 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         // Fetch sites for this client
         if (jobJson.client_db_id) {
           try {
-            const sitesRes = await fetch(`${effectiveBaseUrl}/clients/${jobJson.client_db_id}/sites`, { credentials: "include" });
+            const [clientRes, sitesRes] = await Promise.all([
+              fetch(`${effectiveBaseUrl}/clients/${jobJson.client_db_id}`, { credentials: "include" }),
+              fetch(`${effectiveBaseUrl}/clients/${jobJson.client_db_id}/sites`, { credentials: "include" }),
+            ]);
+            if (clientRes.ok) {
+              const clientJson = await clientRes.json();
+              setJobData((current) => ({
+                ...(current || jobJson),
+                addr_country: clientJson.addr_country || null,
+                billing_addr_country: clientJson.billing_addr_country || null,
+              }));
+              const resolvedCountry = normalizeMethodologyCountry(
+                clientJson?.addr_country || clientJson?.billing_addr_country || "UK",
+              );
+              setMethodologyCountry(resolvedCountry);
+              await loadMethodologyDefaults(resolvedCountry);
+            } else {
+              setMethodologyCountry("UK");
+              await loadMethodologyDefaults("UK");
+            }
             if (sitesRes.ok) {
               const sitesData = await sitesRes.json();
               setSites(sitesData.active_sites || []);
             }
           } catch (e) {
             console.error("Error loading sites:", e);
+            setMethodologyCountry("UK");
+            await loadMethodologyDefaults("UK");
           }
         }
+      } else {
+        setMethodologyCountry("UK");
+        await loadMethodologyDefaults("UK");
       }
 
       if (previousRowsRes.ok) {
@@ -347,6 +395,29 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       setError((e as Error).message);
     } finally {
       setFactorsLoading(false);
+    }
+  }
+
+  async function loadMethodologyDefaults(country: string) {
+    const countryValue = normalizeMethodologyCountry(country);
+    try {
+      const params = new URLSearchParams();
+      params.set("country", countryValue);
+      params.set("default_only", "true");
+      params.set("limit", "500");
+
+      const res = await fetch(`${effectiveBaseUrl}/methodology/rows?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        setMethodologyDefaults([]);
+        return;
+      }
+      const json = await res.json().catch(() => ({}));
+      setMethodologyDefaults(Array.isArray(json?.items) ? json.items : []);
+    } catch (e) {
+      console.error("Error loading methodology defaults:", e);
+      setMethodologyDefaults([]);
     }
   }
 
@@ -440,6 +511,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (!normalized) return "";
     const lower = normalized.toLowerCase();
     if (lower === "nan" || lower === "none" || lower === "null" || lower === "n/a") return "";
+    return normalized;
+  }
+
+  function normalizeMethodologyCountry(value?: string | null): string {
+    const normalized = normalizeDisplayValue(value);
+    if (!normalized) return "UK";
+    const compact = normalized.toLowerCase().replace(/[\s._-]+/g, "");
+    if (compact === "uk" || compact === "gb" || compact === "unitedkingdom" || compact === "greatbritain") {
+      return "UK";
+    }
     return normalized;
   }
 
@@ -1145,6 +1226,87 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       factor.source,
     ]).join(" • ");
   }
+
+  function methodologyMatchesFactor(methodology: MethodologyRow, factor: TemplateFactor): boolean {
+    const scope = normalizeDisplayValue(methodology.scope);
+    if (scope && normalizeDisplayValue(factor.scope).toLowerCase() !== scope.toLowerCase()) return false;
+
+    const category = normalizeDisplayValue(methodology.category);
+    if (
+      category &&
+      !multiTokenMatch(category, [
+        factor.category,
+        factor.level_1,
+        factor.level_2,
+        factor.level_3,
+        factor.level_4,
+        factor.column_text,
+      ])
+    ) {
+      return false;
+    }
+
+    const reportLabel = normalizeDisplayValue(methodology.report_label);
+    if (
+      reportLabel &&
+      !multiTokenMatch(reportLabel, [
+        factor.report_label,
+        factor.column_text,
+        factor.original_id,
+        factor.source,
+      ])
+    ) {
+      return false;
+    }
+
+    const descriptor = normalizeDisplayValue(methodology.descriptor);
+    if (
+      descriptor &&
+      !multiTokenMatch(descriptor, [
+        factor.category,
+        factor.report_label,
+        factor.column_text,
+        factor.level_1,
+        factor.level_2,
+        factor.level_3,
+        factor.level_4,
+        factor.original_id,
+        factor.source,
+      ])
+    ) {
+      return false;
+    }
+
+    const uom = normalizeDisplayValue(methodology.uom);
+    if (uom && normalizeDisplayValue(factor.uom).toLowerCase() !== uom.toLowerCase()) return false;
+
+    const suggestedOriginalId = normalizeDisplayValue(methodology.suggested_original_id);
+    if (
+      suggestedOriginalId &&
+      normalizeDisplayValue(factor.original_id).toLowerCase() !== suggestedOriginalId.toLowerCase()
+    ) {
+      return false;
+    }
+
+    const suggestedFactorDbId = methodology.suggested_factor_db_id;
+    if (suggestedFactorDbId != null) {
+      if (factor.factor_db_id == null) return false;
+      if (Number(suggestedFactorDbId) !== Number(factor.factor_db_id)) return false;
+    }
+
+    return true;
+  }
+
+  const annotatedTemplateFactors = templateFactors.map((factor) => {
+    const match = methodologyDefaults.find((methodology) => methodologyMatchesFactor(methodology, factor)) || null;
+    return {
+      ...factor,
+      methodology_default: Boolean(match),
+      methodology_default_label: match
+        ? uniqueDisplayParts([match.report_label, match.category, match.descriptor, match.uom]).join(" • ")
+        : null,
+    };
+  });
 
   // Check if a factor is already added to the job
   const isFactorAdded = (originalId: string) => {
@@ -2026,6 +2188,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">
+                Methodology defaults loaded for <span className="font-medium text-foreground">{methodologyCountry}</span>.
+              </div>
+              <div className="text-sm text-muted-foreground">
                 Showing {templateFactors.length} of {factorsTotal} factors
               </div>
             </div>
@@ -2038,7 +2203,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                 </div>
               ) : (
                 <div className="divide-y">
-                  {templateFactors.map((factor, index) => {
+                  {annotatedTemplateFactors.map((factor, index) => {
                     const alreadyAdded = isFactorAdded(factor.original_id);
                     const isAdding = addingFactorId === factor.original_id;
                     const uniqueKey = `${factor.original_id}_${factor.dataset_id}_${factor.factor_db_id}_${index}`;
@@ -2063,6 +2228,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               {factor.is_custom && (
                                 <span className="inline-block px-2 py-0.5 rounded text-xs bg-purple-100 text-purple-800 font-semibold">
                                   CUSTOM
+                                </span>
+                              )}
+                              {factor.methodology_default && (
+                                <span
+                                  className="inline-block px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800 font-semibold"
+                                  title={factor.methodology_default_label || "Matches company methodology default"}
+                                >
+                                  DEFAULT
                                 </span>
                               )}
                               <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
