@@ -31,6 +31,33 @@ def is_single_sheet_format(wb) -> bool:
     return False
 
 
+def _to_float(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text == "-":
+        return None
+    try:
+        out = float(value)
+        if pd.isna(out):
+            return None
+        return out
+    except (ValueError, TypeError):
+        return None
+
+
+def _merge_notes(values: list[str | None]) -> str | None:
+    notes: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        notes.append(text)
+        seen.add(text)
+    return " | ".join(notes) if notes else None
+
+
 def parse_single_sheet_upload(
     raw_bytes: bytes,
     job_id: int,
@@ -79,7 +106,7 @@ def parse_single_sheet_upload(
         
         if "scope" in norm and "id" in norm and "qty" in norm:
             header_row = r
-            for col_name in ["scope", "category", "report label", "id", "uom", "ghg unit", "factor", "qty", "apply", "notes"]:
+            for col_name in ["scope", "category", "report label", "id", "uom", "ghg unit", "factor", "qty", "apply", "data source", "notes"]:
                 if col_name in norm:
                     col_indices[col_name] = norm.index(col_name) + 1
             break
@@ -90,8 +117,14 @@ def parse_single_sheet_upload(
     
     details["header_row"] = header_row
     details["columns_found"] = list(col_indices.keys())
+
+    month_cols: list[int] = []
+    uom_col = col_indices.get("uom")
+    qty_col = col_indices.get("qty")
+    if uom_col and qty_col and qty_col > uom_col:
+        month_cols = list(range(uom_col + 1, qty_col))
     
-    # Parse data rows (skip rows with blank Qty)
+    # Parse data rows.
     parsed_rows = []
     
     for r in range(header_row + 1, ws.max_row + 1):
@@ -111,17 +144,6 @@ def parse_single_sheet_upload(
         if not oid or str(oid).strip() == "":
             continue
         
-        # **CRITICAL: Skip if Qty is blank (ignore blank rows)**
-        if qty_val is None or str(qty_val).strip() == "" or str(qty_val).strip() == "-":
-            continue
-        
-        try:
-            qty_float = float(qty_val)
-            if qty_float == 0:
-                continue  # Skip zero quantities
-        except (ValueError, TypeError):
-            continue  # Skip invalid quantities
-        
         # Parse scope
         scope_name = None
         if scope_val:
@@ -137,6 +159,20 @@ def parse_single_sheet_upload(
             warnings.append(f"Row {r}: Could not determine scope from '{scope_val}'")
             continue
         
+        # Parse monthly values from the workbook
+        month_values: list[float | None] = []
+        for month_col in month_cols[:12]:
+            month_values.append(_to_float(ws.cell(row=r, column=month_col).value))
+        while len(month_values) < 12:
+            month_values.append(None)
+
+        qty_float = _to_float(qty_val)
+        has_months = any(value is not None for value in month_values)
+        if has_months:
+            qty_float = float(sum(float(value or 0.0) for value in month_values))
+        if qty_float is None or qty_float == 0:
+            continue
+
         # Parse Apply% if present
         apply_col = col_indices.get("apply")
         apply_pct = 100.0  # Default
@@ -157,13 +193,22 @@ def parse_single_sheet_upload(
             notes_val = ws.cell(row=r, column=notes_col).value
             if notes_val:
                 notes = str(notes_val).strip()
-        
+
+        data_source_col = col_indices.get("data source")
+        data_source = None
+        if data_source_col:
+            data_source_val = ws.cell(row=r, column=data_source_col).value
+            if data_source_val:
+                data_source = str(data_source_val).strip()
+
         parsed_rows.append({
             "scope": scope_name,
             "original_id": str(oid).strip(),
             "qty": qty_float,
+            "months": month_values,
             "apply_pct": apply_pct,
             "notes": notes,
+            "data_source": data_source,
             "row_number": r
         })
     
@@ -173,11 +218,58 @@ def parse_single_sheet_upload(
         errors.append("No data rows found with non-blank Qty values")
         return rows_ready, errors, warnings, details
     
+    # Merge duplicate IDs so copy/pasted rows become a single stored record.
+    merged_rows: list[dict] = []
+    merged_map: dict[tuple[str, str], dict] = {}
+    for row in parsed_rows:
+        key = (row["scope"], row["original_id"])
+        merged = merged_map.get(key)
+        if merged is None:
+            merged = {
+                "scope": row["scope"],
+                "original_id": row["original_id"],
+                "qty": 0.0,
+                "months": [None] * 12,
+                "apply_pct": row.get("apply_pct"),
+                "notes": [],
+                "data_source": [],
+                "row_numbers": [],
+                "row_count": 0,
+            }
+            merged_map[key] = merged
+
+        merged["row_count"] += 1
+        merged["row_numbers"].append(row.get("row_number"))
+        merged["qty"] += float(row.get("qty") or 0.0)
+        row_months = row.get("months") or []
+        for idx in range(12):
+            if idx >= len(row_months):
+                continue
+            month_value = row_months[idx]
+            if month_value is None:
+                continue
+            merged["months"][idx] = (merged["months"][idx] or 0.0) + float(month_value)
+        if row.get("apply_pct") is not None and merged.get("apply_pct") is None:
+            merged["apply_pct"] = row.get("apply_pct")
+        if row.get("notes"):
+            merged["notes"].append(row.get("notes"))
+        if row.get("data_source"):
+            merged["data_source"].append(row.get("data_source"))
+
+    for merged in merged_map.values():
+        merged["notes"] = _merge_notes(merged.get("notes") or [])
+        merged["data_source"] = _merge_notes(merged.get("data_source") or [])
+        merged_rows.append(merged)
+
+    merged_rows.sort(key=lambda item: min([int(v) for v in item.get("row_numbers") or [10**9] if v is not None] or [10**9]))
+    details["duplicate_groups"] = sum(1 for row in merged_rows if int(row.get("row_count") or 0) > 1)
+    details["merged_row_count"] = len(merged_rows)
+
     # Factor lookup for each scope
     missing_ids = {}
     
     for scope_name in ["Scope 1", "Scope 2", "Scope 3"]:
-        scope_rows = [r for r in parsed_rows if r["scope"] == scope_name]
+        scope_rows = [r for r in merged_rows if r["scope"] == scope_name]
         if not scope_rows:
             continue
         
@@ -240,7 +332,21 @@ def parse_single_sheet_upload(
                 "column_text": factor_info.get("column_text"),
                 "report_label": factor_info.get("report_label"),
                 "apply_pct": apply_pct,
-                "notes": r.get("notes")
+                "notes": r.get("notes"),
+                "data_source": r.get("data_source") or "Business Travel Data",
+                "data_confidence": "M",
+                "month_1": r.get("months", [None] * 12)[0],
+                "month_2": r.get("months", [None] * 12)[1],
+                "month_3": r.get("months", [None] * 12)[2],
+                "month_4": r.get("months", [None] * 12)[3],
+                "month_5": r.get("months", [None] * 12)[4],
+                "month_6": r.get("months", [None] * 12)[5],
+                "month_7": r.get("months", [None] * 12)[6],
+                "month_8": r.get("months", [None] * 12)[7],
+                "month_9": r.get("months", [None] * 12)[8],
+                "month_10": r.get("months", [None] * 12)[9],
+                "month_11": r.get("months", [None] * 12)[10],
+                "month_12": r.get("months", [None] * 12)[11],
             })
     
     details["missing_ids"] = missing_ids

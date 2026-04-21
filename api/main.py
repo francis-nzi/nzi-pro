@@ -2565,6 +2565,8 @@ def job_excel_import(
 
     inserted = 0
     updated = 0
+    month_fields = [f"month_{idx}" for idx in range(1, 13)]
+    month_placeholders = ", ".join(["?"] * len(month_fields))
 
     try:
         with get_conn() as con:
@@ -2599,12 +2601,18 @@ def job_excel_import(
                 factor = r.get("factor")
                 ghg_unit = r.get("ghg_unit")
                 calc_tco2e = r.get("calc_tco2e")
+                notes = r.get("notes")
+                data_source = r.get("data_source")
+                data_confidence = r.get("data_confidence")
+                apply_pct = r.get("apply_pct")
+                report_label = r.get("report_label")
 
                 level_1 = r.get("level_1")
                 level_2 = r.get("level_2")
                 level_3 = r.get("level_3")
                 level_4 = r.get("level_4")
                 column_text = r.get("column_text")
+                month_values = [r.get(field) for field in month_fields]
 
                 exists = con.execute(
                     """
@@ -2628,10 +2636,27 @@ def job_excel_import(
                             factor=?,
                             ghg_unit=?,
                             calc_tco2e=?,
+                            apply_pct=?,
+                            data_source=?,
+                            data_confidence=?,
+                            notes=?,
+                            month_1=?,
+                            month_2=?,
+                            month_3=?,
+                            month_4=?,
+                            month_5=?,
+                            month_6=?,
+                            month_7=?,
+                            month_8=?,
+                            month_9=?,
+                            month_10=?,
+                            month_11=?,
+                            month_12=?,
                             level_1=?,
                             level_2=?,
                             level_3=?,
                             level_4=?,
+                            report_label=?,
                             column_text=?,
                             updated_at=NOW()
                         WHERE row_id=?
@@ -2644,10 +2669,27 @@ def job_excel_import(
                             float(factor) if factor is not None else None,
                             (str(ghg_unit).strip() if ghg_unit is not None else None),
                             float(calc_tco2e) if calc_tco2e is not None else None,
+                            float(apply_pct) if apply_pct is not None else None,
+                            (str(data_source).strip() if data_source is not None else None),
+                            (str(data_confidence).strip() if data_confidence is not None else None),
+                            (str(notes).strip() if notes is not None else None),
+                            float(month_values[0]) if month_values[0] is not None else None,
+                            float(month_values[1]) if month_values[1] is not None else None,
+                            float(month_values[2]) if month_values[2] is not None else None,
+                            float(month_values[3]) if month_values[3] is not None else None,
+                            float(month_values[4]) if month_values[4] is not None else None,
+                            float(month_values[5]) if month_values[5] is not None else None,
+                            float(month_values[6]) if month_values[6] is not None else None,
+                            float(month_values[7]) if month_values[7] is not None else None,
+                            float(month_values[8]) if month_values[8] is not None else None,
+                            float(month_values[9]) if month_values[9] is not None else None,
+                            float(month_values[10]) if month_values[10] is not None else None,
+                            float(month_values[11]) if month_values[11] is not None else None,
                             (str(level_1).strip() if level_1 is not None else None),
                             (str(level_2).strip() if level_2 is not None else None),
                             (str(level_3).strip() if level_3 is not None else None),
                             (str(level_4).strip() if level_4 is not None else None),
+                            (str(report_label).strip() if report_label is not None else None),
                             (str(column_text).strip() if column_text is not None else None),
                             int(exists[0]),
                         ],
@@ -2660,14 +2702,17 @@ def job_excel_import(
                           (job_id, site_id, scope, category, dataset_id, factor_db_id, original_id,
                            level_1, level_2, level_3, level_4, column_text,
                            report_label, notes, enabled,
-                           qty, uom, factor, ghg_unit,
+                           qty, uom, factor, ghg_unit, apply_pct, data_source, data_confidence,
+                           month_1, month_2, month_3, month_4, month_5, month_6,
+                           month_7, month_8, month_9, month_10, month_11, month_12,
                            calc_tco2e, override_tco2e, override_reason,
                            created_at, updated_at)
                         VALUES
                           (?, ?, ?, ?, ?, ?, ?,
                            ?, ?, ?, ?, ?,
-                           NULL, NULL, TRUE,
-                           ?, ?, ?, ?,
+                           ?, ?, TRUE,
+                           ?, ?, ?, ?, ?, ?, ?,
+                           {month_placeholders},
                            ?, NULL, NULL,
                            NOW(), NOW())
                         """,
@@ -2684,10 +2729,27 @@ def job_excel_import(
                             (str(level_3).strip() if level_3 is not None else None),
                             (str(level_4).strip() if level_4 is not None else None),
                             (str(column_text).strip() if column_text is not None else None),
+                            (str(report_label).strip() if report_label is not None else None),
+                            (str(notes).strip() if notes is not None else None),
                             float(qty) if qty is not None else None,
                             (str(uom).strip() if uom is not None else None),
                             float(factor) if factor is not None else None,
                             (str(ghg_unit).strip() if ghg_unit is not None else None),
+                            float(apply_pct) if apply_pct is not None else None,
+                            (str(data_source).strip() if data_source is not None else None),
+                            (str(data_confidence).strip() if data_confidence is not None else None),
+                            float(month_values[0]) if month_values[0] is not None else None,
+                            float(month_values[1]) if month_values[1] is not None else None,
+                            float(month_values[2]) if month_values[2] is not None else None,
+                            float(month_values[3]) if month_values[3] is not None else None,
+                            float(month_values[4]) if month_values[4] is not None else None,
+                            float(month_values[5]) if month_values[5] is not None else None,
+                            float(month_values[6]) if month_values[6] is not None else None,
+                            float(month_values[7]) if month_values[7] is not None else None,
+                            float(month_values[8]) if month_values[8] is not None else None,
+                            float(month_values[9]) if month_values[9] is not None else None,
+                            float(month_values[10]) if month_values[10] is not None else None,
+                            float(month_values[11]) if month_values[11] is not None else None,
                             float(calc_tco2e) if calc_tco2e is not None else None,
                         ],
                     )

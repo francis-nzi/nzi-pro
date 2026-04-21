@@ -95,6 +95,36 @@ type RegisterPayload = {
   sources: RegisterSource[];
 };
 
+type BusinessTravelScopeRow = {
+  row_id: number;
+  scope: string;
+  site_id: number | null;
+  site_name: string | null;
+  category: string | null;
+  report_label: string | null;
+  original_id: string;
+  qty: number | null;
+  uom: string | null;
+  factor: number | null;
+  ghg_unit: string | null;
+  calc_tco2e: number;
+  data_source: string | null;
+  data_confidence: string | null;
+  notes: string | null;
+  month_1: number | null;
+  month_2: number | null;
+  month_3: number | null;
+  month_4: number | null;
+  month_5: number | null;
+  month_6: number | null;
+  month_7: number | null;
+  month_8: number | null;
+  month_9: number | null;
+  month_10: number | null;
+  month_11: number | null;
+  month_12: number | null;
+};
+
 function blankScope(sourceType: string): string {
   return sourceType === "business_travel" ? "Scope 3" : "Scope 1";
 }
@@ -138,6 +168,9 @@ export default function JobSourceRegister({
   const [groups, setGroups] = useState<RegisterGroup[]>([]);
   const [sources, setSources] = useState<RegisterSource[]>([]);
   const [summary, setSummary] = useState<RegisterPayload["summary"] | null>(null);
+  const [businessTravelRows, setBusinessTravelRows] = useState<BusinessTravelScopeRow[]>([]);
+  const [businessTravelRowsLoading, setBusinessTravelRowsLoading] = useState(false);
+  const [businessTravelRowsError, setBusinessTravelRowsError] = useState("");
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>("__none__");
   const [sourceName, setSourceName] = useState("");
@@ -233,8 +266,50 @@ export default function JobSourceRegister({
     }
   }
 
+  async function loadBusinessTravelRows() {
+    if (!isBusinessTravel) {
+      setBusinessTravelRows([]);
+      setBusinessTravelRowsError("");
+      return;
+    }
+    setBusinessTravelRowsLoading(true);
+    setBusinessTravelRowsError("");
+    try {
+      const res = await apiFetch(`/jobs/${jobId}/scope-data?scope=Scope 3&include_disabled=false`);
+      if (!res.ok) throw new Error(`Failed to load business travel rows (${res.status})`);
+      const data = await res.json();
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      const filtered = rows.filter((row: BusinessTravelScopeRow) => {
+        const dataSource = String(row?.data_source || "").toLowerCase();
+        const reportLabel = String(row?.report_label || "").toLowerCase();
+        const category = String(row?.category || "").toLowerCase();
+        const originalId = String(row?.original_id || "").toLowerCase();
+        return (
+          dataSource.includes("business travel") ||
+          reportLabel.includes("travel") ||
+          category.includes("travel") ||
+          originalId.includes("travel") ||
+          reportLabel.includes("hotel") ||
+          category.includes("hotel") ||
+          reportLabel.includes("rail") ||
+          reportLabel.includes("flight") ||
+          reportLabel.includes("taxi")
+        );
+      });
+      setBusinessTravelRows(filtered);
+    } catch (e) {
+      setBusinessTravelRows([]);
+      setBusinessTravelRowsError(e instanceof Error ? e.message : "Failed to load business travel rows");
+    } finally {
+      setBusinessTravelRowsLoading(false);
+    }
+  }
+
   async function reloadRegisterAndSummary() {
     await loadRegister();
+    if (isBusinessTravel) {
+      await loadBusinessTravelRows();
+    }
     window.dispatchEvent(new Event("nzi-job-scope-refresh"));
   }
 
@@ -258,6 +333,7 @@ export default function JobSourceRegister({
   useEffect(() => {
     void loadSites();
     void loadRegister();
+    void loadBusinessTravelRows();
     void loadFactors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, sourceType, baseUrl, activeApiBase]);
@@ -507,7 +583,7 @@ export default function JobSourceRegister({
         const importJson = await importRes.json().catch(() => null);
         setUploadFile(null);
         setStatus(
-          `Workbook imported into Data Entry: ${importJson?.inserted ?? 0} inserted, ${importJson?.updated ?? 0} updated.`
+          `Workbook imported into Data Entry: ${importJson?.inserted ?? 0} inserted, ${importJson?.updated ?? 0} updated. Duplicate IDs were merged and month values were stored.`
         );
       } else {
         const fd = new FormData();
@@ -955,16 +1031,95 @@ export default function JobSourceRegister({
       </div>
 
       {isBusinessTravel ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Data Entry Destination</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>Imported business travel rows land in the Data Entry section as job scope rows.</p>
-            <p>Use the workbook tabs to compare previous years and keep factor titles consistent before importing.</p>
-            <p>Factor families are still searchable above if you need to inspect the available travel categories.</p>
-          </CardContent>
-        </Card>
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Data Entry Destination</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>Imported business travel rows land in the Data Entry section as job scope rows.</p>
+              <p>Use the workbook tabs to compare previous years and keep factor titles consistent before importing.</p>
+              <p>Factor families are still searchable above if you need to inspect the available travel categories.</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Imported Business Travel Detail</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-sm text-muted-foreground">
+                Rows shown here are the imported job scope records from the business travel workbook.
+              </div>
+              {businessTravelRowsError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                  {businessTravelRowsError}
+                </div>
+              ) : null}
+              {businessTravelRowsLoading ? (
+                <div className="text-sm text-muted-foreground">Loading imported business travel rows...</div>
+              ) : businessTravelRows.length ? (
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30">
+                      <tr className="border-b text-left">
+                        <th className="p-2">Factor</th>
+                        <th className="p-2">ID</th>
+                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-right">tCO₂e</th>
+                        <th className="p-2">Data Source</th>
+                        <th className="p-2">Notes</th>
+                        <th className="p-2 text-right">M1</th>
+                        <th className="p-2 text-right">M2</th>
+                        <th className="p-2 text-right">M3</th>
+                        <th className="p-2 text-right">M4</th>
+                        <th className="p-2 text-right">M5</th>
+                        <th className="p-2 text-right">M6</th>
+                        <th className="p-2 text-right">M7</th>
+                        <th className="p-2 text-right">M8</th>
+                        <th className="p-2 text-right">M9</th>
+                        <th className="p-2 text-right">M10</th>
+                        <th className="p-2 text-right">M11</th>
+                        <th className="p-2 text-right">M12</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {businessTravelRows.map((row) => (
+                        <tr key={row.row_id} className="border-b align-top">
+                          <td className="p-2">
+                            <div className="font-medium text-foreground">{row.report_label || row.category || row.original_id}</div>
+                            <div className="text-xs text-muted-foreground">{row.category || "-"}{row.uom ? ` · UOM ${row.uom}` : ""}</div>
+                          </td>
+                          <td className="p-2 text-xs text-muted-foreground">{row.original_id}</td>
+                          <td className="p-2 text-right">{typeof row.qty === "number" ? row.qty.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="p-2 text-xs text-muted-foreground">{row.data_source || "-"}</td>
+                          <td className="p-2 text-xs text-muted-foreground max-w-[20rem]">{row.notes || "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_1 === "number" ? row.month_1.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_2 === "number" ? row.month_2.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_3 === "number" ? row.month_3.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_4 === "number" ? row.month_4.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_5 === "number" ? row.month_5.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_6 === "number" ? row.month_6.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_7 === "number" ? row.month_7.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_8 === "number" ? row.month_8.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_9 === "number" ? row.month_9.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_10 === "number" ? row.month_10.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_11 === "number" ? row.month_11.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                          <td className="p-2 text-right text-xs">{typeof row.month_12 === "number" ? row.month_12.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No imported business travel rows yet. Download the workbook, complete it, then import it here.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       ) : (
         <>
           <Card>
