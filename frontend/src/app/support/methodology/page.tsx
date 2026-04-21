@@ -27,6 +27,7 @@ type MethodologyRow = {
   created_by: string;
   created_at: string | null;
   updated_at: string | null;
+  source_payload?: string | null;
 };
 
 type MethodologyResponse = {
@@ -39,6 +40,26 @@ type MethodologyResponse = {
   };
 };
 
+type DatasetFactorRow = {
+  db_id: number;
+  original_id: string;
+  dataset: string | null;
+  analysis_type: string | null;
+  country: string | null;
+  year: number | null;
+  scope: string | null;
+  category: string | null;
+  level_1: string | null;
+  level_2: string | null;
+  level_3: string | null;
+  level_4: string | null;
+  column_text: string | null;
+  uom: string | null;
+  ghg_unit: string | null;
+  factor: number | null;
+  report_label: string | null;
+};
+
 function apiBaseUrl(): string {
   return "/api/backend";
 }
@@ -48,6 +69,66 @@ function formatTs(ts: string | null): string {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleString();
+}
+
+function normalizeText(value?: string | null): string {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function uniqueTextParts(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(normalized);
+  }
+  return parts;
+}
+
+function buildMethodologyDefaultsFromFactor(factor: DatasetFactorRow) {
+  const reportLabel = normalizeText(factor.report_label) || normalizeText(factor.column_text) || normalizeText(factor.original_id) || "Factor";
+  const descriptor = uniqueTextParts([
+    factor.level_4,
+    factor.level_3,
+    factor.level_2,
+    factor.column_text,
+    factor.analysis_type,
+  ]).join(" • ");
+  return {
+    country: normalizeText(factor.country) || "UK",
+    scope: normalizeText(factor.scope),
+    category: normalizeText(factor.category) || normalizeText(factor.level_1) || normalizeText(factor.level_2) || normalizeText(factor.column_text) || normalizeText(factor.report_label) || "Uncategorised",
+    report_label: reportLabel,
+    descriptor,
+    uom: normalizeText(factor.uom),
+    suggested_original_id: normalizeText(factor.original_id),
+    suggested_factor_db_id: String(factor.db_id),
+    notes: `Promoted from dataset ${normalizeText(factor.dataset) || "library"}${factor.year ? ` (${factor.year})` : ""}.`,
+    is_default: true,
+  };
+}
+
+function summarizeSourcePayload(payload?: string | null): string {
+  if (!payload) return "";
+  try {
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object") return "";
+    const obj = parsed as Record<string, unknown>;
+    return uniqueTextParts([
+      typeof obj.dataset === "string" ? obj.dataset : null,
+      typeof obj.country === "string" ? obj.country : null,
+      typeof obj.year === "number" ? String(obj.year) : null,
+      typeof obj.scope === "string" ? obj.scope : null,
+      typeof obj.report_label === "string" ? obj.report_label : null,
+      typeof obj.original_id === "string" ? obj.original_id : null,
+    ]).join(" • ");
+  } catch {
+    return "";
+  }
 }
 
 const EMPTY_DRAFT = {
@@ -86,6 +167,16 @@ export default function MethodologyPage() {
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingDraft, setEditingDraft] = useState({ ...EMPTY_DRAFT });
+  const [datasetCountry, setDatasetCountry] = useState("UK");
+  const [datasetYear, setDatasetYear] = useState("");
+  const [datasetScope, setDatasetScope] = useState("all");
+  const [datasetReportLabel, setDatasetReportLabel] = useState("");
+  const [datasetId, setDatasetId] = useState("");
+  const [datasetQuery, setDatasetQuery] = useState("");
+  const [datasetResults, setDatasetResults] = useState<DatasetFactorRow[]>([]);
+  const [datasetLoading, setDatasetLoading] = useState(false);
+  const [datasetStatus, setDatasetStatus] = useState("");
+  const [datasetError, setDatasetError] = useState("");
 
   useEffect(() => {
     setMounted(true);
@@ -124,6 +215,73 @@ export default function MethodologyPage() {
   useEffect(() => {
     if (authed) void loadRows();
   }, [authed, loadRows]);
+
+  useEffect(() => {
+    if (authed) void loadDatasetLibrary();
+    // Intentional mount-time preload so the default UK library is visible immediately.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  const loadDatasetLibrary = useCallback(async () => {
+    setDatasetLoading(true);
+    setDatasetError("");
+    setDatasetStatus("");
+    try {
+      const params = new URLSearchParams();
+      if (datasetCountry.trim()) params.set("country", datasetCountry.trim());
+      if (datasetYear.trim()) params.set("year", datasetYear.trim());
+      if (datasetScope !== "all") params.set("scope", datasetScope);
+      if (datasetReportLabel.trim()) params.set("report_label", datasetReportLabel.trim());
+      if (datasetId.trim()) params.set("dataset_id", datasetId.trim());
+      if (datasetQuery.trim()) params.set("q", datasetQuery.trim());
+      params.set("limit", "40");
+
+      const res = await fetch(`${baseUrl}/admin/factors?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      const json = await res.json().catch(() => ({}));
+      setDatasetResults(Array.isArray(json?.items) ? json.items : []);
+      setDatasetStatus(
+        Array.isArray(json?.items) ? `Found ${json.items.length} dataset factor row${json.items.length === 1 ? "" : "s"}.` : "No dataset rows returned.",
+      );
+    } catch (e) {
+      setDatasetError((e as Error).message);
+      setDatasetResults([]);
+    } finally {
+      setDatasetLoading(false);
+    }
+  }, [baseUrl, datasetCountry, datasetId, datasetQuery, datasetReportLabel, datasetScope, datasetYear]);
+
+  async function addDatasetAsMethodologyRow(row: DatasetFactorRow) {
+    setSaving(true);
+    setStatus("Creating methodology row from selected dataset factor...");
+    try {
+      const draftFromFactor = buildMethodologyDefaultsFromFactor(row);
+      const res = await fetch(`${baseUrl}/methodology/rows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          ...draftFromFactor,
+          source_payload: row,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(String((payload as { detail?: string }).detail || `Failed: ${res.status}`));
+      }
+      setStatus(`Added ${draftFromFactor.report_label} as a methodology row.`);
+      setDraft({ ...draftFromFactor });
+      await loadRows();
+      if (payload?.methodology_id) {
+        setEditingId(Number(payload.methodology_id));
+        setEditingDraft({ ...draftFromFactor });
+      }
+    } catch (e) {
+      setStatus(`Error creating methodology row: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function saveRow() {
     if (!draft.category.trim() || !draft.report_label.trim()) {
@@ -284,7 +442,170 @@ export default function MethodologyPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Search Methodology</CardTitle>
+            <CardTitle>Search Dataset Library</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <div>
+                <Label>Country</Label>
+                <Select value={datasetCountry} onValueChange={setDatasetCountry}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UK">UK</SelectItem>
+                    {countries.filter((c) => c !== "UK").map((country) => (
+                      <SelectItem key={country} value={country}>
+                        {country}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Year</Label>
+                <Input
+                  className="mt-2"
+                  value={datasetYear}
+                  onChange={(e) => setDatasetYear(e.target.value)}
+                  placeholder="e.g. 2022"
+                  inputMode="numeric"
+                />
+              </div>
+              <div>
+                <Label>Scope</Label>
+                <Select value={datasetScope} onValueChange={setDatasetScope}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Scopes</SelectItem>
+                    {scopes.map((scope) => (
+                      <SelectItem key={scope} value={scope}>
+                        {scope}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Report Label</Label>
+                <Input
+                  className="mt-2"
+                  value={datasetReportLabel}
+                  onChange={(e) => setDatasetReportLabel(e.target.value)}
+                  placeholder="Search by report label"
+                />
+              </div>
+              <div>
+                <Label>Dataset ID</Label>
+                <Input
+                  className="mt-2"
+                  value={datasetId}
+                  onChange={(e) => setDatasetId(e.target.value)}
+                  placeholder="Dataset ID"
+                />
+              </div>
+              <div>
+                <Label>Search</Label>
+                <Input
+                  className="mt-2"
+                  value={datasetQuery}
+                  onChange={(e) => setDatasetQuery(e.target.value)}
+                  placeholder="Labels, descriptors, IDs..."
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={() => void loadDatasetLibrary()} disabled={datasetLoading}>
+                {datasetLoading ? "Searching..." : "Search Dataset Library"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDatasetCountry("UK");
+                  setDatasetYear("");
+                  setDatasetScope("all");
+                  setDatasetReportLabel("");
+                  setDatasetId("");
+                  setDatasetQuery("");
+                  setDatasetResults([]);
+                  setDatasetError("");
+                  setDatasetStatus("");
+                }}
+              >
+                Reset
+              </Button>
+              <div className="text-sm text-muted-foreground">
+                Search dataset factors first, then promote the chosen row into the methodology library.
+              </div>
+            </div>
+
+            {datasetError ? <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{datasetError}</div> : null}
+            {datasetStatus ? <div className="rounded-md bg-muted p-3 text-sm">{datasetStatus}</div> : null}
+
+            <div className="space-y-3">
+              {datasetLoading ? (
+                <div className="text-sm text-muted-foreground">Loading dataset library...</div>
+              ) : datasetResults.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No dataset rows found for the current search.</div>
+              ) : (
+                datasetResults.map((row) => {
+                  const summary = uniqueTextParts([
+                    row.country,
+                    row.year ? String(row.year) : null,
+                    row.scope,
+                    row.category,
+                    row.report_label,
+                    row.column_text,
+                    row.uom,
+                  ]).join(" • ");
+                  return (
+                    <div key={row.db_id} className="rounded-lg border p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="font-semibold">
+                            {row.report_label || row.column_text || row.original_id}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {row.dataset || "Dataset"}{row.analysis_type ? ` • ${row.analysis_type}` : ""}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{summary || row.original_id}</div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => void addDatasetAsMethodologyRow(row)} disabled={saving}>
+                            Add as Methodology Row
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-3 text-xs md:grid-cols-3">
+                        <div className="rounded border p-2">
+                          <div className="text-muted-foreground">Descriptor</div>
+                          <div className="mt-1">{uniqueTextParts([row.level_2, row.level_3, row.level_4, row.column_text]).join(" • ") || "-"}</div>
+                        </div>
+                        <div className="rounded border p-2">
+                          <div className="text-muted-foreground">ID / Factor</div>
+                          <div className="mt-1 font-mono">{row.original_id}</div>
+                          <div className="mt-1 font-mono">{row.factor !== null && row.factor !== undefined ? row.factor.toFixed(5) : "-"}</div>
+                        </div>
+                        <div className="rounded border p-2">
+                          <div className="text-muted-foreground">UoM / GHG</div>
+                          <div className="mt-1">{row.uom || "-"}</div>
+                          <div className="mt-1">{row.ghg_unit || "-"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Filter Methodology Rows</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-5">
@@ -465,8 +786,13 @@ export default function MethodologyPage() {
                           {row.is_default ? <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800">Default</span> : null}
                         </CardTitle>
                         <div className="text-sm text-muted-foreground">
-                          {row.country || "UK"} · {row.scope || "Any scope"} · {row.category || "Uncategorised"}
+                          {row.country || "UK"} • {row.scope || "Any scope"} • {row.category || "Uncategorised"}
                         </div>
+                        {summarizeSourcePayload(row.source_payload) ? (
+                          <div className="mt-2 rounded border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            Source dataset: {summarizeSourcePayload(row.source_payload)}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex gap-2">
                         {isEditing ? (

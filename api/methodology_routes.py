@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -40,6 +41,7 @@ def _ensure_methodology_tables(con) -> None:
           uom VARCHAR,
           suggested_original_id TEXT,
           suggested_factor_db_id INTEGER,
+          source_payload TEXT,
           notes TEXT,
           is_default BOOLEAN NOT NULL DEFAULT TRUE,
           is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -58,6 +60,7 @@ def _ensure_methodology_tables(con) -> None:
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS uom VARCHAR",
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS suggested_original_id TEXT",
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS suggested_factor_db_id INTEGER",
+        "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS source_payload TEXT",
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS notes TEXT",
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE methodology_rows ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
@@ -144,7 +147,7 @@ def list_methodology_rows(
             SELECT
               methodology_id, country, scope, category, report_label, descriptor, uom,
               suggested_original_id, suggested_factor_db_id, notes, is_default,
-              is_active, created_by, created_at, updated_at
+              is_active, created_by, created_at, updated_at, source_payload
             FROM methodology_rows
             {where_sql}
             ORDER BY
@@ -191,6 +194,7 @@ def list_methodology_rows(
                         "suggested_original_id": str(row.get("suggested_original_id") or "").strip(),
                         "suggested_factor_db_id": int(row.get("suggested_factor_db_id")) if row.get("suggested_factor_db_id") is not None else None,
                         "notes": str(row.get("notes") or "").strip(),
+                        "source_payload": str(row.get("source_payload") or "").strip(),
                         "is_default": bool(row.get("is_default")) if row.get("is_default") is not None else True,
                         "is_active": bool(row.get("is_active")) if row.get("is_active") is not None else True,
                         "created_by": str(row.get("created_by") or "").strip(),
@@ -221,6 +225,7 @@ def create_methodology_row(body: dict = Body(...), _user: dict = Depends(_curren
     uom = str(body.get("uom") or "").strip()
     suggested_original_id = str(body.get("suggested_original_id") or "").strip()
     notes = str(body.get("notes") or "").strip()
+    source_payload = body.get("source_payload")
     suggested_factor_db_id = body.get("suggested_factor_db_id")
     is_default = bool(body.get("is_default", True))
 
@@ -231,13 +236,14 @@ def create_methodology_row(body: dict = Body(...), _user: dict = Depends(_curren
 
     with get_conn() as con:
         _ensure_methodology_tables(con)
-        con.execute(
+        row = con.execute(
             """
             INSERT INTO methodology_rows (
               country, scope, category, report_label, descriptor, uom, suggested_original_id,
-              suggested_factor_db_id, notes, is_default, is_active, created_by, created_at, updated_at
+              suggested_factor_db_id, source_payload, notes, is_default, is_active, created_by, created_at, updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW(), NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, NOW(), NOW())
+            RETURNING methodology_id
             """,
             [
                 country,
@@ -248,12 +254,13 @@ def create_methodology_row(body: dict = Body(...), _user: dict = Depends(_curren
                 uom,
                 suggested_original_id,
                 int(suggested_factor_db_id) if suggested_factor_db_id not in (None, "", "null") else None,
+                json.dumps(source_payload, ensure_ascii=False) if isinstance(source_payload, (dict, list)) else str(source_payload or "").strip() or None,
                 notes,
                 is_default,
                 actor,
             ],
-        )
-    return {"ok": True, "message": "Methodology row saved"}
+        ).fetchone()
+    return {"ok": True, "message": "Methodology row saved", "methodology_id": int(row[0]) if row and row[0] is not None else None}
 
 
 @router.patch("/rows/{methodology_id}")
@@ -294,6 +301,10 @@ def update_methodology_row(methodology_id: int, body: dict = Body(...), _user: d
             raw = body.get("suggested_factor_db_id")
             updates.append("suggested_factor_db_id = %s")
             params.append(int(raw) if raw not in (None, "", "null") else None)
+        if "source_payload" in body:
+            raw_payload = body.get("source_payload")
+            updates.append("source_payload = %s")
+            params.append(json.dumps(raw_payload, ensure_ascii=False) if isinstance(raw_payload, (dict, list)) else str(raw_payload or "").strip() or None)
         if "notes" in body:
             updates.append("notes = %s")
             params.append(str(body.get("notes") or "").strip())

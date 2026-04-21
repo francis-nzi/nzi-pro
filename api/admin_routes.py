@@ -2802,6 +2802,8 @@ def search_factors(
     dataset_id: int | None = None,
     country: str = "",
     year: int | None = None,
+    scope: str = "",
+    report_label: str = "",
     limit: int = 100,
     _user: dict = Depends(_current_user)
 ):
@@ -2860,6 +2862,12 @@ def search_factors(
             if year is not None:
                 where_parts.append(f"{d_year} = %s")
                 params.append(int(year))
+            if scope.strip():
+                where_parts.append("LOWER(TRIM(COALESCE(fl.scope, ''))) = LOWER(TRIM(%s))")
+                params.append(scope.strip())
+            if report_label.strip():
+                where_parts.append("COALESCE(fl.report_label, fl.column_text, '') ILIKE %s")
+                params.append(f"%{report_label.strip()}%")
 
             where_parts.append(f"({d_archived} IS NULL OR {d_archived} = FALSE)")
             where_sql = " AND ".join(where_parts)
