@@ -171,6 +171,9 @@ export default function JobSourceRegister({
   const [businessTravelRows, setBusinessTravelRows] = useState<BusinessTravelScopeRow[]>([]);
   const [businessTravelRowsLoading, setBusinessTravelRowsLoading] = useState(false);
   const [businessTravelRowsError, setBusinessTravelRowsError] = useState("");
+  const [businessTravelSearch, setBusinessTravelSearch] = useState("");
+  const [businessTravelSiteFilter, setBusinessTravelSiteFilter] = useState<string>("__all__");
+  const [businessTravelConfidenceFilter, setBusinessTravelConfidenceFilter] = useState<string>("All");
 
   const [selectedGroupId, setSelectedGroupId] = useState<string>("__none__");
   const [sourceName, setSourceName] = useState("");
@@ -347,6 +350,36 @@ export default function JobSourceRegister({
     () => groups.find((group) => String(group.group_id) === selectedGroupId) ?? null,
     [groups, selectedGroupId],
   );
+
+  const filteredBusinessTravelRows = useMemo(() => {
+    let rows = businessTravelRows;
+    if (businessTravelSiteFilter !== "__all__") {
+      rows = rows.filter((row) => String(row.site_id ?? "") === businessTravelSiteFilter);
+    }
+    if (businessTravelConfidenceFilter !== "All") {
+      rows = rows.filter((row) => String(row.data_confidence || "").toUpperCase() === businessTravelConfidenceFilter);
+    }
+    const query = businessTravelSearch.trim().toLowerCase();
+    if (query) {
+      rows = rows.filter((row) => {
+        const haystack = [
+          row.site_name,
+          row.category,
+          row.report_label,
+          row.original_id,
+          row.data_source,
+          row.notes,
+          row.uom,
+          row.ghg_unit,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase())
+          .join(" ");
+        return haystack.includes(query);
+      });
+    }
+    return rows;
+  }, [businessTravelRows, businessTravelConfidenceFilter, businessTravelSearch, businessTravelSiteFilter]);
 
   function chooseFactor(factor: FactorOption) {
     setSelectedFactor(factor);
@@ -1051,6 +1084,58 @@ export default function JobSourceRegister({
               <div className="text-sm text-muted-foreground">
                 Rows shown here are the imported job scope records from the business travel workbook.
               </div>
+              <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr]">
+                <div className="space-y-2">
+                  <Label>Search</Label>
+                  <Input
+                    value={businessTravelSearch}
+                    onChange={(e) => setBusinessTravelSearch(e.target.value)}
+                    placeholder="Search by site, factor, ID, notes, or source..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Site</Label>
+                  <Select value={businessTravelSiteFilter} onValueChange={setBusinessTravelSiteFilter}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All sites</SelectItem>
+                      {sites.filter((site) => site.site_id != null).map((site) => (
+                        <SelectItem key={String(site.site_id)} value={String(site.site_id)}>
+                          {site.site_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Data confidence</Label>
+                  <Select value={businessTravelConfidenceFilter} onValueChange={setBusinessTravelConfidenceFilter}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="All">All</SelectItem>
+                      <SelectItem value="H">H</SelectItem>
+                      <SelectItem value="M">M</SelectItem>
+                      <SelectItem value="L">L</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <div>
+                  Showing {filteredBusinessTravelRows.length} of {businessTravelRows.length} imported rows
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setBusinessTravelSearch("");
+                    setBusinessTravelSiteFilter("__all__");
+                    setBusinessTravelConfidenceFilter("All");
+                  }}
+                >
+                  Clear filters
+                </Button>
+              </div>
               {businessTravelRowsError ? (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                   {businessTravelRowsError}
@@ -1058,7 +1143,7 @@ export default function JobSourceRegister({
               ) : null}
               {businessTravelRowsLoading ? (
                 <div className="text-sm text-muted-foreground">Loading imported business travel rows...</div>
-              ) : businessTravelRows.length ? (
+              ) : filteredBusinessTravelRows.length ? (
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/30">
@@ -1084,7 +1169,7 @@ export default function JobSourceRegister({
                       </tr>
                     </thead>
                     <tbody>
-                      {businessTravelRows.map((row) => (
+                      {filteredBusinessTravelRows.map((row) => (
                         <tr key={row.row_id} className="border-b align-top">
                           <td className="p-2">
                             <div className="font-medium text-foreground">{row.report_label || row.category || row.original_id}</div>
