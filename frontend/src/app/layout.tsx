@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { MainNav } from "@/components/MainNav";
@@ -32,7 +33,9 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}>
         <ThemeProvider>
           <ConfirmDialogProvider>
-            <AuthBootstrap />
+            <Suspense fallback={null}>
+              <AuthBootstrap />
+            </Suspense>
             <MainNav />
             <main className="flex-1">{children}</main>
             <SiteFooter />
