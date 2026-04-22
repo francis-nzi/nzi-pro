@@ -2433,6 +2433,14 @@ export default function JobDetailPage() {
         if (subtab.href) return subtab;
         const routeHrefByKey: Record<string, string> = {
           "data-entry": `/jobs/${jobId}/data-entry`,
+          "employee-commuting": `/jobs/${jobId}/data-entry/employee-commuting`,
+          "asset-register": `/jobs/${jobId}/data-entry/asset-register`,
+          "business-travel": `/jobs/${jobId}/data-entry/business-travel`,
+          "upload": `/jobs/${jobId}/data-entry?tab=upload`,
+          "custom-dataset": `/jobs/${jobId}/data-entry/custom-dataset`,
+          "custom-factors": `/jobs/${jobId}/data-entry/custom-factors`,
+          "spend-data": `/jobs/${jobId}/data-entry/spend-data`,
+          "notes": `/jobs/${jobId}/data-entry/notes`,
           "report-new": `/jobs/${jobId}/report-new`,
           "communications-timeline": `/jobs/${jobId}/communications/timeline`,
           "communications-inbox": `/jobs/${jobId}/communications/inbox`,

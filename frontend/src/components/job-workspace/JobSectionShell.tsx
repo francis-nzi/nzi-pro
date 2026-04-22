@@ -45,14 +45,14 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   ],
   data: [
     { key: "data-entry", label: "Data Entry", href: "/jobs/__JOB_ID__/data-entry" },
-    { key: "employee-commuting", label: "Employee Commuting", href: "/jobs/__JOB_ID__?tab=employee-commuting" },
-    { key: "asset-register", label: "Asset Register", href: "/jobs/__JOB_ID__?tab=asset-register" },
-    { key: "business-travel", label: "Business Travel", href: "/jobs/__JOB_ID__?tab=business-travel" },
+    { key: "employee-commuting", label: "Employee Commuting", href: "/jobs/__JOB_ID__/data-entry/employee-commuting" },
+    { key: "asset-register", label: "Asset Register", href: "/jobs/__JOB_ID__/data-entry/asset-register" },
+    { key: "business-travel", label: "Business Travel", href: "/jobs/__JOB_ID__/data-entry/business-travel" },
     { key: "upload", label: "Data Upload", href: "/jobs/__JOB_ID__?tab=upload" },
-    { key: "custom-dataset", label: "Custom Dataset", href: "/jobs/__JOB_ID__?tab=custom-dataset" },
-    { key: "custom-factors", label: "Job-Only Factors", href: "/jobs/__JOB_ID__?tab=custom-factors" },
-    { key: "spend-data", label: "Spend Data", href: "/jobs/__JOB_ID__?tab=spend-data" },
-    { key: "notes", label: "Notes", href: "/jobs/__JOB_ID__?tab=notes" },
+    { key: "custom-dataset", label: "Custom Dataset", href: "/jobs/__JOB_ID__/data-entry/custom-dataset" },
+    { key: "custom-factors", label: "Job-Only Factors", href: "/jobs/__JOB_ID__/data-entry/custom-factors" },
+    { key: "spend-data", label: "Spend Data", href: "/jobs/__JOB_ID__/data-entry/spend-data" },
+    { key: "notes", label: "Notes", href: "/jobs/__JOB_ID__/data-entry/notes" },
   ],
   outputs: [
     { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__/outputs" },
@@ -94,8 +94,21 @@ export default function JobSectionShell({
 }: JobSectionShellProps) {
   const [job, setJob] = useState<Job | null>(null);
   const [clientOwnerLabel, setClientOwnerLabel] = useState<string>("");
+  const [clientBenchmarkPeriodLabel, setClientBenchmarkPeriodLabel] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  function formatDateLabel(value: string | null | undefined): string {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -138,16 +151,27 @@ export default function JobSectionShell({
     async function loadClientOwner() {
       if (!job?.client_db_id) {
         setClientOwnerLabel("");
+        setClientBenchmarkPeriodLabel("");
         return;
       }
 
       try {
         const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, { credentials: "include" });
         if (!res.ok || cancelled) return;
-        const clientJson = (await res.json()) as { crm_owner?: string | null };
+        const clientJson = (await res.json()) as {
+          crm_owner?: string | null;
+          benchmark_period_start?: string | null;
+          benchmark_period_end?: string | null;
+        };
         setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
+        const benchmarkStart = formatDateLabel(clientJson.benchmark_period_start);
+        const benchmarkEnd = formatDateLabel(clientJson.benchmark_period_end);
+        setClientBenchmarkPeriodLabel(benchmarkStart && benchmarkEnd ? `${benchmarkStart} - ${benchmarkEnd}` : "");
       } catch {
-        if (!cancelled) setClientOwnerLabel("");
+        if (!cancelled) {
+          setClientOwnerLabel("");
+          setClientBenchmarkPeriodLabel("");
+        }
       }
     }
 
@@ -164,6 +188,7 @@ export default function JobSectionShell({
         jobNumber: job.job_number?.trim() ? `Job No: ${job.job_number.trim()}` : `Job ${job.job_id}`,
         jobTitle: job.title ?? sectionLabel,
         clientName: job.client_name ?? "Client",
+        benchmarkPeriodLabel: clientBenchmarkPeriodLabel || undefined,
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
             ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
