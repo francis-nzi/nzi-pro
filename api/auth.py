@@ -130,10 +130,16 @@ def _current_user(
 
     def _enforce_mfa_setup(user: Dict[str, str]) -> Dict[str, str]:
         path = request.url.path or ""
+        method = (request.method or "GET").upper()
         required = _mfa_required_for_all_users()
         mfa_enabled = bool(user.get("mfa_enabled"))
         user["mfa_setup_required"] = bool(required and not mfa_enabled)
         if not user["mfa_setup_required"]:
+            return user
+        # Let safe reads continue so the app can render and prompt the user to
+        # complete MFA, while keeping non-idempotent actions blocked until setup
+        # is finished.
+        if method in {"GET", "HEAD", "OPTIONS"}:
             return user
         if path in allowed_pending_mfa_paths:
             return user
