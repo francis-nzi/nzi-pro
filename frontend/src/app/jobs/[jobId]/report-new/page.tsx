@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import JobReportNew from "@/components/JobReportNew";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
@@ -10,6 +10,7 @@ function apiBaseUrl(): string {
 }
 
 export default function JobReportNewPage() {
+  const router = useRouter();
   const params = useParams<{ jobId: string }>();
   const jobId = Number(params?.jobId);
 
@@ -22,7 +23,11 @@ export default function JobReportNewPage() {
       activeGroup="report"
       activeSubtab="report-new"
     >
-      <JobReportNew jobId={jobId} baseUrl={apiBaseUrl()} onOpenActions={() => undefined} />
+      <JobReportNew
+        jobId={jobId}
+        baseUrl={apiBaseUrl()}
+        onOpenActions={() => router.push(`/jobs/${jobId}?tab=actions`)}
+      />
     </JobSectionShell>
   );
 }
