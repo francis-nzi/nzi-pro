@@ -7,7 +7,8 @@ import JobWorkspaceHeader from "./JobWorkspaceHeader";
 import JobWorkspaceTabs from "./JobWorkspaceTabs";
 import JobWorkspaceSubtabs from "./JobWorkspaceSubtabs";
 import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab, WorkspaceTab } from "./types";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getCachedJobShellData, loadJobShellData } from "@/lib/job-shell-data";
+import type { JobShellJob } from "@/lib/job-shell-data";
 
 type JobSectionShellProps = {
   jobId: number;
@@ -17,23 +18,7 @@ type JobSectionShellProps = {
   activeGroup?: WorkspaceGroupKey;
   activeSubtab?: string;
   children?: ReactNode;
-  renderContent?: (job: Job) => ReactNode;
-};
-
-type Job = {
-  job_id: number;
-  job_number: string | null;
-  title: string | null;
-  reporting_year: number | null;
-  reporting_period_start: string | null;
-  reporting_period_end: string | null;
-  status: string | null;
-  job_template_id?: number | null;
-  milestone_template_id?: number | null;
-  client_db_id: number;
-  client_name: string | null;
-  crm_owner?: string | null;
-  crm_name?: string | null;
+  renderContent?: (job: JobShellJob) => ReactNode;
 };
 
 function apiBaseUrl(): string {
@@ -51,7 +36,7 @@ function formatDisplayDate(dateValue?: string | null): string {
   });
 }
 
-function buildSetupCompletion(job: Job): {
+function buildSetupCompletion(job: JobShellJob): {
   label: string;
   className: string;
 } {
@@ -70,15 +55,6 @@ function buildSetupCompletion(job: Job): {
       ? "border-green-200 bg-green-50 text-green-800"
       : "border-red-200 bg-red-50 text-red-800",
   };
-}
-
-function authHeaders(): HeadersInit {
-  const headers: Record<string, string> = {};
-  const token = getToken();
-  const userIdentifier = getAuthUserIdentifier();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
-  return headers;
 }
 
 const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
@@ -136,53 +112,50 @@ export default function JobSectionShell({
   children,
   renderContent,
 }: JobSectionShellProps) {
-  const [job, setJob] = useState<Job | null>(null);
-  const [clientOwnerLabel, setClientOwnerLabel] = useState<string>("");
-  const [clientBenchmarkPeriodLabel, setClientBenchmarkPeriodLabel] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const cachedData = getCachedJobShellData(baseUrl, jobId);
+  const [job, setJob] = useState(cachedData?.job || null);
+  const [clientOwnerLabel, setClientOwnerLabel] = useState<string>(cachedData?.clientOwnerLabel || "");
+  const [clientBenchmarkPeriodLabel, setClientBenchmarkPeriodLabel] = useState<string>(
+    cachedData?.clientBenchmarkPeriodLabel || ""
+  );
+  const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState("");
-
-  function formatDateLabel(value: string | null | undefined): string {
-    const raw = String(value || "").trim();
-    if (!raw) return "";
-    const parsed = new Date(raw);
-    if (Number.isNaN(parsed.getTime())) return raw;
-    return parsed.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      const currentCachedData = getCachedJobShellData(baseUrl, jobId);
+
       if (!Number.isFinite(jobId) || jobId <= 0) {
         setError("Invalid job id");
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      if (currentCachedData) {
+        setJob(currentCachedData.job);
+        setClientOwnerLabel(currentCachedData.clientOwnerLabel);
+        setClientBenchmarkPeriodLabel(currentCachedData.clientBenchmarkPeriodLabel);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       setError("");
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
-          credentials: "include",
-          headers: authHeaders(),
-        });
-        if (!res.ok) {
-          throw new Error(`Failed to load job (${res.status})`);
+        const data = await loadJobShellData(baseUrl, jobId, { refresh: true });
+        if (!cancelled) {
+          setJob(data.job);
+          setClientOwnerLabel(data.clientOwnerLabel);
+          setClientBenchmarkPeriodLabel(data.clientBenchmarkPeriodLabel);
+          setLoading(false);
         }
-        const json = (await res.json()) as Job;
-        if (!cancelled) setJob(json);
       } catch (e) {
         if (!cancelled) {
           setJob(null);
           setError((e as Error).message);
+          setLoading(false);
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
 
@@ -192,45 +165,6 @@ export default function JobSectionShell({
       cancelled = true;
     };
   }, [baseUrl, jobId]);
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadClientOwner() {
-      if (!job?.client_db_id) {
-        setClientOwnerLabel("");
-        setClientBenchmarkPeriodLabel("");
-        return;
-      }
-
-      try {
-        const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, {
-          credentials: "include",
-          headers: authHeaders(),
-        });
-        if (!res.ok || cancelled) return;
-        const clientJson = (await res.json()) as {
-          crm_owner?: string | null;
-          benchmark_period_start?: string | null;
-          benchmark_period_end?: string | null;
-        };
-        setClientOwnerLabel((clientJson.crm_owner ?? "").trim());
-        const benchmarkStart = formatDateLabel(clientJson.benchmark_period_start);
-        const benchmarkEnd = formatDateLabel(clientJson.benchmark_period_end);
-        setClientBenchmarkPeriodLabel(benchmarkStart && benchmarkEnd ? `${benchmarkStart} - ${benchmarkEnd}` : "");
-      } catch {
-        if (!cancelled) {
-          setClientOwnerLabel("");
-          setClientBenchmarkPeriodLabel("");
-        }
-      }
-    }
-
-    void loadClientOwner();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [baseUrl, job?.client_db_id]);
 
   const workspaceJob: JobWorkspaceJob | null = job
     ? {
@@ -310,7 +244,7 @@ export default function JobSectionShell({
         ) : null}
         {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading {sectionLabel.toLowerCase()}...</div> : null}
         {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
-        {job ? <div className="mt-6">{renderContent ? renderContent(job) : children}</div> : null}
+        <div className="mt-6">{renderContent ? (job ? renderContent(job) : null) : children}</div>
       </div>
     </div>
   );
