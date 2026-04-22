@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { apiUrl, clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ export function MainNav() {
   const { theme } = useTheme();
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoErrorUrl, setLogoErrorUrl] = useState<string | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string; adminAccess: boolean }>({
     ready: false,
     authed: false,
@@ -97,6 +98,35 @@ export function MainNav() {
       clearTimeout(timer);
     };
   }, [pathname]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setProfileOpen(false), 0);
+    return () => window.clearTimeout(timer);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (profileMenuRef.current && target && !profileMenuRef.current.contains(target)) {
+        setProfileOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setProfileOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileOpen]);
 
   const links = [
     { href: "/", label: "Dashboard" },
@@ -180,7 +210,7 @@ export function MainNav() {
           {!authUi.ready ? (
             <div className="h-9 w-24" aria-hidden />
           ) : authUi.authed ? (
-            <div className="relative">
+            <div ref={profileMenuRef} className="relative">
               <button
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
