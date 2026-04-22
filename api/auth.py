@@ -151,25 +151,40 @@ def _current_user(
 
     # If a JWT secret is configured, prefer Bearer token authentication
     if secret:
-        if jwt is None:
-            raise HTTPException(status_code=500, detail="Server auth misconfigured: PyJWT missing")
         parts = (authorization or "").split()
-        if len(parts) != 2 or parts[0].lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Missing bearer token")
-        token = parts[1]
-        try:
-            payload = jwt.decode(token, secret, algorithms=["HS256"])
-        except jwt.ExpiredSignatureError:
-            raise HTTPException(status_code=401, detail="Token expired")
-        except Exception:
-            raise HTTPException(status_code=401, detail="Invalid token")
+        has_bearer = len(parts) == 2 and parts[0].lower() == "bearer" and bool(parts[1].strip())
+        if has_bearer:
+            if jwt is None:
+                raise HTTPException(status_code=500, detail="Server auth misconfigured: PyJWT missing")
+            token = parts[1]
+            try:
+                payload = jwt.decode(token, secret, algorithms=["HS256"])
+            except jwt.ExpiredSignatureError:
+                raise HTTPException(status_code=401, detail="Token expired")
+            except Exception:
+                raise HTTPException(status_code=401, detail="Invalid token")
 
-        sub = payload.get("sub")
-        user = _active_user_from_identifier(str(sub or ""))
-        if not user:
-            raise HTTPException(status_code=401, detail="Unknown or inactive user")
-        user = attach_org_id(user)
-        return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
+            sub = payload.get("sub")
+            user = _active_user_from_identifier(str(sub or ""))
+            if not user:
+                raise HTTPException(status_code=401, detail="Unknown or inactive user")
+            user = attach_org_id(user)
+            return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
+
+        # Compatibility fallback: older sessions may still rely on the browser
+        # identity cookie or X-User-Email while the app is in strict JWT mode.
+        # This keeps already-signed-in users working while new logins still get
+        # a signed bearer token.
+        ident = (x_user_email or x_user or "").strip()
+        if not ident:
+            ident = str(request.cookies.get("nzi_user") or "").strip()
+        if ident:
+            user = _active_user_from_identifier(ident)
+            if not user:
+                raise HTTPException(status_code=401, detail="Unknown or inactive user")
+            user = attach_org_id(user)
+            return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
+        raise HTTPException(status_code=401, detail="Missing bearer token")
 
     # Header-based compatibility mode (still strict; no anonymous access)
     ident = (x_user_email or x_user or "").strip()
