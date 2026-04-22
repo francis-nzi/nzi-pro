@@ -2960,12 +2960,17 @@ def search_factors(
             where_parts = ["COALESCE(d.archived, FALSE) = FALSE"]
 
             if q.strip():
-                needle = f"%{q.strip()}%"
-                where_parts.append(
-                    """
+                tokens = [part.strip() for part in re.split(r"\s+", q.strip()) if part.strip()]
+                token_parts: list[str] = []
+                token_params: list[Any] = []
+                searchable_sql = """
                     (
                         CAST(fl.db_id AS VARCHAR) ILIKE %s
                         OR CAST(fl.dataset_id AS VARCHAR) ILIKE %s
+                        OR CAST(d.year AS VARCHAR) ILIKE %s
+                        OR COALESCE(d.name, '') ILIKE %s
+                        OR COALESCE(d.country, '') ILIKE %s
+                        OR COALESCE(d.analysis_type, '') ILIKE %s
                         OR COALESCE(fl.original_id, '') ILIKE %s
                         OR COALESCE(fl.scope, '') ILIKE %s
                         OR COALESCE(fl.category, '') ILIKE %s
@@ -2981,9 +2986,13 @@ def search_factors(
                         OR COALESCE(fl.region, '') ILIKE %s
                         OR COALESCE(fl.method, '') ILIKE %s
                     )
-                    """,
-                )
-                params.extend([needle] * 16)
+                """
+                for token in tokens:
+                    needle = f"%{token}%"
+                    token_parts.append(searchable_sql)
+                    token_params.extend([needle] * 20)
+                where_parts.append(" AND ".join(token_parts))
+                params.extend(token_params)
 
             if db_id is not None:
                 where_parts.append("fl.db_id = %s")
