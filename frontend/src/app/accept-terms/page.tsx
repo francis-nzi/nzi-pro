@@ -1,12 +1,12 @@
 "use client";
 
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiUrl, clearAuthState, setMustAcceptPortalTerms } from "@/lib/auth-client";
 
-export default function AcceptTermsPage() {
+function AcceptTermsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [busy, setBusy] = useState(false);
@@ -46,16 +46,23 @@ export default function AcceptTermsPage() {
           </p>
           <div className="space-y-4 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
             <p>
-              By accepting, you confirm that you are an authorised user of the NZI platform, will keep your credentials secure, and will use the portal only for lawful business purposes connected with NZI services.
+              By accepting, you confirm that you are an authorised user of the NZI platform, will keep your credentials
+              secure, and will use the portal only for lawful business purposes connected with NZI services.
             </p>
             <p>
-              Review the full documents here:
-              {" "}
-              <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">Portal Terms of Use</Link>
+              Review the full documents here:{" "}
+              <Link href="/legal#portal-terms" className="underline underline-offset-2 hover:text-foreground">
+                Portal Terms of Use
+              </Link>
               {", "}
-              <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>
+              <Link href="/legal#privacy-policy" className="underline underline-offset-2 hover:text-foreground">
+                Privacy Policy
+              </Link>
               {" and "}
-              <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">Cookie Notice</Link>.
+              <Link href="/legal#cookie-notice" className="underline underline-offset-2 hover:text-foreground">
+                Cookie Notice
+              </Link>
+              .
             </p>
           </div>
           {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
@@ -77,5 +84,13 @@ export default function AcceptTermsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AcceptTermsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <AcceptTermsContent />
+    </Suspense>
   );
 }

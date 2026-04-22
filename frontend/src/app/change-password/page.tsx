@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiUrl, clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 
-export default function ChangePasswordPage() {
+function ChangePasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -70,7 +70,10 @@ export default function ChangePasswordPage() {
           <p className="mb-6 text-sm text-muted-foreground">You must change your temporary password to continue.</p>
           <p className="mb-6 text-xs text-muted-foreground">
             Legal documents are available in{" "}
-            <Link href="/legal" className="underline underline-offset-2 hover:text-foreground">Legal Documents</Link>.
+            <Link href="/legal" className="underline underline-offset-2 hover:text-foreground">
+              Legal Documents
+            </Link>
+            .
           </p>
 
           <form className="space-y-4" onSubmit={onSubmit}>
@@ -127,5 +130,13 @@ export default function ChangePasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChangePasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <ChangePasswordContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -87,7 +87,7 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
-export default function AccountSettingsPage() {
+function AccountSettingsContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -576,5 +576,13 @@ export default function AccountSettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AccountSettingsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <AccountSettingsContent />
+    </Suspense>
   );
 }
