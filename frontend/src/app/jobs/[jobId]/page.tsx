@@ -26,6 +26,7 @@ import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceSubtab, WorkspaceTa
 import { milestoneDotClass } from "@/lib/status-utils";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { primeJobShellData } from "@/lib/job-shell-data";
 import {
   AUTO_REPORT_METADATA_KEYS,
   calculateDerivedEnergyEmissionFields,
@@ -1538,6 +1539,8 @@ export default function JobDetailPage() {
         const tJson = tRes.ok ? ((await tRes.json()) as JobTemplatesResponse) : null;
         const statusJson = statusRes.ok ? await statusRes.json() : null;
         const teamJson = teamRes.ok ? await teamRes.json() : null;
+        let nextClientOwnerLabel = "";
+        let nextClientBenchmarkPeriodLabel = "";
 
         if (cancelled) return;
 
@@ -1561,19 +1564,17 @@ export default function JobDetailPage() {
             const clientJson = await clientRes.json();
             
             if (clientJson.crm_owner) {
-              setClientOwnerLabel(clientJson.crm_owner.trim());
+              nextClientOwnerLabel = clientJson.crm_owner.trim();
             }
             if (clientJson.benchmark_period_start && clientJson.benchmark_period_end) {
               const start = formatDisplayDate(clientJson.benchmark_period_start);
               const end = formatDisplayDate(clientJson.benchmark_period_end);
               if (start && end) {
-                setClientBenchmarkPeriodLabel(`Benchmark Period: ${start} - ${end}`);
-              } else {
-                setClientBenchmarkPeriodLabel("");
+                nextClientBenchmarkPeriodLabel = `Benchmark Period: ${start} - ${end}`;
               }
-            } else {
-              setClientBenchmarkPeriodLabel("");
             }
+            setClientOwnerLabel(nextClientOwnerLabel);
+            setClientBenchmarkPeriodLabel(nextClientBenchmarkPeriodLabel);
             // Set currency for intensity metrics
             setClientCurrency(clientJson.currency || "GBP");
             setClientYearEndMonth(clientJson.year_end_month || "");
@@ -1597,7 +1598,27 @@ export default function JobDetailPage() {
           setReportingPeriodStart(jJson.reporting_period_start);
           setReportingPeriodEnd(jJson.reporting_period_end || "");
         }
-        
+
+        primeJobShellData(baseUrl, jobId, {
+          job: {
+            job_id: jJson.job_id,
+            job_number: jJson.job_number,
+            title: jJson.title,
+            reporting_year: jJson.reporting_year,
+            reporting_period_start: jJson.reporting_period_start,
+            reporting_period_end: jJson.reporting_period_end,
+            status: jJson.status,
+            job_template_id: jJson.job_template_id,
+            milestone_template_id: jJson.milestone_template_id,
+            client_db_id: jJson.client_db_id,
+            client_name: jJson.client_name,
+            crm_owner: jJson.crm_owner,
+            crm_name: jJson.crm_name,
+          },
+          clientOwnerLabel: nextClientOwnerLabel,
+          clientBenchmarkPeriodLabel: nextClientBenchmarkPeriodLabel,
+        });
+
         // Fetch scope totals for intensity metrics
         const totalsRes = await fetch(`${baseUrl}/jobs/${jobId}/scope-totals`);
         if (totalsRes.ok) {
@@ -2094,6 +2115,16 @@ export default function JobDetailPage() {
 
       setStatus("Template updated.");
       setJob((prev) => (prev ? { ...prev, job_template_id: Number(jobTemplateId) } : prev));
+      if (job) {
+        primeJobShellData(baseUrl, jobId, {
+          job: {
+            ...job,
+            job_template_id: Number(jobTemplateId),
+          },
+          clientOwnerLabel,
+          clientBenchmarkPeriodLabel,
+        });
+      }
     } catch (e) {
       setStatus(`Save error: ${(e as Error).message}`);
     } finally {
@@ -2140,6 +2171,25 @@ export default function JobDetailPage() {
       if (updatedJobRes.ok) {
         const updatedJob = await updatedJobRes.json();
         setJob(updatedJob);
+        primeJobShellData(baseUrl, jobId, {
+          job: {
+            job_id: updatedJob.job_id,
+            job_number: updatedJob.job_number,
+            title: updatedJob.title,
+            reporting_year: updatedJob.reporting_year,
+            reporting_period_start: updatedJob.reporting_period_start,
+            reporting_period_end: updatedJob.reporting_period_end,
+            status: updatedJob.status,
+            job_template_id: updatedJob.job_template_id,
+            milestone_template_id: updatedJob.milestone_template_id,
+            client_db_id: updatedJob.client_db_id,
+            client_name: updatedJob.client_name,
+            crm_owner: updatedJob.crm_owner,
+            crm_name: updatedJob.crm_name,
+          },
+          clientOwnerLabel,
+          clientBenchmarkPeriodLabel,
+        });
         setStatus("Job details and milestones updated successfully!");
       } else {
         setJob((prev) => (prev ? { 
@@ -2153,6 +2203,19 @@ export default function JobDetailPage() {
           due_date: jobEndDate || null,
         } : prev));
         setStatus("Job details saved (milestones reload failed)");
+      }
+
+      if (job) {
+        primeJobShellData(baseUrl, jobId, {
+          job: {
+            ...job,
+            title: jobTitle,
+            status: jobStatus,
+            crm_name: crmName,
+          },
+          clientOwnerLabel,
+          clientBenchmarkPeriodLabel,
+        });
       }
       
       setTimeout(() => setStatus(""), 3000);
@@ -2199,6 +2262,17 @@ export default function JobDetailPage() {
             }
           : prev
       );
+      if (job) {
+        primeJobShellData(baseUrl, jobId, {
+          job: {
+            ...job,
+            reporting_period_start: reportingPeriodStart || null,
+            reporting_period_end: reportingPeriodEnd || null,
+          },
+          clientOwnerLabel,
+          clientBenchmarkPeriodLabel,
+        });
+      }
     } catch (e) {
       setStatus(`Save error: ${(e as Error).message}`);
     } finally {
