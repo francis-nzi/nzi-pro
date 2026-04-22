@@ -712,7 +712,9 @@ def get_job_notes_summary(
             items: list[dict[str, Any]] = []
             if notes_df is not None and not notes_df.empty:
                 for _, row in notes_df.iterrows():
-                    row_id = int(row.get("row_id"))
+                    row_id = _safe_int(row.get("row_id"))
+                    if row_id is None:
+                        continue
                     note_text = str(row.get("notes") or "").strip()
                     if not note_text:
                         continue
@@ -735,7 +737,7 @@ def get_job_notes_summary(
                             "row_id": row_id,
                             "job_id": int(row.get("job_id") or job_id),
                             "scope": str(row.get("scope") or ""),
-                            "site_id": int(row.get("site_id")) if row.get("site_id") is not None else None,
+                            "site_id": _safe_int(row.get("site_id")),
                             "site_name": site_name,
                             "category": str(row.get("category") or row.get("level_2") or row.get("level_1") or ""),
                             "report_label": str(row.get("report_label") or row.get("column_text") or row.get("original_id") or ""),
