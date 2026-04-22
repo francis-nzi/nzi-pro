@@ -49,6 +49,10 @@ export default function JobWorkspaceHeader({
   isPrototype,
   note,
 }: JobWorkspaceHeaderProps) {
+  const benchmarkPeriodLabel = job.benchmarkPeriodLabel
+    ? job.benchmarkPeriodLabel.replace(/^benchmark period:\s*/i, "").trim()
+    : "";
+
   return (
     <section className="space-y-4">
       <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
@@ -80,8 +84,8 @@ export default function JobWorkspaceHeader({
               <span>{job.jobTitle}</span>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              {job.benchmarkPeriodLabel ? <span>{`Benchmark Period: ${job.benchmarkPeriodLabel}`}</span> : null}
-              {job.benchmarkPeriodLabel ? <span>•</span> : null}
+              {benchmarkPeriodLabel ? <span>{`Benchmark Period: ${benchmarkPeriodLabel}`}</span> : null}
+              {benchmarkPeriodLabel ? <span>•</span> : null}
               <span>{job.reportingPeriodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">

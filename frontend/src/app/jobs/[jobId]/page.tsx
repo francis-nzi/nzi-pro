@@ -1570,7 +1570,7 @@ export default function JobDetailPage() {
               const start = formatDisplayDate(clientJson.benchmark_period_start);
               const end = formatDisplayDate(clientJson.benchmark_period_end);
               if (start && end) {
-                nextClientBenchmarkPeriodLabel = `Benchmark Period: ${start} - ${end}`;
+                nextClientBenchmarkPeriodLabel = `${start} - ${end}`;
               }
             }
             setClientOwnerLabel(nextClientOwnerLabel);
