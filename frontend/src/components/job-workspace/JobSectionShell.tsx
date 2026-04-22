@@ -28,6 +28,8 @@ type Job = {
   reporting_period_start: string | null;
   reporting_period_end: string | null;
   status: string | null;
+  job_template_id?: number | null;
+  milestone_template_id?: number | null;
   client_db_id: number;
   client_name: string | null;
   crm_owner?: string | null;
@@ -36,6 +38,38 @@ type Job = {
 
 function apiBaseUrl(): string {
   return "/api/backend";
+}
+
+function formatDisplayDate(dateValue?: string | null): string {
+  if (!dateValue) return "";
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return String(dateValue);
+  return parsed.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function buildSetupCompletion(job: Job): {
+  label: string;
+  className: string;
+} {
+  const setupSteps = [
+    { complete: Boolean((job.title || "").trim()) && Boolean((job.status || "").trim()) },
+    { complete: Boolean((job.reporting_period_start || "").trim() && (job.reporting_period_end || "").trim()) },
+    { complete: Boolean(job.job_template_id) },
+    { complete: Boolean(job.milestone_template_id) },
+  ];
+  const completedCount = setupSteps.filter((step) => step.complete).length;
+  const totalCount = setupSteps.length;
+  const isComplete = totalCount > 0 && completedCount >= totalCount;
+  return {
+    label: `Setup ${completedCount}/${totalCount} complete`,
+    className: isComplete
+      ? "border-green-200 bg-green-50 text-green-800"
+      : "border-red-200 bg-red-50 text-red-800",
+  };
 }
 
 function authHeaders(): HeadersInit {
@@ -207,13 +241,14 @@ export default function JobSectionShell({
         benchmarkPeriodLabel: clientBenchmarkPeriodLabel || undefined,
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
-            ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
+            ? `Reporting Period: ${formatDisplayDate(job.reporting_period_start)} - ${formatDisplayDate(job.reporting_period_end)}`
             : job.reporting_year
               ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
         ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
         crmLabel: job.crm_name ?? undefined,
+        ...buildSetupCompletion(job),
       }
     : null;
 

@@ -74,12 +74,14 @@ export default function JobWorkspaceHeader({
               {isPrototype ? <Pill label="Prototype" /> : null}
               <Pill label={job.statusLabel} />
             </div>
-            <div className="text-lg text-slate-700">{job.jobTitle}</div>
+            <div className="flex flex-wrap items-center gap-2 text-lg text-slate-700">
+              <span className="font-medium text-slate-600">{job.clientName}</span>
+              <span className="text-slate-300">•</span>
+              <span>{job.jobTitle}</span>
+            </div>
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              {job.benchmarkPeriodLabel ? <span>{job.benchmarkPeriodLabel}</span> : null}
+              {job.benchmarkPeriodLabel ? <span>{`Benchmark Period: ${job.benchmarkPeriodLabel}`}</span> : null}
               {job.benchmarkPeriodLabel ? <span>•</span> : null}
-              <span>{job.clientName}</span>
-              <span>•</span>
               <span>{job.reportingPeriodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">

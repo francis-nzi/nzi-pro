@@ -954,7 +954,7 @@ export default function JobDetailPage() {
   const periodEndLabel = reportingPeriodEnd || job?.reporting_period_end || "";
   const reportingPeriodLabel =
     periodStartLabel && periodEndLabel
-      ? `${formatDisplayDate(periodStartLabel)} - ${formatDisplayDate(periodEndLabel)}`
+      ? `Reporting Period: ${formatDisplayDate(periodStartLabel)} - ${formatDisplayDate(periodEndLabel)}`
       : job?.reporting_year
         ? `Year ${job.reporting_year}`
         : "Reporting period not set";
