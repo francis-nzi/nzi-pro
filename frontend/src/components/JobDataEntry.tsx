@@ -1119,6 +1119,26 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return true;
   }
 
+  const siteNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const site of sites) {
+      map.set(String(site.site_id), site.site_name);
+    }
+    for (const row of previousYearRows) {
+      if (row.site_id == null) continue;
+      const key = String(row.site_id);
+      if (!map.has(key) && row.site_name) {
+        map.set(key, row.site_name);
+      }
+    }
+    return map;
+  }, [previousYearRows, sites]);
+
+  function getSiteName(siteId: number | null | undefined): string {
+    if (siteId == null) return "";
+    return siteNameById.get(String(siteId)) || `Site ${siteId}`;
+  }
+
   const filteredData = scopeData.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (confidenceFilter !== "All") {
@@ -1179,26 +1199,6 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const addedOriginalIds = new Set(
     scopeData.map((r) => `${r.original_id}::${r.site_id ?? ""}`)
   );
-
-  const siteNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const site of sites) {
-      map.set(String(site.site_id), site.site_name);
-    }
-    for (const row of previousYearRows) {
-      if (row.site_id == null) continue;
-      const key = String(row.site_id);
-      if (!map.has(key) && row.site_name) {
-        map.set(key, row.site_name);
-      }
-    }
-    return map;
-  }, [previousYearRows, sites]);
-
-  function getSiteName(siteId: number | null | undefined): string {
-    if (siteId == null) return "";
-    return siteNameById.get(String(siteId)) || `Site ${siteId}`;
-  }
 
   const availableSites = useMemo(() => {
     const seen = new Map<string, string>();
