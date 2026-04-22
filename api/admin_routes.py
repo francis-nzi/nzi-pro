@@ -2796,71 +2796,206 @@ def download_dataset_template_workbook(
         raise HTTPException(status_code=500, detail=f"Failed to build dataset workbook: {e}")
 
 
+def _ensure_factor_lookup_schema(con) -> None:
+    for column, ddl_type in [
+        ("dataset_id", "INTEGER"),
+        ("file_name", "VARCHAR"),
+        ("year", "INTEGER"),
+        ("original_id", "VARCHAR"),
+        ("scope", "VARCHAR"),
+        ("category", "VARCHAR"),
+        ("level_1", "VARCHAR"),
+        ("level_2", "VARCHAR"),
+        ("level_3", "VARCHAR"),
+        ("level_4", "VARCHAR"),
+        ("column_text", "VARCHAR"),
+        ("report_label", "VARCHAR"),
+        ("uom", "VARCHAR"),
+        ("ghg_unit", "VARCHAR"),
+        ("factor", "DOUBLE"),
+        ("source", "VARCHAR"),
+        ("region", "VARCHAR"),
+        ("currency", "VARCHAR"),
+        ("method", "VARCHAR"),
+        ("valid_from", "DATE"),
+        ("valid_to", "DATE"),
+    ]:
+        try:
+            con.execute(f"ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS {column} {ddl_type}")
+        except Exception:
+            pass
+
+
+def _serialize_factor_row(row: dict[str, Any]) -> dict[str, Any]:
+    def _s(key: str) -> str:
+        return str(row.get(key) or "")
+
+    def _dt(key: str) -> str | None:
+        value = row.get(key)
+        if value is None:
+            return None
+        try:
+            return value.isoformat()
+        except Exception:
+            text = str(value).strip()
+            return text or None
+
+    def _num(key: str) -> float | None:
+        value = row.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    def _int(key: str) -> int | None:
+        value = row.get(key)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    return {
+        "db_id": _int("db_id"),
+        "dataset_id": _int("dataset_id"),
+        "dataset": _s("dataset"),
+        "analysis_type": _s("analysis_type"),
+        "country": _s("country"),
+        "year": _int("year"),
+        "file_name": _s("file_name"),
+        "original_id": _s("original_id"),
+        "scope": _s("scope"),
+        "category": _s("category"),
+        "level_1": _s("level_1"),
+        "level_2": _s("level_2"),
+        "level_3": _s("level_3"),
+        "level_4": _s("level_4"),
+        "column_text": _s("column_text"),
+        "report_label": _s("report_label") or _s("column_text") or _s("original_id"),
+        "uom": _s("uom"),
+        "ghg_unit": _s("ghg_unit"),
+        "factor": _num("factor"),
+        "source": _s("source"),
+        "region": _s("region"),
+        "currency": _s("currency"),
+        "method": _s("method"),
+        "valid_from": _dt("valid_from"),
+        "valid_to": _dt("valid_to"),
+    }
+
+
+def _load_factor_row(con, db_id: int) -> dict[str, Any] | None:
+    row_df = con.execute(
+        """
+        SELECT
+            fl.db_id,
+            fl.dataset_id,
+            d.name AS dataset,
+            d.analysis_type,
+            d.country,
+            fl.year,
+            fl.file_name,
+            fl.original_id,
+            fl.scope,
+            fl.category,
+            fl.level_1,
+            fl.level_2,
+            fl.level_3,
+            fl.level_4,
+            fl.column_text,
+            fl.report_label,
+            fl.uom,
+            fl.ghg_unit,
+            fl.factor,
+            fl.source,
+            fl.region,
+            fl.currency,
+            fl.method,
+            fl.valid_from,
+            fl.valid_to
+        FROM factor_lookup fl
+        LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+        WHERE fl.db_id = %s
+        LIMIT 1
+        """,
+        [int(db_id)],
+    ).df()
+    if row_df is None or row_df.empty:
+        return None
+    return _serialize_factor_row(row_df.iloc[0].to_dict())
+
+
 @router.get("/factors")
 def search_factors(
     q: str = "",
+    db_id: int | None = None,
     dataset_id: int | None = None,
     country: str = "",
     year: int | None = None,
     scope: str = "",
     report_label: str = "",
+    original_id: str = "",
+    category: str = "",
+    level_1: str = "",
+    level_2: str = "",
+    level_3: str = "",
+    level_4: str = "",
+    column_text: str = "",
+    uom: str = "",
+    ghg_unit: str = "",
+    source: str = "",
+    region: str = "",
+    method: str = "",
     limit: int = 100,
     _user: dict = Depends(_current_user)
 ):
     """Search conversion factors (excludes archived datasets)."""
     try:
         with get_conn() as con:
-            def _column_exists(table_name: str, column_name: str) -> bool:
-                try:
-                    row = con.execute(
-                        """
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_schema = 'public'
-                          AND table_name = %s
-                          AND column_name = %s
-                        LIMIT 1
-                        """,
-                        [table_name, column_name],
-                    ).fetchone()
-                    return bool(row)
-                except Exception:
-                    return False
+            _ensure_factor_lookup_schema(con)
+            params: list[Any] = []
+            where_parts = ["COALESCE(d.archived, FALSE) = FALSE"]
 
-            def _fl_col(name: str, default_sql: str = "NULL") -> str:
-                return f"fl.{name}" if _column_exists("factor_lookup", name) else default_sql
-
-            def _d_col(name: str, default_sql: str = "NULL") -> str:
-                return f"d.{name}" if _column_exists("datasets", name) else default_sql
-
-            fl_report_label = _fl_col("report_label", "''")
-            fl_category = _fl_col("category", "NULL")
-            fl_level_1 = _fl_col("level_1", "NULL")
-            fl_year = _fl_col("year", "NULL")
-            d_country = _d_col("country", "''")
-            d_year = _d_col("year", "NULL")
-            d_archived = _d_col("archived", "FALSE")
-
-            params: list[object] = []
-            where_parts = [
-                f"""
-                (
-                    fl.column_text ILIKE %s
-                    OR COALESCE({fl_report_label}, '') ILIKE %s
-                    OR COALESCE({fl_category}, {fl_level_1}, '') ILIKE %s
+            if q.strip():
+                needle = f"%{q.strip()}%"
+                where_parts.append(
+                    """
+                    (
+                        CAST(fl.db_id AS VARCHAR) ILIKE %s
+                        OR CAST(fl.dataset_id AS VARCHAR) ILIKE %s
+                        OR COALESCE(fl.original_id, '') ILIKE %s
+                        OR COALESCE(fl.scope, '') ILIKE %s
+                        OR COALESCE(fl.category, '') ILIKE %s
+                        OR COALESCE(fl.level_1, '') ILIKE %s
+                        OR COALESCE(fl.level_2, '') ILIKE %s
+                        OR COALESCE(fl.level_3, '') ILIKE %s
+                        OR COALESCE(fl.level_4, '') ILIKE %s
+                        OR COALESCE(fl.column_text, '') ILIKE %s
+                        OR COALESCE(fl.report_label, '') ILIKE %s
+                        OR COALESCE(fl.uom, '') ILIKE %s
+                        OR COALESCE(fl.ghg_unit, '') ILIKE %s
+                        OR COALESCE(fl.source, '') ILIKE %s
+                        OR COALESCE(fl.region, '') ILIKE %s
+                        OR COALESCE(fl.method, '') ILIKE %s
+                    )
+                    """,
                 )
-                """
-            ]
-            params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+                params.extend([needle] * 16)
 
-            if dataset_id:
+            if db_id is not None:
+                where_parts.append("fl.db_id = %s")
+                params.append(int(db_id))
+            if dataset_id is not None:
                 where_parts.append("fl.dataset_id = %s")
-                params.append(dataset_id)
+                params.append(int(dataset_id))
             if country.strip():
-                where_parts.append(f"LOWER(TRIM(COALESCE({d_country}, ''))) = LOWER(TRIM(%s))")
+                where_parts.append("LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))")
                 params.append(country.strip())
             if year is not None:
-                where_parts.append(f"{d_year} = %s")
+                where_parts.append("d.year = %s")
                 params.append(int(year))
             if scope.strip():
                 where_parts.append("LOWER(TRIM(COALESCE(fl.scope, ''))) = LOWER(TRIM(%s))")
@@ -2868,70 +3003,235 @@ def search_factors(
             if report_label.strip():
                 where_parts.append("COALESCE(fl.report_label, fl.column_text, '') ILIKE %s")
                 params.append(f"%{report_label.strip()}%")
+            if original_id.strip():
+                where_parts.append("COALESCE(fl.original_id, '') ILIKE %s")
+                params.append(f"%{original_id.strip()}%")
+            if category.strip():
+                where_parts.append("COALESCE(fl.category, fl.level_1, '') ILIKE %s")
+                params.append(f"%{category.strip()}%")
+            if level_1.strip():
+                where_parts.append("COALESCE(fl.level_1, '') ILIKE %s")
+                params.append(f"%{level_1.strip()}%")
+            if level_2.strip():
+                where_parts.append("COALESCE(fl.level_2, '') ILIKE %s")
+                params.append(f"%{level_2.strip()}%")
+            if level_3.strip():
+                where_parts.append("COALESCE(fl.level_3, '') ILIKE %s")
+                params.append(f"%{level_3.strip()}%")
+            if level_4.strip():
+                where_parts.append("COALESCE(fl.level_4, '') ILIKE %s")
+                params.append(f"%{level_4.strip()}%")
+            if column_text.strip():
+                where_parts.append("COALESCE(fl.column_text, '') ILIKE %s")
+                params.append(f"%{column_text.strip()}%")
+            if uom.strip():
+                where_parts.append("COALESCE(fl.uom, '') ILIKE %s")
+                params.append(f"%{uom.strip()}%")
+            if ghg_unit.strip():
+                where_parts.append("COALESCE(fl.ghg_unit, '') ILIKE %s")
+                params.append(f"%{ghg_unit.strip()}%")
+            if source.strip():
+                where_parts.append("COALESCE(fl.source, '') ILIKE %s")
+                params.append(f"%{source.strip()}%")
+            if region.strip():
+                where_parts.append("COALESCE(fl.region, '') ILIKE %s")
+                params.append(f"%{region.strip()}%")
+            if method.strip():
+                where_parts.append("COALESCE(fl.method, '') ILIKE %s")
+                params.append(f"%{method.strip()}%")
 
-            where_parts.append(f"({d_archived} IS NULL OR {d_archived} = FALSE)")
             where_sql = " AND ".join(where_parts)
-            params.append(limit)
-
-            select_cols = [
-                "fl.db_id",
-                f"{_fl_col('original_id')} AS original_id",
-                "d.name AS dataset",
-                f"{_d_col('analysis_type')} AS analysis_type",
-                f"{d_country} AS country",
-                f"{fl_year} AS year",
-                "fl.scope",
-                f"{fl_category} AS category",
-                f"{fl_level_1} AS level_1",
-                f"{_fl_col('level_2')} AS level_2",
-                f"{_fl_col('level_3')} AS level_3",
-                f"{_fl_col('level_4')} AS level_4",
-                "fl.column_text",
-                "fl.uom",
-                f"{_fl_col('ghg_unit')} AS ghg_unit",
-                "fl.factor",
-                f"{fl_report_label} AS report_label",
-            ]
-            select_sql = ",\n                       ".join(select_cols)
-
+            params.append(int(limit))
             df = con.execute(
                 f"""
-                SELECT {select_sql}
+                SELECT
+                    fl.db_id,
+                    fl.dataset_id,
+                    d.name AS dataset,
+                    d.analysis_type,
+                    d.country,
+                    fl.year,
+                    fl.file_name,
+                    fl.original_id,
+                    fl.scope,
+                    fl.category,
+                    fl.level_1,
+                    fl.level_2,
+                    fl.level_3,
+                    fl.level_4,
+                    fl.column_text,
+                    fl.report_label,
+                    fl.uom,
+                    fl.ghg_unit,
+                    fl.factor,
+                    fl.source,
+                    fl.region,
+                    fl.currency,
+                    fl.method,
+                    fl.valid_from,
+                    fl.valid_to
                 FROM factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE {where_sql}
-                ORDER BY year DESC NULLS LAST, COALESCE(category, level_1), fl.column_text
+                ORDER BY d.year DESC NULLS LAST, d.name, COALESCE(fl.category, fl.level_1), fl.column_text, fl.original_id
                 LIMIT %s
                 """,
                 params,
             ).df()
-        
+
         items: list[dict] = []
         if df is not None and not df.empty:
             # pandas turns SQL NULL numerics into NaN, which is not JSON-serialisable
             # and would otherwise escape the try/except during response encoding.
             safe_df = df.astype(object).where(df.notna(), None)
             for record in safe_df.to_dict(orient="records"):
-                clean: dict = {}
-                for key, value in record.items():
-                    if value is None:
-                        clean[key] = None
-                    elif isinstance(value, float) and (value != value):  # NaN
-                        clean[key] = None
-                    elif hasattr(value, "item"):  # numpy scalar → Python scalar
-                        try:
-                            clean[key] = value.item()
-                        except Exception:
-                            clean[key] = str(value)
-                    else:
-                        clean[key] = value
-                items.append(clean)
+                items.append(_serialize_factor_row(record))
 
         return {"items": items, "count": len(items)}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to search factors: {e}")
+
+
+@router.post("/datasets/{dataset_id}/factors")
+def create_factor_row(
+    dataset_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_factor_lookup_schema(con)
+            dataset_row = con.execute(
+                "SELECT dataset_id, name, analysis_type, country, year FROM datasets WHERE dataset_id = %s",
+                [int(dataset_id)],
+            ).fetchone()
+            if not dataset_row:
+                raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+
+            original_id = str(body.get("original_id") or "").strip()
+            scope = str(body.get("scope") or "").strip()
+            factor_val = body.get("factor")
+            if not original_id:
+                raise HTTPException(status_code=400, detail="original_id is required")
+            if not scope:
+                raise HTTPException(status_code=400, detail="scope is required")
+            if factor_val is None or str(factor_val).strip() == "":
+                raise HTTPException(status_code=400, detail="factor is required")
+
+            row = con.execute(
+                """
+                INSERT INTO factor_lookup (
+                    dataset_id, file_name, year, original_id, scope,
+                    category, level_1, level_2, level_3, level_4,
+                    column_text, report_label, uom, ghg_unit, factor,
+                    source, region, currency, method, valid_from, valid_to
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING db_id
+                """,
+                [
+                    int(dataset_id),
+                    str(body.get("file_name") or "").strip() or None,
+                    int(body.get("year")) if body.get("year") is not None and str(body.get("year")).strip() != "" else int(dataset_row[4]) if dataset_row[4] is not None else None,
+                    original_id,
+                    scope,
+                    str(body.get("category") or "").strip() or None,
+                    str(body.get("level_1") or "").strip() or None,
+                    str(body.get("level_2") or "").strip() or None,
+                    str(body.get("level_3") or "").strip() or None,
+                    str(body.get("level_4") or "").strip() or None,
+                    str(body.get("column_text") or "").strip() or None,
+                    str(body.get("report_label") or "").strip() or None,
+                    str(body.get("uom") or "").strip() or None,
+                    str(body.get("ghg_unit") or "").strip() or None,
+                    float(factor_val),
+                    str(body.get("source") or "").strip() or None,
+                    str(body.get("region") or "").strip() or None,
+                    str(body.get("currency") or "").strip() or None,
+                    str(body.get("method") or "").strip() or None,
+                    str(body.get("valid_from") or "").strip() or None,
+                    str(body.get("valid_to") or "").strip() or None,
+                ],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to create factor row")
+            factor_row = _load_factor_row(con, int(row[0]))
+            if not factor_row:
+                raise HTTPException(status_code=500, detail="Failed to load created factor row")
+            return {"ok": True, "item": factor_row}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create factor row: {e}")
+
+
+@router.patch("/factors/{db_id}")
+def update_factor_row(
+    db_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_factor_lookup_schema(con)
+            exists = con.execute("SELECT db_id, dataset_id FROM factor_lookup WHERE db_id = %s", [int(db_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail=f"Factor row {db_id} not found")
+
+            updates: list[str] = []
+            params: list[Any] = []
+            for key in [
+                "dataset_id",
+                "file_name",
+                "year",
+                "original_id",
+                "scope",
+                "category",
+                "level_1",
+                "level_2",
+                "level_3",
+                "level_4",
+                "column_text",
+                "report_label",
+                "uom",
+                "ghg_unit",
+                "factor",
+                "source",
+                "region",
+                "currency",
+                "method",
+                "valid_from",
+                "valid_to",
+            ]:
+                if key not in body:
+                    continue
+                value = body.get(key)
+                if key in ("dataset_id", "year") and value is not None and str(value).strip() != "":
+                    value = int(value)
+                elif key == "factor" and value is not None and str(value).strip() != "":
+                    value = float(value)
+                else:
+                    value = str(value).strip() if value is not None else None
+                    if value == "":
+                        value = None
+                updates.append(f"{key} = %s")
+                params.append(value)
+
+            if not updates:
+                return {"ok": True, "message": "No fields to update"}
+
+            params.append(int(db_id))
+            con.execute(f"UPDATE factor_lookup SET {', '.join(updates)} WHERE db_id = %s", params)
+            factor_row = _load_factor_row(con, int(db_id))
+            if not factor_row:
+                raise HTTPException(status_code=500, detail="Failed to reload updated factor row")
+            return {"ok": True, "item": factor_row}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update factor row: {e}")
 
 
 # =========================

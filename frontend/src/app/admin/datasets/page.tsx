@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,16 +60,30 @@ type Dataset = {
 
 type Factor = {
   db_id: number;
-  original_id: string;
+  dataset_id: number | null;
   dataset: string;
+  analysis_type?: string | null;
+  country?: string | null;
+  year?: number | null;
+  file_name?: string | null;
+  original_id: string;
   scope: string;
   category?: string | null;
   level_1?: string | null;
+  level_2?: string | null;
+  level_3?: string | null;
+  level_4?: string | null;
   column_text: string;
   report_label: string;
   factor: number;
   uom: string;
   ghg_unit: string;
+  source?: string | null;
+  region?: string | null;
+  currency?: string | null;
+  method?: string | null;
+  valid_from?: string | null;
+  valid_to?: string | null;
 };
 
 type UploadRejectedRow = {
@@ -91,6 +105,21 @@ type WorkbookImportSheetSummary = {
   blocked_rows: number;
   rejected_rows: number;
   message?: string;
+};
+
+type FactorUploadResponse = {
+  detail?: { message?: string } | string;
+  message?: string;
+  factors_imported?: number;
+  rows_rejected?: number;
+  deleted_rows?: number;
+  rejected_details?: UploadRejectedRow[];
+};
+
+type WorkbookImportResponse = {
+  detail?: { message?: string } | string;
+  message?: string;
+  sheets?: WorkbookImportSheetSummary[];
 };
 
 export default function DatasetsPage() {
@@ -118,6 +147,47 @@ export default function DatasetsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [factorCountry, setFactorCountry] = useState<string>("");
   const [factorYear, setFactorYear] = useState<string>("");
+  const [factorDatasetFilter, setFactorDatasetFilter] = useState<string>("");
+  const [factorDbIdFilter, setFactorDbIdFilter] = useState<string>("");
+  const [factorScopeFilter, setFactorScopeFilter] = useState<string>("");
+  const [factorReportLabelFilter, setFactorReportLabelFilter] = useState<string>("");
+  const [factorOriginalIdFilter, setFactorOriginalIdFilter] = useState<string>("");
+  const [factorCategoryFilter, setFactorCategoryFilter] = useState<string>("");
+  const [factorLevel1Filter, setFactorLevel1Filter] = useState<string>("");
+  const [factorLevel2Filter, setFactorLevel2Filter] = useState<string>("");
+  const [factorLevel3Filter, setFactorLevel3Filter] = useState<string>("");
+  const [factorLevel4Filter, setFactorLevel4Filter] = useState<string>("");
+  const [factorColumnTextFilter, setFactorColumnTextFilter] = useState<string>("");
+  const [factorUomFilter, setFactorUomFilter] = useState<string>("");
+  const [factorGhgUnitFilter, setFactorGhgUnitFilter] = useState<string>("");
+  const [factorSourceFilter, setFactorSourceFilter] = useState<string>("");
+  const [factorRegionFilter, setFactorRegionFilter] = useState<string>("");
+  const [factorMethodFilter, setFactorMethodFilter] = useState<string>("");
+  const [factorDbId, setFactorDbId] = useState<string>("");
+  const [factorDatasetRef, setFactorDatasetRef] = useState<string>("");
+  const [factorEditorYear, setFactorEditorYear] = useState<string>("");
+  const [factorFileName, setFactorFileName] = useState<string>("");
+  const [factorScope, setFactorScope] = useState<string>("");
+  const [factorReportLabel, setFactorReportLabel] = useState<string>("");
+  const [factorOriginalId, setFactorOriginalId] = useState<string>("");
+  const [factorCategory, setFactorCategory] = useState<string>("");
+  const [factorLevel1, setFactorLevel1] = useState<string>("");
+  const [factorLevel2, setFactorLevel2] = useState<string>("");
+  const [factorLevel3, setFactorLevel3] = useState<string>("");
+  const [factorLevel4, setFactorLevel4] = useState<string>("");
+  const [factorColumnText, setFactorColumnText] = useState<string>("");
+  const [factorUom, setFactorUom] = useState<string>("");
+  const [factorGhgUnit, setFactorGhgUnit] = useState<string>("");
+  const [factorSource, setFactorSource] = useState<string>("");
+  const [factorRegion, setFactorRegion] = useState<string>("");
+  const [factorCurrency, setFactorCurrency] = useState<string>("");
+  const [factorMethod, setFactorMethod] = useState<string>("");
+  const [factorValidFrom, setFactorValidFrom] = useState<string>("");
+  const [factorValidTo, setFactorValidTo] = useState<string>("");
+  const [factorValue, setFactorValue] = useState<string>("");
+  const [factorEditorStatus, setFactorEditorStatus] = useState<string>("");
+  const [editingFactor, setEditingFactor] = useState<Factor | null>(null);
+  const [factorSaving, setFactorSaving] = useState(false);
   
   // Dataset filters
   const [filterCountry, setFilterCountry] = useState<string>("");
@@ -125,7 +195,6 @@ export default function DatasetsPage() {
   
   // Edit mode
   const [editingDataset, setEditingDataset] = useState<Dataset | null>(null);
-  const [showEditDialog, setShowEditDialog] = useState(false);
   
   // File upload
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -139,11 +208,7 @@ export default function DatasetsPage() {
   const [workbookStatus, setWorkbookStatus] = useState("");
   const [workbookSheets, setWorkbookSheets] = useState<WorkbookImportSheetSummary[]>([]);
 
-  useEffect(() => {
-    loadDatasets();
-  }, [baseUrl]);
-
-  async function loadDatasets() {
+  const loadDatasets = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetchWithAuth(`${baseUrl}/admin/datasets`);
@@ -158,62 +223,216 @@ export default function DatasetsPage() {
     } finally {
       setLoading(false);
     }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    loadDatasets();
+  }, [loadDatasets]);
+
+  function factorDatasetOption(ds: Dataset): string {
+    const parts = [
+      String(ds.dataset_id),
+      `[${ds.year || "-"}]`,
+      ds.name,
+      ds.country ? `(${ds.country})` : "",
+      ds.archived ? "(archived)" : "",
+    ].filter(Boolean);
+    return parts.join(" | ");
+  }
+
+  function parseDatasetIdRef(value: string): number | null {
+    const text = String(value || "").trim();
+    if (!text) return null;
+    const first = text.split("|")[0].trim();
+    const parsed = Number(first);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function resetFactorEditor() {
+    setEditingFactor(null);
+    setFactorDatasetRef("");
+    setFactorEditorYear("");
+    setFactorFileName("");
+    setFactorDbId("");
+    setFactorScope("");
+    setFactorReportLabel("");
+    setFactorOriginalId("");
+    setFactorCategory("");
+    setFactorLevel1("");
+    setFactorLevel2("");
+    setFactorLevel3("");
+    setFactorLevel4("");
+    setFactorColumnText("");
+    setFactorUom("");
+    setFactorGhgUnit("");
+    setFactorSource("");
+    setFactorRegion("");
+    setFactorCurrency("");
+    setFactorMethod("");
+    setFactorValidFrom("");
+    setFactorValidTo("");
+    setFactorValue("");
+    setFactorEditorStatus("");
+  }
+
+  function startCreateFactor() {
+    resetFactorEditor();
+    const latestDataset = [...datasets].sort((a, b) => Number(b.year || 0) - Number(a.year || 0) || a.name.localeCompare(b.name))[0];
+    if (latestDataset) {
+      setFactorDatasetRef(factorDatasetOption(latestDataset));
+      setFactorEditorYear(String(latestDataset.year || ""));
+      setFactorFileName(latestDataset.name || "");
+      setFactorEditorStatus(`Creating a row for ${latestDataset.name}.`);
+    }
+    window.setTimeout(() => {
+      document.getElementById("factor-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function syncFactorEditorDataset(value: string) {
+    setFactorDatasetRef(value);
+    const datasetId = parseDatasetIdRef(value);
+    const ds = datasetId ? factorDatasetLookup.get(String(datasetId)) : null;
+    if (!ds) return;
+    if (!factorEditorYear && ds.year) {
+      setFactorEditorYear(String(ds.year));
+    }
+    if (!factorFileName && ds.name) {
+      setFactorFileName(ds.name);
+    }
+  }
+
+  function startEditFactor(factor: Factor) {
+    setEditingFactor(factor);
+    setFactorDbId(String(factor.db_id));
+    const datasetRef = factorDatasetOption(
+      {
+        dataset_id: factor.dataset_id || 0,
+        name: factor.dataset || `Dataset ${factor.dataset_id ?? "-"}`,
+        source: "",
+        analysis_type: factor.analysis_type || "",
+        country: factor.country || "",
+        year: factor.year || new Date().getFullYear(),
+        version: "",
+        valid_from: factor.valid_from || "",
+        valid_to: factor.valid_to || "",
+        archived: false,
+      } as Dataset
+    );
+    setFactorDatasetRef(datasetRef);
+    setFactorFileName(factor.file_name || "");
+    setFactorEditorYear(factor.year ? String(factor.year) : "");
+    setFactorScope(factor.scope || "");
+    setFactorReportLabel(factor.report_label || "");
+    setFactorOriginalId(factor.original_id || "");
+    setFactorCategory(factor.category || "");
+    setFactorLevel1(factor.level_1 || "");
+    setFactorLevel2(factor.level_2 || "");
+    setFactorLevel3(factor.level_3 || "");
+    setFactorLevel4(factor.level_4 || "");
+    setFactorColumnText(factor.column_text || "");
+    setFactorUom(factor.uom || "");
+    setFactorGhgUnit(factor.ghg_unit || "");
+    setFactorSource(factor.source || "");
+    setFactorRegion(factor.region || "");
+    setFactorCurrency(factor.currency || "");
+    setFactorMethod(factor.method || "");
+    setFactorValidFrom(factor.valid_from || "");
+    setFactorValidTo(factor.valid_to || "");
+    setFactorValue(factor.factor != null ? String(factor.factor) : "");
+    setFactorEditorStatus(`Editing factor row ${factor.db_id}.`);
+    window.setTimeout(() => {
+      document.getElementById("factor-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  }
+
+  function buildFactorPayload(): Record<string, unknown> | null {
+    const dataset_id = parseDatasetIdRef(factorDatasetRef);
+    if (!dataset_id) {
+      setFactorEditorStatus("Please choose a dataset.");
+      return null;
+    }
+    if (!factorOriginalId.trim()) {
+      setFactorEditorStatus("Original ID is required.");
+      return null;
+    }
+    if (!factorScope.trim()) {
+      setFactorEditorStatus("Scope is required.");
+      return null;
+    }
+    if (factorEditorYear.trim() && !Number.isFinite(Number(factorEditorYear))) {
+      setFactorEditorStatus("Year must be numeric.");
+      return null;
+    }
+    const factorNum = Number(factorValue);
+    if (!Number.isFinite(factorNum)) {
+      setFactorEditorStatus("Factor must be a number.");
+      return null;
+    }
+    return {
+      dataset_id,
+      file_name: factorFileName.trim() || null,
+      year: factorEditorYear ? Number(factorEditorYear) : null,
+      original_id: factorOriginalId.trim(),
+      scope: factorScope.trim(),
+      category: factorCategory.trim() || null,
+      level_1: factorLevel1.trim() || null,
+      level_2: factorLevel2.trim() || null,
+      level_3: factorLevel3.trim() || null,
+      level_4: factorLevel4.trim() || null,
+      column_text: factorColumnText.trim() || null,
+      report_label: factorReportLabel.trim() || null,
+      factor: factorNum,
+      uom: factorUom.trim() || null,
+      ghg_unit: factorGhgUnit.trim() || null,
+      source: factorSource.trim() || null,
+      region: factorRegion.trim() || null,
+      currency: factorCurrency.trim() || null,
+      method: factorMethod.trim() || null,
+      valid_from: factorValidFrom || null,
+      valid_to: factorValidTo || null,
+    };
+  }
+
+  async function saveFactorRow() {
+    const payload = buildFactorPayload();
+    if (!payload) return;
+    const datasetId = Number(payload.dataset_id);
+    const endpoint = editingFactor
+      ? `${baseUrl}/admin/factors/${editingFactor.db_id}`
+      : `${baseUrl}/admin/datasets/${datasetId}/factors`;
+
+    setFactorSaving(true);
+    setFactorEditorStatus(editingFactor ? "Updating factor row..." : "Creating factor row...");
+    setStatus(editingFactor ? "Updating factor row..." : "Creating factor row...");
+
+    try {
+      const res = await fetchWithAuth(endpoint, {
+        method: editingFactor ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed: ${res.status}`));
+      }
+
+      setStatus(editingFactor ? "Factor row updated successfully!" : "Factor row created successfully!");
+      setFactorEditorStatus(editingFactor ? "Factor row updated successfully." : "Factor row created successfully.");
+      await Promise.all([loadDatasets(), searchFactors()]);
+      resetFactorEditor();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      const message = (e as Error).message;
+      setStatus(`Error: ${message}`);
+      setFactorEditorStatus(`Error: ${message}`);
+    } finally {
+      setFactorSaving(false);
+    }
   }
 
   async function uploadFactors(datasetId: number) {
-    if (!uploadFile) {
-      setUploadStatus("Please select a file");
-      return;
-    }
-
-    console.log("Starting upload for dataset:", datasetId, "File:", uploadFile.name);
-    setUploadingDatasetId(datasetId);
-    setUploadProgress(0);
-    setUploadStatus("📤 Uploading file...");
-
-    try {
-      const formData = new FormData();
-      formData.append("file", uploadFile);
-
-      console.log("Sending request to:", `${baseUrl}/admin/datasets/${datasetId}/upload-factors`);
-      
-      // Update status to show processing
-      setTimeout(() => {
-        if (uploadingDatasetId === datasetId) {
-          setUploadStatus("⚙️ Processing CSV and importing factors... This may take a moment for large files.");
-        }
-      }, 500);
-
-      const res = await uploadFormDataWithProgress(`${baseUrl}/admin/datasets/${datasetId}/upload-factors?replace=true`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-        onProgress: ({ percent }) => setUploadProgress(percent),
-      });
-
-      console.log("Response status:", res.status, res.statusText);
-
-      if (res.ok) {
-        const json = await res.json();
-        console.log("Upload response:", json);
-        setUploadStatus(`✓ Success! Imported ${json.factors_imported} factors`);
-        setUploadFile(null);
-        setUploadingDatasetId(null);
-        await loadDatasets();
-      } else {
-        const text = await res.text();
-        console.error("Upload failed:", res.status, text);
-        setUploadStatus(`✗ Upload failed (${res.status}): ${text}`);
-        setUploadingDatasetId(null);
-      }
-    } catch (e) {
-      console.error("Upload error:", e);
-      setUploadStatus(`✗ Error: ${(e as Error).message}`);
-      setUploadingDatasetId(null);
-      setUploadProgress(0);
-    }
+    return uploadFactorsWithReport(datasetId);
   }
-
   async function uploadFactorsWithReport(datasetId: number) {
     if (!uploadFile) {
       setUploadStatus("Please select a file");
@@ -236,9 +455,9 @@ export default function DatasetsPage() {
       });
 
       const text = await res.text();
-      let payload: any = null;
+      let payload: FactorUploadResponse | null = null;
       try {
-        payload = JSON.parse(text);
+        payload = JSON.parse(text) as FactorUploadResponse;
       } catch {}
 
       if (!res.ok) {
@@ -294,9 +513,9 @@ export default function DatasetsPage() {
       });
 
       const text = await res.text();
-      let payload: any = null;
+      let payload: WorkbookImportResponse | null = null;
       try {
-        payload = JSON.parse(text);
+        payload = JSON.parse(text) as WorkbookImportResponse;
       } catch {}
 
       if (!res.ok) {
@@ -310,7 +529,7 @@ export default function DatasetsPage() {
         return;
       }
 
-      const sheets = Array.isArray(payload?.sheets) ? (payload.sheets as WorkbookImportSheetSummary[]) : [];
+      const sheets = Array.isArray(payload?.sheets) ? payload.sheets : [];
       setWorkbookSheets(sheets);
       setWorkbookStatus(payload?.message || "Workbook imported successfully.");
       setWorkbookFile(null);
@@ -376,8 +595,25 @@ export default function DatasetsPage() {
     try {
       const params = new URLSearchParams();
       params.set("q", searchQuery);
+      if (factorDbIdFilter) params.set("db_id", factorDbIdFilter);
+      const datasetFilterId = parseDatasetIdRef(factorDatasetFilter);
+      if (datasetFilterId) params.set("dataset_id", String(datasetFilterId));
       if (factorCountry) params.set("country", factorCountry);
       if (factorYear) params.set("year", factorYear);
+      if (factorScopeFilter) params.set("scope", factorScopeFilter);
+      if (factorReportLabelFilter) params.set("report_label", factorReportLabelFilter);
+      if (factorOriginalIdFilter) params.set("original_id", factorOriginalIdFilter);
+      if (factorCategoryFilter) params.set("category", factorCategoryFilter);
+      if (factorLevel1Filter) params.set("level_1", factorLevel1Filter);
+      if (factorLevel2Filter) params.set("level_2", factorLevel2Filter);
+      if (factorLevel3Filter) params.set("level_3", factorLevel3Filter);
+      if (factorLevel4Filter) params.set("level_4", factorLevel4Filter);
+      if (factorColumnTextFilter) params.set("column_text", factorColumnTextFilter);
+      if (factorUomFilter) params.set("uom", factorUomFilter);
+      if (factorGhgUnitFilter) params.set("ghg_unit", factorGhgUnitFilter);
+      if (factorSourceFilter) params.set("source", factorSourceFilter);
+      if (factorRegionFilter) params.set("region", factorRegionFilter);
+      if (factorMethodFilter) params.set("method", factorMethodFilter);
       params.set("limit", "100");
 
       const res = await fetchWithAuth(`${baseUrl}/admin/factors?${params.toString()}`);
@@ -390,6 +626,30 @@ export default function DatasetsPage() {
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
     }
+  }
+
+  function clearFactorFilters() {
+    setSearchQuery("");
+    setFactorDbIdFilter("");
+    setFactorDatasetFilter("");
+    setFactorCountry("");
+    setFactorYear("");
+    setFactorScopeFilter("");
+    setFactorReportLabelFilter("");
+    setFactorOriginalIdFilter("");
+    setFactorCategoryFilter("");
+    setFactorLevel1Filter("");
+    setFactorLevel2Filter("");
+    setFactorLevel3Filter("");
+    setFactorLevel4Filter("");
+    setFactorColumnTextFilter("");
+    setFactorUomFilter("");
+    setFactorGhgUnitFilter("");
+    setFactorSourceFilter("");
+    setFactorRegionFilter("");
+    setFactorMethodFilter("");
+    setFactors([]);
+    setStatus("Factor search filters cleared.");
   }
 
   async function downloadDataset(datasetId: number, datasetName: string) {
@@ -427,7 +687,6 @@ export default function DatasetsPage() {
     setVersion(dataset.version || "v1");
     setValidFrom(dataset.valid_from || "");
     setValidTo(dataset.valid_to || "");
-    setShowEditDialog(true);
   }
 
   async function updateDataset() {
@@ -455,7 +714,6 @@ export default function DatasetsPage() {
       }
 
       setStatus("Dataset updated successfully!");
-      setShowEditDialog(false);
       setEditingDataset(null);
       clearForm();
       loadDatasets();
@@ -537,6 +795,16 @@ export default function DatasetsPage() {
 
   const filterCountryOptions = useMemo(() => datasetCountries, [datasetCountries]);
 
+  const factorDatasetOptions = useMemo(() => {
+    return [...datasets]
+      .sort((a, b) => Number(b.year || 0) - Number(a.year || 0) || a.name.localeCompare(b.name))
+      .map((ds) => factorDatasetOption(ds));
+  }, [datasets]);
+
+  const factorDatasetLookup = useMemo(() => {
+    return new Map(datasets.map((ds) => [String(ds.dataset_id), ds]));
+  }, [datasets]);
+
   const allYearOptions = useMemo(() => {
     const years = Array.from(
       new Set(datasets.map((ds) => ds.year).filter((value): value is number => Number.isFinite(value)))
@@ -549,28 +817,6 @@ export default function DatasetsPage() {
   const factorYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
 
   const filterYearOptions = useMemo(() => allYearOptions, [allYearOptions]);
-
-  useEffect(() => {
-    if (!factorCountry) {
-      if (factorYear && !factorYearOptions.includes(factorYear)) {
-        setFactorYear("");
-      }
-      return;
-    }
-
-    if (!factorYear) {
-      const latest = factorYearOptions[0];
-      if (latest) {
-        setFactorYear(latest);
-      }
-      return;
-    }
-
-    if (!factorYearOptions.includes(factorYear)) {
-      const latest = factorYearOptions[0];
-      setFactorYear(latest || "");
-    }
-  }, [factorCountry, factorYear, factorYearOptions]);
 
   // Filter and group datasets
   const filteredDatasets = useMemo(() => {
@@ -631,15 +877,15 @@ export default function DatasetsPage() {
           <CardHeader>
             <CardTitle>Search Conversion Factors</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="space-y-2 md:col-span-2">
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="space-y-2 lg:col-span-2">
                 <Label htmlFor="searchQuery">Search Text</Label>
                 <Input
                   id="searchQuery"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search factors..."
+                  placeholder="Search labels, descriptors, IDs, notes..."
                   onKeyDown={(e) => {
                     if (e.key === "Enter") searchFactors();
                   }}
@@ -647,42 +893,241 @@ export default function DatasetsPage() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="factorDbIdFilter">DB ID</Label>
+                <Input
+                  id="factorDbIdFilter"
+                  value={factorDbIdFilter}
+                  onChange={(e) => setFactorDbIdFilter(e.target.value)}
+                  placeholder="12345"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="factorDatasetFilter">Dataset</Label>
+                <SearchableStringSelect
+                  id="factorDatasetFilter"
+                  value={factorDatasetFilter}
+                  options={factorDatasetOptions}
+                  placeholder="All datasets"
+                  showClearButton
+                  onValueChange={setFactorDatasetFilter}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="factorCountry">Country</Label>
-                <div className="w-full max-w-[180px]">
-                    <SearchableStringSelect
-                      id="factorCountry"
-                      value={factorCountry}
-                      options={factorCountryOptions}
-                      placeholder="All Countries"
-                      showClearButton
-                      optionBadges={countryDatasetCounts}
-                      onValueChange={setFactorCountry}
-                    />
-                  </div>
+                <SearchableStringSelect
+                  id="factorCountry"
+                  value={factorCountry}
+                  options={factorCountryOptions}
+                  placeholder="All Countries"
+                  showClearButton
+                  optionBadges={countryDatasetCounts}
+                  onValueChange={setFactorCountry}
+                />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="factorYear">Year</Label>
-                <div className="w-full max-w-[150px]">
-                    <SearchableStringSelect
-                      id="factorYear"
-                      value={factorYear}
-                      options={factorYearOptions}
-                      placeholder="All Years"
-                      showClearButton
-                      onValueChange={setFactorYear}
-                    />
-                  </div>
+                <SearchableStringSelect
+                  id="factorYear"
+                  value={factorYear}
+                  options={factorYearOptions}
+                  placeholder="All Years"
+                  showClearButton
+                  onValueChange={setFactorYear}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="factorScopeFilter">Scope</Label>
+                <Input
+                  id="factorScopeFilter"
+                  value={factorScopeFilter}
+                  onChange={(e) => setFactorScopeFilter(e.target.value)}
+                  placeholder="Scope 1 / Scope 2 / Scope 3"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
               </div>
             </div>
 
-            <Button onClick={searchFactors} className="w-full">
-              Search Factors
-            </Button>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="factorReportLabelFilter">Report Label</Label>
+                <Input
+                  id="factorReportLabelFilter"
+                  value={factorReportLabelFilter}
+                  onChange={(e) => setFactorReportLabelFilter(e.target.value)}
+                  placeholder="Report label..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorOriginalIdFilter">Original ID</Label>
+                <Input
+                  id="factorOriginalIdFilter"
+                  value={factorOriginalIdFilter}
+                  onChange={(e) => setFactorOriginalIdFilter(e.target.value)}
+                  placeholder="Factor ID..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorCategoryFilter">Category</Label>
+                <Input
+                  id="factorCategoryFilter"
+                  value={factorCategoryFilter}
+                  onChange={(e) => setFactorCategoryFilter(e.target.value)}
+                  placeholder="Category..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel1Filter">Level 1</Label>
+                <Input
+                  id="factorLevel1Filter"
+                  value={factorLevel1Filter}
+                  onChange={(e) => setFactorLevel1Filter(e.target.value)}
+                  placeholder="Level 1..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel2Filter">Level 2</Label>
+                <Input
+                  id="factorLevel2Filter"
+                  value={factorLevel2Filter}
+                  onChange={(e) => setFactorLevel2Filter(e.target.value)}
+                  placeholder="Level 2..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel3Filter">Level 3</Label>
+                <Input
+                  id="factorLevel3Filter"
+                  value={factorLevel3Filter}
+                  onChange={(e) => setFactorLevel3Filter(e.target.value)}
+                  placeholder="Level 3..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel4Filter">Level 4</Label>
+                <Input
+                  id="factorLevel4Filter"
+                  value={factorLevel4Filter}
+                  onChange={(e) => setFactorLevel4Filter(e.target.value)}
+                  placeholder="Level 4..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorColumnTextFilter">Column Text</Label>
+                <Input
+                  id="factorColumnTextFilter"
+                  value={factorColumnTextFilter}
+                  onChange={(e) => setFactorColumnTextFilter(e.target.value)}
+                  placeholder="Column text..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorUomFilter">UoM</Label>
+                <Input
+                  id="factorUomFilter"
+                  value={factorUomFilter}
+                  onChange={(e) => setFactorUomFilter(e.target.value)}
+                  placeholder="Unit..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorGhgUnitFilter">GHG Unit</Label>
+                <Input
+                  id="factorGhgUnitFilter"
+                  value={factorGhgUnitFilter}
+                  onChange={(e) => setFactorGhgUnitFilter(e.target.value)}
+                  placeholder="kgCO2e..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorSourceFilter">Source</Label>
+                <Input
+                  id="factorSourceFilter"
+                  value={factorSourceFilter}
+                  onChange={(e) => setFactorSourceFilter(e.target.value)}
+                  placeholder="Source..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorRegionFilter">Region</Label>
+                <Input
+                  id="factorRegionFilter"
+                  value={factorRegionFilter}
+                  onChange={(e) => setFactorRegionFilter(e.target.value)}
+                  placeholder="Region..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorMethodFilter">Method</Label>
+                <Input
+                  id="factorMethodFilter"
+                  value={factorMethodFilter}
+                  onChange={(e) => setFactorMethodFilter(e.target.value)}
+                  placeholder="Method..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") searchFactors();
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={searchFactors}>Search Factors</Button>
+              <Button type="button" variant="secondary" onClick={clearFactorFilters}>
+                Clear Filters
+              </Button>
+              <Button type="button" variant="outline" onClick={startCreateFactor}>
+                Add Factor Row
+              </Button>
+            </div>
 
             <div className="text-xs text-muted-foreground">
-              Use country and year to narrow the conversion factor search before applying the text query. The year list
-              shows all available dataset years; country still narrows the results.
+              Search is smart across labels, IDs, notes, and metadata. Use the filters to narrow by exact dataset,
+              scope, report label, or any other column before editing the row.
             </div>
 
             {factors.length > 0 && (
@@ -690,33 +1135,190 @@ export default function DatasetsPage() {
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-muted">
                     <tr>
+                      <th className="p-2 text-left">DB ID</th>
                       <th className="p-2 text-left">ID</th>
                       <th className="p-2 text-left">Dataset</th>
                       <th className="p-2 text-left">Scope</th>
                       <th className="p-2 text-left">Category</th>
-                      <th className="p-2 text-left">Level 1</th>
                       <th className="p-2 text-left">Report Label</th>
                       <th className="p-2 text-right">Factor</th>
                       <th className="p-2 text-left">Unit</th>
+                      <th className="p-2 text-left">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {factors.map((f) => (
                       <tr key={f.db_id} className="border-t">
-                        <td className="p-2 text-muted-foreground text-xs">{f.original_id}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{f.db_id}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{f.original_id}</td>
                         <td className="p-2">{f.dataset}</td>
                         <td className="p-2">{f.scope}</td>
                         <td className="p-2">{f.category || "-"}</td>
-                        <td className="p-2">{f.level_1 || "-"}</td>
                         <td className="p-2">{f.report_label || f.column_text}</td>
                         <td className="p-2 text-right">{f.factor}</td>
-                        <td className="p-2">{f.ghg_unit}</td>
+                        <td className="p-2">{f.ghg_unit || f.uom || "-"}</td>
+                        <td className="p-2">
+                          <Button type="button" variant="outline" size="sm" onClick={() => startEditFactor(f)}>
+                            Edit
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6 w-full" id="factor-editor">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>{editingFactor ? `Edit Factor Row #${editingFactor.db_id}` : "Add Factor Row"}</CardTitle>
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" onClick={startCreateFactor}>
+                  New Row
+                </Button>
+                <Button type="button" variant="outline" onClick={resetFactorEditor}>
+                  Clear Editor
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {factorEditorStatus && (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                {factorEditorStatus}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor="factorDatasetRef">Dataset</Label>
+                <SearchableStringSelect
+                  id="factorDatasetRef"
+                  value={factorDatasetRef}
+                  options={factorDatasetOptions}
+                  placeholder="Select a dataset..."
+                  showClearButton
+                  onValueChange={syncFactorEditorDataset}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorDbId">DB ID</Label>
+                <Input
+                  id="factorDbId"
+                  value={factorDbId}
+                  readOnly
+                  placeholder="New row"
+                  className="bg-muted"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorFileName">File Name</Label>
+                <Input id="factorFileName" value={factorFileName} onChange={(e) => setFactorFileName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorEditorYear">Year</Label>
+                <Input
+                  id="factorEditorYear"
+                  value={factorEditorYear}
+                  onChange={(e) => setFactorEditorYear(e.target.value)}
+                  placeholder="2025"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValue">Factor</Label>
+                <Input
+                  id="factorValue"
+                  value={factorValue}
+                  onChange={(e) => setFactorValue(e.target.value)}
+                  placeholder="0.231"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorUom">UoM</Label>
+                <Input id="factorUom" value={factorUom} onChange={(e) => setFactorUom(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorGhgUnit">GHG Unit</Label>
+                <Input id="factorGhgUnit" value={factorGhgUnit} onChange={(e) => setFactorGhgUnit(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="factorOriginalId">Original ID</Label>
+                <Input id="factorOriginalId" value={factorOriginalId} onChange={(e) => setFactorOriginalId(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorScope">Scope</Label>
+                <Input id="factorScope" value={factorScope} onChange={(e) => setFactorScope(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorReportLabel">Report Label</Label>
+                <Input id="factorReportLabel" value={factorReportLabel} onChange={(e) => setFactorReportLabel(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorCategory">Category</Label>
+                <Input id="factorCategory" value={factorCategory} onChange={(e) => setFactorCategory(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel1">Level 1</Label>
+                <Input id="factorLevel1" value={factorLevel1} onChange={(e) => setFactorLevel1(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel2">Level 2</Label>
+                <Input id="factorLevel2" value={factorLevel2} onChange={(e) => setFactorLevel2(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel3">Level 3</Label>
+                <Input id="factorLevel3" value={factorLevel3} onChange={(e) => setFactorLevel3(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorLevel4">Level 4</Label>
+                <Input id="factorLevel4" value={factorLevel4} onChange={(e) => setFactorLevel4(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorColumnText">Column Text</Label>
+                <Input id="factorColumnText" value={factorColumnText} onChange={(e) => setFactorColumnText(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorSource">Source</Label>
+                <Input id="factorSource" value={factorSource} onChange={(e) => setFactorSource(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorRegion">Region</Label>
+                <Input id="factorRegion" value={factorRegion} onChange={(e) => setFactorRegion(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorCurrency">Currency</Label>
+                <Input id="factorCurrency" value={factorCurrency} onChange={(e) => setFactorCurrency(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorMethod">Method</Label>
+                <Input id="factorMethod" value={factorMethod} onChange={(e) => setFactorMethod(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValidFrom">Valid From</Label>
+                <Input id="factorValidFrom" type="date" value={factorValidFrom} onChange={(e) => setFactorValidFrom(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="factorValidTo">Valid To</Label>
+                <Input id="factorValidTo" type="date" value={factorValidTo} onChange={(e) => setFactorValidTo(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={saveFactorRow} disabled={factorSaving}>
+                {factorSaving ? "Saving..." : editingFactor ? "Update Factor Row" : "Create Factor Row"}
+              </Button>
+              {editingFactor && (
+                <Button type="button" variant="outline" onClick={resetFactorEditor}>
+                  Cancel Edit
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -920,7 +1522,7 @@ export default function DatasetsPage() {
                       disabled={uploadingDatasetId === editingDataset.dataset_id}
                     />
                     <Button
-                      onClick={() => uploadFactorsWithReport(editingDataset.dataset_id)}
+                      onClick={() => uploadFactors(editingDataset.dataset_id)}
                       disabled={!uploadFile || uploadingDatasetId === editingDataset.dataset_id}
                     >
                       {uploadingDatasetId === editingDataset.dataset_id ? "Uploading..." : "Upload CSV"}
