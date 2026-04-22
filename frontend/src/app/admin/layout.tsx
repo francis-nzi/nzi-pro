@@ -7,6 +7,18 @@ import { apiUrl } from "@/lib/auth-client";
 
 type AccessState = "loading" | "allowed" | "denied";
 
+function hasAdminAccess(user: Record<string, unknown> | null | undefined): boolean {
+  if (!user) return false;
+  const permissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
+  const role = String(user.role || "").trim().toLowerCase();
+  return (
+    Boolean(user.is_super_admin) ||
+    permissions.includes("admin.access") ||
+    role === "superadmin" ||
+    role === "admin"
+  );
+}
+
 export default function AdminLayout({ children }: PropsWithChildren) {
   const [accessState, setAccessState] = useState<AccessState>("loading");
 
@@ -22,9 +34,7 @@ export default function AdminLayout({ children }: PropsWithChildren) {
         }
         const payload = await res.json().catch(() => ({}));
         const user = payload?.user || {};
-        const permissions = Array.isArray(user?.effective_permissions) ? user.effective_permissions : [];
-        const allowed = Boolean(user?.is_super_admin) || permissions.includes("admin.access");
-        if (!cancelled) setAccessState(allowed ? "allowed" : "denied");
+        if (!cancelled) setAccessState(hasAdminAccess(user) ? "allowed" : "denied");
       } catch {
         if (!cancelled) setAccessState("denied");
       }

@@ -47,6 +47,18 @@ const HELP_LINKS = [
   { label: "Feedback", href: "/feedback" },
 ] as const;
 
+function hasAdminAccessFromPayload(user: Record<string, unknown> | null | undefined): boolean {
+  if (!user) return false;
+  const permissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
+  const role = String(user.role || "").trim().toLowerCase();
+  return (
+    Boolean(user.is_super_admin) ||
+    permissions.includes("admin.access") ||
+    role === "superadmin" ||
+    role === "admin"
+  );
+}
+
 export function MainNav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -75,8 +87,7 @@ export function MainNav() {
             if (res.ok) {
               const payload = await res.json().catch(() => ({}));
               const user = payload?.user || {};
-              const permissions = Array.isArray(user?.effective_permissions) ? user.effective_permissions : [];
-              adminAccess = Boolean(user?.is_super_admin) || permissions.includes("admin.access");
+              adminAccess = hasAdminAccessFromPayload(user);
             }
           } catch {
             adminAccess = false;
