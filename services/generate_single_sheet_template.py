@@ -166,10 +166,20 @@ def generate_single_sheet_template(
 def _load_reference_template_rows(reference_template_path: str | None = None) -> list[dict]:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir)
-    template_path = reference_template_path or os.path.join(project_root, "templates", "NZI Data Upload Template - Standard UK.xlsx")
-
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(f"Reference template not found at: {template_path}")
+    default_template_candidates = [
+        os.path.join(project_root, "templates", "NZI Data Upload Template - Standard UK.xlsx"),
+        os.path.join(project_root, "templates", "NZI Data Upload Template - Standard UK.csv"),
+        os.path.join(project_root, "templates", "NZI Data Upload Template - Basic UK.xlsx"),
+    ]
+    template_path = reference_template_path if reference_template_path and os.path.exists(reference_template_path) else None
+    if template_path is None:
+        for candidate in default_template_candidates:
+            if os.path.exists(candidate):
+                template_path = candidate
+                break
+    if template_path is None:
+        missing_hint = reference_template_path or default_template_candidates[0]
+        raise FileNotFoundError(f"Reference template not found at: {missing_hint}")
 
     factors = []
 
