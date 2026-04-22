@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission, require_permission
 from core.database import get_conn
-from services.permissions import ADMIN_ACCESS_PERMISSION
+from services.permissions import ADMIN_ACCESS_PERMISSION, user_has_permission
 from services.report_actions import (
     action_term_options,
     get_job_report_actions_payload,
@@ -110,7 +110,14 @@ def get_job_report_actions(
     job_id: int,
     _user: dict = Depends(_current_user),
 ):
-    assert_permission(_user, "jobs.view")
+    # Reporting users may need to see the action library even if they are not
+    # full job editors, so allow reporting view, job view, or job edit access.
+    if not (
+        user_has_permission(_user, "jobs.reporting.view")
+        or user_has_permission(_user, "jobs.view")
+        or user_has_permission(_user, "jobs.edit")
+    ):
+        assert_permission(_user, "jobs.reporting.view")
     assert_job_access(_user, int(job_id))
     with get_conn() as con:
         return get_job_report_actions_payload(
