@@ -37,6 +37,10 @@ def _strict_auth_required() -> bool:
     return _env_truthy("ENFORCE_JWT_AUTH", "false")
 
 
+def _mfa_required_for_all_users() -> bool:
+    return _env_truthy("REQUIRE_MFA_FOR_ALL_USERS", "true")
+
+
 def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
     ident = (identifier or "").strip()
     if not ident:
@@ -44,6 +48,23 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
 
     user = get_user_by_id(ident)
     if user and str(user.get("status", "")).strip().lower() == "active":
+        try:
+            with get_conn() as con:
+                row = con.execute(
+                    """
+                    SELECT COALESCE(mfa_enabled, FALSE)
+                    FROM users
+                    WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+                    LIMIT 1
+                    """,
+                    [ident, ident],
+                ).fetchone()
+            if row is not None:
+                user = dict(user)
+                user["mfa_enabled"] = bool(row[0])
+        except Exception:
+            user = dict(user)
+            user["mfa_enabled"] = bool(user.get("mfa_enabled", False))
         return user
 
     try:
@@ -51,7 +72,8 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
             row = con.execute(
                 """
                 SELECT user_id, full_name, role, email, status, COALESCE(must_change_password, FALSE),
-                       accepted_portal_terms_at, accepted_portal_terms_version
+                       accepted_portal_terms_at, accepted_portal_terms_version,
+                       COALESCE(mfa_enabled, FALSE)
                 FROM users
                 WHERE lower(email) = lower(?)
                 LIMIT 1
@@ -77,6 +99,7 @@ def _active_user_from_identifier(identifier: str) -> Optional[Dict[str, str]]:
         "must_change_password": bool(row[5]),
         "accepted_portal_terms_at": row[6].isoformat() if row[6] else None,
         "accepted_portal_terms_version": row[7],
+        "mfa_enabled": bool(row[8]),
     }
 
 
@@ -86,6 +109,16 @@ def _current_user(
     x_user: Optional[str] = Header(default=None, alias="X-User"),
     x_user_email: Optional[str] = Header(default=None, alias="X-User-Email"),
 ) -> Dict[str, str]:
+    allowed_pending_mfa_paths = {
+        "/auth/me",
+        "/auth/account-settings",
+        "/auth/change-password",
+        "/auth/accept-portal-terms",
+        "/auth/mfa/status",
+        "/auth/mfa/setup/start",
+        "/auth/mfa/setup/verify",
+    }
+
     def _enforce_password_change(user: Dict[str, str]) -> Dict[str, str]:
         must_change = bool(user.get("must_change_password"))
         if not must_change:
@@ -94,6 +127,17 @@ def _current_user(
         if path in ("/auth/change-password", "/auth/me"):
             return user
         raise HTTPException(status_code=403, detail="Password change required")
+
+    def _enforce_mfa_setup(user: Dict[str, str]) -> Dict[str, str]:
+        path = request.url.path or ""
+        required = _mfa_required_for_all_users()
+        mfa_enabled = bool(user.get("mfa_enabled"))
+        user["mfa_setup_required"] = bool(required and not mfa_enabled)
+        if not user["mfa_setup_required"]:
+            return user
+        if path in allowed_pending_mfa_paths:
+            return user
+        raise HTTPException(status_code=403, detail="MFA setup required")
 
     secret = os.getenv("NZI_JWT_SECRET", "")
     if _strict_auth_required() and not secret:
@@ -119,7 +163,7 @@ def _current_user(
         if not user:
             raise HTTPException(status_code=401, detail="Unknown or inactive user")
         user = attach_org_id(user)
-        return _enforce_password_change(enrich_user_permissions(user) or user)
+        return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
 
     # Header-based compatibility mode (still strict; no anonymous access)
     ident = (x_user_email or x_user or "").strip()
@@ -136,4 +180,4 @@ def _current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Unknown or inactive user")
     user = attach_org_id(user)
-    return _enforce_password_change(enrich_user_permissions(user) or user)
+    return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))

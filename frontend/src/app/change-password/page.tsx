@@ -2,13 +2,14 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiUrl, clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -49,7 +50,11 @@ export default function ChangePasswordPage() {
 
       setMustChangePassword(false);
       setOk(payload.message || "Password changed.");
-      setTimeout(() => router.replace(mustAcceptPortalTerms() ? "/accept-terms" : "/"), 600);
+      const next = searchParams?.get("next");
+      const fallback = mustAcceptPortalTerms()
+        ? "/accept-terms?next=%2Faccount%2Fsettings%3Fmfa%3Dsetup"
+        : "/account/settings?mfa=setup";
+      setTimeout(() => router.replace(next || fallback), 600);
     } catch {
       setError("Password change request failed. Please try again.");
     } finally {

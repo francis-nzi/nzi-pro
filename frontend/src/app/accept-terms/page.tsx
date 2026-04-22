@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiUrl, clearAuthState, setMustAcceptPortalTerms } from "@/lib/auth-client";
 
 export default function AcceptTermsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -26,7 +27,8 @@ export default function AcceptTermsPage() {
         return;
       }
       setMustAcceptPortalTerms(false);
-      router.replace("/");
+      const next = searchParams?.get("next") || "/account/settings?mfa=setup";
+      router.replace(next);
     } catch {
       setError("Unable to record acceptance. Please try again.");
     } finally {
@@ -40,7 +42,7 @@ export default function AcceptTermsPage() {
         <div className="w-full rounded-xl border bg-card p-6 shadow-sm">
           <h1 className="mb-2 text-2xl font-semibold">Accept Portal Terms</h1>
           <p className="mb-6 text-sm text-muted-foreground">
-            Please review and accept NZI's Portal Terms of Use before continuing into the platform.
+            Please review and accept NZI&apos;s Portal Terms of Use before continuing into the platform.
           </p>
           <div className="space-y-4 rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
             <p>

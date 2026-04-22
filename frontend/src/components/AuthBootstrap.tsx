@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { hasAuthState, installAuthFetchPatch, mustChangePassword } from "@/lib/auth-client";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { apiUrl, hasAuthState, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
+
+function appendNext(path: string, next: string): string {
+  return `${path}?next=${encodeURIComponent(next)}`;
+}
+
+function buildRequiredFlow(nextTarget: string, flags: { mustChangePassword: boolean; mustAcceptPortalTerms: boolean; mfaSetupRequired: boolean }): string {
+  let target = nextTarget;
+  if (flags.mfaSetupRequired) {
+    target = `/account/settings?mfa=setup&next=${encodeURIComponent(target)}`;
+  }
+  if (flags.mustAcceptPortalTerms) {
+    target = appendNext("/accept-terms", target);
+  }
+  if (flags.mustChangePassword) {
+    target = appendNext("/change-password", target);
+  }
+  return target;
+}
 
 export function AuthBootstrap() {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     installAuthFetchPatch();
@@ -15,6 +34,8 @@ export function AuthBootstrap() {
   useEffect(() => {
     const isLoginPage = pathname === "/login";
     const isChangePasswordPage = pathname === "/change-password";
+    const isAcceptTermsPage = pathname === "/accept-terms";
+    const isAccountSettingsPage = pathname === "/account/settings";
     const isPublicPage =
       pathname === "/login" ||
       pathname === "/legal" ||
@@ -23,33 +44,106 @@ export function AuthBootstrap() {
       pathname?.startsWith("/support/legal/");
     const loggedIn = hasAuthState();
     const mustChange = mustChangePassword();
+    const mustAcceptTerms = mustAcceptPortalTerms();
+    const currentNext =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : pathname || "/";
+    const loginNext = searchParams?.get("next") || "/";
+    const desiredNext = isLoginPage ? loginNext : currentNext;
 
     if (!loggedIn && !isPublicPage) {
-      const next = encodeURIComponent(
-        typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : pathname || "/"
-      );
-      router.replace(`/login?next=${next}`);
+      router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
       return;
     }
 
-    if (loggedIn && mustChange && !isChangePasswordPage) {
-      router.replace("/change-password");
-      return;
-    }
+    if (!loggedIn) return;
 
-    if (loggedIn && !mustChange && isChangePasswordPage) {
-      router.replace("/");
-      return;
-    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(apiUrl("/auth/me"), { credentials: "include" });
+        if (cancelled) return;
+        if (!res.ok) {
+          if (isLoginPage) {
+            router.replace(loginNext || "/");
+          }
+          return;
+        }
+        const payload = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const user = payload?.user || {};
+        const needsPasswordChange = Boolean(user?.must_change_password || payload?.must_change_password || mustChange);
+        const needsTerms = Boolean(payload?.must_accept_portal_terms || mustAcceptTerms);
+        const needsMfaSetup = Boolean(user?.mfa_setup_required || payload?.mfa_setup_required);
 
-    if (loggedIn && isLoginPage) {
-      const next =
-        typeof window !== "undefined"
-          ? new URLSearchParams(window.location.search).get("next")
-          : null;
-      router.replace(next || "/");
-    }
-  }, [pathname, router]);
+        if (needsPasswordChange) {
+          if (!isChangePasswordPage) {
+            router.replace(
+              buildRequiredFlow(desiredNext, {
+                mustChangePassword: true,
+                mustAcceptPortalTerms: needsTerms,
+                mfaSetupRequired: needsMfaSetup,
+              })
+            );
+          }
+          return;
+        }
+
+        if (needsTerms) {
+          if (!isAcceptTermsPage) {
+            router.replace(
+              buildRequiredFlow(desiredNext, {
+                mustChangePassword: false,
+                mustAcceptPortalTerms: true,
+                mfaSetupRequired: needsMfaSetup,
+              })
+            );
+          }
+          return;
+        }
+
+        if (needsMfaSetup) {
+          if (!isAccountSettingsPage) {
+            router.replace(`/account/settings?mfa=setup&next=${encodeURIComponent(desiredNext)}`);
+          }
+          return;
+        }
+
+        if (isLoginPage) {
+          router.replace(desiredNext || "/");
+          return;
+        }
+
+        if (isChangePasswordPage && !needsPasswordChange) {
+          router.replace(loginNext || "/");
+          return;
+        }
+
+        if (isAcceptTermsPage && !needsTerms) {
+          router.replace(loginNext || "/");
+          return;
+        }
+      } catch {
+        if (cancelled) return;
+        if (loggedIn && mustChange && !isChangePasswordPage) {
+          router.replace("/change-password");
+          return;
+        }
+        if (loggedIn && mustAcceptTerms && !isAcceptTermsPage) {
+          router.replace("/accept-terms");
+          return;
+        }
+        if (loggedIn && isLoginPage) {
+          router.replace(loginNext || "/");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, router, searchParams]);
 
   return null;
 }

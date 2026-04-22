@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { setAuthState } from "@/lib/auth-client";
 
 type EmailSignatureEditorProps = {
   value: string;
@@ -87,6 +89,8 @@ function apiBaseUrl(): string {
 
 export default function AccountSettingsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
@@ -113,7 +117,13 @@ export default function AccountSettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [mfaStatus, setMfaStatus] = useState<{ mfa_enabled: boolean; mfa_enabled_at?: string | null; mfa_last_used_at?: string | null }>({
+  const [mfaStatus, setMfaStatus] = useState<{
+    mfa_enabled: boolean;
+    mfa_enabled_at?: string | null;
+    mfa_last_used_at?: string | null;
+    mfa_required_for_all_users?: boolean;
+    mfa_setup_required?: boolean;
+  }>({
     mfa_enabled: false,
   });
   const [mfaPassword, setMfaPassword] = useState("");
@@ -129,7 +139,7 @@ export default function AccountSettingsPage() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(uri)}`;
   }, [mfaProvisioningUri]);
 
-  async function loadMfaStatus() {
+  const loadMfaStatus = useCallback(async () => {
     const res = await fetch(`${baseUrl}/auth/mfa/status`, { credentials: "include" });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -140,8 +150,10 @@ export default function AccountSettingsPage() {
       mfa_enabled: Boolean(json?.mfa_enabled),
       mfa_enabled_at: json?.mfa_enabled_at || null,
       mfa_last_used_at: json?.mfa_last_used_at || null,
+      mfa_required_for_all_users: Boolean(json?.mfa_required_for_all_users),
+      mfa_setup_required: Boolean(json?.mfa_setup_required),
     });
-  }
+  }, [baseUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,7 +181,7 @@ export default function AccountSettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [baseUrl]);
+  }, [baseUrl, loadMfaStatus]);
 
   async function saveSettings() {
     setSaving(true);
@@ -283,11 +295,18 @@ export default function AccountSettingsPage() {
         throw new Error(`Failed to verify MFA setup (${res.status})${text ? `: ${text}` : ""}`);
       }
       const json = await res.json();
+      const accessToken = String(json?.access_token || "");
+      const userIdentity = String(json?.user?.email || json?.user?.user_id || "");
+      if (accessToken || userIdentity) {
+        setAuthState(accessToken || null, userIdentity || null);
+      }
       setMfaRecoveryCodes(Array.isArray(json?.recovery_codes) ? json.recovery_codes : []);
       setMfaOtp("");
       setMfaSetupStarted(false);
       await loadMfaStatus();
       setStatus("MFA is now enabled. Save your recovery codes securely.");
+      const next = searchParams?.get("next") || "/";
+      router.replace(next);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -470,6 +489,16 @@ export default function AccountSettingsPage() {
           <Card>
             <CardHeader><CardTitle>Multi-Factor Authentication (MFA)</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              {mfaStatus.mfa_required_for_all_users ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Multi-factor authentication is required for all users. Please complete setup before continuing.
+                </div>
+              ) : null}
+              {searchParams?.get("mfa") === "setup" && !mfaStatus.mfa_enabled ? (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                  Complete MFA setup here to continue into the rest of the platform.
+                </div>
+              ) : null}
               <div className="text-sm">
                 Status:{" "}
                 <span className={mfaStatus.mfa_enabled ? "text-green-700 font-medium" : "text-muted-foreground"}>
@@ -501,7 +530,9 @@ export default function AccountSettingsPage() {
                 ) : (
                   <>
                     <Button variant="outline" disabled={saving} onClick={() => void regenerateRecoveryCodes()}>Regenerate Recovery Codes</Button>
-                    <Button variant="outline" disabled={saving} onClick={() => void disableMfa()}>Disable MFA</Button>
+                    <Button variant="outline" disabled={saving || Boolean(mfaStatus.mfa_required_for_all_users)} onClick={() => void disableMfa()}>
+                      {mfaStatus.mfa_required_for_all_users ? "MFA required" : "Disable MFA"}
+                    </Button>
                   </>
                 )}
               </div>

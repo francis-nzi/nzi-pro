@@ -20,15 +20,38 @@ type LoginResponse = {
   detail?: string;
   mfa_required?: boolean;
   mfa_challenge_token?: string;
+  mfa_setup_required?: boolean;
   must_change_password?: boolean;
   must_accept_portal_terms?: boolean;
   user?: {
     user_id?: string;
     email?: string;
     must_change_password?: boolean;
+    mfa_setup_required?: boolean;
     accepted_portal_terms_version?: string | null;
   };
 };
+
+function appendNext(path: string, next: string): string {
+  return `${path}?next=${encodeURIComponent(next)}`;
+}
+
+function buildPostLoginRoute(
+  nextTarget: string,
+  flags: { mustChangePassword: boolean; mustAcceptPortalTerms: boolean; mfaSetupRequired: boolean }
+): string {
+  let target = nextTarget;
+  if (flags.mfaSetupRequired) {
+    target = `/account/settings?mfa=setup&next=${encodeURIComponent(target)}`;
+  }
+  if (flags.mustAcceptPortalTerms) {
+    target = appendNext("/accept-terms", target);
+  }
+  if (flags.mustChangePassword) {
+    target = appendNext("/change-password", target);
+  }
+  return target;
+}
 
 function LoginPageContent() {
   const router = useRouter();
@@ -85,22 +108,15 @@ function LoginPageContent() {
       setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);
+      const setupRequired = Boolean(payload.mfa_setup_required || payload.user?.mfa_setup_required);
       setMustChangePassword(forceChange);
-      if (forceChange) {
-        router.replace("/change-password");
-        return;
-      }
-      if (payload.must_accept_portal_terms) {
-        router.replace("/accept-terms");
-        return;
-      }
-
       const next = searchParams?.get("next") || "/";
-      if (typeof window !== "undefined") {
-        window.location.assign(next);
-        return;
-      }
-      router.replace(next);
+      const destination = buildPostLoginRoute(next, {
+        mustChangePassword: forceChange,
+        mustAcceptPortalTerms: Boolean(payload.must_accept_portal_terms),
+        mfaSetupRequired: setupRequired,
+      });
+      router.replace(destination);
     } catch {
       setError("Login request failed. Please try again.");
     } finally {
@@ -137,22 +153,15 @@ function LoginPageContent() {
       setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);
+      const setupRequired = Boolean(payload.mfa_setup_required || payload.user?.mfa_setup_required);
       setMustChangePassword(forceChange);
-      if (forceChange) {
-        router.replace("/change-password");
-        return;
-      }
-      if (payload.must_accept_portal_terms) {
-        router.replace("/accept-terms");
-        return;
-      }
-
       const next = searchParams?.get("next") || "/";
-      if (typeof window !== "undefined") {
-        window.location.assign(next);
-        return;
-      }
-      router.replace(next);
+      const destination = buildPostLoginRoute(next, {
+        mustChangePassword: forceChange,
+        mustAcceptPortalTerms: Boolean(payload.must_accept_portal_terms),
+        mfaSetupRequired: setupRequired,
+      });
+      router.replace(destination);
     } catch {
       setError("MFA verification failed. Please try again.");
     } finally {

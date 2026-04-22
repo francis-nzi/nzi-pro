@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import authenticate_user, get_user_by_id, set_user_password
 from core.database import get_conn
-from api.auth import _current_user
+from api.auth import _current_user, _mfa_required_for_all_users
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.permissions import enrich_user_permissions
@@ -243,7 +243,7 @@ def _user_mfa_row(identifier: str) -> tuple | None:
         ).fetchone()
 
 
-def _issue_login_result(user: Dict) -> Dict:
+def _issue_login_result(user: Dict, *, setup_required: bool = False) -> Dict:
     secret = _jwt_secret()
     if _strict_auth_required() and not secret:
         raise HTTPException(status_code=500, detail="Server auth misconfigured: NZI_JWT_SECRET missing in strict mode")
@@ -252,6 +252,7 @@ def _issue_login_result(user: Dict) -> Dict:
             "user": user,
             "must_change_password": bool(user.get("must_change_password")),
             "must_accept_portal_terms": _must_accept_portal_terms(user),
+            "mfa_setup_required": bool(setup_required),
             "portal_terms_version": PORTAL_TERMS_VERSION,
         }
     if jwt is None:
@@ -259,6 +260,7 @@ def _issue_login_result(user: Dict) -> Dict:
     now = datetime.utcnow()
     payload = {
         "sub": user["user_id"],
+        "kind": "mfa_setup" if setup_required else "session",
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=4)).timestamp()),
     }
@@ -269,6 +271,7 @@ def _issue_login_result(user: Dict) -> Dict:
         "user": user,
         "must_change_password": bool(user.get("must_change_password")),
         "must_accept_portal_terms": _must_accept_portal_terms(user),
+        "mfa_setup_required": bool(setup_required),
         "portal_terms_version": PORTAL_TERMS_VERSION,
     }
 
@@ -363,10 +366,11 @@ def login(body: Dict):
             },
             "must_change_password": bool(user.get("must_change_password")),
             "must_accept_portal_terms": _must_accept_portal_terms(user),
+            "mfa_setup_required": False,
             "portal_terms_version": PORTAL_TERMS_VERSION,
         }
     user = enrich_user_permissions(user) or user
-    result = _issue_login_result(user)
+    result = _issue_login_result(user, setup_required=_mfa_required_for_all_users())
     result["mfa_required"] = False
     return result
 
@@ -484,10 +488,14 @@ def mfa_status(user: Dict[str, str] = Depends(_current_user)):
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
+            mfa_enabled = bool(row[0])
+            mfa_required = _mfa_required_for_all_users()
             return {
-                "mfa_enabled": bool(row[0]),
+                "mfa_enabled": mfa_enabled,
                 "mfa_enabled_at": row[1].isoformat() if row[1] else None,
                 "mfa_last_used_at": row[2].isoformat() if row[2] else None,
+                "mfa_required_for_all_users": mfa_required,
+                "mfa_setup_required": bool(mfa_required and not mfa_enabled),
             }
     except HTTPException:
         raise
@@ -581,13 +589,18 @@ def mfa_setup_verify(body: Dict, user: Dict[str, str] = Depends(_current_user)):
                 ident,
             ],
         )
-    return {"ok": True, "mfa_enabled": True, "recovery_codes": recovery_plain}
+    user = enrich_user_permissions(get_user_by_id(ident) or user) or user
+    result = _issue_login_result(user)
+    result.update({"ok": True, "mfa_enabled": True, "recovery_codes": recovery_plain, "mfa_setup_required": False})
+    return result
 
 
 @router.post("/mfa/disable")
 def mfa_disable(body: Dict, user: Dict[str, str] = Depends(_current_user)):
     if pyotp is None:
         raise HTTPException(status_code=500, detail="MFA unavailable: pyotp package missing")
+    if _mfa_required_for_all_users():
+        raise HTTPException(status_code=403, detail="MFA is required for all users")
     current_password = str(body.get("current_password") or "")
     otp_code = str(body.get("otp_code") or "").strip()
     recovery_code = str(body.get("recovery_code") or "").strip()
@@ -712,6 +725,8 @@ def me(user: Dict[str, str] = Depends(_current_user)):
     return {
         "user": user,
         "must_accept_portal_terms": _must_accept_portal_terms(user),
+        "mfa_required_for_all_users": _mfa_required_for_all_users(),
+        "mfa_setup_required": bool(user.get("mfa_setup_required")),
         "portal_terms_version": PORTAL_TERMS_VERSION,
     }
 
