@@ -7,6 +7,7 @@ import JobWorkspaceHeader from "./JobWorkspaceHeader";
 import JobWorkspaceTabs from "./JobWorkspaceTabs";
 import JobWorkspaceSubtabs from "./JobWorkspaceSubtabs";
 import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab, WorkspaceTab } from "./types";
+import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
 
 type JobSectionShellProps = {
   jobId: number;
@@ -35,6 +36,15 @@ type Job = {
 
 function apiBaseUrl(): string {
   return "/api/backend";
+}
+
+function authHeaders(): HeadersInit {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  const userIdentifier = getAuthUserIdentifier();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
+  return headers;
 }
 
 const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
@@ -123,7 +133,10 @@ export default function JobSectionShell({
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}`, { credentials: "include" });
+        const res = await fetch(`${baseUrl}/jobs/${jobId}`, {
+          credentials: "include",
+          headers: authHeaders(),
+        });
         if (!res.ok) {
           throw new Error(`Failed to load job (${res.status})`);
         }
@@ -156,7 +169,10 @@ export default function JobSectionShell({
       }
 
       try {
-        const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, { credentials: "include" });
+        const res = await fetch(`${baseUrl}/clients/${job.client_db_id}`, {
+          credentials: "include",
+          headers: authHeaders(),
+        });
         if (!res.ok || cancelled) return;
         const clientJson = (await res.json()) as {
           crm_owner?: string | null;

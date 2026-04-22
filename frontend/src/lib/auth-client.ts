@@ -162,3 +162,7 @@ export function installAuthFetchPatch(): void {
 
   window.__nziAuthFetchPatched = true;
 }
+
+if (typeof window !== "undefined") {
+  installAuthFetchPatch();
+}
