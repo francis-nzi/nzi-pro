@@ -78,6 +78,12 @@ def get_client_notes_summary(
             _ensure_job_scope_rows_schema(con)
             ensure_audit_log_table(con)
 
+            def _safe_df(sql: str, params: list[Any] | None = None) -> pd.DataFrame | None:
+                try:
+                    return con.execute(sql, params or []).df()
+                except Exception:
+                    return None
+
             client_row = con.execute(
                 """
                 SELECT db_id, client_name
@@ -89,7 +95,7 @@ def get_client_notes_summary(
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
 
-            jobs_df = con.execute(
+            jobs_df = _safe_df(
                 """
                 SELECT job_id, job_number, title, reporting_year, status
                 FROM jobs
@@ -97,13 +103,13 @@ def get_client_notes_summary(
                 ORDER BY reporting_year DESC NULLS LAST, job_id DESC
                 """,
                 [int(client_id)],
-            ).df()
+            )
             job_lookup = _build_job_lookup(jobs_df)
             job_ids = list(job_lookup.keys())
 
             items: list[dict[str, Any]] = []
 
-            client_events_df = con.execute(
+            client_events_df = _safe_df(
                 """
                 SELECT
                     e.event_id,
@@ -124,7 +130,7 @@ def get_client_notes_summary(
                 ORDER BY COALESCE(e.event_at, e.created_at) DESC NULLS LAST, e.event_id DESC
                 """,
                 [int(client_id)],
-            ).df()
+            )
             if client_events_df is not None and not client_events_df.empty:
                 for _, row in client_events_df.iterrows():
                     note_text = _safe_text(row.get("body_text"))
@@ -167,7 +173,7 @@ def get_client_notes_summary(
                         }
                     )
 
-            job_comm_df = con.execute(
+            job_comm_df = _safe_df(
                 """
                 SELECT
                     jc.communication_id,
@@ -189,7 +195,7 @@ def get_client_notes_summary(
                 ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
                 """,
                 [int(client_id)],
-            ).df()
+            )
             if job_comm_df is not None and not job_comm_df.empty:
                 for _, row in job_comm_df.iterrows():
                     note_text = _safe_text(row.get("message_text"))
@@ -234,7 +240,7 @@ def get_client_notes_summary(
 
             if job_ids:
                 placeholders = ", ".join(["%s"] * len(job_ids))
-                job_data_df = con.execute(
+                job_data_df = _safe_df(
                     f"""
                     SELECT
                         jsr.row_id,
@@ -264,9 +270,9 @@ def get_client_notes_summary(
                     ORDER BY jsr.updated_at DESC NULLS LAST, jsr.created_at DESC NULLS LAST, jsr.row_id DESC
                     """,
                     [int(client_id), *job_ids],
-                ).df()
+                )
 
-                audit_df = con.execute(
+                audit_df = _safe_df(
                     f"""
                     SELECT audit_id, job_id, entity_id, created_at, actor_email, actor_name, diff_json, metadata_json
                     FROM audit_log
@@ -275,7 +281,7 @@ def get_client_notes_summary(
                     ORDER BY created_at DESC, audit_id DESC
                     """,
                     job_ids,
-                ).df()
+                )
 
                 latest_note_events: dict[str, dict[str, Any]] = {}
                 if audit_df is not None and not audit_df.empty:
