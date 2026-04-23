@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from core.database import get_conn
+from services.tenancy import get_default_org_id
 
 SUPERADMIN_ROLE = "SuperAdmin"
 ADMIN_ACCESS_PERMISSION = "admin.access"
@@ -480,7 +481,8 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                 return False
             client_org_id = str(row[0] or "").strip()
             if not client_org_id:
-                return False
+                default_org_id = str(get_default_org_id() or "").strip()
+                return bool(default_org_id) and user_org_id == default_org_id
             return client_org_id == user_org_id
         except Exception:
             return False
@@ -510,7 +512,8 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
                 client_db_id = int(row[0]) if row[0] is not None else None
                 job_org_id = str(row[1] or "").strip()
                 if not job_org_id:
-                    return False
+                    default_org_id = str(get_default_org_id() or "").strip()
+                    return bool(default_org_id) and user_org_id == default_org_id
                 return job_org_id == user_org_id
         except Exception:
             return False

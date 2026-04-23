@@ -22,6 +22,19 @@ class _FakeConn:
         raise AssertionError("get_conn should not be reached when org context is missing")
 
 
+class _ClientConn(_FakeConn):
+    def __init__(self, row):
+        self.row = row
+        self.queries = []
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        return self
+
+    def fetchone(self):
+        return self.row
+
+
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_default_org_id", lambda: None)
@@ -45,6 +58,64 @@ def test_get_client_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Organisation context required"
+
+
+def test_get_client_allows_default_org_legacy_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    row = (
+        123,
+        "Legacy Client",
+        "Industry",
+        "Description",
+        "Active",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "GBP",
+        True,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        "Legacy Client",
+    )
+    conn = _ClientConn(row)
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_default_org_id", lambda: "org-a")
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    result = main.get_client(123, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["client_db_id"] == 123
+    assert result["client_name"] == "Legacy Client"
+    assert conn.queries
 
 
 def test_get_job_does_not_fail_open_on_legacy_org_gap(monkeypatch: pytest.MonkeyPatch) -> None:
