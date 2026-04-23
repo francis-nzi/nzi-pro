@@ -13,6 +13,7 @@ from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle, Par
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from api.auth import _current_user
+from api.admin_routes import _require_org_plan_active
 from api.permissions import assert_client_access, assert_job_access
 from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile
@@ -1376,6 +1377,7 @@ def create_quote(client_id: int, body: dict = Body(...), _user: dict = Depends(_
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
+            _require_org_plan_active(con, org_id)
             client_exists = con.execute(
                 "SELECT client_db_id FROM clients WHERE db_id = %s" + (" AND org_id = %s" if org_id else ""),
                 [int(client_id)] + ([org_id] if org_id else []),
@@ -1939,6 +1941,7 @@ def create_invoice(client_id: int, body: dict = Body(...), _user: dict = Depends
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
+            _require_org_plan_active(con, org_id)
             client_exists = con.execute(
                 "SELECT db_id FROM clients WHERE db_id = %s AND org_id = %s",
                 [int(client_id), org_id],
@@ -2006,6 +2009,7 @@ def create_job_invoice(job_id: int, body: dict = Body(...), _user: dict = Depend
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
+            _require_org_plan_active(con, org_id)
             job_row = con.execute(
                 "SELECT client_db_id FROM jobs WHERE job_id = %s AND org_id = %s",
                 [int(job_id), org_id],

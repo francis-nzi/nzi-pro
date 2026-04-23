@@ -74,6 +74,7 @@ from services.kaleido_browser import ensure_kaleido_browser
 from services.playwright_browser import ensure_playwright_browser
 from api.admin_routes import router as admin_router
 from api.admin_routes import _require_org_capacity
+from api.admin_routes import _require_org_plan_active
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.job_emission_register_routes import router as job_emission_register_router
 from api.job_custom_factors_routes import router as job_custom_factors_router
@@ -912,9 +913,11 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
         if not start_date or not due_date:
             raise HTTPException(status_code=400, detail="start_date and due_date are required")
         assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
 
         with get_conn() as con:
             _ensure_job_original_portfolio_column(con)
+            _require_org_plan_active(con, org_id)
             # Lookup job_type_id and is_crp from job_types table
             job_type_row = con.execute(
                 "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",

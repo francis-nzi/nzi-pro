@@ -631,6 +631,37 @@ def _require_org_capacity(
     return usage
 
 
+def _require_org_plan_active(con, org_id: str) -> dict[str, int | bool | str]:
+    usage = _organisation_usage_info(con, org_id)
+    if bool(usage.get("archived")):
+        logger.warning(
+            "Organisation action denied org_id=%s reason=archived plan_status=%s max_users=%s max_clients=%s active_members=%s active_clients=%s pending_invites=%s",
+            org_id,
+            usage.get("plan_status"),
+            usage.get("max_users"),
+            usage.get("max_clients"),
+            usage.get("active_members"),
+            usage.get("active_clients"),
+            usage.get("pending_invites"),
+        )
+        raise HTTPException(status_code=403, detail="Organisation is archived")
+
+    plan_status = str(usage.get("plan_status") or "active").strip().lower()
+    if plan_status not in {"active", "trial"}:
+        logger.warning(
+            "Organisation action denied org_id=%s reason=inactive_plan plan_status=%s max_users=%s max_clients=%s active_members=%s active_clients=%s pending_invites=%s",
+            org_id,
+            usage.get("plan_status"),
+            usage.get("max_users"),
+            usage.get("max_clients"),
+            usage.get("active_members"),
+            usage.get("active_clients"),
+            usage.get("pending_invites"),
+        )
+        raise HTTPException(status_code=403, detail="Organisation plan is not active")
+    return usage
+
+
 def _slugify_org_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower()).strip("-")
     return slug or "organisation"

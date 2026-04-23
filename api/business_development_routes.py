@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
-from api.admin_routes import _require_org_capacity
+from api.admin_routes import _require_org_capacity, _require_org_plan_active
 from core.database import get_conn
 from services.tenancy import get_default_org_id, require_org
 
@@ -4550,6 +4550,7 @@ def create_quote_from_opportunity(opportunity_id: int, body: dict = Body(default
         with get_conn() as con:
             _ensure_tables(con)
             _ensure_quote_tables(con)
+            _require_org_plan_active(con, org_id)
             opp_df = con.execute("SELECT * FROM bd_opportunities WHERE opportunity_id = ? AND org_id = ?", [int(opportunity_id), org_id]).df()
             if opp_df is None or opp_df.empty:
                 raise HTTPException(status_code=404, detail="Opportunity not found")
@@ -4621,6 +4622,7 @@ def create_job_from_opportunity(opportunity_id: int, body: dict = Body(default={
         org_id = require_org(_user)
         with get_conn() as con:
             _ensure_tables(con)
+            _require_org_plan_active(con, org_id)
             opp_df = con.execute("SELECT * FROM bd_opportunities WHERE opportunity_id = ? AND org_id = ?", [int(opportunity_id), org_id]).df()
             if opp_df is None or opp_df.empty:
                 raise HTTPException(status_code=404, detail="Opportunity not found")
