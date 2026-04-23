@@ -30,12 +30,18 @@ class _OrgConn:
             return None
         if "INSERT INTO organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")
+        if "SELECT org_id, user_id, role, is_active, is_owner" in sql:
+            return _FakeRow("org-123", "u1", "Owner", True, True)
         if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")
         if "SELECT invitation_id, org_id, email, role, accepted_at, expires_at" in sql:
             return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-01T00:00:00+00:00")
+        if "SELECT membership_id, org_id, user_id, role, is_active, is_owner" in sql:
+            return _FakeRow("mem-1", "org-123", "u2", "Consultant", True, False)
         if "FROM organisation_memberships" in sql and "SELECT 1" in sql:
             return _FakeRow(1)
+        if "RETURNING org_id, user_id, role, is_active, is_owner" in sql and "UPDATE organisation_memberships" in sql:
+            return _FakeRow("org-123", "u2", "Billing", True, False)
         if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")
         return None
@@ -47,8 +53,13 @@ class _OrgConn:
                 _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23"),
                 _FakeRow("org-456", "Other Org", "other-org", "active", "active", 5, 20, "2026-04-23", "2026-04-23"),
             ]
+        if "FROM organisation_memberships m" in sql:
+            return [
+                _FakeRow("org-123", "u1", "Owner Name", "owner@example.com", "Owner", True, True, "2026-04-23", "2026-04-23"),
+                _FakeRow("org-123", "u2", "Member Name", "user@example.com", "Consultant", True, False, "2026-04-23", "2026-04-23"),
+            ]
         if "FROM organisation_memberships" in sql:
-            return [_FakeRow("org-123", "Administrator", True, True)]
+            return [_FakeRow("org-123", "Owner", True, True)]
         return []
 
     def __enter__(self):
@@ -117,3 +128,25 @@ def test_list_organisations_reports_membership(monkeypatch):
     assert result["active_org_id"] == "org-123"
     assert len(result["items"]) == 2
     assert result["items"][0]["is_member"] is True
+    assert result["items"][0]["can_manage"] is True
+    assert result["items"][0]["can_switch"] is True
+
+
+def test_list_and_update_organisation_members(monkeypatch):
+    fake = _OrgConn()
+    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+
+    members = admin_routes.list_organisation_members("org-123", _user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123", "role": "Administrator"})
+    assert len(members["items"]) == 2
+    assert members["items"][0]["role"] == "Owner"
+
+    updated = admin_routes.update_organisation_member(
+        "org-123",
+        "u2",
+        {"role": "Billing"},
+        _user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123", "role": "Administrator"},
+    )
+    assert updated["ok"] is True
+    assert updated["member"]["role"] == "Billing"
+    assert any("UPDATE organisation_memberships" in sql for sql, _ in fake.executed)

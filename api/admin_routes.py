@@ -62,6 +62,22 @@ _LOOKUP_BOOTSTRAPPED: set[str] = set()
 _ADMIN_USER_BOOTSTRAPPED = False
 _ADMIN_USER_BOOTSTRAP_LOCK = Lock()
 _ORG_SCOPED_LOOKUP_TABLES = {"job_types", "time_subjects", "portfolios_lookup"}
+_ORG_ROLE_RANKS = {
+    "owner": 40,
+    "admin": 30,
+    "billing": 20,
+    "member": 10,
+    "consultant": 10,
+}
+_ORG_ROLE_LABELS = {
+    "owner": "Owner",
+    "admin": "Admin",
+    "billing": "Billing",
+    "member": "Member",
+    "consultant": "Consultant",
+}
+_ORG_MANAGEMENT_ROLES = {"owner", "admin"}
+_ORG_SWITCH_ROLES = {"owner", "admin", "billing", "member", "consultant"}
 
 
 def _ensure_org_lifecycle_schema(con) -> None:
@@ -87,6 +103,7 @@ def _ensure_org_lifecycle_schema(con) -> None:
         )
     except Exception:
         pass
+
     try:
         con.execute(
             """
@@ -181,6 +198,87 @@ def _ensure_org_lifecycle_schema(con) -> None:
         )
     except Exception:
         pass
+
+
+def _normalize_org_role(value: object | None, *, default: str = "Member") -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        raw = str(default or "Member").strip().lower()
+    if raw in {"superadmin", "administrator"}:
+        raw = "owner"
+    if raw in {"crm", "qa", "support", "readonly", "read-only", "team member"}:
+        raw = "member"
+    if raw not in _ORG_ROLE_RANKS:
+        raw = str(default or "Member").strip().lower() or "member"
+        if raw not in _ORG_ROLE_RANKS:
+            raw = "member"
+    return _ORG_ROLE_LABELS.get(raw, "Member")
+
+
+def _org_role_rank(value: object | None) -> int:
+    normalized = _normalize_org_role(value)
+    return _ORG_ROLE_RANKS.get(normalized.strip().lower(), 10)
+
+
+def _membership_for_user(con, user_id: str, org_id: str) -> dict[str, object] | None:
+    try:
+        row = con.execute(
+            """
+            SELECT org_id, user_id, role, is_active, is_owner
+            FROM organisation_memberships
+            WHERE lower(user_id) = lower(%s)
+              AND org_id = %s
+            LIMIT 1
+            """,
+            [str(user_id).strip(), str(org_id).strip()],
+        ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    return {
+        "org_id": str(row[0]) if row[0] is not None else None,
+        "user_id": str(row[1]) if row[1] is not None else None,
+        "role": _normalize_org_role(row[2]),
+        "is_active": bool(row[3]) if row[3] is not None else True,
+        "is_owner": bool(row[4]) if row[4] is not None else False,
+    }
+
+
+def _org_role_info(con, user: dict, org_id: str) -> dict[str, object]:
+    user_id = str(user.get("user_id") or "").strip()
+    membership = _membership_for_user(con, user_id, org_id)
+    if membership:
+        return membership
+
+    role = _normalize_org_role(user.get("role"), default="Member")
+    return {
+        "org_id": str(org_id).strip(),
+        "user_id": user_id or None,
+        "role": role,
+        "is_active": True,
+        "is_owner": role == "Owner",
+    }
+
+
+def _require_org_management_role(con, user: dict, org_id: str, *, allow_superadmin: bool = True) -> dict[str, object]:
+    role_info = _org_role_info(con, user, org_id)
+    user_role = str(role_info.get("role") or "Member").strip().lower()
+    if allow_superadmin and str(user.get("role") or "").strip().lower() in (SUPERADMIN_ROLE, "superadmin"):
+        return role_info
+    if user_role not in _ORG_MANAGEMENT_ROLES:
+        raise HTTPException(status_code=403, detail="Organisation admin role required")
+    return role_info
+
+
+def _require_org_switch_role(con, user: dict, org_id: str, *, allow_superadmin: bool = True) -> dict[str, object]:
+    role_info = _org_role_info(con, user, org_id)
+    user_role = str(role_info.get("role") or "Member").strip().lower()
+    if allow_superadmin and str(user.get("role") or "").strip().lower() in (SUPERADMIN_ROLE, "superadmin"):
+        return role_info
+    if user_role not in _ORG_SWITCH_ROLES:
+        raise HTTPException(status_code=403, detail="Organisation membership required")
+    return role_info
 
 
 def _slugify_org_name(name: str) -> str:
@@ -2448,7 +2546,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
             ).fetchall()
             memberships = {
                 str(r[0]): {
-                    "role": str(r[1] or ""),
+                    "role": _normalize_org_role(r[1]),
                     "is_active": bool(r[2]) if r[2] is not None else True,
                     "is_owner": bool(r[3]) if r[3] is not None else False,
                 }
@@ -2462,6 +2560,8 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 item["is_member"] = str(item["org_id"] or "") in memberships
                 item["membership"] = memberships.get(str(item["org_id"] or ""))
                 item["is_active_org"] = item["org_id"] == active_org_id
+                item["can_manage"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_MANAGEMENT_ROLES
+                item["can_switch"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_SWITCH_ROLES
                 items.append(item)
             return {"items": items, "active_org_id": active_org_id}
     except HTTPException:
@@ -2512,7 +2612,7 @@ def create_organisation(body: dict = Body(...), request: Request = None, _user: 
                       is_owner = TRUE,
                       updated_at = NOW()
                     """,
-                    [row[0], actor_user_id, "Administrator"],
+                    [row[0], actor_user_id, "Owner"],
                 )
                 con.execute(
                     "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
@@ -2540,6 +2640,7 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
     try:
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
             existing = con.execute(
                 "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
@@ -2596,7 +2697,7 @@ def invite_user_to_organisation(org_id: str, body: dict = Body(...), request: Re
         email = str(body.get("email") or "").strip()
         if not email:
             raise HTTPException(status_code=400, detail="email is required")
-        role = str(body.get("role") or "Consultant").strip() or "Consultant"
+        role = _normalize_org_role(body.get("role"), default="Consultant")
         days = int(body.get("days_valid", 7) or 7)
         token = secrets.token_urlsafe(32)
         expires_at = _invite_expiry(days)
@@ -2604,6 +2705,7 @@ def invite_user_to_organisation(org_id: str, body: dict = Body(...), request: Re
 
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
             org_row = con.execute(
                 "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
@@ -2686,11 +2788,11 @@ def accept_organisation_invitation(token: str, request: Request = None, _user: d
                   is_active = TRUE,
                   updated_at = NOW()
                 """,
-                [invite[1], user_id, invite[3] or "Consultant"],
+                [invite[1], user_id, _normalize_org_role(invite[3], default="Consultant")],
             )
             con.execute(
                 "UPDATE users SET org_id = %s, role = COALESCE(%s, role) WHERE lower(user_id) = lower(%s)",
-                [invite[1], invite[3], user_id],
+                [invite[1], _normalize_org_role(invite[3], default="Consultant"), user_id],
             )
             con.execute(
                 "UPDATE organisation_invitations SET accepted_at = NOW() WHERE invitation_id = %s",
@@ -2727,19 +2829,7 @@ def switch_active_organisation(org_id: str, request: Request = None, _user: dict
 
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
-            membership = con.execute(
-                """
-                SELECT 1
-                FROM organisation_memberships
-                WHERE org_id = %s
-                  AND lower(user_id) = lower(%s)
-                  AND COALESCE(is_active, TRUE) = TRUE
-                LIMIT 1
-                """,
-                [org_id, user_id],
-            ).fetchone()
-            if not membership and str(_user.get("role") or "").strip().lower() not in (SUPERADMIN_ROLE, "superadmin"):
-                raise HTTPException(status_code=403, detail="User is not a member of this organisation")
+            _require_org_switch_role(con, _user, org_id)
             con.execute(
                 "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
                 [org_id, user_id],
@@ -2759,6 +2849,116 @@ def switch_active_organisation(org_id: str, request: Request = None, _user: dict
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to switch organisation: {e}")
+
+
+@router.get("/organisations/{org_id}/members")
+def list_organisation_members(org_id: str, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            rows = con.execute(
+                """
+                SELECT m.org_id, m.user_id, COALESCE(u.full_name, '') AS full_name, COALESCE(u.email, '') AS email,
+                       m.role, m.is_active, m.is_owner, m.created_at, m.updated_at
+                FROM organisation_memberships m
+                LEFT JOIN users u ON lower(u.user_id) = lower(m.user_id)
+                WHERE m.org_id = %s
+                ORDER BY COALESCE(u.full_name, u.email, m.user_id)
+                """,
+                [org_id],
+            ).fetchall()
+            items = []
+            for row in rows or []:
+                items.append(
+                    {
+                        "org_id": str(row[0]) if row[0] is not None else None,
+                        "user_id": str(row[1]) if row[1] is not None else None,
+                        "full_name": str(row[2] or ""),
+                        "email": str(row[3] or ""),
+                        "role": _normalize_org_role(row[4]),
+                        "is_active": bool(row[5]) if row[5] is not None else True,
+                        "is_owner": bool(row[6]) if row[6] is not None else False,
+                        "created_at": str(row[7]) if row[7] else None,
+                        "updated_at": str(row[8]) if row[8] else None,
+                    }
+                )
+            return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list organisation members: {e}")
+
+
+@router.patch("/organisations/{org_id}/members/{member_user_id}")
+def update_organisation_member(org_id: str, member_user_id: str, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            membership = con.execute(
+                """
+                SELECT membership_id, org_id, user_id, role, is_active, is_owner
+                FROM organisation_memberships
+                WHERE org_id = %s AND lower(user_id) = lower(%s)
+                LIMIT 1
+                """,
+                [org_id, member_user_id],
+            ).fetchone()
+            if not membership:
+                raise HTTPException(status_code=404, detail="Member not found")
+
+            updates = []
+            params: list[object] = []
+
+            if "role" in body and body.get("role") is not None:
+                updates.append("role = %s")
+                params.append(_normalize_org_role(body.get("role"), default="Member"))
+            if "is_active" in body and body.get("is_active") is not None:
+                updates.append("is_active = %s")
+                params.append(bool(body.get("is_active")))
+            if "is_owner" in body and body.get("is_owner") is not None:
+                updates.append("is_owner = %s")
+                params.append(bool(body.get("is_owner")))
+            if not updates:
+                return {
+                    "ok": True,
+                    "member": {
+                        "org_id": str(membership[1]),
+                        "user_id": str(membership[2]),
+                        "role": _normalize_org_role(membership[3]),
+                        "is_active": bool(membership[4]) if membership[4] is not None else True,
+                        "is_owner": bool(membership[5]) if membership[5] is not None else False,
+                    },
+                }
+
+            updates.append("updated_at = NOW()")
+            row = con.execute(
+                f"""
+                UPDATE organisation_memberships
+                SET {', '.join(updates)}
+                WHERE org_id = %s AND lower(user_id) = lower(%s)
+                RETURNING org_id, user_id, role, is_active, is_owner
+                """,
+                [*params, org_id, member_user_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to update organisation member")
+
+            return {
+                "ok": True,
+                "member": {
+                    "org_id": str(row[0]) if row[0] is not None else None,
+                    "user_id": str(row[1]) if row[1] is not None else None,
+                    "role": _normalize_org_role(row[2]),
+                    "is_active": bool(row[3]) if row[3] is not None else True,
+                    "is_owner": bool(row[4]) if row[4] is not None else False,
+                },
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update organisation member: {e}")
 
 
 # =========================

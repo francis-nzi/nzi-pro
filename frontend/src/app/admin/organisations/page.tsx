@@ -7,6 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseUrl(): string {
@@ -17,6 +32,18 @@ type OrganisationMembership = {
   role?: string | null;
   is_active?: boolean;
   is_owner?: boolean;
+};
+
+type OrganisationMember = {
+  org_id: string;
+  user_id: string;
+  full_name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  is_active?: boolean;
+  is_owner?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type Organisation = {
@@ -37,6 +64,10 @@ type Organisation = {
 type OrganisationsResponse = {
   items?: Organisation[];
   active_org_id?: string | null;
+};
+
+type OrganisationMembersResponse = {
+  items?: OrganisationMember[];
 };
 
 type OrganisationForm = {
@@ -69,6 +100,8 @@ const DEFAULT_INVITE: InviteForm = {
   days_valid: "7",
 };
 
+const ORG_ROLE_OPTIONS = ["Owner", "Admin", "Billing", "Member", "Consultant"] as const;
+
 function formatDate(value?: string | null): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -91,10 +124,52 @@ export default function OrganisationsPage() {
   const [form, setForm] = useState<OrganisationForm>(DEFAULT_FORM);
   const [invite, setInvite] = useState<InviteForm>(DEFAULT_INVITE);
   const [inviteResult, setInviteResult] = useState<{ token: string; expires_at: string } | null>(null);
+  const [members, setMembers] = useState<OrganisationMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberSaving, setMemberSaving] = useState<string | null>(null);
+  const [memberDraftRoles, setMemberDraftRoles] = useState<Record<string, string>>({});
 
   const selectedOrg = useMemo(
     () => organisations.find((org) => org.org_id === selectedOrgId) || null,
     [organisations, selectedOrgId]
+  );
+
+  const loadMembers = useCallback(
+    async (orgId: string | null) => {
+      if (!orgId) {
+        setMembers([]);
+        setMemberDraftRoles({});
+        return;
+      }
+      setMembersLoading(true);
+      try {
+        const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(orgId)}/members`, {
+          credentials: "include",
+        });
+        const payload = (await res.json().catch(() => ({}))) as OrganisationMembersResponse;
+        if (!res.ok) {
+          const detail = (payload as { detail?: unknown }).detail;
+          throw new Error(typeof detail === "string" ? detail : "Failed to load organisation members");
+        }
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        setMembers(items);
+        setMemberDraftRoles(
+          items.reduce<Record<string, string>>((acc, item) => {
+            if (item.user_id) {
+              acc[item.user_id] = item.role || "Member";
+            }
+            return acc;
+          }, {})
+        );
+      } catch (e) {
+        setMembers([]);
+        setMemberDraftRoles({});
+        setError((e as Error).message);
+      } finally {
+        setMembersLoading(false);
+      }
+    },
+    [baseUrl]
   );
 
   const loadOrganisations = useCallback(async () => {
@@ -135,12 +210,20 @@ export default function OrganisationsPage() {
     });
   }, [selectedOrg]);
 
+  useEffect(() => {
+    void loadMembers(selectedOrg?.org_id || null);
+  }, [loadMembers, selectedOrg?.org_id]);
+
   function updateForm<K extends keyof OrganisationForm>(key: K, value: OrganisationForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
   function updateInvite<K extends keyof InviteForm>(key: K, value: InviteForm[K]) {
     setInvite((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateMemberDraftRole(userId: string, role: string) {
+    setMemberDraftRoles((current) => ({ ...current, [userId]: role }));
   }
 
   function resetNewOrganisationForm() {
@@ -255,12 +338,46 @@ export default function OrganisationsPage() {
       );
       setInvite(DEFAULT_INVITE);
       setStatus("Invitation created.");
+      await loadMembers(selectedOrg.org_id);
       setTimeout(() => setStatus(""), 2500);
     } catch (e) {
       setError((e as Error).message);
       setStatus("");
     } finally {
       setInviting(null);
+    }
+  }
+
+  async function saveMemberRole(member: OrganisationMember) {
+    if (!selectedOrg?.org_id || !member.user_id) return;
+    const nextRole = memberDraftRoles[member.user_id] || member.role || "Member";
+    setMemberSaving(member.user_id);
+    setError("");
+    setStatus("Updating organisation member...");
+    try {
+      const res = await fetch(
+        `${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/members/${encodeURIComponent(member.user_id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ role: nextRole }),
+        }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Unable to update member role");
+      }
+      setStatus("Organisation member updated.");
+      await loadMembers(selectedOrg.org_id);
+      await loadOrganisations();
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setMemberSaving(null);
     }
   }
 
@@ -328,10 +445,10 @@ export default function OrganisationsPage() {
                               {org.is_member ? <Badge variant="outline">Member</Badge> : null}
                             </div>
                             <div className="mt-1 text-sm text-muted-foreground">
-                              Slug: {org.slug} • Plan: {org.plan || "trial"} • Status: {org.plan_status || "active"}
+                              Slug: {org.slug} | Plan: {org.plan || "trial"} | Status: {org.plan_status || "active"}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              Max users: {org.max_users ?? "-"} • Max clients: {org.max_clients ?? "-"} • Updated: {formatDate(org.updated_at)}
+                              Max users: {org.max_users ?? "-"} | Max clients: {org.max_clients ?? "-"} | Updated: {formatDate(org.updated_at)}
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -436,12 +553,18 @@ export default function OrganisationsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="invite-role">Role</Label>
-                  <Input
-                    id="invite-role"
-                    value={invite.role}
-                    onChange={(e) => updateInvite("role", e.target.value)}
-                    placeholder="Consultant"
-                  />
+                  <Select value={invite.role} onValueChange={(value) => updateInvite("role", value)}>
+                    <SelectTrigger id="invite-role">
+                      <SelectValue placeholder="Consultant" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ORG_ROLE_OPTIONS.map((role) => (
+                        <SelectItem key={role} value={role}>
+                          {role}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="invite-days">Valid for days</Label>
@@ -462,6 +585,82 @@ export default function OrganisationsPage() {
                 <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
                   Current selection: {selectedOrg ? `${selectedOrg.name} (${selectedOrg.org_id})` : "No organisation selected"}
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Members &amp; Roles</CardTitle>
+                <CardDescription>
+                  Review the organisation membership list and adjust each member&apos;s role.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!selectedOrg ? (
+                  <div className="text-sm text-muted-foreground">Select an organisation to view members.</div>
+                ) : membersLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading members...</div>
+                ) : members.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No members found.</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {members.map((member) => {
+                        const draftRole = memberDraftRoles[member.user_id] || member.role || "Member";
+                        const changed = draftRole !== (member.role || "Member");
+                        return (
+                          <TableRow key={member.user_id}>
+                            <TableCell>
+                              <div className="font-medium">{member.full_name || member.email || member.user_id}</div>
+                              <div className="text-xs text-muted-foreground">{member.email || member.user_id}</div>
+                              {member.is_owner ? <Badge className="mt-1">Owner</Badge> : null}
+                            </TableCell>
+                            <TableCell className="w-[220px]">
+                              <Select
+                                value={draftRole}
+                                onValueChange={(value) => updateMemberDraftRole(member.user_id, value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Member" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {ORG_ROLE_OPTIONS.map((role) => (
+                                    <SelectItem key={role} value={role}>
+                                      {role}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={member.is_active ? "secondary" : "outline"}>
+                                {member.is_active ? "Active" : "Inactive"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void saveMemberRole(member)}
+                                disabled={!changed || memberSaving === member.user_id}
+                              >
+                                {memberSaving === member.user_id ? "Saving..." : "Save"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
 

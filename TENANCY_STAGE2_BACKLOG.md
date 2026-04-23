@@ -17,7 +17,7 @@ Use this file as the living checklist for the next phase of multi-tenant archite
 | ID | Ticket | Priority | Status | Owner | Due date | Dependencies | Evidence |
 |---|---|---|---|---|---|---|---|
 | S2-1 | Backfill and normalize remaining legacy tenant data | P0 | Complete | You | 2026-06-05 | Stage 1 complete | `Live DB audit: zero null org_id rows across public org-scoped tables; files: api/quotes_routes.py, sql_migrations/0033_tenant_quote_billing_scaffold.sql, sql_migrations/0041_normalize_quote_billing_org_ids.sql; migration applied; all org_id columns now uuid` |
-| S2-2 | Define org membership roles and permission model | P0 | Not started | You | 2026-06-12 | S2-1 |  |
+| S2-2 | Define org membership roles and permission model | P0 | Complete | You | 2026-06-12 | S2-1 | Files: api/admin_routes.py, frontend/src/app/admin/organisations/page.tsx, tests/test_org_lifecycle.py, tests/test_tenant_observability.py; tests: python -m pytest tests/test_org_lifecycle.py tests/test_tenant_observability.py; notes: added org role helpers, members list, and role editor |
 | S2-3 | Complete org lifecycle management | P0 | Not started | You | 2026-06-19 | S2-2 |  |
 | S2-4 | Enforce billing plans and usage limits | P1 | Not started | You | 2026-06-26 | S2-2, S2-3 |  |
 | S2-5 | Make every background job explicitly tenant-scoped | P1 | Not started | You | 2026-06-26 | Stage 1 complete |  |
