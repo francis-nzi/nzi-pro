@@ -118,7 +118,51 @@ function isApiRequest(url: string): boolean {
 declare global {
   interface Window {
     __nziAuthFetchPatched?: boolean;
+    __nziChunkReloadGuardInstalled?: boolean;
+    __nziChunkReloadAttempted?: boolean;
   }
+}
+
+function isChunkLoadError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : typeof (error as { message?: unknown })?.message === "string"
+          ? String((error as { message?: string }).message)
+          : "";
+  return /ChunkLoadError|loading chunk|Loading chunk|Failed to fetch dynamically imported module/i.test(message);
+}
+
+function reloadOnceForChunkError(): void {
+  if (typeof window === "undefined") return;
+  if (window.__nziChunkReloadAttempted) return;
+  window.__nziChunkReloadAttempted = true;
+  window.location.reload();
+}
+
+export function installChunkReloadGuard(): void {
+  if (typeof window === "undefined") return;
+  if (window.__nziChunkReloadGuardInstalled) return;
+
+  const handleError = (event: ErrorEvent) => {
+    if (isChunkLoadError(event.error) || isChunkLoadError(event.message)) {
+      event.preventDefault();
+      reloadOnceForChunkError();
+    }
+  };
+
+  const handleRejection = (event: PromiseRejectionEvent) => {
+    if (isChunkLoadError(event.reason)) {
+      event.preventDefault();
+      reloadOnceForChunkError();
+    }
+  };
+
+  window.addEventListener("error", handleError);
+  window.addEventListener("unhandledrejection", handleRejection);
+  window.__nziChunkReloadGuardInstalled = true;
 }
 
 export function installAuthFetchPatch(): void {
@@ -164,5 +208,6 @@ export function installAuthFetchPatch(): void {
 }
 
 if (typeof window !== "undefined") {
+  installChunkReloadGuard();
   installAuthFetchPatch();
 }
