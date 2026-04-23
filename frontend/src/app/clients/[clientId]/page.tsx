@@ -216,6 +216,7 @@ function ClientDetailPageContent() {
   const [quoteLookupItems, setQuoteLookupItems] = useState<QuoteLookupItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [clientNotFound, setClientNotFound] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<ClientSection>("dashboard");
   const [financialView, setFinancialView] = useState<FinancialView>("quotes");
 
@@ -375,6 +376,7 @@ function ClientDetailPageContent() {
 
       setLoading(true);
       setError("");
+      setClientNotFound(false);
 
       try {
         const [cRes, sRes, quotesRes, invoicesRes, summaryRes, lookupsRes] = await Promise.allSettled([
@@ -391,6 +393,20 @@ function ClientDetailPageContent() {
         }
 
         if (!cRes.value.ok) {
+          if (cRes.value.status === 404) {
+            if (cancelled) return;
+            setClientNotFound(true);
+            setClient(null);
+            setJobs([]);
+            setSites([]);
+            setVacatedSites([]);
+            setContacts([]);
+            setQuotes([]);
+            setInvoices([]);
+            setFinancialSummary(null);
+            setQuoteLookupItems([]);
+            return;
+          }
           const t = await cRes.value.text().catch(() => "");
           throw new Error(`Failed to load client: ${cRes.value.status} ${cRes.value.statusText}${t ? ` - ${t}` : ""}`);
         }
@@ -414,6 +430,7 @@ function ClientDetailPageContent() {
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
+        setClientNotFound(false);
         setClient(null);
         setJobs([]);
         setSites([]);
@@ -435,13 +452,14 @@ function ClientDetailPageContent() {
   }, [baseUrl, clientId]);
 
   useEffect(() => {
+    if (clientNotFound) return;
     if (activeSection === "contacts" && contacts.length === 0) {
       void reloadContacts();
     }
     if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && jobs.length === 0) {
       void reloadJobs();
     }
-  }, [activeSection, contacts.length, jobs.length, reloadContacts, reloadJobs]);
+  }, [activeSection, clientNotFound, contacts.length, jobs.length, reloadContacts, reloadJobs]);
 
   async function handleAddContact() {
     try {
@@ -1467,6 +1485,32 @@ function ClientDetailPageContent() {
     );
   }
 
+  const headerActions = clientNotFound ? (
+    <>
+      <Button variant="outline" asChild>
+        <Link href="/clients">Back to Clients</Link>
+      </Button>
+      <Button variant="secondary" asChild>
+        <Link href="/admin/archived-clients">View Archived Clients</Link>
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button asChild>
+        <Link href={`/jobs/new?clientId=${clientId}`}>+ Add Job</Link>
+      </Button>
+      <Button variant="secondary" asChild>
+        <Link href={`/clients/${clientId}/edit`}>Edit Client</Link>
+      </Button>
+      <Button variant="secondary" asChild>
+        <Link href={`/clients/${clientId}/quotes/new`}>Create Quote</Link>
+      </Button>
+      <Button variant="outline" asChild>
+        <Link href="/clients">Back to Clients</Link>
+      </Button>
+    </>
+  );
+
   function renderActiveSection() {
     if (activeSection === "dashboard") return <ClientDashboard clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "timeline") {
@@ -1498,43 +1542,58 @@ function ClientDetailPageContent() {
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
         <PageHeader
-          title={client?.client_name ?? "Client"}
+          title={clientNotFound ? "Client Not Found" : client?.client_name ?? "Client"}
           subtitle={`Client ID: ${Number.isFinite(clientId) ? clientId : "-"}`}
-          breadcrumbs={[{ label: "Clients", href: "/clients" }, { label: client?.client_name ?? "Client" }]}
+          breadcrumbs={[{ label: "Clients", href: "/clients" }, { label: clientNotFound ? "Not Found" : client?.client_name ?? "Client" }]}
           titleSuffix={client?.status ? <StatusBadge status={client.status} /> : undefined}
-          actions={
-            <>
-              <Button asChild><Link href={`/jobs/new?clientId=${clientId}`}>+ Add Job</Link></Button>
-              <Button variant="secondary" asChild><Link href={`/clients/${clientId}/edit`}>Edit Client</Link></Button>
-              <Button variant="secondary" asChild><Link href={`/clients/${clientId}/quotes/new`}>Create Quote</Link></Button>
-              <Button variant="outline" asChild><Link href="/clients">Back to Clients</Link></Button>
-            </>
-          }
+          actions={headerActions}
         />
 
-        {error ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
-        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
-
-        <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <Card className="h-fit lg:sticky lg:top-24">
+        {clientNotFound ? (
+          <Card className="mb-6 border-amber-200 bg-amber-50/40">
             <CardHeader>
-              <CardTitle className="text-base">Client Sections</CardTitle>
+              <CardTitle>Client Not Found</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {SECTIONS.map((section) => (
-                <Button
-                  key={section.id}
-                  variant={activeSection === section.id ? "default" : "outline"}
-                  className="w-full justify-start"
-                  onClick={() => setActiveSection(section.id)}
-                >
-                  {section.label}
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This client record is no longer available in the live database. It may have been deleted or archived.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link href="/clients">Back to Clients</Link>
                 </Button>
-              ))}
+                <Button variant="outline" asChild>
+                  <Link href="/admin/archived-clients">View Archived Clients</Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
+        ) : null}
+        {error && !clientNotFound ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
+        {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
-          <div>{renderActiveSection()}</div>
+        <div className={clientNotFound ? "grid gap-6" : "grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]"}>
+          {clientNotFound ? null : (
+            <Card className="h-fit lg:sticky lg:top-24">
+              <CardHeader>
+                <CardTitle className="text-base">Client Sections</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {SECTIONS.map((section) => (
+                  <Button
+                    key={section.id}
+                    variant={activeSection === section.id ? "default" : "outline"}
+                    className="w-full justify-start"
+                    onClick={() => setActiveSection(section.id)}
+                  >
+                    {section.label}
+                  </Button>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <div>{clientNotFound ? null : renderActiveSection()}</div>
         </div>
       </div>
     </div>
