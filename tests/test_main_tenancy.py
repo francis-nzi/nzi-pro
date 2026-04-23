@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
+import pandas as pd
 from fastapi import HTTPException
 
 import api.main as main
@@ -35,6 +36,41 @@ class _ClientConn(_FakeConn):
         return self.row
 
 
+class _ListClientsConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+        self._fetchone_calls = 0
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        self._fetchone_calls += 1
+        if "COUNT(*)" in self._last_sql:
+            return (1,)
+        return (1,)
+
+    def df(self):
+        if "FROM clients c" in self._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "client_db_id": 89,
+                        "client_name": "Advanced Electric Machines (AEM)",
+                        "industry": "Engineering",
+                        "status": "Active",
+                        "crm_owner": "David Hawes",
+                    }
+                ]
+            )
+        if "FROM jobs j" in self._last_sql:
+            return pd.DataFrame([])
+        return pd.DataFrame([])
+
+
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_default_org_id", lambda: None)
@@ -46,6 +82,26 @@ def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Organisation context required"
+
+
+def test_list_clients_includes_job_reachable_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ListClientsConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+    monkeypatch.setattr(main, "db_backend", lambda: "postgres")
+
+    result = main.list_clients(
+        limit=50,
+        offset=0,
+        sort_by="client",
+        sort_dir="asc",
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["total"] == 1
+    assert result["items"][0]["client_name"] == "Advanced Electric Machines (AEM)"
+    assert any("EXISTS (SELECT 1 FROM jobs j" in sql for sql, _ in conn.queries)
 
 
 def test_get_client_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:

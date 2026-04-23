@@ -3482,6 +3482,7 @@ def list_clients(
 ):
     assert_permission(_user, "clients.view")
     org_id = _resolve_request_org_id(_user)
+    default_org_id = str(get_default_org_id() or "").strip()
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
@@ -3507,6 +3508,20 @@ def list_clients(
     def _normalize_lookup_value(value: object) -> str:
         return str(value or "").strip().lower()
 
+    def _client_visibility_clause() -> tuple[str, list[object]]:
+        if not org_id:
+            return "", []
+
+        params: list[object] = [org_id, org_id]
+        clause = (
+            f"(c.org_id = {org_placeholder} "
+            f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND TRIM(COALESCE(j.org_id, '')) = {org_placeholder})"
+        )
+        if default_org_id and org_id == default_org_id:
+            clause += " OR (c.org_id IS NULL AND EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND j.org_id IS NULL))"
+        clause += ")"
+        return clause, params
+
     try:
         with get_conn() as con:
             _ensure_client_org_columns(con)
@@ -3516,9 +3531,10 @@ def list_clients(
 
             where_clauses: list[str] = []
             params: list[object] = []
-            if org_id:
-                where_clauses.append(f"c.org_id = {org_placeholder}")
-                params.append(org_id)
+            visibility_clause, visibility_params = _client_visibility_clause()
+            if visibility_clause:
+                where_clauses.append(visibility_clause)
+                params.extend(visibility_params)
             if not bool(_user.get("is_super_admin")) and str(_user.get("access_scope") or "").strip().lower() == "linked_clients":
                 linked_client_ids = sorted(
                     {
@@ -3608,9 +3624,10 @@ def list_clients(
             with get_conn() as con:
                 where_clauses = []
                 params: list[object] = []
-                if org_id:
-                    where_clauses.append(f"c.org_id = {org_placeholder}")
-                    params.append(org_id)
+                visibility_clause, visibility_params = _client_visibility_clause()
+                if visibility_clause:
+                    where_clauses.append(visibility_clause)
+                    params.extend(visibility_params)
                 if query:
                     where_clauses.append("c.client_name ILIKE %s")
                     params.append(f"%{query}%")
