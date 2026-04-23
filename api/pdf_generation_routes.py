@@ -101,7 +101,7 @@ async def api_queue_pdf_generation(
 # ============================================================================
 
 @router.get("/pdf-progress/{job_token}")
-async def api_check_pdf_progress(job_token: str):
+async def api_check_pdf_progress(job_token: str, current_user = Depends(_current_user)):
     """
     Check status of a queued PDF generation job (polling endpoint).
     
@@ -120,7 +120,7 @@ async def api_check_pdf_progress(job_token: str):
     """
     try:
         from services.pdf_generation_queue import get_pdf_job_status
-        status = get_pdf_job_status(job_token)
+        status = get_pdf_job_status(job_token, org_id=require_org(current_user))
         return status
     except Exception as e:
         logger.error(f"Failed to check status: {e}")
@@ -158,12 +158,18 @@ async def websocket_pdf_progress(websocket: WebSocket, job_token: str):
     
     try:
         from services.pdf_generation_queue import get_pdf_job_status
+        # Best-effort org scoping from query parameters when present.
+        org_id = None
+        try:
+            org_id = (websocket.query_params.get("org_id") or "").strip() or None
+        except Exception:
+            org_id = None
         
         poll_count = 0
         while True:
             try:
                 # Get current job status
-                status = get_pdf_job_status(job_token)
+                status = get_pdf_job_status(job_token, org_id=org_id)
                 
                 # Send to client
                 await websocket.send_json(status)
@@ -222,7 +228,7 @@ async def api_cancel_pdf_generation(
     try:
         from services.pdf_generation_queue import cancel_pdf_job
         
-        if cancel_pdf_job(job_token):
+        if cancel_pdf_job(job_token, org_id=require_org(current_user)):
             logger.info(f"Canceled PDF generation: {job_token}")
             return {'status': 'canceled', 'message': 'PDF generation canceled'}
         else:

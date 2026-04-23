@@ -69,6 +69,10 @@ def queue_pdf_generation(
         RuntimeError: If Redis/RQ not available
     """
     try:
+        org_id = str(org_id or "").strip()
+        if not org_id:
+            raise ValueError("org_id is required for PDF generation")
+
         queue = get_pdf_queue()
         
         # Enqueue background task
@@ -81,7 +85,12 @@ def queue_pdf_generation(
             job_timeout=300,  # 5 minute timeout
             result_ttl=3600,  # Keep result for 1 hour
         )
-        
+        try:
+            rq_job.meta = {"org_id": org_id}
+            rq_job.save_meta()
+        except Exception:
+            logger.warning("Queued PDF job %s without stored org metadata", getattr(rq_job, "id", "unknown"))
+
         job_token = str(rq_job.id)
         logger.info(f"Queued PDF gen for job {job_id}, token: {job_token}")
         return job_token
@@ -91,7 +100,7 @@ def queue_pdf_generation(
         raise
 
 
-def get_pdf_job_status(job_token: str) -> dict:
+def get_pdf_job_status(job_token: str, org_id: Optional[str] = None) -> dict:
     """
     Get current status of a queued PDF generation job.
     
@@ -118,6 +127,11 @@ def get_pdf_job_status(job_token: str) -> dict:
     
     if not rq_job:
         return {'status': 'not_found', 'message': 'Job has expired'}
+
+    expected_org_id = str(org_id or "").strip() or None
+    job_org_id = str((getattr(rq_job, "meta", {}) or {}).get("org_id") or "").strip() or None
+    if expected_org_id and job_org_id and expected_org_id != job_org_id:
+        return {'status': 'not_found', 'message': 'Job not found'}
     
     # Map RQ status to our status
     status_map = {
@@ -142,6 +156,8 @@ def get_pdf_job_status(job_token: str) -> dict:
     if hasattr(rq_job, 'meta') and rq_job.meta:
         response['progress'] = rq_job.meta.get('progress', 0)
         response['message'] = rq_job.meta.get('message', '')
+        if rq_job.meta.get('org_id'):
+            response['org_id'] = rq_job.meta.get('org_id')
     else:
         response['progress'] = 0
         response['message'] = ''
@@ -157,7 +173,7 @@ def get_pdf_job_status(job_token: str) -> dict:
     return response
 
 
-def cancel_pdf_job(job_token: str) -> bool:
+def cancel_pdf_job(job_token: str, org_id: Optional[str] = None) -> bool:
     """
     Cancel a queued or running PDF generation job.
     
@@ -171,6 +187,10 @@ def cancel_pdf_job(job_token: str) -> bool:
         queue = get_pdf_queue()
         rq_job = queue.fetch_job(job_token)
         if rq_job:
+            expected_org_id = str(org_id or "").strip() or None
+            job_org_id = str((getattr(rq_job, "meta", {}) or {}).get("org_id") or "").strip() or None
+            if expected_org_id and job_org_id and expected_org_id != job_org_id:
+                return False
             rq_job.cancel()
             logger.info(f"Canceled PDF gen job {job_token}")
             return True

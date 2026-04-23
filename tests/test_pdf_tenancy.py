@@ -8,6 +8,7 @@ import asyncio
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.responses import Response
+import pytest
 
 import api.pdf_generation_routes as pdf_routes
 import services.pdf_generation_tasks as pdf_tasks
@@ -70,6 +71,52 @@ def test_queue_pdf_generation_passes_org_id(monkeypatch):
     assert captured["template_id"] == 11
     assert captured["org_id"] == "org-123"
     assert any("JOIN clients c" in sql for sql, _ in fake_conn.executed)
+
+
+def test_queue_pdf_generation_requires_org_id(monkeypatch):
+    with pytest.raises(ValueError):
+        from services.pdf_generation_queue import queue_pdf_generation
+
+        queue_pdf_generation(job_id=5, template_id=11, user_id="u1", org_id=None)
+
+
+def test_pdf_progress_and_cancel_are_org_scoped(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _StatusJob:
+        def __init__(self, org_id: str):
+            self.id = "token-123"
+            self.meta = {"org_id": org_id, "progress": 12, "message": "Queued"}
+            self.result = {"ok": True}
+            self.exc_info = None
+            self.is_finished = False
+            self.is_failed = False
+
+        def get_status(self):
+            return "queued"
+
+    class _Queue:
+        def fetch_job(self, token: str):
+            captured["token"] = token
+            return _StatusJob("org-123")
+
+    monkeypatch.setattr("services.pdf_generation_queue.get_pdf_queue", lambda: _Queue())
+    monkeypatch.setattr("services.pdf_generation_queue.cancel_pdf_job", lambda job_token, org_id=None: org_id == "org-123")
+    status = asyncio.run(
+        pdf_routes.api_check_pdf_progress("token-123", current_user={"user_id": "u1", "org_id": "org-123"})
+    )
+    assert status["status"] == "queued"
+    assert status["org_id"] == "org-123"
+
+    not_found = asyncio.run(
+        pdf_routes.api_check_pdf_progress("token-123", current_user={"user_id": "u1", "org_id": "org-other"})
+    )
+    assert not_found["status"] == "not_found"
+
+    canceled = asyncio.run(
+        pdf_routes.api_cancel_pdf_generation("token-123", current_user={"user_id": "u1", "org_id": "org-123"})
+    )
+    assert canceled["status"] == "canceled"
 
 
 def test_pdf_worker_uses_org_context(monkeypatch):
