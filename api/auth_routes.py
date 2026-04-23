@@ -131,6 +131,7 @@ def _current_org_summary(user: Dict) -> dict | None:
     org_id = str(user.get("org_id") or "").strip()
     if not org_id:
         return None
+    user_id = str(user.get("user_id") or "").strip()
     try:
         with get_conn() as con:
             row = con.execute(
@@ -142,8 +143,29 @@ def _current_org_summary(user: Dict) -> dict | None:
                 """,
                 [org_id],
             ).fetchone()
+            membership = None
+            if user_id:
+                membership = con.execute(
+                    """
+                    SELECT role, is_owner, is_active
+                    FROM organisation_memberships
+                    WHERE org_id = ? AND user_id = ?
+                    LIMIT 1
+                    """,
+                    [org_id, user_id],
+                ).fetchone()
         if not row:
-            return {"org_id": org_id, "name": org_id, "slug": None, "plan": None, "plan_status": None, "archived": None}
+            return {
+                "org_id": org_id,
+                "name": org_id,
+                "slug": None,
+                "plan": None,
+                "plan_status": None,
+                "archived": None,
+                "role": str(membership[0]).strip() if membership and membership[0] else None,
+                "is_owner": bool(membership[1]) if membership and membership[1] is not None else None,
+                "is_active_membership": bool(membership[2]) if membership and membership[2] is not None else None,
+            }
         return {
             "org_id": str(row[0] or "").strip() or org_id,
             "name": str(row[1] or "").strip() or org_id,
@@ -151,9 +173,22 @@ def _current_org_summary(user: Dict) -> dict | None:
             "plan": str(row[3] or "").strip() or None,
             "plan_status": str(row[4] or "").strip() or None,
             "archived": bool(row[5]) if row[5] is not None else None,
+            "role": str(membership[0]).strip() if membership and membership[0] else None,
+            "is_owner": bool(membership[1]) if membership and membership[1] is not None else None,
+            "is_active_membership": bool(membership[2]) if membership and membership[2] is not None else None,
         }
     except Exception:
-        return {"org_id": org_id, "name": org_id, "slug": None, "plan": None, "plan_status": None, "archived": None}
+        return {
+            "org_id": org_id,
+            "name": org_id,
+            "slug": None,
+            "plan": None,
+            "plan_status": None,
+            "archived": None,
+            "role": None,
+            "is_owner": None,
+            "is_active_membership": None,
+        }
 
 
 def _temporary_password(length: int = 14) -> str:

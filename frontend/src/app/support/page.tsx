@@ -21,6 +21,22 @@ type DatabaseFingerprint = {
   pg_version: string;
 };
 
+type CurrentOrgSummary = {
+  org_id?: string | null;
+  name?: string | null;
+  slug?: string | null;
+  role?: string | null;
+  archived?: boolean | null;
+};
+
+type SupportOrganisation = {
+  org_id: string;
+  name?: string | null;
+  slug?: string | null;
+  is_active_org?: boolean;
+  archived?: boolean | null;
+};
+
 const SUPPORT_TOPICS: SupportTopic[] = [
   { page: "Dashboard", path: "/", purpose: "Platform overview and workload monitoring.", process: ["Review high-level KPIs.", "Use quick links to jump into clients/jobs.", "Check recent activity before starting work."] },
   { page: "Clients List", path: "/clients", purpose: "Search, filter, and manage clients.", process: ["Use search/status filters.", "Open client profile to view jobs and reporting.", "Create a new client when needed."] },
@@ -53,6 +69,10 @@ export default function SupportPage() {
   const [query, setQuery] = useState("");
   const [fingerprint, setFingerprint] = useState<DatabaseFingerprint | null>(null);
   const [fingerprintError, setFingerprintError] = useState<string>("");
+  const [currentOrg, setCurrentOrg] = useState<CurrentOrgSummary | null>(null);
+  const [organisations, setOrganisations] = useState<SupportOrganisation[]>([]);
+  const [orgContextError, setOrgContextError] = useState<string>("");
+  const [canManageOrganisations, setCanManageOrganisations] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +95,67 @@ export default function SupportPage() {
       }
     }
     loadFingerprint();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadOrganisationContext() {
+      try {
+        const meRes = await fetch("/api/backend/auth/me", { credentials: "include" });
+        if (!meRes.ok) {
+          throw new Error(`Failed to load current organisation: ${meRes.status}`);
+        }
+        const payload = await meRes.json().catch(() => ({}));
+        const user = payload?.user || {};
+        const current = payload?.current_org || {};
+        const currentOrgPayload: CurrentOrgSummary = {
+          org_id: String(current?.org_id || user?.org_id || "").trim() || null,
+          name: String(current?.name || current?.org_id || user?.org_id || "").trim() || null,
+          slug: String(current?.slug || "").trim() || null,
+          role: String(current?.role || "").trim() || null,
+          archived: typeof current?.archived === "boolean" ? current.archived : null,
+        };
+        if (!cancelled) {
+          setCurrentOrg(currentOrgPayload);
+          setOrgContextError("");
+        }
+
+        const permissions = Array.isArray(user?.effective_permissions) ? user.effective_permissions : [];
+        const role = String(user?.role || "").trim().toLowerCase();
+        const adminAccess =
+          Boolean(user?.is_super_admin) ||
+          permissions.includes("admin.access") ||
+          role === "superadmin" ||
+          role === "admin";
+        if (!cancelled) {
+          setCanManageOrganisations(adminAccess);
+        }
+        if (!adminAccess) {
+          if (!cancelled) setOrganisations([]);
+          return;
+        }
+
+        const orgRes = await fetch("/api/backend/admin/organisations", { credentials: "include" });
+        if (!orgRes.ok) {
+          throw new Error(`Failed to load organisations: ${orgRes.status}`);
+        }
+        const orgPayload = await orgRes.json().catch(() => ({}));
+        const items = Array.isArray(orgPayload?.items) ? orgPayload.items : [];
+        if (!cancelled) {
+          setOrganisations(items);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCurrentOrg(null);
+          setOrganisations([]);
+          setOrgContextError((err as Error).message);
+        }
+      }
+    }
+    loadOrganisationContext();
     return () => {
       cancelled = true;
     };
@@ -133,6 +214,80 @@ export default function SupportPage() {
             <Button asChild>
               <Link href="/support/legal">Open Legal Documents</Link>
             </Button>
+          </CardContent>
+        </Card>
+
+        <div className="mb-6 grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Current Organisation</CardTitle>
+              <CardDescription>
+                The tenant context the application is currently using for this session.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {orgContextError ? (
+                <p className="text-destructive">{orgContextError}</p>
+              ) : currentOrg ? (
+                <>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div><span className="font-medium">Name:</span> {currentOrg.name || currentOrg.org_id || "-"}</div>
+                    <div><span className="font-medium">Role:</span> {currentOrg.role || "Member"}</div>
+                    <div><span className="font-medium">Slug:</span> {currentOrg.slug || "-"}</div>
+                    <div><span className="font-medium">Org ID:</span> {currentOrg.org_id || "-"}</div>
+                  </div>
+                  <p className="text-muted-foreground">
+                    Use the profile menu in the top-right corner to switch organisation. Admin users can also manage
+                    organisations from the Admin area.
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground">Loading current organisation...</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Delegated Access</CardTitle>
+              <CardDescription>
+                Role-based access that controls who can switch, manage members, and handle billing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <ul className="list-disc space-y-2 pl-5 text-muted-foreground">
+                <li><span className="font-medium text-foreground">Owner:</span> full organisation control, including transfer of ownership.</li>
+                <li><span className="font-medium text-foreground">Admin:</span> manage members, settings, and organisation lifecycle.</li>
+                <li><span className="font-medium text-foreground">Billing:</span> manage invoices, plan status, and billing events.</li>
+                <li><span className="font-medium text-foreground">Member / Consultant:</span> work inside the current organisation and switch where permitted.</li>
+              </ul>
+              <p className="text-muted-foreground">
+                If you are not sure which role you have, check the current organisation card above.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Organisation Management</CardTitle>
+            <CardDescription>
+              Use this when you need to switch organisations, review members, or update delegated access.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 text-sm">
+            <p className="text-muted-foreground">
+              {canManageOrganisations
+                ? (organisations.length > 0
+                  ? `You currently have access to ${organisations.length} organisation${organisations.length === 1 ? "" : "s"}.`
+                  : "Open the organisation manager to review active access and switching options.")
+                : "Organisation switching is available from the profile menu. Admin users can manage members and settings in the Admin area."}
+            </p>
+            {canManageOrganisations ? (
+              <Button asChild>
+                <Link href="/admin/organisations">Open Organisation Management</Link>
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 

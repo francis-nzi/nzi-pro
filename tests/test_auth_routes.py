@@ -26,6 +26,8 @@ class _AuthConn:
 
     def fetchone(self):
         sql = self.executed[-1][0] if self.executed else ""
+        if "FROM organisation_memberships" in sql:
+            return _FakeRow("Admin", True, True)
         if "FROM organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", False)
         return None
@@ -46,4 +48,5 @@ def test_me_includes_current_org_summary(monkeypatch):
     assert result["current_org"]["org_id"] == "org-123"
     assert result["current_org"]["name"] == "Acme Org"
     assert result["current_org"]["slug"] == "acme-org"
+    assert result["current_org"]["role"] == "Admin"
     assert any("FROM organisations" in sql for sql, _ in fake.executed)

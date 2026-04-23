@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -86,11 +86,13 @@ export function MainNav() {
     currentOrgId: string;
     currentOrgLabel: string;
     currentOrgSlug: string;
+    currentOrgRole: string;
     organisations: NavOrganisation[];
   }>({
     currentOrgId: "",
     currentOrgLabel: "",
     currentOrgSlug: "",
+    currentOrgRole: "",
     organisations: [],
   });
 
@@ -104,6 +106,7 @@ export function MainNav() {
         let currentOrgId = "";
         let currentOrgLabel = "";
         let currentOrgSlug = "";
+        let currentOrgRole = "";
         let organisations: NavOrganisation[] = [];
 
         if (authed) {
@@ -117,6 +120,7 @@ export function MainNav() {
               currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
               currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
               currentOrgSlug = String(currentOrg?.slug || "").trim();
+              currentOrgRole = String(currentOrg?.role || "").trim();
               if (adminAccess) {
                 try {
                   const orgRes = await fetch(apiUrl("/admin/organisations"), { credentials: "include" });
@@ -154,6 +158,7 @@ export function MainNav() {
             currentOrgId,
             currentOrgLabel,
             currentOrgSlug,
+            currentOrgRole,
             organisations,
           });
         }
@@ -236,6 +241,7 @@ export function MainNav() {
     pathname === "/feedback" ||
     pathname?.startsWith("/feedback/");
   const currentOrgBadge = orgUi.currentOrgLabel || orgUi.currentOrgId || "";
+  const currentOrgRoleLabel = orgUi.currentOrgRole ? ` • ${orgUi.currentOrgRole}` : "";
   const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
   const logoUrl = useMemo(() => {
     const raw = String(theme?.logo_url || "").trim();
@@ -333,7 +339,10 @@ export function MainNav() {
                   {currentOrgBadge ? (
                     <div className="mb-2 rounded border bg-muted/20 px-2 py-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current organisation</div>
-                      <div className="truncate text-sm font-medium">{currentOrgBadge}</div>
+                      <div className="truncate text-sm font-medium">
+                        {currentOrgBadge}
+                        {currentOrgRoleLabel}
+                      </div>
                       {orgUi.currentOrgSlug ? (
                         <div className="text-xs text-muted-foreground">Slug: {orgUi.currentOrgSlug}</div>
                       ) : null}
@@ -464,3 +473,5 @@ export function MainNav() {
     </nav>
   );
 }
+
+
