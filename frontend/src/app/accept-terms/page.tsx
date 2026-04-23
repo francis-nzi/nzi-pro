@@ -27,7 +27,7 @@ function AcceptTermsContent() {
         return;
       }
       setMustAcceptPortalTerms(false);
-      const next = searchParams?.get("next") || "/account/settings?mfa=setup";
+      const next = searchParams?.get("next") || "/account/mfa-setup";
       router.replace(next);
     } catch {
       setError("Unable to record acceptance. Please try again.");

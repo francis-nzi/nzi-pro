@@ -52,8 +52,8 @@ function ChangePasswordContent() {
       setOk(payload.message || "Password changed.");
       const next = searchParams?.get("next");
       const fallback = mustAcceptPortalTerms()
-        ? "/accept-terms?next=%2Faccount%2Fsettings%3Fmfa%3Dsetup"
-        : "/account/settings?mfa=setup";
+        ? "/accept-terms?next=%2Faccount%2Fmfa-setup"
+        : "/account/mfa-setup";
       setTimeout(() => router.replace(next || fallback), 600);
     } catch {
       setError("Password change request failed. Please try again.");

@@ -42,7 +42,7 @@ function buildPostLoginRoute(
 ): string {
   let target = nextTarget;
   if (flags.mfaSetupRequired) {
-    target = `/account/settings?mfa=setup&next=${encodeURIComponent(target)}`;
+    target = `/account/mfa-setup?next=${encodeURIComponent(target)}`;
   }
   if (flags.mustAcceptPortalTerms) {
     target = appendNext("/accept-terms", target);

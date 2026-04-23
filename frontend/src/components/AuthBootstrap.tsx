@@ -11,7 +11,7 @@ function appendNext(path: string, next: string): string {
 function buildRequiredFlow(nextTarget: string, flags: { mustChangePassword: boolean; mustAcceptPortalTerms: boolean; mfaSetupRequired: boolean }): string {
   let target = nextTarget;
   if (flags.mfaSetupRequired) {
-    target = `/account/settings?mfa=setup&next=${encodeURIComponent(target)}`;
+    target = `/account/mfa-setup?next=${encodeURIComponent(target)}`;
   }
   if (flags.mustAcceptPortalTerms) {
     target = appendNext("/accept-terms", target);
@@ -36,6 +36,7 @@ export function AuthBootstrap() {
     const isChangePasswordPage = pathname === "/change-password";
     const isAcceptTermsPage = pathname === "/accept-terms";
     const isAccountSettingsPage = pathname === "/account/settings";
+    const isMfaSetupPage = pathname === "/account/mfa-setup";
     const isPublicPage =
       pathname === "/login" ||
       pathname === "/legal" ||
@@ -104,8 +105,8 @@ export function AuthBootstrap() {
         }
 
         if (needsMfaSetup) {
-          if (!isAccountSettingsPage) {
-            router.replace(`/account/settings?mfa=setup&next=${encodeURIComponent(desiredNext)}`);
+          if (!isMfaSetupPage) {
+            router.replace(`/account/mfa-setup?next=${encodeURIComponent(desiredNext)}`);
           }
           return;
         }
