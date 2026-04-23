@@ -30,6 +30,15 @@ def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _safe_int(value: Any, default: int | None = None) -> int | None:
+    try:
+        if value is None or str(value).strip() == "":
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
 def _matches_search(search: str, values: list[Any]) -> bool:
     terms = [term.strip().lower() for term in str(search or "").split() if term.strip()]
     if not terms:
@@ -133,45 +142,48 @@ def get_client_notes_summary(
             )
             if client_events_df is not None and not client_events_df.empty:
                 for _, row in client_events_df.iterrows():
-                    note_text = _safe_text(row.get("body_text"))
-                    if not note_text:
+                    try:
+                        note_text = _safe_text(row.get("body_text"))
+                        if not note_text:
+                            continue
+                        job_id_val = _safe_int(row.get("job_id"), None)
+                        job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
+                        job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
+                        job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
+                        subject = _safe_text(row.get("subject")) or None
+                        location_bits = ["Client Note"]
+                        if job_number:
+                            location_bits.append(f"Job {job_number}")
+                        elif job_id_val is not None:
+                            location_bits.append(f"Job {job_id_val}")
+                        if subject:
+                            location_bits.append(subject)
+                        items.append(
+                            {
+                                "note_id": f"client-event-{_safe_int(row.get('event_id'), 0) or 0}",
+                                "source_type": "client",
+                                "source_label": "Client Note",
+                                "client_db_id": _safe_int(row.get("client_db_id"), client_id) or client_id,
+                                "job_id": job_id_val,
+                                "job_number": job_number,
+                                "job_title": job_title,
+                                "scope": "",
+                                "site_id": None,
+                                "site_name": "",
+                                "category": "",
+                                "report_label": "",
+                                "original_id": "",
+                                "note_location": " | ".join(location_bits),
+                                "note_subject": subject,
+                                "note_text": note_text,
+                                "note_author": _safe_text(row.get("created_by")) or None,
+                                "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
+                                "row_created_at": _to_iso(row.get("created_at")),
+                                "row_updated_at": _to_iso(row.get("updated_at")),
+                            }
+                        )
+                    except Exception:
                         continue
-                    job_id_val = int(row.get("job_id")) if row.get("job_id") is not None else None
-                    job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
-                    job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
-                    job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
-                    subject = _safe_text(row.get("subject")) or None
-                    location_bits = ["Client Note"]
-                    if job_number:
-                        location_bits.append(f"Job {job_number}")
-                    elif job_id_val is not None:
-                        location_bits.append(f"Job {job_id_val}")
-                    if subject:
-                        location_bits.append(subject)
-                    items.append(
-                        {
-                            "note_id": f"client-event-{int(row.get('event_id') or 0)}",
-                            "source_type": "client",
-                            "source_label": "Client Note",
-                            "client_db_id": int(row.get("client_db_id") or client_id),
-                            "job_id": job_id_val,
-                            "job_number": job_number,
-                            "job_title": job_title,
-                            "scope": "",
-                            "site_id": None,
-                            "site_name": "",
-                            "category": "",
-                            "report_label": "",
-                            "original_id": "",
-                            "note_location": " | ".join(location_bits),
-                            "note_subject": subject,
-                            "note_text": note_text,
-                            "note_author": _safe_text(row.get("created_by")) or None,
-                            "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
-                            "row_created_at": _to_iso(row.get("created_at")),
-                            "row_updated_at": _to_iso(row.get("updated_at")),
-                        }
-                    )
 
             job_comm_df = _safe_df(
                 """
@@ -198,45 +210,48 @@ def get_client_notes_summary(
             )
             if job_comm_df is not None and not job_comm_df.empty:
                 for _, row in job_comm_df.iterrows():
-                    note_text = _safe_text(row.get("message_text"))
-                    if not note_text:
+                    try:
+                        note_text = _safe_text(row.get("message_text"))
+                        if not note_text:
+                            continue
+                        job_id_val = _safe_int(row.get("job_id"), None)
+                        job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
+                        job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
+                        job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
+                        subject = _safe_text(row.get("subject")) or None
+                        location_bits = ["Job Note"]
+                        if job_number:
+                            location_bits.append(f"Job {job_number}")
+                        elif job_id_val is not None:
+                            location_bits.append(f"Job {job_id_val}")
+                        if subject:
+                            location_bits.append(subject)
+                        items.append(
+                            {
+                                "note_id": f"job-comm-{_safe_int(row.get('communication_id'), 0) or 0}",
+                                "source_type": "job-communication",
+                                "source_label": "Job Note",
+                                "client_db_id": _safe_int(row.get("client_db_id"), client_id) or client_id,
+                                "job_id": job_id_val,
+                                "job_number": job_number,
+                                "job_title": job_title,
+                                "scope": "",
+                                "site_id": None,
+                                "site_name": "",
+                                "category": "",
+                                "report_label": "",
+                                "original_id": "",
+                                "note_location": " | ".join(location_bits),
+                                "note_subject": subject,
+                                "note_text": note_text,
+                                "note_author": _safe_text(row.get("created_by")) or None,
+                                "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
+                                "row_created_at": _to_iso(row.get("created_at")),
+                                "row_updated_at": _to_iso(row.get("updated_at")),
+                            }
+                        )
+                    except Exception:
                         continue
-                    job_id_val = int(row.get("job_id")) if row.get("job_id") is not None else None
-                    job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
-                    job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
-                    job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
-                    subject = _safe_text(row.get("subject")) or None
-                    location_bits = ["Job Note"]
-                    if job_number:
-                        location_bits.append(f"Job {job_number}")
-                    elif job_id_val is not None:
-                        location_bits.append(f"Job {job_id_val}")
-                    if subject:
-                        location_bits.append(subject)
-                    items.append(
-                        {
-                            "note_id": f"job-comm-{int(row.get('communication_id') or 0)}",
-                            "source_type": "job-communication",
-                            "source_label": "Job Note",
-                            "client_db_id": int(row.get("client_db_id") or client_id),
-                            "job_id": job_id_val,
-                            "job_number": job_number,
-                            "job_title": job_title,
-                            "scope": "",
-                            "site_id": None,
-                            "site_name": "",
-                            "category": "",
-                            "report_label": "",
-                            "original_id": "",
-                            "note_location": " | ".join(location_bits),
-                            "note_subject": subject,
-                            "note_text": note_text,
-                            "note_author": _safe_text(row.get("created_by")) or None,
-                            "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
-                            "row_created_at": _to_iso(row.get("created_at")),
-                            "row_updated_at": _to_iso(row.get("updated_at")),
-                        }
-                    )
 
             if job_ids:
                 placeholders = ", ".join(["%s"] * len(job_ids))
@@ -309,56 +324,61 @@ def get_client_notes_summary(
 
                 if job_data_df is not None and not job_data_df.empty:
                     for _, row in job_data_df.iterrows():
-                        row_id = int(row.get("row_id"))
-                        note_text = _safe_text(row.get("notes"))
-                        if not note_text:
+                        try:
+                            row_id = _safe_int(row.get("row_id"), None)
+                            if row_id is None:
+                                continue
+                            note_text = _safe_text(row.get("notes"))
+                            if not note_text:
+                                continue
+                            job_id_val = _safe_int(row.get("job_id"), None)
+                            job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
+                            job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
+                            job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
+                            site_name = _safe_text(row.get("site_name")) or (
+                                f"Site {row.get('site_id')}" if row.get("site_id") is not None else "No Site Assigned"
+                            )
+                            location_parts = []
+                            if job_number:
+                                location_parts.append(f"Job {job_number}")
+                            elif job_id_val is not None:
+                                location_parts.append(f"Job {job_id_val}")
+                            if site_name:
+                                location_parts.append(site_name)
+                            location_parts.extend(
+                                [
+                                    _safe_text(row.get("scope")),
+                                    _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
+                                    _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
+                                ]
+                            )
+                            note_event = latest_note_events.get(str(row_id), {})
+                            items.append(
+                                {
+                                    "note_id": f"job-data-{row_id}",
+                                    "source_type": "job-row",
+                                    "source_label": "Job Row Note",
+                                    "client_db_id": int(client_id),
+                                    "job_id": job_id_val,
+                                    "job_number": job_number,
+                                    "job_title": job_title,
+                                    "scope": _safe_text(row.get("scope")),
+                                    "site_id": _safe_int(row.get("site_id"), None),
+                                    "site_name": site_name,
+                                    "category": _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
+                                    "report_label": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
+                                    "original_id": _safe_text(row.get("original_id")),
+                                    "note_location": " | ".join(part for part in location_parts if part),
+                                    "note_subject": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")) or None,
+                                    "note_text": note_text,
+                                    "note_author": _safe_text(note_event.get("updated_by")) or None,
+                                    "note_updated_at": _safe_text(note_event.get("updated_at")) or _to_iso(row.get("updated_at")),
+                                    "row_created_at": _to_iso(row.get("created_at")),
+                                    "row_updated_at": _to_iso(row.get("updated_at")),
+                                }
+                            )
+                        except Exception:
                             continue
-                        job_id_val = int(row.get("job_id")) if row.get("job_id") is not None else None
-                        job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
-                        job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
-                        job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
-                        site_name = _safe_text(row.get("site_name")) or (
-                            f"Site {row.get('site_id')}" if row.get("site_id") is not None else "No Site Assigned"
-                        )
-                        location_parts = []
-                        if job_number:
-                            location_parts.append(f"Job {job_number}")
-                        elif job_id_val is not None:
-                            location_parts.append(f"Job {job_id_val}")
-                        if site_name:
-                            location_parts.append(site_name)
-                        location_parts.extend(
-                            [
-                                _safe_text(row.get("scope")),
-                                _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
-                                _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
-                            ]
-                        )
-                        note_event = latest_note_events.get(str(row_id), {})
-                        items.append(
-                            {
-                            "note_id": f"job-data-{row_id}",
-                            "source_type": "job-row",
-                            "source_label": "Job Row Note",
-                                "client_db_id": int(client_id),
-                                "job_id": job_id_val,
-                                "job_number": job_number,
-                                "job_title": job_title,
-                                "scope": _safe_text(row.get("scope")),
-                                "site_id": int(row.get("site_id")) if row.get("site_id") is not None else None,
-                                "site_name": site_name,
-                                "category": _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
-                                "report_label": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
-                                "original_id": _safe_text(row.get("original_id")),
-                                "note_location": " | ".join(part for part in location_parts if part),
-                                "note_subject": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")) or None,
-                                "note_text": note_text,
-                                "note_author": _safe_text(note_event.get("updated_by")) or None,
-                                "note_updated_at": _safe_text(note_event.get("updated_at")) or _to_iso(row.get("updated_at")),
-                                "row_created_at": _to_iso(row.get("created_at")),
-                                "row_updated_at": _to_iso(row.get("updated_at")),
-                            }
-                        )
 
             filtered: list[dict[str, Any]] = []
             source_val = _safe_text(source).lower()
