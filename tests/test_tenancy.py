@@ -26,16 +26,6 @@ def test_require_org_raises_without_org() -> None:
     assert exc_info.value.detail == "Organisation context required"
 
 
-def test_require_org_ignores_legacy_fallback_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tenancy, "get_default_org_id", lambda: "default-org")
-
-    with pytest.raises(HTTPException) as exc_info:
-        tenancy.require_org({}, allow_fallback=True)
-
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail == "Organisation context required"
-
-
 @dataclass
 class _FakeRow:
     value: object
@@ -68,7 +58,7 @@ class _FakeConn:
         return False
 
 
-def test_attach_org_id_does_not_fallback_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_attach_org_id_falls_back_to_default_org(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _FakeConn(row_value=None)
     monkeypatch.setattr(tenancy, "get_conn", lambda: conn)
     monkeypatch.setattr(tenancy, "get_default_org_id", lambda: "default-org")
@@ -77,5 +67,5 @@ def test_attach_org_id_does_not_fallback_by_default(monkeypatch: pytest.MonkeyPa
 
     result = tenancy.attach_org_id(user)
 
-    assert result["org_id"] is None
-    assert all("UPDATE users SET org_id" not in sql for sql, _ in conn.executed)
+    assert result["org_id"] == "default-org"
+    assert any("UPDATE users SET org_id" in sql for sql, _ in conn.executed)

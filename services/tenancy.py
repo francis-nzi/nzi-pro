@@ -73,6 +73,21 @@ def attach_org_id(user: dict, *, allow_fallback: bool = False) -> dict:
     except Exception:
         pass
 
+    org_id = get_default_org_id()
+    if org_id:
+        try:
+            with get_conn() as con:
+                con.execute(
+                    "UPDATE users SET org_id = ? WHERE user_id = ? AND org_id IS NULL",
+                    [org_id, user_id],
+                )
+        except Exception:
+            pass
+        user["org_id"] = org_id
+        set_current_org_context(org_id)
+        logger.warning("Tenant fallback assigned default org to user_id=%s", user_id or "unknown")
+        return user
+
     user["org_id"] = None
     clear_current_org_context()
     logger.warning("Tenant resolution failed for user_id=%s", user_id or "unknown")
