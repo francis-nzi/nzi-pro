@@ -47,8 +47,18 @@ class _AuditConn:
 
     def fetchone(self):
         sql = self.executed[-1][0] if self.executed else ""
-        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in sql:
-            return _FakeRow(3, 10, False, "active")
+        if "FROM organisation_entitlements" in sql:
+            return _FakeRow("org-123", "growth", "active", 12, 50, "2026-05-01", "cus-123", "sub-123", "active", "2026-04-01", "2026-05-01", True, "2026-04-23", "2026-04-23")
+        if "FROM organisations" in sql and "archived" in sql and "LIMIT 1" in sql:
+            return _FakeRow(False)
+        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
+            return _FakeRow("org-123", "Acme Org", "acme-org", "growth", "active", 12, 50, False, None, None, "2026-04-23", "2026-04-23")
+        if "SELECT COUNT(*)" in sql and "FROM organisation_memberships" in sql:
+            return _FakeRow(1)
+        if "SELECT COUNT(*)" in sql and "FROM organisation_invitations" in sql:
+            return _FakeRow(0)
+        if "SELECT COUNT(*)" in sql and "FROM clients" in sql:
+            return _FakeRow(0)
         if "FROM organisation_memberships" in sql and "COUNT(*)" in sql:
             return _FakeRow(1)
         if "FROM organisation_invitations" in sql and "COUNT(*)" in sql:
@@ -60,7 +70,7 @@ class _AuditConn:
         if "SELECT org_id, user_id, role, is_active, is_owner" in sql:
             return _FakeRow("org-123", "u1", "Owner", True, True)
         if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
-            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")
+            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23", "growth", "active")
         if "SELECT invitation_id, org_id, email, role, accepted_at, expires_at" in sql:
             return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-01T00:00:00+00:00")
         if "SELECT 1 FROM organisations WHERE lower(slug)" in sql:
@@ -70,7 +80,7 @@ class _AuditConn:
     def fetchall(self):
         sql = self.executed[-1][0] if self.executed else ""
         if "FROM organisations" in sql:
-            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")]
+            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23", "growth", "active")]
         return []
 
 
@@ -123,8 +133,12 @@ def test_org_lifecycle_emits_audit_event(monkeypatch: pytest.MonkeyPatch, caplog
 class _DeniedCapacityConn(_AuditConn):
     def fetchone(self):
         sql = self.executed[-1][0] if self.executed else ""
-        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in sql:
-            return _FakeRow(3, 10, True, "active")
+        if "FROM organisation_entitlements" in sql:
+            return _FakeRow("org-123", "growth", "active", 3, 10, None, None, None, "active", None, None, True, None, None)
+        if "FROM organisations" in sql and "archived" in sql and "LIMIT 1" in sql:
+            return _FakeRow(True)
+        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
+            return _FakeRow("org-123", "Acme Org", "acme-org", "growth", "active", 3, 10, True, "2026-04-23", "u1", "2026-04-23", "2026-04-23")
         if "FROM organisation_memberships" in sql and "COUNT(*)" in sql:
             return _FakeRow(1)
         if "FROM organisation_invitations" in sql and "COUNT(*)" in sql:

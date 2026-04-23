@@ -38,8 +38,18 @@ class _ArchivedOrgConn:
         sql = self.executed[-1][0] if self.executed else ""
         if "SELECT org_id, user_id, role, is_active, is_owner" in sql:
             return _FakeRow("org-123", "u1", "Owner", True, True)
-        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in sql:
-            return _FakeRow(3, 10, True, "active")
+        if "FROM organisation_entitlements" in sql:
+            return _FakeRow("org-123", "trial", "active", 3, 10, None, None, None, "active", None, None, True, None, None)
+        if "FROM organisations" in sql and "archived" in sql and "LIMIT 1" in sql:
+            return _FakeRow(True)
+        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
+            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, True, "2026-04-01", "u1", "2026-04-23", "2026-04-23")
+        if "SELECT COUNT(*)" in sql and "FROM organisation_memberships" in sql:
+            return _FakeRow(1)
+        if "SELECT COUNT(*)" in sql and "FROM organisation_invitations" in sql:
+            return _FakeRow(0)
+        if "SELECT COUNT(*)" in sql and "FROM clients" in sql:
+            return _FakeRow(0)
         return None
 
 

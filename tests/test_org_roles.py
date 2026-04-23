@@ -39,6 +39,8 @@ class _RoleConn:
 
     def fetchone(self):
         sql = self.executed[-1][0] if self.executed else ""
+        if "FROM organisation_entitlements" in sql:
+            return _FakeRow("org-123", "growth", "active", 12, 50, "2026-05-01", "cus-123", "sub-123", "active", "2026-04-01", "2026-05-01", True, "2026-04-23", "2026-04-23")
         if "SELECT org_id, user_id, role, is_active, is_owner" in sql and not self._transfer_complete:
             if self._mode == "owner":
                 return _FakeRow("org-123", "u1", "Owner", True, True)
@@ -54,7 +56,7 @@ class _RoleConn:
     def fetchall(self):
         sql = self.executed[-1][0] if self.executed else ""
         if "FROM organisations" in sql:
-            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")]
+            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23", "growth", "active")]
         if "FROM organisation_memberships" in sql:
             return [
                 _FakeRow("org-123", "Owner", True, True),

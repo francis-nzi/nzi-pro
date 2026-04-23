@@ -24,8 +24,25 @@ class _LimitConn:
     def fetchone(self):
         if "SELECT db_id FROM clients WHERE org_id = ?" in self._last_sql:
             return None
-        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in self._last_sql:
-            return (5, 1, False, "active")
+        if "FROM organisation_entitlements" in self._last_sql:
+            return (
+                "org-a",
+                "growth",
+                "active",
+                5,
+                1,
+                None,
+                None,
+                None,
+                "active",
+                None,
+                None,
+                True,
+                None,
+                None,
+            )
+        if "SELECT COALESCE(archived, FALSE) FROM organisations WHERE org_id = ? LIMIT 1" in self._last_sql:
+            return (False,)
         if "FROM organisation_memberships" in self._last_sql and "COUNT(*)" in self._last_sql:
             return (1,)
         if "FROM organisation_invitations" in self._last_sql and "COUNT(*)" in self._last_sql:

@@ -240,6 +240,80 @@ def _ensure_org_lifecycle_schema(con) -> None:
         )
     except Exception:
         pass
+
+
+def _ensure_org_entitlement_schema(con) -> None:
+    """Keep org entitlement data available and mirrored from organisation rows."""
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisation_entitlements (
+              org_id UUID PRIMARY KEY REFERENCES organisations(org_id),
+              plan VARCHAR DEFAULT 'trial',
+              plan_status VARCHAR DEFAULT 'active',
+              max_users INTEGER DEFAULT 3,
+              max_clients INTEGER DEFAULT 10,
+              trial_ends_at TIMESTAMP,
+              stripe_customer_id VARCHAR,
+              stripe_subscription_id VARCHAR,
+              subscription_status VARCHAR DEFAULT 'active',
+              current_period_start TIMESTAMP,
+              current_period_end TIMESTAMP,
+              auto_renew BOOLEAN DEFAULT TRUE,
+              created_at TIMESTAMP DEFAULT NOW(),
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    for ddl in (
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS plan VARCHAR DEFAULT 'trial'",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS plan_status VARCHAR DEFAULT 'active'",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS max_users INTEGER DEFAULT 3",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS max_clients INTEGER DEFAULT 10",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS subscription_status VARCHAR DEFAULT 'active'",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS current_period_start TIMESTAMP",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMP",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS auto_renew BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE organisation_entitlements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ):
+        try:
+            con.execute(ddl)
+        except Exception:
+            pass
+    try:
+        con.execute(
+            """
+            INSERT INTO organisation_entitlements (
+              org_id, plan, plan_status, max_users, max_clients, trial_ends_at,
+              stripe_customer_id, stripe_subscription_id, subscription_status,
+              current_period_start, current_period_end, auto_renew
+            )
+            SELECT
+              org_id, COALESCE(plan, 'trial'), COALESCE(plan_status, 'active'),
+              COALESCE(max_users, 3), COALESCE(max_clients, 10), trial_ends_at,
+              stripe_customer_id, stripe_subscription_id, COALESCE(plan_status, 'active'),
+              NULL, NULL, TRUE
+            FROM organisations
+            ON CONFLICT (org_id) DO UPDATE SET
+              plan = EXCLUDED.plan,
+              plan_status = EXCLUDED.plan_status,
+              max_users = EXCLUDED.max_users,
+              max_clients = EXCLUDED.max_clients,
+              trial_ends_at = COALESCE(EXCLUDED.trial_ends_at, organisation_entitlements.trial_ends_at),
+              stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, organisation_entitlements.stripe_customer_id),
+              stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, organisation_entitlements.stripe_subscription_id),
+              subscription_status = EXCLUDED.subscription_status,
+              updated_at = NOW()
+            """
+        )
+    except Exception:
+        pass
     try:
         con.execute(
             """
@@ -250,6 +324,10 @@ def _ensure_org_lifecycle_schema(con) -> None:
             WHERE org_id IS NULL
             """
         )
+    except Exception:
+        pass
+    try:
+        _ensure_org_entitlement_schema(con)
     except Exception:
         pass
 
@@ -281,6 +359,62 @@ def _org_role_capabilities(value: object | None) -> dict[str, bool]:
     caps["is_admin_role"] = normalized == "admin"
     caps["role"] = _ORG_ROLE_LABELS.get(normalized, "Member")
     return caps
+
+
+def _entitlement_row_to_dict(row) -> dict[str, object]:
+    def _value(idx: int):
+        try:
+            return row[idx]
+        except Exception:
+            return None
+
+    return {
+        "org_id": str(_value(0)) if _value(0) is not None else None,
+        "plan": str(_value(1) or "trial"),
+        "plan_status": str(_value(2) or "active"),
+        "max_users": int(_value(3) or 0),
+        "max_clients": int(_value(4) or 0),
+        "trial_ends_at": str(_value(5)) if _value(5) else None,
+        "stripe_customer_id": str(_value(6) or "") or None,
+        "stripe_subscription_id": str(_value(7) or "") or None,
+        "subscription_status": str(_value(8) or "active"),
+        "current_period_start": str(_value(9)) if _value(9) else None,
+        "current_period_end": str(_value(10)) if _value(10) else None,
+        "auto_renew": bool(_value(11)) if _value(11) is not None else True,
+        "created_at": str(_value(12)) if _value(12) else None,
+        "updated_at": str(_value(13)) if _value(13) else None,
+    }
+
+
+def _organisation_entitlement_info(con, org_id: str) -> dict[str, object]:
+    row = con.execute(
+        """
+        SELECT org_id, plan, plan_status, max_users, max_clients, trial_ends_at,
+               stripe_customer_id, stripe_subscription_id, subscription_status,
+               current_period_start, current_period_end, auto_renew, created_at, updated_at
+        FROM organisation_entitlements
+        WHERE org_id = %s
+        LIMIT 1
+        """,
+        [str(org_id).strip()],
+    ).fetchone()
+    if row:
+        return _entitlement_row_to_dict(row)
+
+    org_row = con.execute(
+        """
+        SELECT org_id, plan, plan_status, max_users, max_clients, trial_ends_at,
+               stripe_customer_id, stripe_subscription_id, plan_status,
+               NULL, NULL, TRUE, created_at, updated_at
+        FROM organisations
+        WHERE org_id = %s
+        LIMIT 1
+        """,
+        [str(org_id).strip()],
+    ).fetchone()
+    if not org_row:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    return _entitlement_row_to_dict(org_row)
 
 
 def _membership_for_user(con, user_id: str, org_id: str) -> dict[str, object] | None:
@@ -365,17 +499,16 @@ def _require_org_active(con, org_id: str) -> None:
 
 
 def _organisation_usage_info(con, org_id: str) -> dict[str, int | bool | str]:
+    entitlement = _organisation_entitlement_info(con, org_id)
     org_row = con.execute(
         """
-        SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')
+        SELECT COALESCE(archived, FALSE)
         FROM organisations
         WHERE org_id = %s
         LIMIT 1
         """,
         [org_id],
     ).fetchone()
-    if not org_row:
-        raise HTTPException(status_code=404, detail="Organisation not found")
 
     active_members = con.execute(
         """
@@ -407,10 +540,18 @@ def _organisation_usage_info(con, org_id: str) -> dict[str, int | bool | str]:
     ).fetchone()
 
     return {
-        "max_users": int(org_row[0] or 0),
-        "max_clients": int(org_row[1] or 0),
-        "archived": bool(org_row[2]) if org_row[2] is not None else False,
-        "plan_status": str(org_row[3] or "active"),
+        "max_users": int(entitlement.get("max_users") or 0),
+        "max_clients": int(entitlement.get("max_clients") or 0),
+        "archived": bool(org_row[0]) if org_row is not None and org_row[0] is not None else False,
+        "plan_status": str(entitlement.get("plan_status") or "active"),
+        "plan": str(entitlement.get("plan") or "trial"),
+        "trial_ends_at": entitlement.get("trial_ends_at"),
+        "stripe_customer_id": entitlement.get("stripe_customer_id"),
+        "stripe_subscription_id": entitlement.get("stripe_subscription_id"),
+        "subscription_status": str(entitlement.get("subscription_status") or "active"),
+        "current_period_start": entitlement.get("current_period_start"),
+        "current_period_end": entitlement.get("current_period_end"),
+        "auto_renew": bool(entitlement.get("auto_renew")) if entitlement.get("auto_renew") is not None else True,
         "active_members": int(active_members[0] or 0) if active_members else 0,
         "pending_invites": int(pending_invites[0] or 0) if pending_invites else 0,
         "active_clients": int(active_clients[0] or 0) if active_clients else 0,
@@ -2741,6 +2882,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
             rows = con.execute(
                 """
                 SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
@@ -2770,7 +2912,20 @@ def list_organisations(_user: dict = Depends(_current_user)):
             items = []
             for row in rows or []:
                 item = _organisation_row_to_dict(row)
+                entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
                 usage = _organisation_usage_info(con, str(item["org_id"] or ""))
+                item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
+                item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
+                item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
+                item["max_clients"] = int(entitlement.get("max_clients") or item.get("max_clients") or 0)
+                item["trial_ends_at"] = entitlement.get("trial_ends_at")
+                item["stripe_customer_id"] = entitlement.get("stripe_customer_id")
+                item["stripe_subscription_id"] = entitlement.get("stripe_subscription_id")
+                item["subscription_status"] = entitlement.get("subscription_status")
+                item["current_period_start"] = entitlement.get("current_period_start")
+                item["current_period_end"] = entitlement.get("current_period_end")
+                item["auto_renew"] = entitlement.get("auto_renew")
+                item["entitlement"] = entitlement
                 item["is_member"] = str(item["org_id"] or "") in memberships
                 item["membership"] = memberships.get(str(item["org_id"] or ""))
                 item["is_active_org"] = item["org_id"] == active_org_id
@@ -2787,6 +2942,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 "active_org_id": active_org_id,
                 "current_membership": current_membership,
                 "current_capabilities": dict((current_membership or {}).get("capabilities") or {}),
+                "current_entitlement": _organisation_entitlement_info(con, active_org_id) if active_org_id else None,
             }
     except HTTPException:
         raise
@@ -2809,6 +2965,7 @@ def create_organisation(body: dict = Body(...), request: Request = None, _user: 
 
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
             existing = con.execute(
                 "SELECT 1 FROM organisations WHERE lower(slug) = lower(%s) LIMIT 1",
                 [slug],
@@ -2825,6 +2982,24 @@ def create_organisation(body: dict = Body(...), request: Request = None, _user: 
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=500, detail="Failed to create organisation")
+            con.execute(
+                """
+                INSERT INTO organisation_entitlements (
+                  org_id, plan, plan_status, max_users, max_clients, trial_ends_at,
+                  stripe_customer_id, stripe_subscription_id, subscription_status,
+                  current_period_start, current_period_end, auto_renew
+                )
+                VALUES (%s, %s, %s, %s, %s, NULL, NULL, NULL, %s, NULL, NULL, TRUE)
+                ON CONFLICT (org_id) DO UPDATE SET
+                  plan = EXCLUDED.plan,
+                  plan_status = EXCLUDED.plan_status,
+                  max_users = EXCLUDED.max_users,
+                  max_clients = EXCLUDED.max_clients,
+                  subscription_status = EXCLUDED.subscription_status,
+                  updated_at = NOW()
+                """,
+                [row[0], plan, plan_status, max_users, max_clients, plan_status],
+            )
             if actor_user_id:
                 con.execute(
                     """
@@ -2864,6 +3039,7 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
     try:
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
             _require_org_management_role(con, _user, org_id)
             _require_org_capacity(con, org_id)
             existing = con.execute(
@@ -2874,14 +3050,20 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
                 raise HTTPException(status_code=404, detail="Organisation not found")
             usage = _organisation_usage_info(con, org_id)
             updates = []
+            entitlement_updates = []
             params: list[object] = []
+            entitlement_params: list[object] = []
             for key in ("name", "slug", "plan", "plan_status"):
                 if key in body and body.get(key) is not None and str(body.get(key)).strip():
                     updates.append(f"{key} = %s")
+                    if key in ("plan", "plan_status"):
+                        entitlement_updates.append(f"{key} = %s")
                     value = str(body.get(key)).strip()
                     if key == "slug":
                         value = value.lower()
                     params.append(value)
+                    if key in ("plan", "plan_status"):
+                        entitlement_params.append(value)
             for key in ("max_users", "max_clients"):
                 if key in body and body.get(key) is not None:
                     next_value = int(body.get(key))
@@ -2891,8 +3073,18 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
                         raise HTTPException(status_code=400, detail="max_clients cannot be lower than current usage")
                     updates.append(f"{key} = %s")
                     params.append(next_value)
+                    entitlement_updates.append(f"{key} = %s")
+                    entitlement_params.append(next_value)
+            for key in ("trial_ends_at", "stripe_customer_id", "stripe_subscription_id", "subscription_status", "current_period_start", "current_period_end", "auto_renew"):
+                if key in body:
+                    value = body.get(key)
+                    if value is None or (isinstance(value, str) and not value.strip()):
+                        continue
+                    entitlement_updates.append(f"{key} = %s")
+                    entitlement_params.append(value)
             if not updates:
-                return {"ok": True, "organisation": _organisation_row_to_dict(existing)}
+                entitlement = _organisation_entitlement_info(con, org_id)
+                return {"ok": True, "organisation": {**_organisation_row_to_dict(existing), "entitlement": entitlement}}
             updates.append("updated_at = NOW()")
             row = con.execute(
                 f"""
@@ -2905,6 +3097,16 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=500, detail="Failed to update organisation")
+            if entitlement_updates:
+                entitlement_updates.append("updated_at = NOW()")
+                con.execute(
+                    f"""
+                    UPDATE organisation_entitlements
+                    SET {', '.join(entitlement_updates)}
+                    WHERE org_id = %s
+                    """,
+                    [*entitlement_params, org_id],
+                )
             record_audit_event(
                 con,
                 request=request,
@@ -2915,7 +3117,8 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
                 metadata={"org_id": str(row[0]), "updated_fields": list(body.keys())},
             )
             logger.info("Organisation updated org_id=%s actor=%s", row[0], _actor_identifier(_user))
-            return {"ok": True, "organisation": _organisation_row_to_dict(row)}
+            entitlement = _organisation_entitlement_info(con, org_id)
+            return {"ok": True, "organisation": {**_organisation_row_to_dict(row), "entitlement": entitlement}}
     except HTTPException:
         raise
     except Exception as e:

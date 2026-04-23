@@ -125,14 +125,46 @@ class _ClientLimitConn(_FakeConn):
         return self
 
     def fetchone(self):
-        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in self._last_sql:
-            return (5, 1, False, "active")
+        if "FROM organisation_entitlements" in self._last_sql:
+            return (
+                "org-a",
+                "growth",
+                "active",
+                5,
+                1,
+                None,
+                None,
+                None,
+                "active",
+                None,
+                None,
+                True,
+                None,
+                None,
+            )
+        if "SELECT COALESCE(archived, FALSE) FROM organisations WHERE org_id = %s LIMIT 1" in self._last_sql:
+            return (False,)
         if "FROM organisation_memberships" in self._last_sql and "COUNT(*)" in self._last_sql:
             return (1,)
         if "FROM organisation_invitations" in self._last_sql and "COUNT(*)" in self._last_sql:
             return (0,)
         if "FROM clients" in self._last_sql and "COUNT(*)" in self._last_sql:
             return (1,)
+        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in self._last_sql:
+            return (
+                "org-a",
+                "Acme Org",
+                "acme-org",
+                "growth",
+                "active",
+                5,
+                1,
+                False,
+                None,
+                None,
+                "2026-04-23",
+                "2026-04-23",
+            )
         if "SELECT db_id" in self._last_sql and "FROM clients" in self._last_sql:
             return None
         return None

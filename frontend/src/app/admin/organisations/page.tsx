@@ -76,6 +76,19 @@ type Organisation = {
   is_active_org?: boolean;
   membership?: OrganisationMembership | null;
   role_capabilities?: OrganisationRoleCapabilities | null;
+  entitlement?: {
+    plan?: string | null;
+    plan_status?: string | null;
+    max_users?: number | null;
+    max_clients?: number | null;
+    trial_ends_at?: string | null;
+    stripe_customer_id?: string | null;
+    stripe_subscription_id?: string | null;
+    subscription_status?: string | null;
+    current_period_start?: string | null;
+    current_period_end?: string | null;
+    auto_renew?: boolean | null;
+  } | null;
 };
 
 type OrganisationsResponse = {
@@ -83,6 +96,7 @@ type OrganisationsResponse = {
   active_org_id?: string | null;
   current_membership?: OrganisationMembership | null;
   current_capabilities?: OrganisationRoleCapabilities | null;
+  current_entitlement?: Organisation["entitlement"] | null;
 };
 
 type OrganisationMembersResponse = {
@@ -140,6 +154,7 @@ export default function OrganisationsPage() {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [currentCapabilities, setCurrentCapabilities] = useState<OrganisationRoleCapabilities | null>(null);
+  const [currentEntitlement, setCurrentEntitlement] = useState<Organisation["entitlement"] | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [form, setForm] = useState<OrganisationForm>(DEFAULT_FORM);
   const [invite, setInvite] = useState<InviteForm>(DEFAULT_INVITE);
@@ -205,6 +220,7 @@ export default function OrganisationsPage() {
       const items = Array.isArray(payload.items) ? payload.items : [];
       setOrganisations(items);
       setCurrentCapabilities((payload as OrganisationsResponse).current_capabilities || null);
+      setCurrentEntitlement((payload as OrganisationsResponse).current_entitlement || null);
       const nextActive = payload.active_org_id || items.find((item) => item.is_active_org)?.org_id || items[0]?.org_id || null;
       setActiveOrgId(nextActive);
       setSelectedOrgId((current) => current || nextActive);
@@ -545,6 +561,10 @@ export default function OrganisationsPage() {
                             <div className="mt-1 text-xs text-muted-foreground">
                               Max users: {org.max_users ?? "-"} | Max clients: {org.max_clients ?? "-"} | Updated: {formatDate(org.updated_at)}
                             </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Source of truth: {org.entitlement?.subscription_status || currentEntitlement?.subscription_status || org.plan_status || "active"}
+                              {org.entitlement?.stripe_subscription_id ? ` | Subscription: ${org.entitlement.stripe_subscription_id}` : ""}
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
                               <Button
@@ -790,6 +810,9 @@ export default function OrganisationsPage() {
                 <div>Active org id: {activeOrgId || "-"}</div>
                 <div>
                   Your role: {selectedOrg?.membership?.role || currentCapabilities?.role || "-"}
+                </div>
+                <div>
+                  Entitlement status: {selectedOrg?.entitlement?.subscription_status || currentEntitlement?.subscription_status || selectedOrg?.plan_status || "-"}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   {currentCapabilities?.can_manage_members ? <Badge variant="secondary">Manage members</Badge> : null}
