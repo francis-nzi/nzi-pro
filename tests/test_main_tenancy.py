@@ -71,6 +71,46 @@ class _ListClientsConn(_FakeConn):
         return pd.DataFrame([])
 
 
+class _ClientJobsConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        if "COUNT(*)" in self._last_sql:
+            return (1,)
+        return None
+
+    def df(self):
+        if "FROM jobs j" in self._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 640,
+                        "job_number": "J000640",
+                        "title": "Job title",
+                        "reporting_year": 2025,
+                        "status": "Open",
+                        "job_type": "CRP",
+                        "is_crp": True,
+                        "data_collection_due": None,
+                        "data_collection_completed_at": None,
+                        "first_draft_due": None,
+                        "first_draft_completed_at": None,
+                        "final_report_due": None,
+                        "final_report_completed_at": None,
+                        "total_emissions": 0,
+                    }
+                ]
+            )
+        return pd.DataFrame([])
+
+
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_default_org_id", lambda: None)
@@ -188,3 +228,21 @@ def test_get_job_does_not_fail_open_on_legacy_org_gap(monkeypatch: pytest.Monkey
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail == "Organisation context required"
+
+
+def test_client_jobs_include_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ClientJobsConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    result = main.client_jobs(
+        58,
+        limit=50,
+        offset=0,
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["total"] == 1
+    assert result["items"][0]["job_id"] == 640
+    assert any("CAST(j.org_id AS TEXT)" in sql for sql, _ in conn.queries)
