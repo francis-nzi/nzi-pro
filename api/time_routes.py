@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Body
 from core.database import get_conn
 from api.auth import _current_user
-from services.tenancy import get_default_org_id, require_org
+from services.tenancy import require_org
 
 router = APIRouter()
 
@@ -67,24 +67,6 @@ def _ensure_time_tracking_schema(con) -> None:
     except Exception:
         pass
 
-    default_org_id = get_default_org_id()
-    if default_org_id:
-        try:
-            con.execute(
-                "UPDATE time_subjects SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL",
-                [default_org_id],
-            )
-        except Exception:
-            pass
-        try:
-            con.execute(
-                "UPDATE time_logs SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL",
-                [default_org_id],
-            )
-        except Exception:
-            pass
-
-
 @router.get("/time-logs")
 def list_time_logs(
     job_id: int | None = None,
@@ -95,7 +77,7 @@ def list_time_logs(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             where_clauses = []
             params = []
@@ -188,7 +170,7 @@ def create_time_log(
         
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_job_org = _column_exists(con, "jobs", "org_id")
             # Verify job exists
             job_exists = con.execute(
@@ -239,7 +221,7 @@ def update_time_log(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
@@ -307,7 +289,7 @@ def delete_time_log(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
@@ -340,7 +322,7 @@ def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_subject_org = _column_exists(con, "time_subjects", "org_id")
             select_sql = """
                 SELECT subject_id, name, budget_hours
@@ -397,7 +379,7 @@ def update_time_subject(
         
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user, allow_fallback=True)
+            org_id = require_org(_user)
             has_subject_org = _column_exists(con, "time_subjects", "org_id")
             exists = con.execute(
                 "SELECT 1 FROM time_subjects WHERE subject_id = ?" + (" AND org_id = ?" if has_subject_org else ""),

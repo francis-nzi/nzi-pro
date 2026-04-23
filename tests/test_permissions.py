@@ -43,7 +43,6 @@ class _FakeConn:
 def test_client_access_requires_matching_org(monkeypatch):
     fake = _FakeConn([_FakeRow("org-a")])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    monkeypatch.setattr(permissions, "get_default_org_id", lambda: "org-a")
 
     assert permissions.user_can_access_client({"org_id": "org-a"}, 123) is True
 
@@ -52,16 +51,11 @@ def test_client_access_requires_matching_org(monkeypatch):
     assert permissions.user_can_access_client({"org_id": "org-b"}, 123) is False
 
 
-def test_client_access_allows_legacy_null_org_for_default_org(monkeypatch):
+def test_client_access_denies_legacy_null_org_rows(monkeypatch):
     fake = _FakeConn([_FakeRow(None), None])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    monkeypatch.setattr(permissions, "get_default_org_id", lambda: "org-a")
 
-    assert permissions.user_can_access_client({"org_id": "org-a"}, 123) is True
-
-    fake = _FakeConn([_FakeRow(None), None])
-    monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    assert permissions.user_can_access_client({"org_id": "org-b"}, 123) is False
+    assert permissions.user_can_access_client({"org_id": "org-a"}, 123) is False
 
 
 def test_client_access_denies_missing_org_even_with_id_match(monkeypatch):
@@ -74,15 +68,13 @@ def test_client_access_denies_missing_org_even_with_id_match(monkeypatch):
 def test_client_access_allows_matching_job_org(monkeypatch):
     fake = _FakeConn([_FakeRow("org-b"), _FakeRow(1)])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    monkeypatch.setattr(permissions, "get_default_org_id", lambda: "org-a")
 
-    assert permissions.user_can_access_client({"org_id": "org-a"}, 123) is True
+    assert permissions.user_can_access_client({"org_id": "org-b"}, 123) is True
 
 
 def test_job_access_requires_matching_org(monkeypatch):
     fake = _FakeConn([_FakeRow(123, "org-a", "org-b")])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    monkeypatch.setattr(permissions, "get_default_org_id", lambda: "org-a")
 
     assert permissions.user_can_access_job({"org_id": "org-a"}, 55) is True
 
@@ -91,16 +83,11 @@ def test_job_access_requires_matching_org(monkeypatch):
     assert permissions.user_can_access_job({"org_id": "org-b"}, 55) is False
 
 
-def test_job_access_allows_legacy_null_org_for_default_org(monkeypatch):
+def test_job_access_denies_legacy_null_org_rows(monkeypatch):
     fake = _FakeConn([_FakeRow(123, None, None)])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    monkeypatch.setattr(permissions, "get_default_org_id", lambda: "org-a")
 
-    assert permissions.user_can_access_job({"org_id": "org-a"}, 55) is True
-
-    fake = _FakeConn([_FakeRow(123, None, None)])
-    monkeypatch.setattr(permissions, "get_conn", lambda: fake)
-    assert permissions.user_can_access_job({"org_id": "org-b"}, 55) is False
+    assert permissions.user_can_access_job({"org_id": "org-a"}, 55) is False
 
 
 def test_job_access_denies_missing_org(monkeypatch):

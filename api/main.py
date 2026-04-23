@@ -123,20 +123,6 @@ from api.permissions import assert_client_access, assert_job_access, assert_perm
 from services.tenancy import get_default_org_id, require_org
 
 
-def _resolve_request_org_id(user: dict[str, str]) -> str:
-    """Return the active org for a route, bootstrapping legacy users if needed."""
-    org_id = str(user.get("org_id") or "").strip()
-    if org_id:
-        return org_id
-
-    fallback_org_id = get_default_org_id()
-    if fallback_org_id:
-        user["org_id"] = fallback_org_id
-        return fallback_org_id
-
-    raise HTTPException(status_code=403, detail="Organisation context required")
-
-
 def _client_audit_snapshot(con, client_db_id: int, org_id: str | None = None) -> dict | None:
     if org_id is not None and str(org_id).strip():
         return fetch_row_dict(
@@ -3256,7 +3242,7 @@ def create_client(
     """Create a new client."""
     try:
         assert_permission(_user, "clients.create")
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         client_name = body.get("client_name", "").strip()
         if not client_name:
             raise HTTPException(status_code=400, detail="client_name is required")
@@ -3454,7 +3440,7 @@ async def upload_client_logo(
     actor = _user.get("email", "unknown")
     if client_db_id is not None and int(client_db_id) > 0:
         client_db_id = int(client_db_id)
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             before = _client_audit_snapshot(con, client_db_id, org_id)
             if not before:
@@ -3510,8 +3496,7 @@ def list_clients(
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
-    org_id = _resolve_request_org_id(_user)
-    default_org_id = str(get_default_org_id() or "").strip()
+    org_id = require_org(_user)
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
@@ -3546,8 +3531,6 @@ def list_clients(
             f"(CAST(c.org_id AS TEXT) = {org_placeholder} "
             f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = {org_placeholder})"
         )
-        if default_org_id and org_id == default_org_id:
-            clause += " OR (c.org_id IS NULL AND EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND j.org_id IS NULL))"
         clause += ")"
         return clause, params
 
@@ -3830,7 +3813,7 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
-    _resolve_request_org_id(_user)
+    require_org(_user)
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
@@ -3920,7 +3903,7 @@ def update_client(
     try:
         assert_permission(_user, "clients.edit")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_billing_columns(con)
@@ -3934,11 +3917,10 @@ def update_client(
                     billing_same_as_main, billing_addr_line1, billing_addr_line2, billing_addr_city,
                     billing_addr_region, billing_addr_postcode, billing_addr_country
                 FROM clients
-                WHERE db_id = ? AND (org_id = ? OR org_id IS NULL)
-                ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END
+                WHERE db_id = ? AND org_id = ?
                 LIMIT 1
                 """,
-                [int(client_db_id), org_id, org_id],
+                [int(client_db_id), org_id],
             ).fetchone()
             if not existing_client:
                 raise HTTPException(status_code=404, detail="Client not found")
@@ -4039,15 +4021,9 @@ def update_client(
                     params.append(normalized_body[field_name])
             
             if updates:
-                if existing_client_org_id is None:
-                    updates.append("org_id = ?")
-                    params.append(org_id)
-                    query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id IS NULL"
-                    con.execute(query, [*params, int(client_db_id)])
-                else:
-                    params.append(int(client_db_id))
-                    query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id = ?"
-                    con.execute(query, [*params, org_id])
+                params.append(int(client_db_id))
+                query = f"UPDATE clients SET {', '.join(updates)} WHERE db_id = ? AND org_id = ?"
+                con.execute(query, [*params, org_id])
             
             # Handle site creation/update if requested
             if body.get("create_site_from_address", False):
@@ -4116,7 +4092,7 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
     try:
         assert_permission(_user, "clients.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_billing_columns(con)
@@ -4140,7 +4116,7 @@ def create_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4197,7 +4173,7 @@ def update_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4209,8 +4185,7 @@ def update_client_site(
                 FROM client_sites
                 WHERE site_id = %s
                   AND client_db_id = %s
-                  AND (org_id = %s OR org_id IS NULL)
-                ORDER BY CASE WHEN org_id IS NULL THEN 1 ELSE 0 END
+                  AND org_id = %s
                 LIMIT 1
                 """,
                 [int(site_id), int(client_db_id), org_id]
@@ -4219,16 +4194,6 @@ def update_client_site(
             if not exists:
                 raise HTTPException(status_code=404, detail="Site not found")
 
-            if len(exists) > 1 and exists[1] is None:
-                con.execute(
-                    """
-                    UPDATE client_sites
-                    SET org_id = %s
-                    WHERE site_id = %s AND client_db_id = %s AND org_id IS NULL
-                    """,
-                    [org_id, int(site_id), int(client_db_id)]
-                )
-            
             # If this site is being marked as registered office, unset other registered offices
             if body.get("is_registered_office", False):
                 con.execute(
@@ -4237,7 +4202,7 @@ def update_client_site(
                     SET is_registered_office = FALSE
                     WHERE client_db_id = %s
                       AND site_id != %s
-                      AND (org_id = %s OR org_id IS NULL)
+                      AND org_id = %s
                     """,
                     [int(client_db_id), int(site_id), org_id]
                 )
@@ -4264,7 +4229,7 @@ def update_client_site(
                     SET {', '.join(updates)}
                     WHERE site_id = %s
                       AND client_db_id = %s
-                      AND (org_id = %s OR org_id IS NULL)
+                      AND org_id = %s
                 """
                 con.execute(query, params)
             
@@ -4301,7 +4266,7 @@ def vacate_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4313,8 +4278,7 @@ def vacate_client_site(
                 FROM client_sites
                 WHERE site_id = %s
                   AND client_db_id = %s
-                  AND (org_id = %s OR org_id IS NULL)
-                ORDER BY CASE WHEN org_id IS NULL THEN 1 ELSE 0 END
+                  AND org_id = %s
                 LIMIT 1
                 """,
                 [int(site_id), int(client_db_id), org_id]
@@ -4323,16 +4287,6 @@ def vacate_client_site(
             if not exists:
                 raise HTTPException(status_code=404, detail="Site not found")
 
-            if len(exists) > 1 and exists[1] is None:
-                con.execute(
-                    """
-                    UPDATE client_sites
-                    SET org_id = %s
-                    WHERE site_id = %s AND client_db_id = %s AND org_id IS NULL
-                    """,
-                    [org_id, int(site_id), int(client_db_id)]
-                )
-            
             vacated_date = body.get("vacated_date")
             if not vacated_date:
                 raise HTTPException(status_code=400, detail="vacated_date is required")
@@ -4346,7 +4300,7 @@ def vacate_client_site(
                     archived = TRUE,
                     archived_by = %s,
                     archived_at = CURRENT_TIMESTAMP
-                WHERE site_id = %s AND client_db_id = %s AND (org_id = %s OR org_id IS NULL)
+                WHERE site_id = %s AND client_db_id = %s AND org_id = %s
                 """,
                 [vacated_date, _user.get("email", "unknown"), int(site_id), int(client_db_id), org_id]
             )
@@ -4378,7 +4332,7 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
     try:
         assert_permission(_user, "clients.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             try:
@@ -4469,7 +4423,7 @@ def create_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             # If this contact is marked as primary, unset other primary contacts
@@ -4527,7 +4481,7 @@ def update_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id), org_id)
@@ -4601,7 +4555,7 @@ def delete_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id), org_id)
@@ -4637,7 +4591,7 @@ def client_jobs(
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user, allow_fallback=True)
+        org_id = require_org(_user)
         org_text = str(org_id or "").strip()
         with get_conn() as con:
             try:
@@ -4647,7 +4601,7 @@ def client_jobs(
                         SELECT COUNT(*)
                         FROM jobs j
                         WHERE j.client_db_id = ?
-                          AND (TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ? OR j.org_id IS NULL)
+                          AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ?
                         """,
                         [int(client_db_id), org_text],
                     ).fetchone()
@@ -4684,7 +4638,7 @@ def client_jobs(
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
                         WHERE j.client_db_id = ?
-                          AND (TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ? OR j.org_id IS NULL)
+                          AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ?
                         GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                                  j.job_type, j.is_crp, j.reporting_period_end,
                                  jp.data_collection_due, jp.data_collection_completed_at,

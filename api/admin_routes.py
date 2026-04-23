@@ -4274,7 +4274,7 @@ def list_lookup_items(
     
     if table_name not in allowed_tables:
         raise HTTPException(status_code=400, detail="Invalid table name")
-    org_id = require_org(_user, allow_fallback=True) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+    org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
     org_match = str(org_id or "").strip()
     
     # Get the actual table name to query - handle the currency_lookup alias
@@ -4400,7 +4400,7 @@ def permanently_delete_lookup_item(
     try:
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
-            org_id = require_org(_user, allow_fallback=True) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
             where_clause = f"WHERE {id_col} = %s"
             params = [int(item_id)]
             if org_id is not None:
@@ -4447,7 +4447,7 @@ def create_lookup_item(
     try:
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
-            org_id = require_org(_user, allow_fallback=True) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
             org_match = str(org_id or "").strip()
             # This is simplified - you'd need table-specific logic for different schemas
             if table_name == "vat_rates_lookup":
@@ -4608,7 +4608,7 @@ def update_lookup_item(
     try:
         with get_conn() as con:
             _ensure_lookup_table(con, table_name)
-            org_id = require_org(_user, allow_fallback=True) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
             org_match = str(org_id or "").strip()
             # Build update query
             updates = []

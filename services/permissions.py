@@ -5,8 +5,6 @@ import time
 from typing import Any
 
 from core.database import get_conn
-from services.tenancy import get_default_org_id
-
 SUPERADMIN_ROLE = "SuperAdmin"
 ADMIN_ACCESS_PERMISSION = "admin.access"
 DEFAULT_INTERNAL_ACCESS_SCOPE = "all"
@@ -482,10 +480,6 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                     if client_org_id:
                         if client_org_id == user_org_id:
                             return True
-                    else:
-                        default_org_id = str(get_default_org_id() or "").strip()
-                        if bool(default_org_id) and user_org_id == default_org_id:
-                            return True
 
                 job_row = con.execute(
                     """
@@ -499,21 +493,6 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                 ).fetchone()
                 if job_row:
                     return True
-
-                default_org_id = str(get_default_org_id() or "").strip()
-                if bool(default_org_id) and user_org_id == default_org_id:
-                    legacy_job_row = con.execute(
-                        """
-                        SELECT 1
-                        FROM jobs j
-                        WHERE j.client_db_id = ?
-                          AND j.org_id IS NULL
-                        LIMIT 1
-                        """,
-                        [client_id],
-                    ).fetchone()
-                    if legacy_job_row:
-                        return True
 
                 return False
         except Exception:
@@ -547,9 +526,6 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
                     return job_org_id == user_org_id
                 if client_org_id:
                     return client_org_id == user_org_id
-                if row[0] is not None:
-                    default_org_id = str(get_default_org_id() or "").strip()
-                    return bool(default_org_id) and user_org_id == default_org_id
         except Exception:
             return False
     return False

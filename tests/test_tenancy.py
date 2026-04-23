@@ -58,14 +58,13 @@ class _FakeConn:
         return False
 
 
-def test_attach_org_id_falls_back_to_default_org(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_attach_org_id_leaves_missing_org_unassigned(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _FakeConn(row_value=None)
     monkeypatch.setattr(tenancy, "get_conn", lambda: conn)
-    monkeypatch.setattr(tenancy, "get_default_org_id", lambda: "default-org")
 
     user = {"user_id": "user-1"}
 
     result = tenancy.attach_org_id(user)
 
-    assert result["org_id"] == "default-org"
-    assert any("UPDATE users SET org_id" in sql for sql, _ in conn.executed)
+    assert result["org_id"] is None
+    assert not any("UPDATE users SET org_id" in sql for sql, _ in conn.executed)

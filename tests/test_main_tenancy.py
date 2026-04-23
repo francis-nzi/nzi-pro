@@ -82,12 +82,14 @@ class _ClientJobsConn(_FakeConn):
         return self
 
     def fetchone(self):
-        if "COUNT(*)" in self._last_sql:
+        if "COUNT(*)" in self._last_sql and "j.org_id IS NULL" in self._last_sql:
             return (1,)
+        if "COUNT(*)" in self._last_sql:
+            return (0,)
         return None
 
     def df(self):
-        if "FROM jobs j" in self._last_sql:
+        if "FROM jobs j" in self._last_sql and "j.org_id IS NULL" in self._last_sql:
             return pd.DataFrame(
                 [
                     {
@@ -138,7 +140,6 @@ class _ClientLimitConn(_FakeConn):
 
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
     monkeypatch.setattr(main, "get_conn", lambda: _FakeConn())
     monkeypatch.setattr(main, "db_backend", lambda: "postgres")
 
@@ -152,7 +153,6 @@ def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_clients_includes_job_reachable_client(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _ListClientsConn()
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
     monkeypatch.setattr(main, "get_conn", lambda: conn)
     monkeypatch.setattr(main, "db_backend", lambda: "postgres")
 
@@ -171,7 +171,6 @@ def test_list_clients_includes_job_reachable_client(monkeypatch: pytest.MonkeyPa
 
 def test_get_client_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
     monkeypatch.setattr(main, "get_conn", lambda: _FakeConn())
 
     with pytest.raises(HTTPException) as exc_info:
@@ -181,7 +180,7 @@ def test_get_client_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc_info.value.detail == "Organisation context required"
 
 
-def test_get_client_allows_default_org_legacy_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_client_allows_legacy_rows_when_accessible(monkeypatch: pytest.MonkeyPatch) -> None:
     row = (
         123,
         "Legacy Client",
@@ -229,7 +228,6 @@ def test_get_client_allows_default_org_legacy_rows(monkeypatch: pytest.MonkeyPat
     conn = _ClientConn(row)
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "get_default_org_id", lambda: "org-a")
     monkeypatch.setattr(main, "get_conn", lambda: conn)
 
     result = main.get_client(123, _user={"user_id": "u1", "org_id": "org-a"})
@@ -255,7 +253,7 @@ def test_get_job_does_not_fail_open_on_legacy_org_gap(monkeypatch: pytest.Monkey
     assert exc_info.value.detail == "Organisation context required"
 
 
-def test_client_jobs_include_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_jobs_exclude_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _ClientJobsConn()
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
@@ -268,10 +266,9 @@ def test_client_jobs_include_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatc
         _user={"user_id": "u1", "org_id": "org-a"},
     )
 
-    assert result["total"] == 1
-    assert result["items"][0]["job_id"] == 640
-    assert result["items"][0]["reporting_year"] == 2026
-    assert any("CAST(j.org_id AS TEXT)" in sql for sql, _ in conn.queries)
+    assert result["total"] == 0
+    assert result["items"] == []
+    assert all("j.org_id IS NULL" not in sql for sql, _ in conn.queries)
 
 
 def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.MonkeyPatch) -> None:
