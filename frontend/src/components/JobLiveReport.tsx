@@ -297,8 +297,10 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
             ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
-            : job.reporting_year
-              ? `Year ${job.reporting_year}`
+            : job.reporting_period_end
+              ? `Year ${new Date(job.reporting_period_end).getFullYear()}`
+              : job.reporting_year
+                ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
         ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",

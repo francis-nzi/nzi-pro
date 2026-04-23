@@ -956,8 +956,10 @@ export default function JobDetailPage() {
   const reportingPeriodLabel =
     periodStartLabel && periodEndLabel
       ? `Reporting Period: ${formatDisplayDate(periodStartLabel)} - ${formatDisplayDate(periodEndLabel)}`
-      : job?.reporting_year
-        ? `Year ${job.reporting_year}`
+      : periodEndLabel
+        ? `Year ${new Date(periodEndLabel).getFullYear()}`
+        : job?.reporting_year
+          ? `Year ${job.reporting_year}`
         : "Reporting period not set";
 
   const activeWorkspaceGroup = JOB_TAB_TO_GROUP[activeTab] ?? "setup";

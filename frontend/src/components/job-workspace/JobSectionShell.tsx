@@ -176,8 +176,10 @@ export default function JobSectionShell({
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
             ? `Reporting Period: ${formatDisplayDate(job.reporting_period_start)} - ${formatDisplayDate(job.reporting_period_end)}`
-            : job.reporting_year
-              ? `Year ${job.reporting_year}`
+            : job.reporting_period_end
+              ? `Year ${new Date(job.reporting_period_end).getFullYear()}`
+              : job.reporting_year
+                ? `Year ${job.reporting_year}`
               : "Reporting period not set",
         statusLabel: job.status ?? "Draft",
         ownerLabel: clientOwnerLabel || job.crm_owner || "Unassigned",
