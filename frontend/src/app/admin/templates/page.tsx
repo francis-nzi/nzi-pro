@@ -17,6 +17,7 @@ import {
 import ReportVariablesAdmin from "@/components/ReportVariablesAdmin";
 import MessagingTemplatesAdmin from "@/components/MessagingTemplatesAdmin";
 import UploadProgressBar from "@/components/UploadProgressBar";
+import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
@@ -66,8 +67,6 @@ export default function TemplatesPage() {
   const [isActive, setIsActive] = useState(true);
   const [datasetCountry, setDatasetCountry] = useState("");
   const [datasetYear, setDatasetYear] = useState("");
-  const [datasetCountryMenuOpen, setDatasetCountryMenuOpen] = useState(false);
-  const [datasetCountrySearchStarted, setDatasetCountrySearchStarted] = useState(false);
   const [datasetCatalog, setDatasetCatalog] = useState<DatasetCatalogItem[]>([]);
   const [datasetWorkbookHint, setDatasetWorkbookHint] = useState("");
   const lastAutoTemplateKey = useRef("");
@@ -135,14 +134,6 @@ export default function TemplatesPage() {
     return stats;
   }, [activeDatasetCatalog]);
 
-  const filteredDatasetCountryOptions = useMemo(() => {
-    const query = datasetCountrySearchStarted ? datasetCountry.trim().toLowerCase() : "";
-    const filtered = !query
-      ? datasetCountryOptions
-      : datasetCountryOptions.filter((option) => option.toLowerCase().includes(query));
-    return filtered.slice(0, 100);
-  }, [datasetCountry, datasetCountryOptions, datasetCountrySearchStarted]);
-
   const datasetYearOptions = useMemo(() => {
     if (!datasetCountry) {
       return Array.from(new Set(activeDatasetCatalog.map((item) => String(item.year)))).sort((a, b) => Number(b) - Number(a));
@@ -166,12 +157,15 @@ export default function TemplatesPage() {
       return;
     }
 
+    if (datasetCountry.trim()) {
+      return;
+    }
+
     const preferredCountry =
-      (datasetCountry && datasetCountryOptions.includes(datasetCountry) ? datasetCountry : "") ||
       (datasetCountryOptions.includes("UK") ? "UK" : datasetCountryOptions[0]);
 
     let workbookHint = "";
-    if (preferredCountry && preferredCountry !== datasetCountry) {
+    if (preferredCountry) {
       setDatasetCountry(preferredCountry);
       workbookHint = `Using ${preferredCountry} because it is the first available country with dataset rows.`;
     }
@@ -623,59 +617,41 @@ export default function TemplatesPage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="datasetCountry">Country</Label>
-                      <div className="relative">
-                        <Input
-                          id="datasetCountry"
-                          value={datasetCountry}
-                          onChange={(e) => {
-                            setDatasetCountry(e.target.value);
-                            setDatasetCountrySearchStarted(true);
-                            setDatasetCountryMenuOpen(true);
-                          }}
-                          onFocus={() => {
-                            setDatasetCountrySearchStarted(false);
-                            setDatasetCountryMenuOpen(true);
-                          }}
-                          onBlur={() => {
-                            setTimeout(() => setDatasetCountryMenuOpen(false), 120);
-                          }}
-                          placeholder="Search country..."
-                        />
-                        {datasetCountryMenuOpen && (
-                          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
-                            {filteredDatasetCountryOptions.length === 0 ? (
-                              <div className="px-3 py-2 text-sm text-muted-foreground">No countries found</div>
-                            ) : (
-                              filteredDatasetCountryOptions.map((countryOption) => (
-                                <button
-                                  key={countryOption}
-                                  type="button"
-                                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setDatasetCountry(countryOption);
-                                    setDatasetCountrySearchStarted(false);
-                                    setDatasetCountryMenuOpen(false);
-                                    const yearsForCountry = activeDatasetCatalog
-                                      .filter((item) => item.country === countryOption)
-                                      .map((item) => Number(item.year))
-                                      .filter((value) => Number.isFinite(value))
-                                      .sort((a, b) => b - a);
-                                    if (yearsForCountry.length) {
-                                      setDatasetYear(String(yearsForCountry[0]));
-                                    }
-                                  }}
-                                >
-                                  <span>{countryOption}</span>
-                                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                    {(datasetCountryStats[countryOption]?.count ?? 0)} datasets
-                                  </span>
-                                </button>
-                              ))
-                            )}
-                          </div>
+                      <SearchableStringSelect
+                        id="datasetCountry"
+                        value={datasetCountry}
+                        options={datasetCountryOptions}
+                        placeholder="Search country..."
+                        showClearButton
+                        optionBadges={Object.fromEntries(
+                          datasetCountryOptions.map((countryOption) => [
+                            countryOption,
+                            `${datasetCountryStats[countryOption]?.count ?? 0} datasets`,
+                          ])
                         )}
-                      </div>
+                        onValueChange={(value) => {
+                          setDatasetCountry(value);
+                          if (!value.trim()) {
+                            setDatasetYear("");
+                            setDatasetWorkbookHint("");
+                            return;
+                          }
+
+                          const yearsForCountry = activeDatasetCatalog
+                            .filter((item) => item.country === value)
+                            .map((item) => Number(item.year))
+                            .filter((year) => Number.isFinite(year))
+                            .sort((a, b) => b - a);
+
+                          if (yearsForCountry.length) {
+                            const nextYear = String(yearsForCountry[0]);
+                            setDatasetYear(nextYear);
+                            setDatasetWorkbookHint(`Using ${value} / ${nextYear} for the workbook download.`);
+                          } else {
+                            setDatasetWorkbookHint(`Using ${value} for the workbook download.`);
+                          }
+                        }}
+                      />
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
