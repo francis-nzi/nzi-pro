@@ -119,7 +119,8 @@ def test_pdf_progress_and_cancel_are_org_scoped(monkeypatch):
     assert canceled["status"] == "canceled"
 
 
-def test_pdf_worker_uses_org_context(monkeypatch):
+def test_pdf_worker_uses_org_context(monkeypatch, caplog):
+    caplog.set_level("INFO")
     captured: dict[str, object] = {}
 
     class _MockJob:
@@ -159,3 +160,4 @@ def test_pdf_worker_uses_org_context(monkeypatch):
     assert result["version_id"] == 9
     assert result["file_id"] == 5
     assert result["download_url"] == "/jobs/5/report-versions/9/download"
+    assert any("org_id=org-123" in record.message for record in caplog.records)

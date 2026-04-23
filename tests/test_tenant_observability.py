@@ -118,3 +118,33 @@ def test_org_lifecycle_emits_audit_event(monkeypatch: pytest.MonkeyPatch, caplog
     assert invite["ok"] is True
     assert ("create", "organisation", "org-123", ANY) == captured[0]
     assert ("create", "organisation_invitation", ANY, ANY) == captured[1]
+
+
+class _DeniedCapacityConn(_AuditConn):
+    def fetchone(self):
+        sql = self.executed[-1][0] if self.executed else ""
+        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in sql:
+            return _FakeRow(3, 10, True, "active")
+        if "FROM organisation_memberships" in sql and "COUNT(*)" in sql:
+            return _FakeRow(1)
+        if "FROM organisation_invitations" in sql and "COUNT(*)" in sql:
+            return _FakeRow(0)
+        if "FROM clients" in sql and "COUNT(*)" in sql:
+            return _FakeRow(0)
+        return super().fetchone()
+
+
+def test_org_capacity_denial_is_logged(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("WARNING")
+    fake = _DeniedCapacityConn()
+    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+
+    with pytest.raises(HTTPException):
+        admin_routes.invite_user_to_organisation(
+            "org-123",
+            {"email": "user@example.com", "role": "Consultant", "days_valid": 7},
+            _user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123"},
+        )
+
+    assert any("Organisation capacity denied org_id=org-123 reason=archived" in record.message for record in caplog.records)

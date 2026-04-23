@@ -92,7 +92,7 @@ def queue_pdf_generation(
             logger.warning("Queued PDF job %s without stored org metadata", getattr(rq_job, "id", "unknown"))
 
         job_token = str(rq_job.id)
-        logger.info(f"Queued PDF gen for job {job_id}, token: {job_token}")
+        logger.info("Queued PDF gen for job %s org_id=%s token=%s", job_id, org_id, job_token)
         return job_token
     
     except Exception as e:
@@ -131,6 +131,12 @@ def get_pdf_job_status(job_token: str, org_id: Optional[str] = None) -> dict:
     expected_org_id = str(org_id or "").strip() or None
     job_org_id = str((getattr(rq_job, "meta", {}) or {}).get("org_id") or "").strip() or None
     if expected_org_id and job_org_id and expected_org_id != job_org_id:
+        logger.warning(
+            "PDF job status denied token=%s expected_org_id=%s job_org_id=%s",
+            job_token,
+            expected_org_id,
+            job_org_id,
+        )
         return {'status': 'not_found', 'message': 'Job not found'}
     
     # Map RQ status to our status
@@ -190,9 +196,15 @@ def cancel_pdf_job(job_token: str, org_id: Optional[str] = None) -> bool:
             expected_org_id = str(org_id or "").strip() or None
             job_org_id = str((getattr(rq_job, "meta", {}) or {}).get("org_id") or "").strip() or None
             if expected_org_id and job_org_id and expected_org_id != job_org_id:
+                logger.warning(
+                    "PDF job cancel denied token=%s expected_org_id=%s job_org_id=%s",
+                    job_token,
+                    expected_org_id,
+                    job_org_id,
+                )
                 return False
             rq_job.cancel()
-            logger.info(f"Canceled PDF gen job {job_token}")
+            logger.info("Canceled PDF gen job %s org_id=%s", job_token, job_org_id or expected_org_id or "unknown")
             return True
     except Exception as e:
         logger.error(f"Failed to cancel job {job_token}: {e}")

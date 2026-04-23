@@ -56,6 +56,7 @@ def generate_pdf_task(
     from rq import get_current_job
     
     job = get_current_job()
+    org_label = str(org_id or "unknown").strip() or "unknown"
     
     try:
         # Import existing functions from job_report_routes
@@ -65,7 +66,7 @@ def generate_pdf_task(
             generate_report_with_assets,
         )
         
-        logger.info(f"Starting PDF generation for job {job_id}")
+        logger.info("Starting PDF generation for job %s org_id=%s", job_id, org_label)
         
         # ==========================================
         # Step 1: Fetch job data (10%)
@@ -77,7 +78,7 @@ def generate_pdf_task(
         if not job_data:
             raise ValueError(f"Job {job_id} not found or inaccessible")
         
-        logger.info(f"Fetched job data: {job_data.get('job_number', 'unknown')}")
+        logger.info("Fetched job data for job %s org_id=%s job_number=%s", job_id, org_label, job_data.get("job_number", "unknown"))
         
         # ==========================================
         # Step 2: Render and save report (90%)
@@ -92,7 +93,7 @@ def generate_pdf_task(
             _user={"email": user_id or "system", "org_id": org_id},
         )
         pdf_bytes = bytes(getattr(report_response, "body", b"") or b"")
-        logger.info(f"Generated PDF ({len(pdf_bytes)} bytes)")
+        logger.info("Generated PDF for job %s org_id=%s bytes=%s", job_id, org_label, len(pdf_bytes))
 
         version_id = str(getattr(report_response, "headers", {}).get("X-Report-Version-Id") or "").strip() or None
         file_id = str(getattr(report_response, "headers", {}).get("X-Report-File-Id") or "").strip() or None
@@ -110,15 +111,15 @@ def generate_pdf_task(
             'download_url': f'/jobs/{job_id}/report-versions/{version_id}/download' if version_id else None,
         }
         
-        logger.info(f"PDF generation completed successfully for job {job_id}")
+        logger.info("PDF generation completed successfully for job %s org_id=%s", job_id, org_label)
         return result
     
     except Exception as e:
         error_msg = str(e)
         error_trace = traceback.format_exc()
         
-        logger.error(f"PDF generation FAILED for job {job_id}: {error_msg}")
-        logger.error(f"Traceback: {error_trace}")
+        logger.error("PDF generation FAILED for job %s org_id=%s: %s", job_id, org_label, error_msg)
+        logger.error("PDF generation traceback job %s org_id=%s: %s", job_id, org_label, error_trace)
         
         # Update progress with error state
         _update_progress(job, -1, f'Error: {error_msg}')

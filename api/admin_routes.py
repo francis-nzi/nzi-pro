@@ -365,10 +365,30 @@ def _require_org_capacity(
 ) -> dict[str, int | bool | str]:
     usage = _organisation_usage_info(con, org_id)
     if bool(usage.get("archived")):
+        logger.warning(
+            "Organisation capacity denied org_id=%s reason=archived plan_status=%s max_users=%s max_clients=%s active_members=%s active_clients=%s pending_invites=%s",
+            org_id,
+            usage.get("plan_status"),
+            usage.get("max_users"),
+            usage.get("max_clients"),
+            usage.get("active_members"),
+            usage.get("active_clients"),
+            usage.get("pending_invites"),
+        )
         raise HTTPException(status_code=403, detail="Organisation is archived")
 
     plan_status = str(usage.get("plan_status") or "active").strip().lower()
     if plan_status not in {"active", "trial"}:
+        logger.warning(
+            "Organisation capacity denied org_id=%s reason=inactive_plan plan_status=%s max_users=%s max_clients=%s active_members=%s active_clients=%s pending_invites=%s",
+            org_id,
+            usage.get("plan_status"),
+            usage.get("max_users"),
+            usage.get("max_clients"),
+            usage.get("active_members"),
+            usage.get("active_clients"),
+            usage.get("pending_invites"),
+        )
         raise HTTPException(status_code=403, detail="Organisation plan is not active")
 
     max_users = int(usage.get("max_users") or 0)
@@ -379,11 +399,28 @@ def _require_org_capacity(
 
     users_in_use = active_members + (pending_invites if count_pending_invites else 0)
     if max_users > 0 and users_in_use + additional_users > max_users:
+        logger.warning(
+            "Organisation capacity denied org_id=%s reason=user_limit users_in_use=%s max_users=%s additional_users=%s active_clients=%s",
+            org_id,
+            users_in_use,
+            max_users,
+            additional_users,
+            active_clients,
+        )
         raise HTTPException(
             status_code=403,
             detail=f"Organisation user limit reached ({users_in_use}/{max_users})",
         )
     if max_clients > 0 and active_clients + additional_clients > max_clients:
+        logger.warning(
+            "Organisation capacity denied org_id=%s reason=client_limit active_clients=%s max_clients=%s additional_clients=%s active_members=%s pending_invites=%s",
+            org_id,
+            active_clients,
+            max_clients,
+            additional_clients,
+            active_members,
+            pending_invites,
+        )
         raise HTTPException(
             status_code=403,
             detail=f"Organisation client limit reached ({active_clients}/{max_clients})",
