@@ -661,7 +661,7 @@ function NewJobPageContent() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="crmName">CRM</Label>
+                      <Label htmlFor="crmName">Client Owner</Label>
                       <Select
                         value={crmName || "__none__"}
                         onValueChange={(value) => setCrmName(value === "__none__" ? "" : value)}
