@@ -3807,8 +3807,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
                    COALESCE(c.billing_company, c.client_name)
             FROM clients c
-            WHERE c.db_id=? AND (c.org_id=? OR c.org_id IS NULL)
-            ORDER BY CASE WHEN c.org_id=? THEN 0 ELSE 1 END
+            WHERE c.db_id=? AND (TRIM(COALESCE(c.org_id, '')) = ? OR c.org_id IS NULL)
+            ORDER BY CASE WHEN TRIM(COALESCE(c.org_id, '')) = ? THEN 0 ELSE 1 END
             LIMIT 1
             """,
             [int(client_db_id), org_id, org_id],
@@ -4601,7 +4601,7 @@ def client_jobs(
                         SELECT COUNT(*)
                         FROM jobs j
                         JOIN clients c ON c.db_id = j.client_db_id
-                        WHERE j.client_db_id = ? AND (c.org_id = ? OR c.org_id IS NULL)
+                        WHERE j.client_db_id = ? AND (TRIM(COALESCE(c.org_id, '')) = ? OR c.org_id IS NULL)
                         """,
                         [int(client_db_id), org_id],
                     ).fetchone()
@@ -4639,13 +4639,13 @@ def client_jobs(
                             JOIN clients c ON c.db_id = j.client_db_id
                             LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                             LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
-                            WHERE j.client_db_id=? AND (c.org_id=? OR c.org_id IS NULL)
+                            WHERE j.client_db_id=? AND (TRIM(COALESCE(c.org_id, ''))=? OR c.org_id IS NULL)
                             GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                                      j.job_type, j.is_crp,
                                      jp.data_collection_due, jp.data_collection_completed_at,
                                      jp.first_draft_due, jp.first_draft_completed_at,
                                      jp.final_report_due, jp.final_report_completed_at
-                            ORDER BY CASE WHEN c.org_id = ? THEN 0 ELSE 1 END,
+                            ORDER BY CASE WHEN TRIM(COALESCE(c.org_id, '')) = ? THEN 0 ELSE 1 END,
                                      j.job_type, j.reporting_year DESC, j.job_id DESC
                             LIMIT ? OFFSET ?
                             """,
