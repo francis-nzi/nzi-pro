@@ -185,11 +185,12 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
     try {
       if (mode === "profit-loss") {
         const res = await fetch(`${baseUrl}/jobs/${jobId}/financial/summary`, { credentials: "include" });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error(`Failed to load job P&L (${res.status})${t ? `: ${t}` : ""}`);
+        if (res.ok) {
+          setSummary((await res.json()) as JobFinancialSummary);
+        } else {
+          setSummary(null);
+          setStatus("Profit & loss summary is temporarily unavailable.");
         }
-        setSummary((await res.json()) as JobFinancialSummary);
         return;
       }
       if (mode === "other-costs") {
@@ -198,12 +199,13 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           fetch(`${baseUrl}/jobs/${jobId}/other-costs/lookups`, { credentials: "include" }),
           fetch(`${baseUrl}/admin/lookups/uom_lookup`, { credentials: "include" }),
         ]);
-        if (!costsRes.ok) {
-          const t = await costsRes.text().catch(() => "");
-          throw new Error(`Failed to load other costs (${costsRes.status})${t ? `: ${t}` : ""}`);
+        if (costsRes.ok) {
+          const costsJson = (await costsRes.json()) as { items?: OtherCost[] };
+          setOtherCosts(Array.isArray(costsJson?.items) ? costsJson.items : []);
+        } else {
+          setOtherCosts([]);
+          setStatus("Other costs are temporarily unavailable.");
         }
-        const costsJson = (await costsRes.json()) as { items?: OtherCost[] };
-        setOtherCosts(Array.isArray(costsJson?.items) ? costsJson.items : []);
         if (lookupsRes.ok) {
           const lookupsJson = (await lookupsRes.json()) as {
             suppliers?: OtherCostSupplier[];
@@ -211,38 +213,51 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           };
           setOtherCostSuppliers(Array.isArray(lookupsJson?.suppliers) ? lookupsJson.suppliers : []);
           setOtherCostSupplierItems(Array.isArray(lookupsJson?.items) ? lookupsJson.items : []);
+        } else {
+          setOtherCostSuppliers([]);
+          setOtherCostSupplierItems([]);
         }
         if (uomRes.ok) {
           const uomJson = (await uomRes.json()) as { items?: Array<{ name?: string; is_active?: boolean }> };
           const names = Array.isArray(uomJson?.items)
             ? uomJson.items
                 .filter((x) => (x?.is_active ?? true) && String(x?.name || "").trim().length > 0)
-                .map((x) => String(x.name))
+              .map((x) => String(x.name))
             : [];
           if (names.length > 0) setUomOptions(names);
+        } else {
+          setUomOptions(["hours", "days", "units"]);
         }
         return;
       }
 
       let loadedInvoices = false;
-      const invRes = await fetch(`${baseUrl}/jobs/${jobId}/invoices`, { credentials: "include" });
-      if (invRes.ok) {
-        const invJson = (await invRes.json()) as { items?: JobInvoice[] };
-        setInvoices(Array.isArray(invJson?.items) ? invJson.items : []);
-        loadedInvoices = true;
-      } else if (invRes.status === 404 && clientId && clientId > 0) {
-        // Backward-compatible fallback for servers missing GET /jobs/{job_id}/invoices.
-        const clientInvRes = await fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" });
-        if (clientInvRes.ok) {
-          const clientInvJson = (await clientInvRes.json()) as { items?: Array<JobInvoice & { job_id?: number | null }> };
-          const all = Array.isArray(clientInvJson?.items) ? clientInvJson.items : [];
-          setInvoices(all.filter((inv) => Number(inv.job_id || 0) === Number(jobId)));
+      try {
+        const invRes = await fetch(`${baseUrl}/jobs/${jobId}/invoices`, { credentials: "include" });
+        if (invRes.ok) {
+          const invJson = (await invRes.json()) as { items?: JobInvoice[] };
+          setInvoices(Array.isArray(invJson?.items) ? invJson.items : []);
           loadedInvoices = true;
+        }
+      } catch {
+        // fall through to client fallback
+      }
+      if (!loadedInvoices && clientId && clientId > 0) {
+        try {
+          const clientInvRes = await fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" });
+          if (clientInvRes.ok) {
+            const clientInvJson = (await clientInvRes.json()) as { items?: Array<JobInvoice & { job_id?: number | null }> };
+            const all = Array.isArray(clientInvJson?.items) ? clientInvJson.items : [];
+            setInvoices(all.filter((inv) => Number(inv.job_id || 0) === Number(jobId)));
+            loadedInvoices = true;
+          }
+        } catch {
+          // ignore and render empty state
         }
       }
       if (!loadedInvoices) {
-        const t = await invRes.text().catch(() => "");
-        throw new Error(`Failed to load invoices (${invRes.status})${t ? `: ${t}` : ""}`);
+        setInvoices([]);
+        setStatus("Invoices are temporarily unavailable.");
       }
 
       if (!(clientId && clientId > 0)) {
@@ -252,17 +267,17 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
       }
 
       const quoteRes = await fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" });
-      if (!quoteRes.ok) {
-        const t = await quoteRes.text().catch(() => "");
-        throw new Error(`Failed to load quotes (${quoteRes.status})${t ? `: ${t}` : ""}`);
+      if (quoteRes.ok) {
+        const qJson = (await quoteRes.json()) as { items?: JobQuote[] };
+        const all = Array.isArray(qJson?.items) ? qJson.items : [];
+        const filtered =
+          jobNumber && jobNumber.trim().length
+            ? all.filter((q) => String(q.job_number || "").trim() === jobNumber.trim())
+            : all;
+        setQuotes(filtered);
+      } else {
+        setQuotes([]);
       }
-      const qJson = (await quoteRes.json()) as { items?: JobQuote[] };
-      const all = Array.isArray(qJson?.items) ? qJson.items : [];
-      const filtered =
-        jobNumber && jobNumber.trim().length
-          ? all.filter((q) => String(q.job_number || "").trim() === jobNumber.trim())
-          : all;
-      setQuotes(filtered);
 
       if (mode === "invoices") {
         const [lookupsRes, adminItemsRes] = await Promise.all([
@@ -274,7 +289,7 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
           ? ((await lookupsRes.json()) as { items?: QuoteLookupItem[] })?.items ?? []
           : [];
 
-        const adminItemsRaw = adminItemsRes.ok
+          const adminItemsRaw = adminItemsRes.ok
           ? ((await adminItemsRes.json()) as { items?: Array<{
               item_id: number;
               item_name?: string;
@@ -308,7 +323,8 @@ export default function JobFinancial({ jobId, clientId, jobNumber, baseUrl, mode
         setQuoteLookupItems(finalItems);
       }
     } catch (e) {
-      setStatus((e as Error).message);
+      const message = (e as Error).message;
+      setStatus(message.includes("500") ? "One or more financial lookups are temporarily unavailable." : message);
     } finally {
       setLoading(false);
     }
