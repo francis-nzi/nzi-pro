@@ -520,14 +520,13 @@ def app_update_feedback_item(
 
 @app.on_event("startup")
 async def startup_event():
-    """Run migrations on startup if RUN_STARTUP_MIGRATIONS is set."""
-    if os.getenv("RUN_STARTUP_MIGRATIONS") == "1":
-        try:
-            from core.migrations import run_migrations
-            run_migrations()
-            _safe_startup_log("OK", "Startup migrations completed successfully")
-        except Exception as e:
-            _safe_startup_log("WARN", f"Startup migrations failed: {e}")
+    """Run migrations on startup and keep optional browser warmups alive."""
+    try:
+        from core.migrations import run_migrations
+        run_migrations()
+        _safe_startup_log("OK", "Startup migrations completed successfully")
+    except Exception as e:
+        _safe_startup_log("WARN", f"Startup migrations failed: {e}")
     try:
         browser_path = ensure_kaleido_browser()
         _safe_startup_log("OK", f"Kaleido browser ready at {browser_path}")

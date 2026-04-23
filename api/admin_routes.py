@@ -67,6 +67,45 @@ _ORG_SCOPED_LOOKUP_TABLES = {"job_types", "time_subjects", "portfolios_lookup"}
 def _ensure_org_lifecycle_schema(con) -> None:
     """Keep org lifecycle tables and columns available on older databases."""
     try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisations (
+              org_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              name VARCHAR NOT NULL,
+              slug VARCHAR UNIQUE,
+              plan VARCHAR DEFAULT 'trial',
+              plan_status VARCHAR DEFAULT 'active',
+              trial_ends_at TIMESTAMP,
+              stripe_customer_id VARCHAR,
+              stripe_subscription_id VARCHAR,
+              max_users INTEGER DEFAULT 3,
+              max_clients INTEGER DEFAULT 10,
+              created_at TIMESTAMP DEFAULT NOW(),
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisation_invitations (
+              invitation_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              org_id UUID REFERENCES organisations(org_id),
+              email VARCHAR NOT NULL,
+              role VARCHAR DEFAULT 'Consultant',
+              invited_by VARCHAR,
+              token VARCHAR UNIQUE NOT NULL,
+              accepted_at TIMESTAMP,
+              expires_at TIMESTAMP NOT NULL,
+              created_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id UUID")
     except Exception:
         pass
@@ -105,6 +144,18 @@ def _ensure_org_lifecycle_schema(con) -> None:
     try:
         con.execute(
             """
+            INSERT INTO organisations (name, slug, plan, plan_status, max_users, max_clients)
+            SELECT 'NZI Internal', 'nzi-internal', 'trial', 'active', 999, 999
+            WHERE NOT EXISTS (
+              SELECT 1 FROM organisations WHERE slug = 'nzi-internal'
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
             INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
             SELECT org_id, user_id, COALESCE(role, 'Consultant'), TRUE,
                    CASE WHEN lower(COALESCE(role, '')) IN ('admin', 'superadmin') THEN TRUE ELSE FALSE END
@@ -114,6 +165,18 @@ def _ensure_org_lifecycle_schema(con) -> None:
               role = EXCLUDED.role,
               is_active = TRUE,
               updated_at = NOW()
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            UPDATE users
+            SET org_id = (
+              SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1
+            )
+            WHERE org_id IS NULL
             """
         )
     except Exception:
