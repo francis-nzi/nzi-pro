@@ -477,13 +477,45 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                     "SELECT org_id FROM clients WHERE db_id = ? LIMIT 1",
                     [client_id],
                 ).fetchone()
-            if not row:
-                return False
-            client_org_id = str(row[0] or "").strip()
-            if not client_org_id:
+                if row:
+                    client_org_id = str(row[0] or "").strip()
+                    if client_org_id:
+                        if client_org_id == user_org_id:
+                            return True
+                    else:
+                        default_org_id = str(get_default_org_id() or "").strip()
+                        if bool(default_org_id) and user_org_id == default_org_id:
+                            return True
+
+                job_row = con.execute(
+                    """
+                    SELECT 1
+                    FROM jobs j
+                    WHERE j.client_db_id = ?
+                      AND TRIM(COALESCE(j.org_id, '')) = ?
+                    LIMIT 1
+                    """,
+                    [client_id, user_org_id],
+                ).fetchone()
+                if job_row:
+                    return True
+
                 default_org_id = str(get_default_org_id() or "").strip()
-                return bool(default_org_id) and user_org_id == default_org_id
-            return client_org_id == user_org_id
+                if bool(default_org_id) and user_org_id == default_org_id:
+                    legacy_job_row = con.execute(
+                        """
+                        SELECT 1
+                        FROM jobs j
+                        WHERE j.client_db_id = ?
+                          AND j.org_id IS NULL
+                        LIMIT 1
+                        """,
+                        [client_id],
+                    ).fetchone()
+                    if legacy_job_row:
+                        return True
+
+                return False
         except Exception:
             return False
     return False
@@ -500,21 +532,24 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
             with get_conn() as con:
                 row = con.execute(
                     """
-                    SELECT j.client_db_id, c.org_id
+                    SELECT j.client_db_id, j.org_id, c.org_id
                     FROM jobs j
-                    JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
                     WHERE j.job_id = ?
                     LIMIT 1
                     """,
                     [int(job_id)],
                 ).fetchone()
             if row:
-                client_db_id = int(row[0]) if row[0] is not None else None
                 job_org_id = str(row[1] or "").strip()
-                if not job_org_id:
+                client_org_id = str(row[2] or "").strip()
+                if job_org_id:
+                    return job_org_id == user_org_id
+                if client_org_id:
+                    return client_org_id == user_org_id
+                if row[0] is not None:
                     default_org_id = str(get_default_org_id() or "").strip()
                     return bool(default_org_id) and user_org_id == default_org_id
-                return job_org_id == user_org_id
         except Exception:
             return False
     return False

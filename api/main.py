@@ -3784,7 +3784,7 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
-    org_id = _resolve_request_org_id(_user)
+    _resolve_request_org_id(_user)
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
@@ -3795,23 +3795,22 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
             SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
                    c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
                    c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
-                   c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
-                   c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-                   c.interim_s3_pct, c.portfolio, c.benchmark_year,
-                   c.benchmark_period_start, c.benchmark_period_end, c.currency,
-                   COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
+            c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
+            c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
+            c.interim_s3_pct, c.portfolio, c.benchmark_year,
+            c.benchmark_period_start, c.benchmark_period_end, c.currency,
+            COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
                    c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
                    c.billing_addr_postcode, c.billing_addr_country,
-                   c.create_site_from_address,
-                   c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                   c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
-                   COALESCE(c.billing_company, c.client_name)
+            c.create_site_from_address,
+            c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
+            c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
+            COALESCE(c.billing_company, c.client_name)
             FROM clients c
-            WHERE c.db_id=? AND (TRIM(COALESCE(c.org_id, '')) = ? OR c.org_id IS NULL)
-            ORDER BY CASE WHEN TRIM(COALESCE(c.org_id, '')) = ? THEN 0 ELSE 1 END
+            WHERE c.db_id=?
             LIMIT 1
             """,
-            [int(client_db_id), org_id, org_id],
+            [int(client_db_id)],
         ).fetchone()
 
     if not row:
@@ -4593,66 +4592,120 @@ def client_jobs(
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user, allow_fallback=True)
+        default_org_id = str(get_default_org_id() or "").strip()
         with get_conn() as con:
             try:
                 if org_id:
-                    total_row = con.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM jobs j
-                        JOIN clients c ON c.db_id = j.client_db_id
-                        WHERE j.client_db_id = ? AND (TRIM(COALESCE(c.org_id, '')) = ? OR c.org_id IS NULL)
-                        """,
-                        [int(client_db_id), org_id],
-                    ).fetchone()
-
-                    rows = (
-                        con.execute(
+                    if default_org_id and org_id == default_org_id:
+                        total_row = con.execute(
                             """
-                            SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                   j.job_type, j.is_crp,
-                                   jp.data_collection_due, jp.data_collection_completed_at,
-                                   jp.first_draft_due, jp.first_draft_completed_at,
-                                   jp.final_report_due, jp.final_report_completed_at,
-                                   COALESCE(SUM(
-                                       CASE
-                                           WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                                           THEN (COALESCE(jsr.qty,
-                                                   COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                                   COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                                   COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                                   COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                                   COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                                   COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                               ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                                           ELSE (COALESCE(jsr.qty,
-                                                   COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                                   COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                                   COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                                   COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                                   COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                                   COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                               ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                                       END
-                                   ), 0) as total_emissions
+                            SELECT COUNT(*)
                             FROM jobs j
-                            JOIN clients c ON c.db_id = j.client_db_id
-                            LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                            LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
-                            WHERE j.client_db_id=? AND (TRIM(COALESCE(c.org_id, ''))=? OR c.org_id IS NULL)
-                            GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                     j.job_type, j.is_crp,
-                                     jp.data_collection_due, jp.data_collection_completed_at,
-                                     jp.first_draft_due, jp.first_draft_completed_at,
-                                     jp.final_report_due, jp.final_report_completed_at
-                            ORDER BY CASE WHEN TRIM(COALESCE(c.org_id, '')) = ? THEN 0 ELSE 1 END,
-                                     j.job_type, j.reporting_year DESC, j.job_id DESC
-                            LIMIT ? OFFSET ?
+                            WHERE j.client_db_id = ? AND (TRIM(COALESCE(j.org_id, '')) = ? OR j.org_id IS NULL)
                             """,
-                            [int(client_db_id), org_id, org_id, int(limit), int(offset)],
+                            [int(client_db_id), org_id],
+                        ).fetchone()
+
+                        rows = (
+                            con.execute(
+                                """
+                                SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                                       j.job_type, j.is_crp,
+                                       jp.data_collection_due, jp.data_collection_completed_at,
+                                       jp.first_draft_due, jp.first_draft_completed_at,
+                                       jp.final_report_due, jp.final_report_completed_at,
+                                       COALESCE(SUM(
+                                           CASE
+                                               WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
+                                               THEN (COALESCE(jsr.qty,
+                                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
+                                               ELSE (COALESCE(jsr.qty,
+                                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
+                                           END
+                                       ), 0) as total_emissions
+                                FROM jobs j
+                                LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                                LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
+                                WHERE j.client_db_id=? AND (TRIM(COALESCE(j.org_id, ''))=? OR j.org_id IS NULL)
+                                GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                                         j.job_type, j.is_crp,
+                                         jp.data_collection_due, jp.data_collection_completed_at,
+                                         jp.first_draft_due, jp.first_draft_completed_at,
+                                         jp.final_report_due, jp.final_report_completed_at
+                                ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
+                                LIMIT ? OFFSET ?
+                                """,
+                                [int(client_db_id), org_id, int(limit), int(offset)],
+                            )
+                            .df()
                         )
-                        .df()
-                    )
+                    else:
+                        total_row = con.execute(
+                            """
+                            SELECT COUNT(*)
+                            FROM jobs j
+                            WHERE j.client_db_id = ? AND TRIM(COALESCE(j.org_id, '')) = ?
+                            """,
+                            [int(client_db_id), org_id],
+                        ).fetchone()
+
+                        rows = (
+                            con.execute(
+                                """
+                                SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                                       j.job_type, j.is_crp,
+                                       jp.data_collection_due, jp.data_collection_completed_at,
+                                       jp.first_draft_due, jp.first_draft_completed_at,
+                                       jp.final_report_due, jp.final_report_completed_at,
+                                       COALESCE(SUM(
+                                           CASE
+                                               WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
+                                               THEN (COALESCE(jsr.qty,
+                                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
+                                               ELSE (COALESCE(jsr.qty,
+                                                       COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
+                                                       COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
+                                                       COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
+                                                       COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
+                                                       COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
+                                                       COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
+                                                   ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
+                                           END
+                                       ), 0) as total_emissions
+                                FROM jobs j
+                                LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                                LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
+                                WHERE j.client_db_id=? AND TRIM(COALESCE(j.org_id, ''))=?
+                                GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                                         j.job_type, j.is_crp,
+                                         jp.data_collection_due, jp.data_collection_completed_at,
+                                         jp.first_draft_due, jp.first_draft_completed_at,
+                                         jp.final_report_due, jp.final_report_completed_at
+                                ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
+                                LIMIT ? OFFSET ?
+                                """,
+                                [int(client_db_id), org_id, int(limit), int(offset)],
+                            )
+                            .df()
+                        )
                 else:
                     total_row = con.execute(
                         """
