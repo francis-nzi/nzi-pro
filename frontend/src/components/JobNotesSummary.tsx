@@ -38,6 +38,13 @@ type JobNotesSummary = {
   items: JobNote[];
 };
 
+type JobNoteGroup = {
+  key: string;
+  label: string;
+  description: string;
+  items: JobNote[];
+};
+
 type JobNotesSummaryProps = {
   jobId: number;
   baseUrl: string;
@@ -72,6 +79,10 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const [scopeFilter, setScopeFilter] = useState("All");
   const [siteFilter, setSiteFilter] = useState("All");
   const [authorFilter, setAuthorFilter] = useState("All");
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    "job-communication": true,
+    "job-row": true,
+  });
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -153,6 +164,75 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       return true;
     });
   }, [authorFilter, search, siteFilter, scopeFilter, sourceFilter, summary]);
+
+  const groupedNotes = useMemo<JobNoteGroup[]>(() => {
+    const groupMeta: Array<Pick<JobNoteGroup, "key" | "label" | "description">> = [
+      {
+        key: "job-communication",
+        label: "Job Notes",
+        description: "Notes captured from job communications and job-level updates.",
+      },
+      {
+        key: "job-row",
+        label: "Job Row Notes",
+        description: "Notes attached to individual job rows and line items.",
+      },
+    ];
+
+    return groupMeta
+      .map((group) => ({
+        ...group,
+        items: filteredNotes.filter((item) => item.source_type === group.key),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [filteredNotes]);
+
+  const toggleSection = useCallback((key: string) => {
+    setExpandedSections((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  }, []);
+
+  const renderNotesTable = useCallback((items: JobNote[]) => {
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1200px] text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="p-2">Source</th>
+              <th className="p-2">Where</th>
+              <th className="p-2">Note</th>
+              <th className="p-2">Updated By</th>
+              <th className="p-2">Updated At</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.note_id} className="border-b align-top">
+                <td className="p-2">
+                  <div className="font-medium">{item.source_label}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
+                  </div>
+                </td>
+                <td className="p-2">
+                  <div className="font-medium">{item.note_location}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"} | {item.scope || "No scope"} |{" "}
+                    {item.site_name || "No site"}
+                  </div>
+                </td>
+                <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>
+                <td className="p-2">{item.note_updated_by || "-"}</td>
+                <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -279,39 +359,29 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           ) : filteredNotes.length === 0 ? (
             <div className="text-sm text-muted-foreground">No notes found for this job.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1200px] text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="p-2">Source</th>
-                    <th className="p-2">Where</th>
-                    <th className="p-2">Note</th>
-                    <th className="p-2">Updated By</th>
-                    <th className="p-2">Updated At</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredNotes.map((item) => (
-                    <tr key={item.note_id} className="border-b align-top">
-                      <td className="p-2">
-                        <div className="font-medium">{item.source_label}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
+            <div className="space-y-4">
+              {groupedNotes.map((group) => {
+                const isExpanded = expandedSections[group.key] !== false;
+                return (
+                  <section key={group.key} className="rounded-lg border bg-background">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-semibold">{group.label}</h3>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                            {group.items.length}
+                          </span>
                         </div>
-                      </td>
-                      <td className="p-2">
-                        <div className="font-medium">{item.note_location}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"} | {item.scope || "No scope"} | {item.site_name || "No site"}
-                        </div>
-                      </td>
-                      <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>
-                      <td className="p-2">{item.note_updated_by || "-"}</td>
-                      <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <p className="mt-1 text-sm text-muted-foreground">{group.description}</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => toggleSection(group.key)}>
+                        {isExpanded ? "Collapse" : "Expand"}
+                      </Button>
+                    </div>
+                    {isExpanded ? <div className="p-4">{renderNotesTable(group.items)}</div> : null}
+                  </section>
+                );
+              })}
             </div>
           )}
         </CardContent>
