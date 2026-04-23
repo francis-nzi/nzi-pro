@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta, timezone
 import inspect
 import pandas as pd
 from threading import Lock
+from decimal import Decimal, InvalidOperation
 from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
 from services.attribute_override_import import (
     build_override_template_workbook,
@@ -120,6 +121,19 @@ _ORG_ROLE_CAPABILITIES = {
 }
 _ORG_MANAGEMENT_ROLES = {"owner", "admin"}
 _ORG_SWITCH_ROLES = {"owner", "admin", "billing", "member", "consultant"}
+_ORG_BILLING_INVOICE_STATUSES = {"draft", "issued", "paid", "overdue", "void", "refunded"}
+_ORG_BILLING_EVENT_TYPES = {
+    "invoice_created",
+    "invoice_issued",
+    "payment_received",
+    "payment_failed",
+    "subscription_created",
+    "subscription_updated",
+    "subscription_canceled",
+    "renewal",
+    "reminder_sent",
+    "note",
+}
 
 
 def _ensure_org_lifecycle_schema(con) -> None:
@@ -332,6 +346,119 @@ def _ensure_org_entitlement_schema(con) -> None:
         pass
 
 
+def _ensure_org_billing_schema(con) -> None:
+    """Keep org billing ledger tables available on older databases."""
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisation_billing_invoices (
+              billing_invoice_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              org_id UUID REFERENCES organisations(org_id) NOT NULL,
+              invoice_number VARCHAR NOT NULL,
+              status VARCHAR DEFAULT 'draft',
+              amount_cents INTEGER DEFAULT 0,
+              currency VARCHAR DEFAULT 'GBP',
+              description TEXT,
+              invoice_date TIMESTAMP,
+              due_date TIMESTAMP,
+              paid_at TIMESTAMP,
+              period_start TIMESTAMP,
+              period_end TIMESTAMP,
+              payment_reference VARCHAR,
+              stripe_invoice_id VARCHAR,
+              stripe_payment_intent_id VARCHAR,
+              created_by VARCHAR,
+              created_at TIMESTAMP DEFAULT NOW(),
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisation_billing_events (
+              billing_event_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              org_id UUID REFERENCES organisations(org_id) NOT NULL,
+              billing_invoice_id UUID REFERENCES organisation_billing_invoices(billing_invoice_id),
+              event_type VARCHAR NOT NULL,
+              source VARCHAR DEFAULT 'manual',
+              status VARCHAR DEFAULT 'recorded',
+              amount_cents INTEGER DEFAULT 0,
+              currency VARCHAR DEFAULT 'GBP',
+              reference VARCHAR,
+              notes TEXT,
+              payload_json TEXT,
+              effective_at TIMESTAMP,
+              created_by VARCHAR,
+              created_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    for ddl in (
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'draft'",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS amount_cents INTEGER DEFAULT 0",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'GBP'",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMP",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS due_date TIMESTAMP",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS period_start TIMESTAMP",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS period_end TIMESTAMP",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS payment_reference VARCHAR",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS stripe_invoice_id VARCHAR",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS stripe_payment_intent_id VARCHAR",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE organisation_billing_invoices ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS billing_invoice_id UUID REFERENCES organisation_billing_invoices(billing_invoice_id)",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'manual'",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'recorded'",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS amount_cents INTEGER DEFAULT 0",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'GBP'",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS reference VARCHAR",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS payload_json TEXT",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS effective_at TIMESTAMP",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE organisation_billing_events ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+    ):
+        try:
+            con.execute(ddl)
+        except Exception:
+            pass
+    try:
+        con.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_org_billing_invoices_org_number
+            ON organisation_billing_invoices (org_id, lower(invoice_number))
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_org_billing_invoices_org_created
+            ON organisation_billing_invoices (org_id, created_at DESC)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_org_billing_events_org_created
+            ON organisation_billing_events (org_id, created_at DESC)
+            """
+        )
+    except Exception:
+        pass
+
+
 def _normalize_org_role(value: object | None, *, default: str = "Member") -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -415,6 +542,74 @@ def _organisation_entitlement_info(con, org_id: str) -> dict[str, object]:
     if not org_row:
         raise HTTPException(status_code=404, detail="Organisation not found")
     return _entitlement_row_to_dict(org_row)
+
+
+def _billing_invoice_row_to_dict(row) -> dict[str, object]:
+    def _value(idx: int):
+        try:
+            return row[idx]
+        except Exception:
+            return None
+
+    return {
+        "billing_invoice_id": str(_value(0)) if _value(0) is not None else None,
+        "org_id": str(_value(1)) if _value(1) is not None else None,
+        "invoice_number": str(_value(2) or ""),
+        "status": str(_value(3) or "draft"),
+        "amount_cents": int(_value(4) or 0),
+        "currency": str(_value(5) or "GBP"),
+        "description": str(_value(6) or "") or None,
+        "invoice_date": str(_value(7)) if _value(7) else None,
+        "due_date": str(_value(8)) if _value(8) else None,
+        "paid_at": str(_value(9)) if _value(9) else None,
+        "period_start": str(_value(10)) if _value(10) else None,
+        "period_end": str(_value(11)) if _value(11) else None,
+        "payment_reference": str(_value(12) or "") or None,
+        "stripe_invoice_id": str(_value(13) or "") or None,
+        "stripe_payment_intent_id": str(_value(14) or "") or None,
+        "created_by": str(_value(15) or "") or None,
+        "created_at": str(_value(16)) if _value(16) else None,
+        "updated_at": str(_value(17)) if _value(17) else None,
+    }
+
+
+def _billing_event_row_to_dict(row) -> dict[str, object]:
+    def _value(idx: int):
+        try:
+            return row[idx]
+        except Exception:
+            return None
+
+    payload = _value(10)
+    payload_text = str(payload) if payload else None
+    return {
+        "billing_event_id": str(_value(0)) if _value(0) is not None else None,
+        "org_id": str(_value(1)) if _value(1) is not None else None,
+        "billing_invoice_id": str(_value(2)) if _value(2) is not None else None,
+        "event_type": str(_value(3) or "note"),
+        "source": str(_value(4) or "manual"),
+        "status": str(_value(5) or "recorded"),
+        "amount_cents": int(_value(6) or 0),
+        "currency": str(_value(7) or "GBP"),
+        "reference": str(_value(8) or "") or None,
+        "notes": str(_value(9) or "") or None,
+        "payload_json": payload_text,
+        "effective_at": str(_value(11)) if _value(11) else None,
+        "created_by": str(_value(12) or "") or None,
+        "created_at": str(_value(13)) if _value(13) else None,
+    }
+
+
+def _parse_amount_cents(value: object | None) -> int:
+    if value is None or value == "":
+        return 0
+    if isinstance(value, bool):
+        return 0
+    try:
+        decimal_value = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="amount must be a valid number")
+    return int((decimal_value * 100).quantize(Decimal("1")))
 
 
 def _membership_for_user(con, user_id: str, org_id: str) -> dict[str, object] | None:
@@ -3593,6 +3788,389 @@ def archive_organisation(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to archive organisation: {e}")
+
+
+@router.get("/organisations/{org_id}/billing")
+def list_organisation_billing(org_id: str, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _ensure_org_billing_schema(con)
+            role_info = _require_org_management_role(con, _user, org_id)
+            organisation = con.execute(
+                """
+                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
+                FROM organisations
+                WHERE org_id = %s
+                LIMIT 1
+                """,
+                [org_id],
+            ).fetchone()
+            if not organisation:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            entitlement = _organisation_entitlement_info(con, org_id)
+            invoice_rows = con.execute(
+                """
+                SELECT billing_invoice_id, org_id, invoice_number, status, amount_cents, currency, description,
+                       invoice_date, due_date, paid_at, period_start, period_end, payment_reference,
+                       stripe_invoice_id, stripe_payment_intent_id, created_by, created_at, updated_at
+                FROM organisation_billing_invoices
+                WHERE org_id = %s
+                ORDER BY COALESCE(invoice_date, created_at) DESC, created_at DESC
+                """,
+                [org_id],
+            ).fetchall()
+            event_rows = con.execute(
+                """
+                SELECT billing_event_id, org_id, billing_invoice_id, event_type, source, status, amount_cents,
+                       currency, reference, notes, payload_json, effective_at, created_by, created_at
+                FROM organisation_billing_events
+                WHERE org_id = %s
+                ORDER BY COALESCE(effective_at, created_at) DESC, created_at DESC
+                """,
+                [org_id],
+            ).fetchall()
+            return {
+                "organisation": _organisation_row_to_dict(organisation),
+                "entitlement": entitlement,
+                "billing": {
+                    "role": str(role_info.get("role") or "Member"),
+                    "capabilities": dict(role_info.get("capabilities") or {}),
+                    "invoices": [_billing_invoice_row_to_dict(row) for row in invoice_rows or []],
+                    "events": [_billing_event_row_to_dict(row) for row in event_rows or []],
+                },
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list organisation billing: {e}")
+
+
+@router.post("/organisations/{org_id}/billing/invoices")
+def create_organisation_billing_invoice(
+    org_id: str,
+    body: dict = Body(...),
+    request: Request = None,
+    _user: dict = Depends(_current_user),
+):
+    try:
+        invoice_number = str(body.get("invoice_number") or "").strip()
+        if not invoice_number:
+            raise HTTPException(status_code=400, detail="invoice_number is required")
+        status = str(body.get("status") or "draft").strip().lower() or "draft"
+        if status not in _ORG_BILLING_INVOICE_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid invoice status")
+        amount_cents = _parse_amount_cents(body.get("amount_cents") if "amount_cents" in body else body.get("amount"))
+        currency = str(body.get("currency") or "GBP").strip().upper() or "GBP"
+        description = str(body.get("description") or "").strip() or None
+        invoice_date = body.get("invoice_date")
+        due_date = body.get("due_date")
+        paid_at = body.get("paid_at")
+        period_start = body.get("period_start")
+        period_end = body.get("period_end")
+        payment_reference = str(body.get("payment_reference") or "").strip() or None
+        stripe_invoice_id = str(body.get("stripe_invoice_id") or "").strip() or None
+        stripe_payment_intent_id = str(body.get("stripe_payment_intent_id") or "").strip() or None
+        created_by = _actor_identifier(_user)
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _ensure_org_billing_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            invoice_org = con.execute(
+                "SELECT org_id FROM organisations WHERE org_id = %s LIMIT 1",
+                [org_id],
+            ).fetchone()
+            if not invoice_org:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            existing = con.execute(
+                """
+                SELECT 1
+                FROM organisation_billing_invoices
+                WHERE org_id = %s AND lower(invoice_number) = lower(%s)
+                LIMIT 1
+                """,
+                [org_id, invoice_number],
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=409, detail="Invoice number already exists for this organisation")
+            row = con.execute(
+                """
+                INSERT INTO organisation_billing_invoices (
+                  org_id, invoice_number, status, amount_cents, currency, description,
+                  invoice_date, due_date, paid_at, period_start, period_end,
+                  payment_reference, stripe_invoice_id, stripe_payment_intent_id, created_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING billing_invoice_id, org_id, invoice_number, status, amount_cents, currency, description,
+                          invoice_date, due_date, paid_at, period_start, period_end, payment_reference,
+                          stripe_invoice_id, stripe_payment_intent_id, created_by, created_at, updated_at
+                """,
+                [
+                    org_id,
+                    invoice_number,
+                    status,
+                    amount_cents,
+                    currency,
+                    description,
+                    invoice_date,
+                    due_date,
+                    paid_at,
+                    period_start,
+                    period_end,
+                    payment_reference,
+                    stripe_invoice_id,
+                    stripe_payment_intent_id,
+                    created_by,
+                ],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to create billing invoice")
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="organisation_billing_invoice",
+                entity_id=str(row[0]),
+                metadata={
+                    "org_id": org_id,
+                    "invoice_number": invoice_number,
+                    "status": status,
+                    "amount_cents": amount_cents,
+                    "currency": currency,
+                },
+            )
+            if status != "draft" or paid_at:
+                con.execute(
+                    """
+                    INSERT INTO organisation_billing_events (
+                      org_id, billing_invoice_id, event_type, source, status, amount_cents, currency,
+                      reference, notes, payload_json, effective_at, created_by
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+                    """,
+                    [
+                        org_id,
+                        row[0],
+                        "invoice_issued" if status in {"issued", "paid"} else "invoice_created",
+                        "manual",
+                        "recorded",
+                        amount_cents,
+                        currency,
+                        invoice_number,
+                        description,
+                        json.dumps(
+                            {
+                                "status": status,
+                                "invoice_number": invoice_number,
+                                "payment_reference": payment_reference,
+                                "stripe_invoice_id": stripe_invoice_id,
+                                "stripe_payment_intent_id": stripe_payment_intent_id,
+                            },
+                            default=str,
+                        ),
+                        created_by,
+                    ],
+                )
+            logger.info("Organisation billing invoice created org_id=%s invoice_number=%s actor=%s", org_id, invoice_number, created_by or "unknown")
+            return {"ok": True, "invoice": _billing_invoice_row_to_dict(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organisation billing invoice: {e}")
+
+
+@router.patch("/organisations/{org_id}/billing/invoices/{billing_invoice_id}")
+def update_organisation_billing_invoice(
+    org_id: str,
+    billing_invoice_id: str,
+    body: dict = Body(...),
+    request: Request = None,
+    _user: dict = Depends(_current_user),
+):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _ensure_org_billing_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            invoice = con.execute(
+                """
+                SELECT billing_invoice_id, org_id, invoice_number, status, amount_cents, currency, description,
+                       invoice_date, due_date, paid_at, period_start, period_end, payment_reference,
+                       stripe_invoice_id, stripe_payment_intent_id, created_by, created_at, updated_at
+                FROM organisation_billing_invoices
+                WHERE billing_invoice_id = %s AND org_id = %s
+                LIMIT 1
+                """,
+                [billing_invoice_id, org_id],
+            ).fetchone()
+            if not invoice:
+                raise HTTPException(status_code=404, detail="Billing invoice not found")
+            updates: list[str] = []
+            params: list[object] = []
+            for key in ("invoice_number", "description", "payment_reference", "stripe_invoice_id", "stripe_payment_intent_id"):
+                if key in body and body.get(key) is not None:
+                    value = str(body.get(key)).strip()
+                    updates.append(f"{key} = %s")
+                    params.append(value or None)
+            if "status" in body and body.get("status") is not None:
+                status = str(body.get("status")).strip().lower() or "draft"
+                if status not in _ORG_BILLING_INVOICE_STATUSES:
+                    raise HTTPException(status_code=400, detail="Invalid invoice status")
+                updates.append("status = %s")
+                params.append(status)
+            if "amount_cents" in body or "amount" in body:
+                amount_cents = _parse_amount_cents(body.get("amount_cents") if "amount_cents" in body else body.get("amount"))
+                updates.append("amount_cents = %s")
+                params.append(amount_cents)
+            for key in ("invoice_date", "due_date", "paid_at", "period_start", "period_end"):
+                if key in body:
+                    value = body.get(key)
+                    updates.append(f"{key} = %s")
+                    params.append(value)
+            if not updates:
+                return {"ok": True, "invoice": _billing_invoice_row_to_dict(invoice)}
+            updates.append("updated_at = NOW()")
+            row = con.execute(
+                f"""
+                UPDATE organisation_billing_invoices
+                SET {', '.join(updates)}
+                WHERE billing_invoice_id = %s AND org_id = %s
+                RETURNING billing_invoice_id, org_id, invoice_number, status, amount_cents, currency, description,
+                          invoice_date, due_date, paid_at, period_start, period_end, payment_reference,
+                          stripe_invoice_id, stripe_payment_intent_id, created_by, created_at, updated_at
+                """,
+                [*params, billing_invoice_id, org_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to update billing invoice")
+            event_type = "invoice_issued" if str(row[3]).strip().lower() in {"issued", "paid"} else "note"
+            if str(body.get("paid_at") or "").strip():
+                event_type = "payment_received"
+            con.execute(
+                """
+                INSERT INTO organisation_billing_events (
+                  org_id, billing_invoice_id, event_type, source, status, amount_cents, currency,
+                  reference, notes, payload_json, effective_at, created_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s)
+                """,
+                [
+                    org_id,
+                    billing_invoice_id,
+                    event_type,
+                    "manual",
+                    "recorded",
+                    int(row[4] or 0),
+                    str(row[5] or "GBP"),
+                    str(row[2] or ""),
+                    str(body.get("notes") or body.get("description") or "") or None,
+                    json.dumps({"updated_fields": list(body.keys()), "invoice_status": str(row[3] or "draft")}, default=str),
+                    _actor_identifier(_user),
+                ],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="organisation_billing_invoice",
+                entity_id=str(row[0]),
+                metadata={"org_id": org_id, "invoice_number": str(row[2] or ""), "updated_fields": list(body.keys())},
+            )
+            logger.info("Organisation billing invoice updated org_id=%s invoice_id=%s actor=%s", org_id, billing_invoice_id, _actor_identifier(_user))
+            return {"ok": True, "invoice": _billing_invoice_row_to_dict(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update organisation billing invoice: {e}")
+
+
+@router.post("/organisations/{org_id}/billing/events")
+def create_organisation_billing_event(
+    org_id: str,
+    body: dict = Body(...),
+    request: Request = None,
+    _user: dict = Depends(_current_user),
+):
+    try:
+        event_type = str(body.get("event_type") or "note").strip().lower() or "note"
+        if event_type not in _ORG_BILLING_EVENT_TYPES:
+            raise HTTPException(status_code=400, detail="Invalid billing event type")
+        source = str(body.get("source") or "manual").strip() or "manual"
+        status = str(body.get("status") or "recorded").strip() or "recorded"
+        amount_cents = _parse_amount_cents(body.get("amount_cents") if "amount_cents" in body else body.get("amount"))
+        currency = str(body.get("currency") or "GBP").strip().upper() or "GBP"
+        reference = str(body.get("reference") or "").strip() or None
+        notes = str(body.get("notes") or "").strip() or None
+        payload = body.get("payload")
+        effective_at = body.get("effective_at")
+        billing_invoice_id = str(body.get("billing_invoice_id") or "").strip() or None
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _ensure_org_billing_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            org_row = con.execute(
+                "SELECT org_id FROM organisations WHERE org_id = %s LIMIT 1",
+                [org_id],
+            ).fetchone()
+            if not org_row:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            if billing_invoice_id:
+                invoice_row = con.execute(
+                    "SELECT billing_invoice_id FROM organisation_billing_invoices WHERE billing_invoice_id = %s AND org_id = %s LIMIT 1",
+                    [billing_invoice_id, org_id],
+                ).fetchone()
+                if not invoice_row:
+                    raise HTTPException(status_code=404, detail="Billing invoice not found")
+            event_row = con.execute(
+                """
+                INSERT INTO organisation_billing_events (
+                  org_id, billing_invoice_id, event_type, source, status, amount_cents, currency,
+                  reference, notes, payload_json, effective_at, created_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING billing_event_id, org_id, billing_invoice_id, event_type, source, status,
+                          amount_cents, currency, reference, notes, payload_json, effective_at, created_by, created_at
+                """,
+                [
+                    org_id,
+                    billing_invoice_id,
+                    event_type,
+                    source,
+                    status,
+                    amount_cents,
+                    currency,
+                    reference,
+                    notes,
+                    json.dumps(payload, default=str) if payload is not None else None,
+                    effective_at,
+                    _actor_identifier(_user),
+                ],
+            ).fetchone()
+            if not event_row:
+                raise HTTPException(status_code=500, detail="Failed to create billing event")
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="organisation_billing_event",
+                entity_id=str(event_row[0]),
+                metadata={"org_id": org_id, "event_type": event_type, "billing_invoice_id": billing_invoice_id},
+            )
+            logger.info("Organisation billing event created org_id=%s event_type=%s actor=%s", org_id, event_type, _actor_identifier(_user))
+            return {"ok": True, "event": _billing_event_row_to_dict(event_row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organisation billing event: {e}")
 
 
 # =========================

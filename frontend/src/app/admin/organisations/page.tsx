@@ -91,6 +91,55 @@ type Organisation = {
   } | null;
 };
 
+type OrganisationBillingInvoice = {
+  billing_invoice_id: string;
+  org_id: string;
+  invoice_number: string;
+  status?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
+  description?: string | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  paid_at?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  payment_reference?: string | null;
+  stripe_invoice_id?: string | null;
+  stripe_payment_intent_id?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type OrganisationBillingEvent = {
+  billing_event_id: string;
+  org_id: string;
+  billing_invoice_id?: string | null;
+  event_type?: string | null;
+  source?: string | null;
+  status?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  payload_json?: string | null;
+  effective_at?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+};
+
+type OrganisationBillingResponse = {
+  organisation?: Organisation | null;
+  entitlement?: Organisation["entitlement"] | null;
+  billing?: {
+    role?: string | null;
+    capabilities?: OrganisationRoleCapabilities | null;
+    invoices?: OrganisationBillingInvoice[];
+    events?: OrganisationBillingEvent[];
+  } | null;
+};
+
 type OrganisationsResponse = {
   items?: Organisation[];
   active_org_id?: string | null;
@@ -118,6 +167,34 @@ type InviteForm = {
   days_valid: string;
 };
 
+type BillingInvoiceForm = {
+  invoice_number: string;
+  status: string;
+  amount: string;
+  currency: string;
+  description: string;
+  invoice_date: string;
+  due_date: string;
+  paid_at: string;
+  period_start: string;
+  period_end: string;
+  payment_reference: string;
+  stripe_invoice_id: string;
+  stripe_payment_intent_id: string;
+};
+
+type BillingEventForm = {
+  event_type: string;
+  source: string;
+  status: string;
+  amount: string;
+  currency: string;
+  reference: string;
+  notes: string;
+  billing_invoice_id: string;
+  effective_at: string;
+};
+
 const DEFAULT_FORM: OrganisationForm = {
   name: "",
   slug: "",
@@ -133,12 +210,69 @@ const DEFAULT_INVITE: InviteForm = {
   days_valid: "7",
 };
 
+const DEFAULT_BILLING_INVOICE_FORM: BillingInvoiceForm = {
+  invoice_number: "",
+  status: "draft",
+  amount: "0.00",
+  currency: "GBP",
+  description: "",
+  invoice_date: "",
+  due_date: "",
+  paid_at: "",
+  period_start: "",
+  period_end: "",
+  payment_reference: "",
+  stripe_invoice_id: "",
+  stripe_payment_intent_id: "",
+};
+
+const DEFAULT_BILLING_EVENT_FORM: BillingEventForm = {
+  event_type: "note",
+  source: "manual",
+  status: "recorded",
+  amount: "0.00",
+  currency: "GBP",
+  reference: "",
+  notes: "",
+  billing_invoice_id: "",
+  effective_at: "",
+};
+
+const BILLING_INVOICE_STATUSES = ["draft", "issued", "paid", "overdue", "void", "refunded"] as const;
+const BILLING_EVENT_TYPES = [
+  "note",
+  "invoice_created",
+  "invoice_issued",
+  "payment_received",
+  "payment_failed",
+  "subscription_created",
+  "subscription_updated",
+  "subscription_canceled",
+  "renewal",
+  "reminder_sent",
+] as const;
+
 const ORG_ROLE_OPTIONS = ["Owner", "Admin", "Billing", "Member", "Consultant"] as const;
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("en-GB");
+}
+
+function formatMoney(cents?: number | null, currency?: string | null): string {
+  const nextCurrency = currency || "GBP";
+  const amount = Number(cents || 0) / 100;
+  try {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: nextCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${nextCurrency} ${amount.toFixed(2)}`;
+  }
 }
 
 export default function OrganisationsPage() {
@@ -163,10 +297,18 @@ export default function OrganisationsPage() {
   const [membersLoading, setMembersLoading] = useState(false);
   const [memberSaving, setMemberSaving] = useState<string | null>(null);
   const [memberDraftRoles, setMemberDraftRoles] = useState<Record<string, string>>({});
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billing, setBilling] = useState<OrganisationBillingResponse["billing"] | null>(null);
+  const [billingInvoiceForm, setBillingInvoiceForm] = useState<BillingInvoiceForm>(DEFAULT_BILLING_INVOICE_FORM);
+  const [billingEventForm, setBillingEventForm] = useState<BillingEventForm>(DEFAULT_BILLING_EVENT_FORM);
+  const [billingSaving, setBillingSaving] = useState<string | null>(null);
 
   const selectedOrg = useMemo(
     () => organisations.find((org) => org.org_id === selectedOrgId) || null,
     [organisations, selectedOrgId]
+  );
+  const canManageBilling = Boolean(
+    selectedOrg?.membership?.capabilities?.can_manage_billing || currentCapabilities?.can_manage_billing
   );
 
   const loadMembers = useCallback(
@@ -202,6 +344,33 @@ export default function OrganisationsPage() {
         setError((e as Error).message);
       } finally {
         setMembersLoading(false);
+      }
+    },
+    [baseUrl]
+  );
+
+  const loadBilling = useCallback(
+    async (orgId: string | null) => {
+      if (!orgId) {
+        setBilling(null);
+        return;
+      }
+      setBillingLoading(true);
+      try {
+        const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(orgId)}/billing`, {
+          credentials: "include",
+        });
+        const payload = (await res.json().catch(() => ({}))) as OrganisationBillingResponse;
+        if (!res.ok) {
+          const detail = (payload as { detail?: unknown }).detail;
+          throw new Error(typeof detail === "string" ? detail : "Failed to load organisation billing");
+        }
+        setBilling((payload as OrganisationBillingResponse).billing || null);
+      } catch (e) {
+        setBilling(null);
+        setError((e as Error).message);
+      } finally {
+        setBillingLoading(false);
       }
     },
     [baseUrl]
@@ -251,6 +420,10 @@ export default function OrganisationsPage() {
     void loadMembers(selectedOrg?.org_id || null);
   }, [loadMembers, selectedOrg?.org_id]);
 
+  useEffect(() => {
+    void loadBilling(selectedOrg?.org_id || null);
+  }, [loadBilling, selectedOrg?.org_id]);
+
   function updateForm<K extends keyof OrganisationForm>(key: K, value: OrganisationForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -261,6 +434,14 @@ export default function OrganisationsPage() {
 
   function updateMemberDraftRole(userId: string, role: string) {
     setMemberDraftRoles((current) => ({ ...current, [userId]: role }));
+  }
+
+  function updateBillingInvoiceForm<K extends keyof BillingInvoiceForm>(key: K, value: BillingInvoiceForm[K]) {
+    setBillingInvoiceForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateBillingEventForm<K extends keyof BillingEventForm>(key: K, value: BillingEventForm[K]) {
+    setBillingEventForm((current) => ({ ...current, [key]: value }));
   }
 
   async function setOrganisationArchived(orgId: string, archived: boolean) {
@@ -455,6 +636,99 @@ export default function OrganisationsPage() {
       setStatus("");
     } finally {
       setInviting(null);
+    }
+  }
+
+  async function saveBillingInvoice() {
+    if (!selectedOrg?.org_id) {
+      setError("Select an organisation first.");
+      return;
+    }
+    setBillingSaving("invoice");
+    setError("");
+    setStatus("Saving billing invoice...");
+    try {
+      const payload = {
+        invoice_number: billingInvoiceForm.invoice_number.trim(),
+        status: billingInvoiceForm.status.trim() || "draft",
+        amount: billingInvoiceForm.amount.trim(),
+        currency: billingInvoiceForm.currency.trim() || "GBP",
+        description: billingInvoiceForm.description.trim(),
+        invoice_date: billingInvoiceForm.invoice_date || null,
+        due_date: billingInvoiceForm.due_date || null,
+        paid_at: billingInvoiceForm.paid_at || null,
+        period_start: billingInvoiceForm.period_start || null,
+        period_end: billingInvoiceForm.period_end || null,
+        payment_reference: billingInvoiceForm.payment_reference.trim(),
+        stripe_invoice_id: billingInvoiceForm.stripe_invoice_id.trim(),
+        stripe_payment_intent_id: billingInvoiceForm.stripe_payment_intent_id.trim(),
+      };
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/billing/invoices`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Unable to save billing invoice");
+      }
+      setBillingInvoiceForm(DEFAULT_BILLING_INVOICE_FORM);
+      setStatus("Billing invoice saved.");
+      await loadBilling(selectedOrg.org_id);
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBillingSaving(null);
+    }
+  }
+
+  async function saveBillingEvent() {
+    if (!selectedOrg?.org_id) {
+      setError("Select an organisation first.");
+      return;
+    }
+    setBillingSaving("event");
+    setError("");
+    setStatus("Recording billing event...");
+    try {
+      const payload = {
+        event_type: billingEventForm.event_type.trim() || "note",
+        source: billingEventForm.source.trim() || "manual",
+        status: billingEventForm.status.trim() || "recorded",
+        amount: billingEventForm.amount.trim(),
+        currency: billingEventForm.currency.trim() || "GBP",
+        reference: billingEventForm.reference.trim(),
+        notes: billingEventForm.notes.trim(),
+        billing_invoice_id: billingEventForm.billing_invoice_id.trim(),
+        effective_at: billingEventForm.effective_at || null,
+        payload: {
+          source: "organisation-admin",
+        },
+      };
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/billing/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Unable to save billing event");
+      }
+      setBillingEventForm(DEFAULT_BILLING_EVENT_FORM);
+      setStatus("Billing event recorded.");
+      await loadBilling(selectedOrg.org_id);
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBillingSaving(null);
     }
   }
 
@@ -824,6 +1098,362 @@ export default function OrganisationsPage() {
                 <div className="text-xs text-muted-foreground">
                   Owners can transfer ownership. Admins can manage members and settings. Billing, member, and consultant roles can switch orgs but not transfer ownership.
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Billing &amp; Payments</CardTitle>
+                <CardDescription>
+                  Track org invoices, payment events, and subscription lifecycle history.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {!selectedOrg ? (
+                  <div className="text-sm text-muted-foreground">Select an organisation to view billing history.</div>
+                ) : billingLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading billing history...</div>
+                ) : (
+                  <>
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="font-medium">Current billing status</div>
+                      <div className="mt-1 text-muted-foreground">
+                        Plan: {selectedOrg.entitlement?.plan || currentEntitlement?.plan || selectedOrg.plan || "trial"} | Status:{" "}
+                        {selectedOrg.entitlement?.subscription_status || currentEntitlement?.subscription_status || selectedOrg.plan_status || "active"}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Subscription: {selectedOrg.entitlement?.stripe_subscription_id || currentEntitlement?.stripe_subscription_id || "-"}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-semibold">Invoices</div>
+                          <div className="text-xs text-muted-foreground">Latest org invoices and payment state.</div>
+                        </div>
+                        <Badge variant="outline">{billing?.invoices?.length || 0} records</Badge>
+                      </div>
+                      {billing?.invoices?.length ? (
+                        <div className="space-y-2">
+                          {billing.invoices.map((invoice) => (
+                            <div key={invoice.billing_invoice_id} className="rounded-md border p-3 text-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="font-medium">
+                                  {invoice.invoice_number} · {formatMoney(invoice.amount_cents, invoice.currency)}
+                                </div>
+                                <Badge variant={invoice.status === "paid" ? "secondary" : "outline"}>{invoice.status || "draft"}</Badge>
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {invoice.description || "No description"} | Issued: {formatDate(invoice.invoice_date)} | Due: {formatDate(invoice.due_date)}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Paid: {formatDate(invoice.paid_at)} | Period: {formatDate(invoice.period_start)} to {formatDate(invoice.period_end)}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                Payment ref: {invoice.payment_reference || "-"} | Stripe invoice: {invoice.stripe_invoice_id || "-"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">No billing invoices found.</div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-semibold">Billing events</div>
+                          <div className="text-xs text-muted-foreground">Subscription and payment lifecycle notes.</div>
+                        </div>
+                        <Badge variant="outline">{billing?.events?.length || 0} records</Badge>
+                      </div>
+                      {billing?.events?.length ? (
+                        <div className="space-y-2">
+                          {billing.events.map((event) => (
+                            <div key={event.billing_event_id} className="rounded-md border p-3 text-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="font-medium">{event.event_type || "note"}</div>
+                                <Badge variant="secondary">{event.status || "recorded"}</Badge>
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {formatMoney(event.amount_cents, event.currency)} | {event.source || "manual"} | {formatDate(event.effective_at || event.created_at)}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {event.reference || "-"}{event.notes ? ` · ${event.notes}` : ""}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">No billing events found.</div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="space-y-4 rounded-md border p-4">
+                        <div>
+                          <div className="text-sm font-semibold">Create invoice</div>
+                          <div className="text-xs text-muted-foreground">Record a new org invoice or payment milestone.</div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-number">Invoice number</Label>
+                            <Input
+                              id="billing-invoice-number"
+                              value={billingInvoiceForm.invoice_number}
+                              onChange={(e) => updateBillingInvoiceForm("invoice_number", e.target.value)}
+                              placeholder="INV-2026-001"
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-status">Status</Label>
+                            <Select
+                              value={billingInvoiceForm.status}
+                              onValueChange={(value) => updateBillingInvoiceForm("status", value)}
+                              disabled={!canManageBilling}
+                            >
+                              <SelectTrigger id="billing-invoice-status">
+                                <SelectValue placeholder="draft" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {BILLING_INVOICE_STATUSES.map((status) => (
+                                  <SelectItem key={status} value={status}>
+                                    {status}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-amount">Amount</Label>
+                            <Input
+                              id="billing-invoice-amount"
+                              value={billingInvoiceForm.amount}
+                              onChange={(e) => updateBillingInvoiceForm("amount", e.target.value)}
+                              placeholder="1250.00"
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-currency">Currency</Label>
+                            <Input
+                              id="billing-invoice-currency"
+                              value={billingInvoiceForm.currency}
+                              onChange={(e) => updateBillingInvoiceForm("currency", e.target.value)}
+                              placeholder="GBP"
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billing-invoice-description">Description</Label>
+                          <Input
+                            id="billing-invoice-description"
+                            value={billingInvoiceForm.description}
+                            onChange={(e) => updateBillingInvoiceForm("description", e.target.value)}
+                            placeholder="Monthly subscription invoice"
+                            disabled={!canManageBilling}
+                          />
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-date">Invoice date</Label>
+                            <Input
+                              id="billing-invoice-date"
+                              type="date"
+                              value={billingInvoiceForm.invoice_date}
+                              onChange={(e) => updateBillingInvoiceForm("invoice_date", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-due-date">Due date</Label>
+                            <Input
+                              id="billing-invoice-due-date"
+                              type="date"
+                              value={billingInvoiceForm.due_date}
+                              onChange={(e) => updateBillingInvoiceForm("due_date", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-paid-at">Paid at</Label>
+                            <Input
+                              id="billing-invoice-paid-at"
+                              type="date"
+                              value={billingInvoiceForm.paid_at}
+                              onChange={(e) => updateBillingInvoiceForm("paid_at", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-period-start">Period start</Label>
+                            <Input
+                              id="billing-invoice-period-start"
+                              type="date"
+                              value={billingInvoiceForm.period_start}
+                              onChange={(e) => updateBillingInvoiceForm("period_start", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-period-end">Period end</Label>
+                            <Input
+                              id="billing-invoice-period-end"
+                              type="date"
+                              value={billingInvoiceForm.period_end}
+                              onChange={(e) => updateBillingInvoiceForm("period_end", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-payment-reference">Payment reference</Label>
+                            <Input
+                              id="billing-invoice-payment-reference"
+                              value={billingInvoiceForm.payment_reference}
+                              onChange={(e) => updateBillingInvoiceForm("payment_reference", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-stripe-id">Stripe invoice</Label>
+                            <Input
+                              id="billing-invoice-stripe-id"
+                              value={billingInvoiceForm.stripe_invoice_id}
+                              onChange={(e) => updateBillingInvoiceForm("stripe_invoice_id", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-invoice-payment-intent">Payment intent</Label>
+                            <Input
+                              id="billing-invoice-payment-intent"
+                              value={billingInvoiceForm.stripe_payment_intent_id}
+                              onChange={(e) => updateBillingInvoiceForm("stripe_payment_intent_id", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                        </div>
+                        <Button onClick={() => void saveBillingInvoice()} disabled={!canManageBilling || billingSaving === "invoice"}>
+                          {billingSaving === "invoice" ? "Saving..." : "Save invoice"}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-4 rounded-md border p-4">
+                        <div>
+                          <div className="text-sm font-semibold">Record event</div>
+                          <div className="text-xs text-muted-foreground">Log lifecycle events such as payments or renewals.</div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-type">Event type</Label>
+                            <Select
+                              value={billingEventForm.event_type}
+                              onValueChange={(value) => updateBillingEventForm("event_type", value)}
+                              disabled={!canManageBilling}
+                            >
+                              <SelectTrigger id="billing-event-type">
+                                <SelectValue placeholder="note" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {BILLING_EVENT_TYPES.map((eventType) => (
+                                  <SelectItem key={eventType} value={eventType}>
+                                    {eventType}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-status">Status</Label>
+                            <Input
+                              id="billing-event-status"
+                              value={billingEventForm.status}
+                              onChange={(e) => updateBillingEventForm("status", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-source">Source</Label>
+                            <Input
+                              id="billing-event-source"
+                              value={billingEventForm.source}
+                              onChange={(e) => updateBillingEventForm("source", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-amount">Amount</Label>
+                            <Input
+                              id="billing-event-amount"
+                              value={billingEventForm.amount}
+                              onChange={(e) => updateBillingEventForm("amount", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-currency">Currency</Label>
+                            <Input
+                              id="billing-event-currency"
+                              value={billingEventForm.currency}
+                              onChange={(e) => updateBillingEventForm("currency", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billing-event-ref">Reference</Label>
+                            <Input
+                              id="billing-event-ref"
+                              value={billingEventForm.reference}
+                              onChange={(e) => updateBillingEventForm("reference", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="billing-event-notes">Notes</Label>
+                            <Input
+                              id="billing-event-notes"
+                              value={billingEventForm.notes}
+                              onChange={(e) => updateBillingEventForm("notes", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="billing-event-invoice">Invoice link</Label>
+                            <Input
+                              id="billing-event-invoice"
+                              value={billingEventForm.billing_invoice_id}
+                              onChange={(e) => updateBillingEventForm("billing_invoice_id", e.target.value)}
+                              placeholder="Optional billing invoice id"
+                              disabled={!canManageBilling}
+                            />
+                            <div className="text-xs text-muted-foreground">
+                              Leave blank for a standalone event, or paste a billing invoice id from the list above.
+                            </div>
+                          </div>
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="billing-event-effective-at">Effective at</Label>
+                            <Input
+                              id="billing-event-effective-at"
+                              type="date"
+                              value={billingEventForm.effective_at}
+                              onChange={(e) => updateBillingEventForm("effective_at", e.target.value)}
+                              disabled={!canManageBilling}
+                            />
+                          </div>
+                        </div>
+                        <Button onClick={() => void saveBillingEvent()} disabled={!canManageBilling || billingSaving === "event"}>
+                          {billingSaving === "event" ? "Saving..." : "Save event"}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
