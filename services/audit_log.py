@@ -25,6 +25,7 @@ def ensure_audit_log_table(con) -> None:
         CREATE TABLE IF NOT EXISTS audit_log (
           audit_id BIGSERIAL PRIMARY KEY,
           created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          org_id VARCHAR,
           actor_user_id VARCHAR,
           actor_email VARCHAR,
           actor_name VARCHAR,
@@ -49,6 +50,14 @@ def ensure_audit_log_table(con) -> None:
     )
     try:
         con.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC)")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    except Exception:
+        pass
+    try:
+        con.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_org_created ON audit_log(org_id, created_at DESC)")
     except Exception:
         pass
     try:
@@ -145,6 +154,16 @@ def request_ui_context(request: Request | None) -> dict[str, str | None]:
     }
 
 
+def request_org_id(request: Request | None) -> str | None:
+    if request is None:
+        return None
+    try:
+        header_value = str(request.headers.get("x-audit-org-id") or "").strip()
+        return header_value or None
+    except Exception:
+        return None
+
+
 def fetch_row_dict(con, sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any] | None:
     df = con.execute(sql, list(params or [])).df()
     if df is None or df.empty:
@@ -189,10 +208,16 @@ def record_audit_event(
     except Exception:
         pass
     context = request_ui_context(request)
+    org_id = None
+    if actor and actor.get("org_id"):
+        org_id = str(actor.get("org_id")).strip() or None
+    if not org_id:
+        org_id = request_org_id(request)
     diff = _compute_diff(before, after)
     row = con.execute(
         """
         INSERT INTO audit_log (
+          org_id,
           actor_user_id,
           actor_email,
           actor_name,
@@ -213,10 +238,11 @@ def record_audit_event(
           ip_address,
           user_agent
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING audit_id
         """,
         [
+            org_id,
             actor.get("user_id") if actor else None,
             actor.get("email") if actor else None,
             actor.get("full_name") if actor else None,

@@ -20,6 +20,7 @@ import { apiUrl } from "@/lib/auth-client";
 type AuditLogItem = {
   audit_id: number;
   created_at: string;
+  org_id: string | null;
   actor_user_id: number | null;
   actor_email: string | null;
   actor_name: string | null;
@@ -49,6 +50,7 @@ type AuditLogResponse = {
 };
 
 type FilterState = {
+  orgId: string;
   q: string;
   actorEmail: string;
   entityType: string;
@@ -58,6 +60,7 @@ type FilterState = {
 };
 
 const DEFAULT_FILTERS: FilterState = {
+  orgId: "",
   q: "",
   actorEmail: "",
   entityType: "",
@@ -88,12 +91,12 @@ export default function AuditLogPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>("");
   const [offset, setOffset] = useState<number>(0);
+  const [exporting, setExporting] = useState<boolean>(false);
   const limit = 50;
 
-  const queryString = useMemo(() => {
+  const baseQueryString = useMemo(() => {
     const params = new URLSearchParams();
-    params.set("limit", String(limit));
-    params.set("offset", String(offset));
+    if (appliedFilters.orgId.trim()) params.set("org_id", appliedFilters.orgId.trim());
     if (appliedFilters.q.trim()) params.set("q", appliedFilters.q.trim());
     if (appliedFilters.actorEmail.trim()) params.set("actor_email", appliedFilters.actorEmail.trim());
     if (appliedFilters.entityType.trim()) params.set("entity_type", appliedFilters.entityType.trim());
@@ -101,7 +104,14 @@ export default function AuditLogPage() {
     if (appliedFilters.clientId.trim()) params.set("client_id", appliedFilters.clientId.trim());
     if (appliedFilters.jobId.trim()) params.set("job_id", appliedFilters.jobId.trim());
     return params.toString();
-  }, [appliedFilters, offset]);
+  }, [appliedFilters]);
+
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams(baseQueryString);
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    return params.toString();
+  }, [baseQueryString, offset]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +144,33 @@ export default function AuditLogPage() {
       cancelled = true;
     };
   }, [queryString]);
+
+  async function exportAuditLog() {
+    setExporting(true);
+    setError("");
+    try {
+      const res = await fetch(`${apiUrl("/admin/audit-log/export")}?${baseQueryString}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to export audit log (${res.status})${text ? ` - ${text}` : ""}`);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "audit_log.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export audit log");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const total = data?.total ?? 0;
   const pageStart = total === 0 ? 0 : offset + 1;
@@ -177,6 +214,11 @@ export default function AuditLogPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Input
+                placeholder="Organisation ID"
+                value={filters.orgId}
+                onChange={(e) => setFilters((prev) => ({ ...prev, orgId: e.target.value }))}
+              />
+              <Input
                 placeholder="Search text..."
                 value={filters.q}
                 onChange={(e) => setFilters((prev) => ({ ...prev, q: e.target.value }))}
@@ -212,6 +254,9 @@ export default function AuditLogPage() {
               <Button variant="outline" onClick={clearFilters}>
                 Clear
               </Button>
+              <Button variant="secondary" onClick={() => void exportAuditLog()} disabled={exporting || loading}>
+                {exporting ? "Exporting..." : "Export CSV"}
+              </Button>
               <Badge variant="outline">
                 {loading ? "Loading..." : `${total} events`}
               </Badge>
@@ -239,6 +284,7 @@ export default function AuditLogPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>When</TableHead>
+                      <TableHead>Org</TableHead>
                       <TableHead>Actor</TableHead>
                       <TableHead>Action</TableHead>
                       <TableHead>Entity</TableHead>
@@ -251,6 +297,7 @@ export default function AuditLogPage() {
                     {data.items.map((item) => (
                       <TableRow key={item.audit_id}>
                         <TableCell className="align-top">{fmtDate(item.created_at)}</TableCell>
+                        <TableCell className="align-top text-xs text-muted-foreground">{item.org_id || "-"}</TableCell>
                         <TableCell className="align-top">
                           <div className="font-medium">{item.actor_name || item.actor_email || "Unknown"}</div>
                           {item.actor_email ? (
