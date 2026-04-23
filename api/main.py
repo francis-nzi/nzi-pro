@@ -3514,8 +3514,8 @@ def list_clients(
 
         params: list[object] = [org_id, org_id]
         clause = (
-            f"(c.org_id = {org_placeholder} "
-            f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND TRIM(COALESCE(j.org_id, '')) = {org_placeholder})"
+            f"(CAST(c.org_id AS TEXT) = {org_placeholder} "
+            f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = {org_placeholder})"
         )
         if default_org_id and org_id == default_org_id:
             clause += " OR (c.org_id IS NULL AND EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND j.org_id IS NULL))"
