@@ -122,6 +122,20 @@ from api.permissions import assert_client_access, assert_job_access, assert_perm
 from services.tenancy import get_default_org_id, require_org
 
 
+def _resolve_request_org_id(user: dict[str, str]) -> str:
+    """Return the active org for a route, bootstrapping legacy users if needed."""
+    org_id = str(user.get("org_id") or "").strip()
+    if org_id:
+        return org_id
+
+    fallback_org_id = get_default_org_id()
+    if fallback_org_id:
+        user["org_id"] = fallback_org_id
+        return fallback_org_id
+
+    raise HTTPException(status_code=403, detail="Organisation context required")
+
+
 def _client_audit_snapshot(con, client_db_id: int, org_id: str | None = None) -> dict | None:
     if org_id is not None and str(org_id).strip():
         return fetch_row_dict(
@@ -3214,7 +3228,7 @@ def create_client(
     """Create a new client."""
     try:
         assert_permission(_user, "clients.create")
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         client_name = body.get("client_name", "").strip()
         if not client_name:
             raise HTTPException(status_code=400, detail="client_name is required")
@@ -3411,7 +3425,7 @@ async def upload_client_logo(
     actor = _user.get("email", "unknown")
     if client_db_id is not None and int(client_db_id) > 0:
         client_db_id = int(client_db_id)
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             before = _client_audit_snapshot(con, client_db_id, org_id)
             if not before:
@@ -3467,9 +3481,7 @@ def list_clients(
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
-    org_id = str(_user.get("org_id") or "").strip()
-    if not org_id:
-        raise HTTPException(status_code=403, detail="Organisation context required")
+    org_id = _resolve_request_org_id(_user)
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
@@ -3772,9 +3784,7 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
-    org_id = str(_user.get("org_id") or "").strip()
-    if not org_id:
-        raise HTTPException(status_code=403, detail="Organisation context required")
+    org_id = _resolve_request_org_id(_user)
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
@@ -3863,7 +3873,7 @@ def update_client(
     try:
         assert_permission(_user, "clients.edit")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_billing_columns(con)
@@ -4059,7 +4069,7 @@ def client_sites(client_db_id: int, _user: dict[str, str] = Depends(_current_use
     try:
         assert_permission(_user, "clients.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_billing_columns(con)
@@ -4083,7 +4093,7 @@ def create_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4140,7 +4150,7 @@ def update_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4244,7 +4254,7 @@ def vacate_client_site(
     try:
         assert_permission(_user, "clients.sites.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             _ensure_client_sites_runtime_columns(con)
@@ -4321,7 +4331,7 @@ def get_client_contacts(client_db_id: int, _user: dict[str, str] = Depends(_curr
     try:
         assert_permission(_user, "clients.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             try:
@@ -4412,7 +4422,7 @@ def create_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             # If this contact is marked as primary, unset other primary contacts
@@ -4470,7 +4480,7 @@ def update_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id), org_id)
@@ -4544,7 +4554,7 @@ def delete_client_contact(
     try:
         assert_permission(_user, "clients.contacts.manage")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             _ensure_client_org_columns(con)
             before = _client_contact_audit_snapshot(con, int(client_db_id), int(contact_id), org_id)
@@ -4580,7 +4590,7 @@ def client_jobs(
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             try:
                 if org_id:

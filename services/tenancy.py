@@ -105,6 +105,17 @@ def require_org(user: dict, *, allow_fallback: bool = False) -> str:
         set_current_org_context(org_id)
         return org_id
 
+    if allow_fallback:
+        try:
+            rehydrated = attach_org_id(dict(user), allow_fallback=True)
+            org_id = str(rehydrated.get("org_id") or "").strip()
+            if org_id:
+                user["org_id"] = org_id
+                set_current_org_context(org_id)
+                return org_id
+        except Exception:
+            pass
+
     clear_current_org_context()
     logger.warning(
         "Organisation context missing for user_id=%s",

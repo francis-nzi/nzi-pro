@@ -95,7 +95,7 @@ def list_time_logs(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             where_clauses = []
             params = []
@@ -188,7 +188,7 @@ def create_time_log(
         
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_job_org = _column_exists(con, "jobs", "org_id")
             # Verify job exists
             job_exists = con.execute(
@@ -239,7 +239,7 @@ def update_time_log(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
@@ -307,7 +307,7 @@ def delete_time_log(
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_time_org = _column_exists(con, "time_logs", "org_id")
             # Check if time log exists
             existing = con.execute(
@@ -340,7 +340,7 @@ def list_time_subjects(_user: dict[str, str] = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_subject_org = _column_exists(con, "time_subjects", "org_id")
             select_sql = """
                 SELECT subject_id, name, budget_hours
@@ -397,7 +397,7 @@ def update_time_subject(
         
         with get_conn() as con:
             _ensure_time_tracking_schema(con)
-            org_id = require_org(_user)
+            org_id = require_org(_user, allow_fallback=True)
             has_subject_org = _column_exists(con, "time_subjects", "org_id")
             exists = con.execute(
                 "SELECT 1 FROM time_subjects WHERE subject_id = ?" + (" AND org_id = ?" if has_subject_org else ""),

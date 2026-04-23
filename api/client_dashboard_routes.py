@@ -114,7 +114,7 @@ def get_client_dashboard(
     """
     try:
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
             try:
@@ -513,7 +513,7 @@ def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_curr
     """Generate AI insights for a client using external LLM."""
     try:
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         payload = ai_insights.generate_client_insights(client_db_id, org_id=org_id)
         return payload
     except HTTPException:
@@ -541,7 +541,7 @@ def get_client_insights_openai(client_db_id: int, _user: dict[str, str] = Depend
     """Generate non-Anthropic insights (OpenAI provider with rule-based fallback)."""
     try:
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
+        org_id = require_org(_user, allow_fallback=True)
         payload = ai_insights.generate_client_insights(client_db_id, provider="openai", org_id=org_id)
         return payload
     except HTTPException:

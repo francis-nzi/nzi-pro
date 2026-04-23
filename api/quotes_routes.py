@@ -24,7 +24,7 @@ router = APIRouter(tags=["quotes"])
 
 
 def _quote_org_id(user: dict | None) -> str | None:
-    return require_org(user or {})
+    return require_org(user or {}, allow_fallback=True)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:

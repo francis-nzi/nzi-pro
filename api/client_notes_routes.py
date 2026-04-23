@@ -6,6 +6,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import _current_user
+from api.crm_timeline_routes import _ensure_tables as _ensure_crm_timeline_tables
 from api.job_scope_data_routes import _ensure_job_scope_rows_schema
 from core.database import get_conn
 from services.audit_log import ensure_audit_log_table, parse_json_text
@@ -73,6 +74,7 @@ def get_client_notes_summary(
 
     try:
         with get_conn() as con:
+            _ensure_crm_timeline_tables(con)
             _ensure_job_scope_rows_schema(con)
             ensure_audit_log_table(con)
 

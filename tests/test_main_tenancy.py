@@ -24,6 +24,7 @@ class _FakeConn:
 
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
     monkeypatch.setattr(main, "get_conn", lambda: _FakeConn())
     monkeypatch.setattr(main, "db_backend", lambda: "postgres")
 
@@ -36,6 +37,7 @@ def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_get_client_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_default_org_id", lambda: None)
     monkeypatch.setattr(main, "get_conn", lambda: _FakeConn())
 
     with pytest.raises(HTTPException) as exc_info:

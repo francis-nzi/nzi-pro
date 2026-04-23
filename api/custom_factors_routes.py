@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.permissions import user_has_permission
 
 router = APIRouter(prefix="/custom-factors", tags=["custom-factors"])
 
@@ -158,7 +159,7 @@ def _ensure_custom_factor_schema(con) -> None:
 
 
 def _actor_email(user: dict[str, str]) -> str:
-    return str((user or {}).get("user") or "").strip()
+    return str((user or {}).get("email") or (user or {}).get("user_id") or (user or {}).get("user") or "").strip()
 
 
 def _assert_admin(user: dict[str, str]) -> str:
@@ -166,11 +167,16 @@ def _assert_admin(user: dict[str, str]) -> str:
     Best-effort admin gate.
 
     - If caller is anonymous, allow (dev fallback for local environments without auth)
-    - If caller has an email/user id, require role='Admin' in users table
+    - Otherwise require admin access via the standard permission model or an
+      administrative role name.
     """
     actor = _actor_email(user)
     if not actor or actor.lower() == "anonymous":
         return "admin"
+
+    role_value = str(user.get("role") or "").strip().lower()
+    if user_has_permission(user, "admin.access") or role_value in {"admin", "administrator", "superadmin"}:
+        return actor
 
     try:
         with get_conn() as con:
@@ -185,7 +191,7 @@ def _assert_admin(user: dict[str, str]) -> str:
                 [actor, actor],
             ).fetchone()
         role = str(row[0] or "") if row else ""
-        if role.strip().lower() != "admin":
+        if role.strip().lower() not in {"admin", "administrator", "superadmin"}:
             raise HTTPException(status_code=403, detail="Admin role required")
         return actor
     except HTTPException:
