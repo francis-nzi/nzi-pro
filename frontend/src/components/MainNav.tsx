@@ -48,6 +48,14 @@ const HELP_LINKS = [
   { label: "Feedback", href: "/feedback" },
 ] as const;
 
+type NavOrganisation = {
+  org_id: string;
+  name?: string | null;
+  slug?: string | null;
+  archived?: boolean | null;
+  is_active_org?: boolean;
+};
+
 function hasAdminAccessFromPayload(user: Record<string, unknown> | null | undefined): boolean {
   if (!user) return false;
   const permissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
@@ -67,11 +75,23 @@ export function MainNav() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoErrorUrl, setLogoErrorUrl] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null);
   const [authUi, setAuthUi] = useState<{ ready: boolean; authed: boolean; userId: string; adminAccess: boolean }>({
     ready: false,
     authed: false,
     userId: "",
     adminAccess: false,
+  });
+  const [orgUi, setOrgUi] = useState<{
+    currentOrgId: string;
+    currentOrgLabel: string;
+    currentOrgSlug: string;
+    organisations: NavOrganisation[];
+  }>({
+    currentOrgId: "",
+    currentOrgLabel: "",
+    currentOrgSlug: "",
+    organisations: [],
   });
 
   useEffect(() => {
@@ -81,6 +101,10 @@ export function MainNav() {
         const authed = hasAuthState();
         const userId = getAuthUserIdentifier() || "";
         let adminAccess = false;
+        let currentOrgId = "";
+        let currentOrgLabel = "";
+        let currentOrgSlug = "";
+        let organisations: NavOrganisation[] = [];
 
         if (authed) {
           try {
@@ -88,7 +112,31 @@ export function MainNav() {
             if (res.ok) {
               const payload = await res.json().catch(() => ({}));
               const user = payload?.user || {};
+              const currentOrg = payload?.current_org || {};
               adminAccess = hasAdminAccessFromPayload(user);
+              currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
+              currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
+              currentOrgSlug = String(currentOrg?.slug || "").trim();
+              if (adminAccess) {
+                try {
+                  const orgRes = await fetch(apiUrl("/admin/organisations"), { credentials: "include" });
+                  if (orgRes.ok) {
+                    const orgPayload = await orgRes.json().catch(() => ({}));
+                    organisations = Array.isArray(orgPayload?.items) ? orgPayload.items : [];
+                    const activeOrg =
+                      organisations.find((item) => item.is_active_org) ||
+                      organisations.find((item) => item.org_id === orgPayload?.active_org_id) ||
+                      null;
+                    if (activeOrg) {
+                      currentOrgId = String(activeOrg.org_id || currentOrgId || "").trim();
+                      currentOrgLabel = String(activeOrg.name || activeOrg.org_id || currentOrgLabel || "").trim();
+                      currentOrgSlug = String(activeOrg.slug || "").trim();
+                    }
+                  }
+                } catch {
+                  organisations = [];
+                }
+              }
             }
           } catch {
             adminAccess = false;
@@ -101,6 +149,12 @@ export function MainNav() {
             authed,
             userId,
             adminAccess,
+          });
+          setOrgUi({
+            currentOrgId,
+            currentOrgLabel,
+            currentOrgSlug,
+            organisations,
           });
         }
       })();
@@ -140,6 +194,29 @@ export function MainNav() {
     };
   }, [profileOpen]);
 
+  async function switchOrganisation(orgId: string) {
+    const trimmedOrgId = String(orgId || "").trim();
+    if (!trimmedOrgId || trimmedOrgId === orgUi.currentOrgId) {
+      setProfileOpen(false);
+      return;
+    }
+
+    setSwitchingOrgId(trimmedOrgId);
+    try {
+      const res = await fetch(apiUrl(`/admin/organisations/${encodeURIComponent(trimmedOrgId)}/switch`), {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error("Unable to switch organisation");
+      }
+      setProfileOpen(false);
+      window.location.reload();
+    } catch {
+      setSwitchingOrgId(null);
+    }
+  }
+
   const links = [
     { href: "/", label: "Dashboard" },
     { href: "/insights", label: "Insights" },
@@ -158,6 +235,7 @@ export function MainNav() {
     pathname?.startsWith("/support/") ||
     pathname === "/feedback" ||
     pathname?.startsWith("/feedback/");
+  const currentOrgBadge = orgUi.currentOrgLabel || orgUi.currentOrgId || "";
   const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
   const logoUrl = useMemo(() => {
     const raw = String(theme?.logo_url || "").trim();
@@ -222,7 +300,23 @@ export function MainNav() {
           {!authUi.ready ? (
             <div className="h-9 w-24" aria-hidden />
           ) : authUi.authed ? (
-            <div ref={profileMenuRef} className="relative">
+            <div ref={profileMenuRef} className="relative flex items-center gap-2">
+              {currentOrgBadge ? (
+                authUi.adminAccess ? (
+                  <button
+                    type="button"
+                    className="hidden rounded-full border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-foreground hover:text-foreground md:inline-flex"
+                    onClick={() => setProfileOpen((v) => !v)}
+                    aria-label="Open organisation menu"
+                  >
+                    Org: {currentOrgBadge}
+                  </button>
+                ) : (
+                  <div className="hidden rounded-full border px-3 py-1.5 text-xs font-semibold text-muted-foreground md:inline-flex">
+                    Org: {currentOrgBadge}
+                  </div>
+                )
+              ) : null}
               <button
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold text-white"
@@ -233,9 +327,59 @@ export function MainNav() {
                 {(authUi.userId || "U").trim().charAt(0).toUpperCase() || "U"}
               </button>
               {profileOpen ? (
-                <div className="absolute right-0 z-50 mt-2 w-64 rounded-md border bg-background p-2 shadow-lg">
+                <div className="absolute right-0 z-50 mt-2 w-80 rounded-md border bg-background p-2 shadow-lg">
                   <div className="rounded px-2 py-1.5 text-xs text-muted-foreground">Signed in as</div>
                   <div className="truncate px-2 pb-2 text-sm font-medium">{authUi.userId}</div>
+                  {currentOrgBadge ? (
+                    <div className="mb-2 rounded border bg-muted/20 px-2 py-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current organisation</div>
+                      <div className="truncate text-sm font-medium">{currentOrgBadge}</div>
+                      {orgUi.currentOrgSlug ? (
+                        <div className="text-xs text-muted-foreground">Slug: {orgUi.currentOrgSlug}</div>
+                      ) : null}
+                      {orgUi.currentOrgId ? (
+                        <div className="text-xs text-muted-foreground">Org ID: {orgUi.currentOrgId}</div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {authUi.adminAccess && orgUi.organisations.length > 1 ? (
+                    <div className="mb-2 rounded border bg-muted/20 px-2 py-2">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Switch organisation</div>
+                      <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                        {orgUi.organisations.map((org) => {
+                          const isActive = org.org_id === orgUi.currentOrgId || Boolean(org.is_active_org);
+                          return (
+                            <button
+                              key={org.org_id}
+                              type="button"
+                              className={cn(
+                                "flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm transition",
+                                isActive ? "bg-primary/10 text-foreground" : "hover:bg-muted"
+                              )}
+                              onClick={() => void switchOrganisation(org.org_id)}
+                              disabled={switchingOrgId === org.org_id}
+                            >
+                              <span className="truncate">{org.name || org.slug || org.org_id}</span>
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {switchingOrgId === org.org_id ? "..." : isActive ? "Active" : "Switch"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <Button variant="ghost" size="sm" className="mt-2 w-full justify-start" asChild>
+                        <Link href="/admin/organisations" onClick={() => setProfileOpen(false)}>
+                          Manage organisations
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : authUi.adminAccess ? (
+                    <Button variant="ghost" size="sm" className="mb-2 w-full justify-start" asChild>
+                      <Link href="/admin/organisations" onClick={() => setProfileOpen(false)}>
+                        Manage organisations
+                      </Link>
+                    </Button>
+                  ) : null}
                   <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
                     <Link href="/account/settings" onClick={() => setProfileOpen(false)}>User Admin</Link>
                   </Button>

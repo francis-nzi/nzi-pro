@@ -127,6 +127,35 @@ def _must_accept_portal_terms(user: Dict) -> bool:
     return str(user.get("accepted_portal_terms_version") or "").strip() != PORTAL_TERMS_VERSION
 
 
+def _current_org_summary(user: Dict) -> dict | None:
+    org_id = str(user.get("org_id") or "").strip()
+    if not org_id:
+        return None
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT org_id, name, slug, plan, plan_status, archived
+                FROM organisations
+                WHERE org_id = ?
+                LIMIT 1
+                """,
+                [org_id],
+            ).fetchone()
+        if not row:
+            return {"org_id": org_id, "name": org_id, "slug": None, "plan": None, "plan_status": None, "archived": None}
+        return {
+            "org_id": str(row[0] or "").strip() or org_id,
+            "name": str(row[1] or "").strip() or org_id,
+            "slug": str(row[2] or "").strip() or None,
+            "plan": str(row[3] or "").strip() or None,
+            "plan_status": str(row[4] or "").strip() or None,
+            "archived": bool(row[5]) if row[5] is not None else None,
+        }
+    except Exception:
+        return {"org_id": org_id, "name": org_id, "slug": None, "plan": None, "plan_status": None, "archived": None}
+
+
 def _temporary_password(length: int = 14) -> str:
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     return "".join(secrets.choice(alphabet) for _ in range(length))
@@ -724,6 +753,7 @@ def register(body: Dict):
 def me(user: Dict[str, str] = Depends(_current_user)):
     return {
         "user": user,
+        "current_org": _current_org_summary(user),
         "must_accept_portal_terms": _must_accept_portal_terms(user),
         "mfa_required_for_all_users": _mfa_required_for_all_users(),
         "mfa_setup_required": bool(user.get("mfa_setup_required")),
