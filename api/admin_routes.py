@@ -13,7 +13,7 @@ from core.database import get_conn
 from core.auth import set_user_password
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
-from services.tenancy import get_default_org_id, require_org
+from services.tenancy import get_default_org_id, require_org, get_current_org_context, run_with_org_context
 from pathlib import Path
 import io
 import zipfile
@@ -6155,8 +6155,11 @@ async def upload_dataset_factors(
             tmp_path = Path(tmp_file.name)
         
         try:
+            current_org_id = get_current_org_context()
             report = await run_in_threadpool(
+                run_with_org_context,
                 _ingest_csv_report_for_dataset,
+                current_org_id,
                 tmp_path,
                 replace=True,
                 dataset_id=dataset_id,
@@ -6223,8 +6226,11 @@ async def import_conversion_factors_workbook(
             tmp_path = Path(tmp_file.name)
 
         try:
+            current_org_id = get_current_org_context()
             report = await run_in_threadpool(
+                run_with_org_context,
                 ingest_workbook_with_report,
+                current_org_id,
                 tmp_path,
                 replace=bool(replace),
             )

@@ -1,4 +1,5 @@
 """Tenant scoping helpers for organization-aware requests."""
+from contextlib import contextmanager
 from contextvars import ContextVar
 import logging
 
@@ -26,6 +27,17 @@ def get_current_org_context() -> str | None:
 def clear_current_org_context() -> None:
     """Clear any org bound to the current request context."""
     _CURRENT_ORG_ID.set(None)
+
+
+@contextmanager
+def org_context(org_id: str | None):
+    """Temporarily bind an organisation id to the current execution context."""
+    normalized = str(org_id or "").strip() or None
+    token = _CURRENT_ORG_ID.set(normalized)
+    try:
+        yield
+    finally:
+        _CURRENT_ORG_ID.reset(token)
 
 
 def get_default_org_id() -> str | None:
@@ -87,3 +99,9 @@ def require_org(user: dict) -> str:
         str(user.get("user_id") or "unknown").strip() or "unknown",
     )
     raise HTTPException(status_code=403, detail="Organisation context required")
+
+
+def run_with_org_context(func, org_id: str | None, *args, **kwargs):
+    """Run a callable while forcing the supplied org context for the duration."""
+    with org_context(org_id):
+        return func(*args, **kwargs)

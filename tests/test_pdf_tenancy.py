@@ -12,6 +12,7 @@ import pytest
 
 import api.pdf_generation_routes as pdf_routes
 import services.pdf_generation_tasks as pdf_tasks
+from services.tenancy import get_current_org_context
 
 
 class _FakeRow:
@@ -136,6 +137,7 @@ def test_pdf_worker_uses_org_context(monkeypatch, caplog):
 
     def fake_get_job_data(job_id: int, org_id: str | None = None):
         captured["job_data_org_id"] = org_id
+        captured["job_data_context_org_id"] = get_current_org_context()
         return {
             "job_id": job_id,
             "org_id": org_id,
@@ -146,6 +148,7 @@ def test_pdf_worker_uses_org_context(monkeypatch, caplog):
     def fake_generate_report_with_assets(*, job_id: int, request, skip_validation: bool, save_version: bool, _user: dict):
         captured["render_user"] = _user
         captured["save_version"] = save_version
+        captured["render_context_org_id"] = get_current_org_context()
         return Response(content=b"pdf-bytes", headers={"X-Report-Version-Id": "9", "X-Report-File-Id": "5"})
 
     monkeypatch.setitem(sys.modules, "rq", types.SimpleNamespace(get_current_job=fake_get_current_job))
@@ -155,7 +158,9 @@ def test_pdf_worker_uses_org_context(monkeypatch, caplog):
     result = pdf_tasks.generate_pdf_task(5, template_id=11, user_id="user@example.com", org_id="org-123")
 
     assert captured["job_data_org_id"] == "org-123"
+    assert captured["job_data_context_org_id"] == "org-123"
     assert captured["render_user"]["org_id"] == "org-123"
+    assert captured["render_context_org_id"] == "org-123"
     assert captured["save_version"] is True
     assert result["version_id"] == 9
     assert result["file_id"] == 5

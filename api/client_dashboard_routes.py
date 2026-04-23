@@ -9,6 +9,7 @@ from core.database import get_conn
 from api.auth import _current_user
 from api.permissions import assert_client_access
 from services.tenancy import require_org
+from services.tenancy import org_context
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.monthly_emissions import JobMonthlyEmissionsResolver
@@ -515,7 +516,8 @@ def get_client_insights(client_db_id: int, _user: dict[str, str] = Depends(_curr
     try:
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
-        payload = ai_insights.generate_client_insights(client_db_id, org_id=org_id)
+        with org_context(org_id):
+            payload = ai_insights.generate_client_insights(client_db_id, org_id=org_id)
         return payload
     except HTTPException:
         # Re-raise known HTTP exceptions (e.g., our 400 for missing key)
@@ -543,7 +545,8 @@ def get_client_insights_openai(client_db_id: int, _user: dict[str, str] = Depend
     try:
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
-        payload = ai_insights.generate_client_insights(client_db_id, provider="openai", org_id=org_id)
+        with org_context(org_id):
+            payload = ai_insights.generate_client_insights(client_db_id, provider="openai", org_id=org_id)
         return payload
     except HTTPException:
         raise

@@ -11,6 +11,8 @@ import logging
 import traceback
 from typing import Optional
 
+from services.tenancy import org_context
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,62 +59,63 @@ def generate_pdf_task(
     
     job = get_current_job()
     org_label = str(org_id or "unknown").strip() or "unknown"
-    
+
     try:
-        # Import existing functions from job_report_routes
-        # These are the SAME functions used by the report endpoints.
-        from api.job_report_routes import (
-            get_job_data as _fetch_job_data,
-            generate_report_with_assets,
-        )
-        
-        logger.info("Starting PDF generation for job %s org_id=%s", job_id, org_label)
-        
-        # ==========================================
-        # Step 1: Fetch job data (10%)
-        # ==========================================
-        _update_progress(job, 10, 'Fetching job data...')
-        
-        job_data = _fetch_job_data(job_id, org_id=org_id)
-        
-        if not job_data:
-            raise ValueError(f"Job {job_id} not found or inaccessible")
-        
-        logger.info("Fetched job data for job %s org_id=%s job_number=%s", job_id, org_label, job_data.get("job_number", "unknown"))
-        
-        # ==========================================
-        # Step 2: Render and save report (90%)
-        # ==========================================
-        _update_progress(job, 60, 'Rendering and saving report...')
+        with org_context(org_id):
+            # Import existing functions from job_report_routes
+            # These are the SAME functions used by the report endpoints.
+            from api.job_report_routes import (
+                get_job_data as _fetch_job_data,
+                generate_report_with_assets,
+            )
 
-        report_response = generate_report_with_assets(
-            job_id=job_id,
-            request=None,
-            skip_validation=False,
-            save_version=True,
-            _user={"email": user_id or "system", "org_id": org_id},
-        )
-        pdf_bytes = bytes(getattr(report_response, "body", b"") or b"")
-        logger.info("Generated PDF for job %s org_id=%s bytes=%s", job_id, org_label, len(pdf_bytes))
+            logger.info("Starting PDF generation for job %s org_id=%s", job_id, org_label)
 
-        version_id = str(getattr(report_response, "headers", {}).get("X-Report-Version-Id") or "").strip() or None
-        file_id = str(getattr(report_response, "headers", {}).get("X-Report-File-Id") or "").strip() or None
+            # ==========================================
+            # Step 1: Fetch job data (10%)
+            # ==========================================
+            _update_progress(job, 10, 'Fetching job data...')
 
-        # ==========================================
-        # Step 3: Complete (100%)
-        # ==========================================
-        _update_progress(job, 100, 'Complete')
-        
-        result = {
-            'status': 'success',
-            'job_id': job_id,
-            'version_id': int(version_id) if version_id and version_id.isdigit() else None,
-            'file_id': int(file_id) if file_id and file_id.isdigit() else None,
-            'download_url': f'/jobs/{job_id}/report-versions/{version_id}/download' if version_id else None,
-        }
-        
-        logger.info("PDF generation completed successfully for job %s org_id=%s", job_id, org_label)
-        return result
+            job_data = _fetch_job_data(job_id, org_id=org_id)
+
+            if not job_data:
+                raise ValueError(f"Job {job_id} not found or inaccessible")
+
+            logger.info("Fetched job data for job %s org_id=%s job_number=%s", job_id, org_label, job_data.get("job_number", "unknown"))
+
+            # ==========================================
+            # Step 2: Render and save report (90%)
+            # ==========================================
+            _update_progress(job, 60, 'Rendering and saving report...')
+
+            report_response = generate_report_with_assets(
+                job_id=job_id,
+                request=None,
+                skip_validation=False,
+                save_version=True,
+                _user={"email": user_id or "system", "org_id": org_id},
+            )
+            pdf_bytes = bytes(getattr(report_response, "body", b"") or b"")
+            logger.info("Generated PDF for job %s org_id=%s bytes=%s", job_id, org_label, len(pdf_bytes))
+
+            version_id = str(getattr(report_response, "headers", {}).get("X-Report-Version-Id") or "").strip() or None
+            file_id = str(getattr(report_response, "headers", {}).get("X-Report-File-Id") or "").strip() or None
+
+            # ==========================================
+            # Step 3: Complete (100%)
+            # ==========================================
+            _update_progress(job, 100, 'Complete')
+
+            result = {
+                'status': 'success',
+                'job_id': job_id,
+                'version_id': int(version_id) if version_id and version_id.isdigit() else None,
+                'file_id': int(file_id) if file_id and file_id.isdigit() else None,
+                'download_url': f'/jobs/{job_id}/report-versions/{version_id}/download' if version_id else None,
+            }
+
+            logger.info("PDF generation completed successfully for job %s org_id=%s", job_id, org_label)
+            return result
     
     except Exception as e:
         error_msg = str(e)
