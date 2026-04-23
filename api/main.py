@@ -306,6 +306,33 @@ def _json_null_if_na(value):
         pass
     return value
 
+
+@app.get("/support/database-fingerprint")
+def support_database_fingerprint(_user: dict[str, str] = Depends(_current_user)):
+    """Return a small fingerprint for the currently connected database."""
+    with get_conn() as con:
+        row = con.execute(
+            """
+            SELECT
+              current_database() AS db_name,
+              current_user AS db_user,
+              inet_server_addr()::text AS host_ip,
+              inet_server_port() AS host_port,
+              version() AS pg_version
+            """
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=500, detail="Unable to read database fingerprint")
+
+    return {
+        "db_name": row[0],
+        "db_user": row[1],
+        "host_ip": row[2],
+        "host_port": row[3],
+        "pg_version": row[4],
+    }
+
 # Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,14 @@ type SupportTopic = {
   path: string;
   purpose: string;
   process: string[];
+};
+
+type DatabaseFingerprint = {
+  db_name: string;
+  db_user: string;
+  host_ip: string;
+  host_port: number | string;
+  pg_version: string;
 };
 
 const SUPPORT_TOPICS: SupportTopic[] = [
@@ -43,6 +51,34 @@ const SUPPORT_TOPICS: SupportTopic[] = [
 
 export default function SupportPage() {
   const [query, setQuery] = useState("");
+  const [fingerprint, setFingerprint] = useState<DatabaseFingerprint | null>(null);
+  const [fingerprintError, setFingerprintError] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFingerprint() {
+      try {
+        const res = await fetch("/api/backend/support/database-fingerprint", { credentials: "include" });
+        if (!res.ok) {
+          throw new Error(`Failed to load fingerprint: ${res.status}`);
+        }
+        const data = (await res.json()) as DatabaseFingerprint;
+        if (!cancelled) {
+          setFingerprint(data);
+          setFingerprintError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setFingerprint(null);
+          setFingerprintError((err as Error).message);
+        }
+      }
+    }
+    loadFingerprint();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredTopics = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -114,6 +150,30 @@ export default function SupportPage() {
             <Button asChild>
               <Link href="/support/methodology">Open Methodology Library</Link>
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Database Fingerprint</CardTitle>
+            <CardDescription>
+              Shows the live database connection the app is currently using.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {fingerprintError ? (
+              <p className="text-sm text-destructive">{fingerprintError}</p>
+            ) : fingerprint ? (
+              <div className="grid gap-3 text-sm md:grid-cols-2">
+                <div><span className="font-medium">Database:</span> {fingerprint.db_name}</div>
+                <div><span className="font-medium">User:</span> {fingerprint.db_user}</div>
+                <div><span className="font-medium">Host:</span> {fingerprint.host_ip}</div>
+                <div><span className="font-medium">Port:</span> {fingerprint.host_port}</div>
+                <div className="md:col-span-2"><span className="font-medium">Version:</span> {fingerprint.pg_version}</div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading database fingerprint...</p>
+            )}
           </CardContent>
         </Card>
 
