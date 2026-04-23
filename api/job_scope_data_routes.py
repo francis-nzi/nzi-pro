@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from core.database import get_conn
 from api.auth import _current_user
+from api.job_communications_routes import _ensure_tables as _ensure_job_communications_tables
 from api.job_data_output_routes import _build_scope_summary, _load_data_output_rows
 from services.audit_log import ensure_audit_log_table, fetch_row_dict, parse_json_text, record_audit_event
 from services.dataset_selector import get_scope_primary_datasets
@@ -162,6 +163,10 @@ def _safe_float(value):
         return out
     except Exception:
         return None
+
+
+def _safe_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def _json_safe(value):
@@ -628,6 +633,7 @@ def get_job_notes_summary(
 
     try:
         with get_conn() as con:
+            _ensure_job_communications_tables(con)
             _ensure_job_scope_rows_schema(con)
             ensure_audit_log_table(con)
 
@@ -641,6 +647,29 @@ def get_job_notes_summary(
             ).fetchone()
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
+
+            communications_df = con.execute(
+                """
+                SELECT
+                    jc.communication_id,
+                    jc.job_id,
+                    jc.client_db_id,
+                    jc.subject,
+                    jc.message_text,
+                    jc.created_by,
+                    jc.created_at,
+                    jc.updated_at,
+                    jc.event_at,
+                    j.job_number,
+                    j.title AS job_title
+                FROM job_communications jc
+                JOIN jobs j ON j.job_id = jc.job_id
+                WHERE jc.job_id = %s
+                  AND lower(COALESCE(jc.channel, '')) = 'note'
+                ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
+                """,
+                [int(job_id)],
+            ).df()
 
             notes_df = con.execute(
                 """
@@ -710,6 +739,44 @@ def get_job_notes_summary(
                     }
 
             items: list[dict[str, Any]] = []
+            if communications_df is not None and not communications_df.empty:
+                for _, row in communications_df.iterrows():
+                    note_text = _safe_text(row.get("message_text"))
+                    if not note_text:
+                        continue
+                    job_number = _safe_text(row.get("job_number") or job_row[1]) or None
+                    job_title = _safe_text(row.get("job_title") or job_row[2]) or None
+                    subject = _safe_text(row.get("subject")) or None
+                    location_bits = ["Job Note"]
+                    if job_number:
+                        location_bits.append(f"Job {job_number}")
+                    elif row.get("job_id") is not None:
+                        location_bits.append(f"Job {int(row.get('job_id'))}")
+                    if subject:
+                        location_bits.append(subject)
+                    items.append(
+                        {
+                            "note_id": f"job-comm-{int(row.get('communication_id') or 0)}",
+                            "source_type": "job-communication",
+                            "source_label": "Job Note",
+                            "row_id": None,
+                            "job_id": int(row.get("job_id") or job_id),
+                            "job_number": job_number,
+                            "job_title": job_title,
+                            "scope": "",
+                            "site_id": None,
+                            "site_name": "",
+                            "category": "",
+                            "report_label": "",
+                            "original_id": "",
+                            "note_text": note_text,
+                            "note_location": " | ".join(location_bits),
+                            "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
+                            "note_updated_by": _safe_text(row.get("created_by")) or None,
+                            "row_created_at": _to_iso(row.get("created_at")),
+                            "row_updated_at": _to_iso(row.get("updated_at")),
+                        }
+                    )
             if notes_df is not None and not notes_df.empty:
                 for _, row in notes_df.iterrows():
                     row_id = _safe_int(row.get("row_id"))
@@ -734,8 +801,13 @@ def get_job_notes_summary(
 
                     items.append(
                         {
+                            "note_id": f"job-row-{row_id}",
+                            "source_type": "job-row",
+                            "source_label": "Job Row Note",
                             "row_id": row_id,
                             "job_id": int(row.get("job_id") or job_id),
+                            "job_number": str(job_row[1]) if len(job_row) > 1 and job_row[1] is not None else None,
+                            "job_title": str(job_row[2]) if len(job_row) > 2 and job_row[2] is not None else None,
                             "scope": str(row.get("scope") or ""),
                             "site_id": _safe_int(row.get("site_id")),
                             "site_name": site_name,

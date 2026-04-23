@@ -9,8 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type JobNote = {
-  row_id: number;
+  note_id: string;
+  source_type: string;
+  source_label: string;
+  row_id: number | null;
   job_id: number;
+  job_number: string | null;
+  job_title: string | null;
   scope: string;
   site_id: number | null;
   site_name: string;
@@ -63,6 +68,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<JobNotesSummary | null>(null);
   const [search, setSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState("All");
   const [siteFilter, setSiteFilter] = useState("All");
   const [authorFilter, setAuthorFilter] = useState("All");
@@ -97,6 +103,14 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [summary]);
 
+  const availableSources = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of summary?.items || []) {
+      if (item.source_type) seen.add(item.source_type);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [summary]);
+
   const availableSites = useMemo(() => {
     const seen = new Map<string, string>();
     for (const item of summary?.items || []) {
@@ -119,11 +133,13 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const filteredNotes = useMemo(() => {
     return (summary?.items || []).filter((item) => {
+      if (sourceFilter !== "All" && item.source_type !== sourceFilter) return false;
       if (scopeFilter !== "All" && item.scope !== scopeFilter) return false;
       if (siteFilter !== "All" && String(item.site_id ?? "") !== siteFilter) return false;
       if (authorFilter !== "All" && (item.note_updated_by || "") !== authorFilter) return false;
       if (search.trim()) {
         return matchesSearch(search, [
+          item.source_label,
           item.note_text,
           item.note_location,
           item.scope,
@@ -136,7 +152,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       }
       return true;
     });
-  }, [authorFilter, search, siteFilter, scopeFilter, summary]);
+  }, [authorFilter, search, siteFilter, scopeFilter, sourceFilter, summary]);
 
   return (
     <div className="space-y-6">
@@ -146,7 +162,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
             <div>
               <CardTitle>Job Notes</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                All row notes for this job, with row context, author, and timestamp.
+                Job communications and job row notes, with row context, author, and timestamp.
               </p>
             </div>
             <Button variant="outline" asChild>
@@ -155,7 +171,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem]">
             <div className="min-w-0">
               <Label htmlFor="noteSearch">Search</Label>
               <Input
@@ -165,6 +181,22 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                 placeholder="Search notes, labels, IDs, or authors..."
                 className="w-full"
               />
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor="noteSourceFilter">Source</Label>
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger id="noteSourceFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All Sources</SelectItem>
+                  {availableSources.map((source) => (
+                    <SelectItem key={source} value={source}>
+                      {source === "job-communication" ? "Job Note" : source === "job-row" ? "Job Row Note" : source}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="min-w-0">
               <Label htmlFor="noteScopeFilter">Scope</Label>
@@ -220,6 +252,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
               variant="outline"
               onClick={() => {
                 setSearch("");
+                setSourceFilter("All");
                 setScopeFilter("All");
                 setSiteFilter("All");
                 setAuthorFilter("All");
@@ -247,9 +280,10 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
             <div className="text-sm text-muted-foreground">No notes found for this job.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-sm">
+              <table className="w-full min-w-[1200px] text-sm">
                 <thead>
                   <tr className="border-b text-left">
+                    <th className="p-2">Source</th>
                     <th className="p-2">Where</th>
                     <th className="p-2">Note</th>
                     <th className="p-2">Updated By</th>
@@ -258,11 +292,17 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                 </thead>
                 <tbody>
                   {filteredNotes.map((item) => (
-                    <tr key={item.row_id} className="border-b align-top">
+                    <tr key={item.note_id} className="border-b align-top">
+                      <td className="p-2">
+                        <div className="font-medium">{item.source_label}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
+                        </div>
+                      </td>
                       <td className="p-2">
                         <div className="font-medium">{item.note_location}</div>
                         <div className="mt-1 text-xs text-muted-foreground">
-                          Row {item.row_id} | {item.scope} | {item.site_name || "No site"}
+                          {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"} | {item.scope || "No scope"} | {item.site_name || "No site"}
                         </div>
                       </td>
                       <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>

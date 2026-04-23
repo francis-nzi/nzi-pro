@@ -78,7 +78,7 @@ function jobLabel(job: ClientJobRef): string {
 function sourceLabel(sourceType: string): string {
   if (sourceType === "client") return "Client Note";
   if (sourceType === "job-communication") return "Job Note";
-  if (sourceType === "job-data") return "Job Data Note";
+  if (sourceType === "job-row") return "Job Row Note";
   return sourceType || "Note";
 }
 

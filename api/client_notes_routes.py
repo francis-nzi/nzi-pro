@@ -337,9 +337,9 @@ def get_client_notes_summary(
                         note_event = latest_note_events.get(str(row_id), {})
                         items.append(
                             {
-                                "note_id": f"job-data-{row_id}",
-                                "source_type": "job-data",
-                                "source_label": "Job Data Note",
+                            "note_id": f"job-data-{row_id}",
+                            "source_type": "job-row",
+                            "source_label": "Job Row Note",
                                 "client_db_id": int(client_id),
                                 "job_id": job_id_val,
                                 "job_number": job_number,
