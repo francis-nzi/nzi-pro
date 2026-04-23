@@ -83,7 +83,7 @@ def _ensure_quote_tables(con) -> None:
         """
     )
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS quote_number VARCHAR")
-    con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS job_number VARCHAR")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS attention VARCHAR")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS bill_to TEXT")
@@ -91,12 +91,12 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS category VARCHAR")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS unit VARCHAR")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS notes TEXT")
-    con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS amount_ex_vat DOUBLE PRECISION")
     con.execute("ALTER TABLE quote_lines ADD COLUMN IF NOT EXISTS vat_rate_pct DOUBLE PRECISION")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP")
     con.execute("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS approved_by VARCHAR")
-    con.execute("ALTER TABLE quote_email_log ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE quote_email_log ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS quote_email_log (
@@ -137,7 +137,7 @@ def _ensure_quote_tables(con) -> None:
         """
     )
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_date DATE")
-    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount_paid DOUBLE PRECISION DEFAULT 0")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS job_id INTEGER")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_invoice_id VARCHAR")
@@ -146,7 +146,7 @@ def _ensure_quote_tables(con) -> None:
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_status VARCHAR DEFAULT 'pending'")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMP")
     con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_error TEXT")
-    con.execute("ALTER TABLE invoice_email_log ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE invoice_email_log ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS invoice_email_log (
@@ -178,7 +178,7 @@ def _ensure_quote_tables(con) -> None:
         )
         """
     )
-    con.execute("ALTER TABLE invoice_lines ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE invoice_lines ADD COLUMN IF NOT EXISTS org_id UUID")
     con.execute("CREATE INDEX IF NOT EXISTS invoices_xero_invoice_idx ON invoices (xero_invoice_id)")
     con.execute(
         """
@@ -206,7 +206,7 @@ def _ensure_quote_tables(con) -> None:
     )
     con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS supplier_id INTEGER")
     con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS supplier_item_id INTEGER")
-    con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS org_id VARCHAR")
+    con.execute("ALTER TABLE job_other_costs ADD COLUMN IF NOT EXISTS org_id UUID")
 
     try:
         con.execute(
@@ -217,7 +217,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM clients c
                 WHERE c.db_id = quotes.client_db_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -232,7 +232,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM quotes q
                 WHERE q.quote_id = quote_lines.quote_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -247,7 +247,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM clients c
                 WHERE c.db_id = invoices.client_db_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -262,7 +262,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM invoices i
                 WHERE i.invoice_id = invoice_lines.invoice_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -277,7 +277,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM quotes q
                 WHERE q.quote_id = quote_email_log.quote_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -292,7 +292,7 @@ def _ensure_quote_tables(con) -> None:
                 FROM invoices i
                 WHERE i.invoice_id = invoice_email_log.invoice_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
@@ -308,7 +308,7 @@ def _ensure_quote_tables(con) -> None:
                 JOIN clients c ON c.db_id = j.client_db_id
                 WHERE j.job_id = job_other_costs.job_id
                 LIMIT 1
-            )::varchar)
+            ))
             WHERE org_id IS NULL
             """
         )
