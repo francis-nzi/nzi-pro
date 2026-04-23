@@ -4626,7 +4626,7 @@ def client_jobs(
                     rows = con.execute(
                         """
                         SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp,
+                               j.job_type, j.is_crp, j.reporting_period_end,
                                jp.data_collection_due, jp.data_collection_completed_at,
                                jp.first_draft_due, jp.first_draft_completed_at,
                                jp.final_report_due, jp.final_report_completed_at,
@@ -4657,7 +4657,7 @@ def client_jobs(
                         WHERE j.client_db_id = ?
                           AND (TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ? OR j.org_id IS NULL)
                         GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                 j.job_type, j.is_crp,
+                                 j.job_type, j.is_crp, j.reporting_period_end,
                                  jp.data_collection_due, jp.data_collection_completed_at,
                                  jp.first_draft_due, jp.first_draft_completed_at,
                                  jp.final_report_due, jp.final_report_completed_at
@@ -4679,7 +4679,7 @@ def client_jobs(
                         con.execute(
                             """
                             SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                   j.job_type, j.is_crp,
+                                   j.job_type, j.is_crp, j.reporting_period_end,
                                    jp.data_collection_due, jp.data_collection_completed_at,
                                    jp.first_draft_due, jp.first_draft_completed_at,
                                    jp.final_report_due, jp.final_report_completed_at,
@@ -4709,7 +4709,7 @@ def client_jobs(
                             LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
                             WHERE j.client_db_id=?
                             GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                     j.job_type, j.is_crp,
+                                     j.job_type, j.is_crp, j.reporting_period_end,
                                      jp.data_collection_due, jp.data_collection_completed_at,
                                      jp.first_draft_due, jp.first_draft_completed_at,
                                      jp.final_report_due, jp.final_report_completed_at
@@ -4792,6 +4792,16 @@ def client_jobs(
         except Exception:
             return False
 
+    def _reporting_year_from_row(row) -> int | None:
+        reporting_period_end = row.get("reporting_period_end")
+        if not _is_missing(reporting_period_end):
+            try:
+                if hasattr(reporting_period_end, "year"):
+                    return int(reporting_period_end.year)
+            except Exception:
+                pass
+        return _int_or_none(row.get("reporting_year"))
+
     items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
@@ -4816,7 +4826,7 @@ def client_jobs(
                     "job_id": job_id,
                     "job_number": None if _is_missing(r.get("job_number")) else r.get("job_number"),
                     "title": None if _is_missing(r.get("title")) else r.get("title"),
-                    "reporting_year": _int_or_none(r.get("reporting_year")),
+                    "reporting_year": _reporting_year_from_row(r),
                     "status": None if _is_missing(r.get("status")) else r.get("status"),
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
                     "is_crp": _bool_or_false(r.get("is_crp")),

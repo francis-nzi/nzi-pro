@@ -95,6 +95,7 @@ class _ClientJobsConn(_FakeConn):
                         "job_number": "J000640",
                         "title": "Job title",
                         "reporting_year": 2025,
+                        "reporting_period_end": pd.Timestamp("2026-03-31"),
                         "status": "Open",
                         "job_type": "CRP",
                         "is_crp": True,
@@ -245,4 +246,5 @@ def test_client_jobs_include_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatc
 
     assert result["total"] == 1
     assert result["items"][0]["job_id"] == 640
+    assert result["items"][0]["reporting_year"] == 2026
     assert any("CAST(j.org_id AS TEXT)" in sql for sql, _ in conn.queries)
