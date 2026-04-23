@@ -28,6 +28,14 @@ class _OrgConn:
         sql = self.executed[-1][0] if self.executed else ""
         if "SELECT 1 FROM organisations WHERE lower(slug)" in sql:
             return None
+        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in sql:
+            return _FakeRow(3, 10, False, "active")
+        if "FROM organisation_memberships" in sql and "COUNT(*)" in sql:
+            return _FakeRow(1)
+        if "FROM organisation_invitations" in sql and "COUNT(*)" in sql:
+            return _FakeRow(0)
+        if "FROM clients" in sql and "COUNT(*)" in sql:
+            return _FakeRow(0)
         if "INSERT INTO organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")
         if "SELECT org_id, user_id, role, is_active, is_owner" in sql:

@@ -112,6 +112,30 @@ class _ClientJobsConn(_FakeConn):
         return pd.DataFrame([])
 
 
+class _ClientLimitConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        if "SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')" in self._last_sql:
+            return (5, 1, False, "active")
+        if "FROM organisation_memberships" in self._last_sql and "COUNT(*)" in self._last_sql:
+            return (1,)
+        if "FROM organisation_invitations" in self._last_sql and "COUNT(*)" in self._last_sql:
+            return (0,)
+        if "FROM clients" in self._last_sql and "COUNT(*)" in self._last_sql:
+            return (1,)
+        if "SELECT db_id" in self._last_sql and "FROM clients" in self._last_sql:
+            return None
+        return None
+
+
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_default_org_id", lambda: None)
@@ -248,3 +272,21 @@ def test_client_jobs_include_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatc
     assert result["items"][0]["job_id"] == 640
     assert result["items"][0]["reporting_year"] == 2026
     assert any("CAST(j.org_id AS TEXT)" in sql for sql, _ in conn.queries)
+
+
+def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ClientLimitConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "require_org", lambda *_args, **_kwargs: "org-a")
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    with pytest.raises(HTTPException) as exc_info:
+        main.create_client(
+            request=None,
+            body={"client_name": "New Client"},
+            _user={"user_id": "u1", "org_id": "org-a"},
+        )
+
+    assert exc_info.value.status_code == 403
+    assert "client limit" in str(exc_info.value.detail).lower()
+    assert not any("INSERT INTO clients" in sql for sql, _ in conn.queries)

@@ -17,6 +17,7 @@ from dotenv import dotenv_values
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
+from api.admin_routes import _require_org_capacity
 from core.database import get_conn
 from services.tenancy import get_default_org_id, require_org
 
@@ -2908,6 +2909,7 @@ def _ensure_client_for_opportunity(con, opp: dict[str, Any], actor: str, org_id:
     if existing:
         client_id = int(existing[0])
     else:
+        _require_org_capacity(con, org_id, additional_clients=1)
         row = con.execute(
             """
             INSERT INTO clients (org_id, client_name, industry, addr_country, crm_owner, currency, status)

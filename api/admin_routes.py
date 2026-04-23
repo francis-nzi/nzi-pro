@@ -302,6 +302,95 @@ def _require_org_active(con, org_id: str) -> None:
         raise HTTPException(status_code=403, detail="Organisation is archived")
 
 
+def _organisation_usage_info(con, org_id: str) -> dict[str, int | bool | str]:
+    org_row = con.execute(
+        """
+        SELECT COALESCE(max_users, 0), COALESCE(max_clients, 0), COALESCE(archived, FALSE), COALESCE(plan_status, 'active')
+        FROM organisations
+        WHERE org_id = %s
+        LIMIT 1
+        """,
+        [org_id],
+    ).fetchone()
+    if not org_row:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+
+    active_members = con.execute(
+        """
+        SELECT COUNT(*)
+        FROM organisation_memberships
+        WHERE org_id = %s
+          AND COALESCE(is_active, TRUE) = TRUE
+        """,
+        [org_id],
+    ).fetchone()
+    pending_invites = con.execute(
+        """
+        SELECT COUNT(*)
+        FROM organisation_invitations
+        WHERE org_id = %s
+          AND accepted_at IS NULL
+          AND expires_at > NOW()
+        """,
+        [org_id],
+    ).fetchone()
+    active_clients = con.execute(
+        """
+        SELECT COUNT(*)
+        FROM clients
+        WHERE org_id = %s
+          AND COALESCE(archived, FALSE) = FALSE
+        """,
+        [org_id],
+    ).fetchone()
+
+    return {
+        "max_users": int(org_row[0] or 0),
+        "max_clients": int(org_row[1] or 0),
+        "archived": bool(org_row[2]) if org_row[2] is not None else False,
+        "plan_status": str(org_row[3] or "active"),
+        "active_members": int(active_members[0] or 0) if active_members else 0,
+        "pending_invites": int(pending_invites[0] or 0) if pending_invites else 0,
+        "active_clients": int(active_clients[0] or 0) if active_clients else 0,
+    }
+
+
+def _require_org_capacity(
+    con,
+    org_id: str,
+    *,
+    additional_users: int = 0,
+    additional_clients: int = 0,
+    count_pending_invites: bool = False,
+) -> dict[str, int | bool | str]:
+    usage = _organisation_usage_info(con, org_id)
+    if bool(usage.get("archived")):
+        raise HTTPException(status_code=403, detail="Organisation is archived")
+
+    plan_status = str(usage.get("plan_status") or "active").strip().lower()
+    if plan_status not in {"active", "trial"}:
+        raise HTTPException(status_code=403, detail="Organisation plan is not active")
+
+    max_users = int(usage.get("max_users") or 0)
+    max_clients = int(usage.get("max_clients") or 0)
+    active_members = int(usage.get("active_members") or 0)
+    pending_invites = int(usage.get("pending_invites") or 0)
+    active_clients = int(usage.get("active_clients") or 0)
+
+    users_in_use = active_members + (pending_invites if count_pending_invites else 0)
+    if max_users > 0 and users_in_use + additional_users > max_users:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Organisation user limit reached ({users_in_use}/{max_users})",
+        )
+    if max_clients > 0 and active_clients + additional_clients > max_clients:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Organisation client limit reached ({active_clients}/{max_clients})",
+        )
+    return usage
+
+
 def _slugify_org_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower()).strip("-")
     return slug or "organisation"
@@ -2581,11 +2670,13 @@ def list_organisations(_user: dict = Depends(_current_user)):
             items = []
             for row in rows or []:
                 item = _organisation_row_to_dict(row)
+                usage = _organisation_usage_info(con, str(item["org_id"] or ""))
                 item["is_member"] = str(item["org_id"] or "") in memberships
                 item["membership"] = memberships.get(str(item["org_id"] or ""))
                 item["is_active_org"] = item["org_id"] == active_org_id
                 item["can_manage"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_MANAGEMENT_ROLES
                 item["can_switch"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_SWITCH_ROLES
+                item["usage"] = usage
                 items.append(item)
             return {"items": items, "active_org_id": active_org_id}
     except HTTPException:
@@ -2665,12 +2756,14 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_management_role(con, _user, org_id)
+            _require_org_capacity(con, org_id)
             existing = con.execute(
                 "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
             ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Organisation not found")
+            usage = _organisation_usage_info(con, org_id)
             updates = []
             params: list[object] = []
             for key in ("name", "slug", "plan", "plan_status"):
@@ -2682,8 +2775,13 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
                     params.append(value)
             for key in ("max_users", "max_clients"):
                 if key in body and body.get(key) is not None:
+                    next_value = int(body.get(key))
+                    if key == "max_users" and int(usage.get("active_members") or 0) > next_value:
+                        raise HTTPException(status_code=400, detail="max_users cannot be lower than current usage")
+                    if key == "max_clients" and int(usage.get("active_clients") or 0) > next_value:
+                        raise HTTPException(status_code=400, detail="max_clients cannot be lower than current usage")
                     updates.append(f"{key} = %s")
-                    params.append(int(body.get(key)))
+                    params.append(next_value)
             if not updates:
                 return {"ok": True, "organisation": _organisation_row_to_dict(existing)}
             updates.append("updated_at = NOW()")
@@ -2730,7 +2828,7 @@ def invite_user_to_organisation(org_id: str, body: dict = Body(...), request: Re
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_management_role(con, _user, org_id)
-            _require_org_active(con, org_id)
+            _require_org_capacity(con, org_id, additional_users=1, count_pending_invites=True)
             org_row = con.execute(
                 "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
@@ -2804,6 +2902,8 @@ def accept_organisation_invitation(token: str, request: Request = None, _user: d
             if invite_expires_at and invite_expires_at < datetime.now(timezone.utc):
                 raise HTTPException(status_code=400, detail="Invitation has expired")
 
+            _require_org_capacity(con, str(invite[1]), additional_users=1)
+
             con.execute(
                 """
                 INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
@@ -2855,7 +2955,7 @@ def switch_active_organisation(org_id: str, request: Request = None, _user: dict
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_switch_role(con, _user, org_id)
-            _require_org_active(con, org_id)
+            _require_org_capacity(con, org_id)
             con.execute(
                 "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
                 [org_id, user_id],
@@ -2883,6 +2983,7 @@ def list_organisation_members(org_id: str, _user: dict = Depends(_current_user))
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_management_role(con, _user, org_id)
+            _require_org_capacity(con, org_id)
             rows = con.execute(
                 """
                 SELECT m.org_id, m.user_id, COALESCE(u.full_name, '') AS full_name, COALESCE(u.email, '') AS email,

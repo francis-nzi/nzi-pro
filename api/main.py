@@ -73,6 +73,7 @@ from services.client_benchmark import ensure_client_benchmark_columns
 from services.kaleido_browser import ensure_kaleido_browser
 from services.playwright_browser import ensure_playwright_browser
 from api.admin_routes import router as admin_router
+from api.admin_routes import _require_org_capacity
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.job_emission_register_routes import router as job_emission_register_router
 from api.job_custom_factors_routes import router as job_custom_factors_router
@@ -3280,6 +3281,7 @@ def create_client(
             _ensure_client_billing_columns(con)
             _ensure_client_org_columns(con)
             ensure_client_benchmark_columns(con)
+            _require_org_capacity(con, org_id, additional_clients=1)
             existing = con.execute(
                 """
                 SELECT db_id
