@@ -96,11 +96,20 @@ def _ensure_org_lifecycle_schema(con) -> None:
               stripe_subscription_id VARCHAR,
               max_users INTEGER DEFAULT 3,
               max_clients INTEGER DEFAULT 10,
+              archived BOOLEAN DEFAULT FALSE,
+              archived_at TIMESTAMP,
+              archived_by VARCHAR,
               created_at TIMESTAMP DEFAULT NOW(),
               updated_at TIMESTAMP DEFAULT NOW()
             )
             """
         )
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE organisations ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE")
+        con.execute("ALTER TABLE organisations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
+        con.execute("ALTER TABLE organisations ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
     except Exception:
         pass
 
@@ -175,7 +184,10 @@ def _ensure_org_lifecycle_schema(con) -> None:
             """
             INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
             SELECT org_id, user_id, COALESCE(role, 'Consultant'), TRUE,
-                   CASE WHEN lower(COALESCE(role, '')) IN ('admin', 'superadmin') THEN TRUE ELSE FALSE END
+                   CASE
+                     WHEN lower(COALESCE(role, '')) IN ('owner', 'admin', 'superadmin') THEN TRUE
+                     ELSE FALSE
+                   END
             FROM users
             WHERE org_id IS NOT NULL
             ON CONFLICT (org_id, user_id) DO UPDATE SET
@@ -281,6 +293,15 @@ def _require_org_switch_role(con, user: dict, org_id: str, *, allow_superadmin: 
     return role_info
 
 
+def _require_org_active(con, org_id: str) -> None:
+    row = con.execute(
+        "SELECT COALESCE(archived, FALSE) FROM organisations WHERE org_id = %s LIMIT 1",
+        [org_id],
+    ).fetchone()
+    if row and bool(row[0]):
+        raise HTTPException(status_code=403, detail="Organisation is archived")
+
+
 def _slugify_org_name(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower()).strip("-")
     return slug or "organisation"
@@ -301,8 +322,11 @@ def _organisation_row_to_dict(row) -> dict[str, object]:
         "plan_status": str(_value(4) or "active"),
         "max_users": int(_value(5) or 0),
         "max_clients": int(_value(6) or 0),
-        "created_at": str(_value(7)) if _value(7) else None,
-        "updated_at": str(_value(8)) if _value(8) else None,
+        "archived": bool(_value(7)) if _value(7) is not None else False,
+        "archived_at": str(_value(8)) if _value(8) else None,
+        "archived_by": str(_value(9)) if _value(9) else None,
+        "created_at": str(_value(10)) if _value(10) else None,
+        "updated_at": str(_value(11)) if _value(11) else None,
     }
 
 
@@ -2531,7 +2555,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
             _ensure_org_lifecycle_schema(con)
             rows = con.execute(
                 """
-                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at
+                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
                 FROM organisations
                 ORDER BY created_at ASC, name ASC
                 """
@@ -2595,7 +2619,7 @@ def create_organisation(body: dict = Body(...), request: Request = None, _user: 
                 """
                 INSERT INTO organisations (name, slug, plan, plan_status, max_users, max_clients)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at
+                RETURNING org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
                 """,
                 [name, slug, plan, plan_status, max_users, max_clients],
             ).fetchone()
@@ -2642,7 +2666,7 @@ def update_organisation(org_id: str, body: dict = Body(...), request: Request = 
             _ensure_org_lifecycle_schema(con)
             _require_org_management_role(con, _user, org_id)
             existing = con.execute(
-                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
+                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
             ).fetchone()
             if not existing:
@@ -2706,8 +2730,9 @@ def invite_user_to_organisation(org_id: str, body: dict = Body(...), request: Re
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_management_role(con, _user, org_id)
+            _require_org_active(con, org_id)
             org_row = con.execute(
-                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
+                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s",
                 [org_id],
             ).fetchone()
             if not org_row:
@@ -2830,6 +2855,7 @@ def switch_active_organisation(org_id: str, request: Request = None, _user: dict
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
             _require_org_switch_role(con, _user, org_id)
+            _require_org_active(con, org_id)
             con.execute(
                 "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
                 [org_id, user_id],
@@ -2907,13 +2933,56 @@ def update_organisation_member(org_id: str, member_user_id: str, body: dict = Bo
             ).fetchone()
             if not membership:
                 raise HTTPException(status_code=404, detail="Member not found")
+            next_role = _normalize_org_role(body.get("role"), default="Member") if "role" in body and body.get("role") is not None else None
+            transfer_owner = bool(body.get("is_owner")) or next_role == "Owner"
+            if transfer_owner:
+                con.execute(
+                    """
+                    UPDATE organisation_memberships
+                    SET role = CASE WHEN lower(user_id) = lower(%s) THEN 'Owner' ELSE CASE WHEN lower(role) = 'owner' THEN 'Admin' ELSE role END END,
+                        is_owner = CASE WHEN lower(user_id) = lower(%s) THEN TRUE ELSE FALSE END,
+                        updated_at = NOW()
+                    WHERE org_id = %s
+                    """,
+                    [member_user_id, member_user_id, org_id],
+                )
+                con.execute(
+                    """
+                    UPDATE users
+                    SET role = CASE WHEN lower(user_id) = lower(%s) THEN 'Owner' ELSE role END,
+                        org_id = %s
+                    WHERE lower(user_id) = lower(%s)
+                    """,
+                    [member_user_id, org_id, member_user_id],
+                )
+                row = con.execute(
+                    """
+                    SELECT org_id, user_id, role, is_active, is_owner
+                    FROM organisation_memberships
+                    WHERE org_id = %s AND lower(user_id) = lower(%s)
+                    LIMIT 1
+                    """,
+                    [org_id, member_user_id],
+                ).fetchone()
+                if not row:
+                    raise HTTPException(status_code=500, detail="Failed to update organisation member")
+                return {
+                    "ok": True,
+                    "member": {
+                        "org_id": str(row[0]) if row[0] is not None else None,
+                        "user_id": str(row[1]) if row[1] is not None else None,
+                        "role": _normalize_org_role(row[2]),
+                        "is_active": bool(row[3]) if row[3] is not None else True,
+                        "is_owner": bool(row[4]) if row[4] is not None else False,
+                    },
+                }
 
             updates = []
             params: list[object] = []
 
-            if "role" in body and body.get("role") is not None:
+            if next_role is not None:
                 updates.append("role = %s")
-                params.append(_normalize_org_role(body.get("role"), default="Member"))
+                params.append(next_role)
             if "is_active" in body and body.get("is_active") is not None:
                 updates.append("is_active = %s")
                 params.append(bool(body.get("is_active")))
@@ -2959,6 +3028,125 @@ def update_organisation_member(org_id: str, member_user_id: str, body: dict = Bo
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update organisation member: {e}")
+
+
+@router.post("/organisations/{org_id}/transfer-ownership")
+def transfer_organisation_ownership(
+    org_id: str,
+    body: dict = Body(...),
+    request: Request = None,
+    _user: dict = Depends(_current_user),
+):
+    try:
+        member_user_id = str(body.get("member_user_id") or "").strip()
+        if not member_user_id:
+            raise HTTPException(status_code=400, detail="member_user_id is required")
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            membership = con.execute(
+                """
+                SELECT membership_id, org_id, user_id, role, is_active, is_owner
+                FROM organisation_memberships
+                WHERE org_id = %s AND lower(user_id) = lower(%s)
+                LIMIT 1
+                """,
+                [org_id, member_user_id],
+            ).fetchone()
+            if not membership:
+                raise HTTPException(status_code=404, detail="Member not found")
+            if membership[4] is None or not bool(membership[4]):
+                raise HTTPException(status_code=400, detail="Member must be active before ownership can be transferred")
+
+            con.execute(
+                """
+                UPDATE organisation_memberships
+                SET role = CASE WHEN lower(user_id) = lower(%s) THEN 'Owner' ELSE CASE WHEN lower(role) = 'owner' THEN 'Admin' ELSE role END END,
+                    is_owner = CASE WHEN lower(user_id) = lower(%s) THEN TRUE ELSE FALSE END,
+                    updated_at = NOW()
+                WHERE org_id = %s
+                """,
+                [member_user_id, member_user_id, org_id],
+            )
+            con.execute(
+                """
+                UPDATE users
+                SET role = CASE WHEN lower(user_id) = lower(%s) THEN 'Owner' ELSE role END,
+                    org_id = %s
+                WHERE lower(user_id) = lower(%s)
+                """,
+                [member_user_id, org_id, member_user_id],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="transfer",
+                entity_type="organisation_membership",
+                entity_id=f"{org_id}:{member_user_id}",
+                metadata={"org_id": org_id, "member_user_id": member_user_id},
+            )
+            logger.info("Organisation ownership transferred org_id=%s new_owner=%s", org_id, member_user_id)
+            return {"ok": True, "org_id": org_id, "owner_user_id": member_user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to transfer organisation ownership: {e}")
+
+
+@router.post("/organisations/{org_id}/archive")
+def archive_organisation(
+    org_id: str,
+    body: dict = Body(...),
+    request: Request = None,
+    _user: dict = Depends(_current_user),
+):
+    try:
+        archived = bool(body.get("archived", True))
+        actor = _actor_identifier(_user)
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            existing = con.execute(
+                """
+                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
+                FROM organisations
+                WHERE org_id = %s
+                """,
+                [org_id],
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            row = con.execute(
+                """
+                UPDATE organisations
+                SET archived = %s,
+                    archived_at = CASE WHEN %s THEN NOW() ELSE NULL END,
+                    archived_by = CASE WHEN %s THEN %s ELSE NULL END,
+                    updated_at = NOW()
+                WHERE org_id = %s
+                RETURNING org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
+                """,
+                [archived, archived, archived, actor, org_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to update organisation archive state")
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="archive" if archived else "restore",
+                entity_type="organisation",
+                entity_id=row[0],
+                metadata={"org_id": org_id, "archived": archived},
+            )
+            logger.info("Organisation archive state changed org_id=%s archived=%s actor=%s", org_id, archived, actor)
+            return {"ok": True, "organisation": _organisation_row_to_dict(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive organisation: {e}")
 
 
 # =========================

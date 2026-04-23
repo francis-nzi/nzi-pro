@@ -54,6 +54,9 @@ type Organisation = {
   plan_status?: string | null;
   max_users?: number | null;
   max_clients?: number | null;
+  archived?: boolean | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   is_member?: boolean;
@@ -224,6 +227,79 @@ export default function OrganisationsPage() {
 
   function updateMemberDraftRole(userId: string, role: string) {
     setMemberDraftRoles((current) => ({ ...current, [userId]: role }));
+  }
+
+  async function setOrganisationArchived(orgId: string, archived: boolean) {
+    const confirmed = await confirmAction({
+      title: archived ? "Archive organisation?" : "Reactivate organisation?",
+      description: archived
+        ? "This will archive the organisation and pause normal operations."
+        : "This will reactivate the organisation and allow normal operations again.",
+      confirmLabel: archived ? "Archive" : "Reactivate",
+    });
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError("");
+    setStatus(archived ? "Archiving organisation..." : "Reactivating organisation...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(orgId)}/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ archived }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Unable to update organisation archive state");
+      }
+      setStatus(archived ? "Organisation archived." : "Organisation reactivated.");
+      await loadOrganisations();
+      await loadMembers(selectedOrgId);
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function transferOwnership(member: OrganisationMember) {
+    if (!selectedOrg?.org_id || !member.user_id) return;
+    const confirmed = await confirmAction({
+      title: "Transfer ownership?",
+      description: `Make ${member.full_name || member.email || member.user_id} the organisation owner.`,
+      confirmLabel: "Transfer",
+    });
+    if (!confirmed) return;
+
+    setMemberSaving(member.user_id);
+    setError("");
+    setStatus("Transferring ownership...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/transfer-ownership`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ member_user_id: member.user_id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : "Unable to transfer ownership");
+      }
+      setStatus("Organisation ownership transferred.");
+      await loadMembers(selectedOrg.org_id);
+      await loadOrganisations();
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setMemberSaving(null);
+    }
   }
 
   function resetNewOrganisationForm() {
@@ -439,11 +515,12 @@ export default function OrganisationsPage() {
                       >
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <div className="text-lg font-semibold">{org.name}</div>
-                              {isActive ? <Badge>Active</Badge> : null}
-                              {org.is_member ? <Badge variant="outline">Member</Badge> : null}
-                            </div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-lg font-semibold">{org.name}</div>
+                          {isActive ? <Badge>Active</Badge> : null}
+                          {org.archived ? <Badge variant="destructive">Archived</Badge> : null}
+                          {org.is_member ? <Badge variant="outline">Member</Badge> : null}
+                        </div>
                             <div className="mt-1 text-sm text-muted-foreground">
                               Slug: {org.slug} | Plan: {org.plan || "trial"} | Status: {org.plan_status || "active"}
                             </div>
@@ -459,11 +536,19 @@ export default function OrganisationsPage() {
                               >
                                 Edit
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void setOrganisationArchived(org.org_id, !org.archived)}
+                                disabled={saving}
+                              >
+                                {org.archived ? "Reactivate" : "Archive"}
+                              </Button>
                             <Button
                               size="sm"
                               variant="secondary"
                               onClick={() => void switchOrganisation(org.org_id)}
-                              disabled={switching === org.org_id}
+                              disabled={switching === org.org_id || !!org.archived}
                             >
                               {switching === org.org_id ? "Switching..." : "Switch"}
                             </Button>
@@ -521,7 +606,7 @@ export default function OrganisationsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button onClick={() => void saveOrganisation()} disabled={saving}>
+                  <Button onClick={() => void saveOrganisation()} disabled={saving || !!selectedOrg?.archived}>
                     {saving ? "Saving..." : selectedOrg ? "Save Changes" : "Create Organisation"}
                   </Button>
                   {selectedOrg ? (
@@ -578,7 +663,7 @@ export default function OrganisationsPage() {
                 </div>
                 <Button
                   onClick={() => void inviteUser()}
-                  disabled={invoicing === selectedOrg?.org_id || !selectedOrg?.org_id}
+                  disabled={invoicing === selectedOrg?.org_id || !selectedOrg?.org_id || !!selectedOrg?.archived}
                 >
                   {invoicing === selectedOrg?.org_id ? "Creating..." : "Create Invitation"}
                 </Button>
@@ -646,6 +731,17 @@ export default function OrganisationsPage() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {!member.is_owner ? (
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => void transferOwnership(member)}
+                                    disabled={memberSaving === member.user_id}
+                                  >
+                                    Transfer ownership
+                                  </Button>
+                                ) : null}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -654,6 +750,7 @@ export default function OrganisationsPage() {
                               >
                                 {memberSaving === member.user_id ? "Saving..." : "Save"}
                               </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

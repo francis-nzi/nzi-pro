@@ -48,11 +48,11 @@ class _AuditConn:
     def fetchone(self):
         sql = self.executed[-1][0] if self.executed else ""
         if "INSERT INTO organisations" in sql:
-            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")
+            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")
         if "SELECT org_id, user_id, role, is_active, is_owner" in sql:
             return _FakeRow("org-123", "u1", "Owner", True, True)
-        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
-            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")
+        if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
+            return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")
         if "SELECT invitation_id, org_id, email, role, accepted_at, expires_at" in sql:
             return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-01T00:00:00+00:00")
         if "SELECT 1 FROM organisations WHERE lower(slug)" in sql:
@@ -62,7 +62,7 @@ class _AuditConn:
     def fetchall(self):
         sql = self.executed[-1][0] if self.executed else ""
         if "FROM organisations" in sql:
-            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, "2026-04-23", "2026-04-23")]
+            return [_FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")]
         return []
 
 
