@@ -1044,6 +1044,7 @@ def _serialize_quote(con, quote_id: int, org_id: str | None = None) -> dict[str,
 @router.get("/clients/{client_id}/quotes/lookups")
 def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
     try:
+        assert_client_access(_user, int(client_id))
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
@@ -1052,9 +1053,8 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
                 SELECT client_name, headquarters, currency
                 FROM clients
                 WHERE db_id = %s
-                """ + (" AND org_id = %s" if org_id else "") + """
                 """,
-                [int(client_id)] + ([org_id] if org_id else []),
+                [int(client_id)],
             ).fetchone()
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
@@ -1230,6 +1230,7 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
 @router.get("/clients/{client_id}/quotes")
 def list_client_quotes(client_id: int, _user: dict = Depends(_current_user)):
     try:
+        assert_client_access(_user, int(client_id))
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)
@@ -2646,6 +2647,7 @@ def email_invoice_pdf(invoice_id: int, body: dict = Body(...), _user: dict = Dep
 @router.get("/clients/{client_id}/financial/summary")
 def client_financial_summary(client_id: int, _user: dict = Depends(_current_user)):
     try:
+        assert_client_access(_user, int(client_id))
         with get_conn() as con:
             _ensure_quote_tables(con)
             org_id = _quote_org_id(_user)

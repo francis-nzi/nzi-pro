@@ -17,6 +17,13 @@ from services.emissions_reporting import combined_row_metrics, load_combined_emi
 router = APIRouter()
 
 
+def _org_match_clause(job_alias: str = "j", client_alias: str = "c") -> str:
+    return (
+        f"TRIM(COALESCE(CAST({job_alias}.org_id AS TEXT), CAST({client_alias}.org_id AS TEXT), '')) = "
+        f"TRIM(COALESCE(CAST(%s AS TEXT), ''))"
+    )
+
+
 def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
     if org_id:
         if crp_only:
@@ -34,9 +41,9 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
                 FROM jobs j
                 LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
                 JOIN clients c ON c.db_id = j.client_db_id
-                WHERE j.client_db_id = %s AND j.is_crp = TRUE AND c.org_id = %s
+                WHERE j.client_db_id = %s AND j.is_crp = TRUE AND {org_match}
                 ORDER BY dashboard_year ASC NULLS LAST
-                """,
+                """.format(org_match=_org_match_clause()),
                 [int(client_db_id), org_id],
             ).df()
         return con.execute(
@@ -53,9 +60,9 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
             FROM jobs j
             LEFT JOIN crp_job_details cjd ON cjd.job_id = j.job_id
             JOIN clients c ON c.db_id = j.client_db_id
-            WHERE j.client_db_id = %s AND c.org_id = %s
-            ORDER BY dashboard_year ASC NULLS LAST
-            """,
+            WHERE j.client_db_id = %s AND {org_match}
+                ORDER BY dashboard_year ASC NULLS LAST
+            """.format(org_match=_org_match_clause()),
             [int(client_db_id), org_id],
         ).df()
 
@@ -243,16 +250,10 @@ def get_client_dashboard(
             net_zero_progress = None
 
             try:
-                if org_id:
-                    client_info = con.execute(
-                        "SELECT industry, net_zero_year FROM clients WHERE db_id = %s AND org_id = %s",
-                        [int(client_db_id), org_id],
-                    ).fetchone()
-                else:
-                    client_info = con.execute(
-                        "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
-                        [int(client_db_id)],
-                    ).fetchone()
+                client_info = con.execute(
+                    "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
+                    [int(client_db_id)],
+                ).fetchone()
             except Exception:
                 client_info = con.execute(
                     "SELECT industry, net_zero_year FROM clients WHERE db_id = %s",
@@ -274,7 +275,7 @@ def get_client_dashboard(
                                         j.client_db_id
                                     FROM jobs j
                                     JOIN clients c ON c.db_id = j.client_db_id
-                                    WHERE c.industry = %s AND j.is_crp = TRUE AND c.org_id = %s
+                                    WHERE c.industry = %s AND j.is_crp = TRUE AND {org_match}
                                 ),
                                     legacy_rows AS (
                                         SELECT
@@ -337,7 +338,7 @@ def get_client_dashboard(
                                     FROM combined_rows
                                     GROUP BY client_db_id
                                 ) sub
-                                """,
+                                """.format(org_match=_org_match_clause()),
                             [industry, org_id],
                         ).fetchone()
                     else:
@@ -475,8 +476,8 @@ def get_client_dashboard(
             try:
                 if org_id:
                     client_currency = con.execute(
-                        "SELECT currency FROM clients WHERE db_id = %s AND org_id = %s",
-                        [int(client_db_id), org_id]
+                        "SELECT currency FROM clients WHERE db_id = %s",
+                        [int(client_db_id)]
                     ).fetchone()
                 else:
                     client_currency = con.execute(
