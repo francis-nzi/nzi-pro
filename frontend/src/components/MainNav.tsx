@@ -20,6 +20,7 @@ const ADMIN_QUICK_LINKS: Array<{
   href: string;
   domain: (typeof ADMIN_DOMAINS)[number];
 }> = [
+  { label: "Organisation Management", href: "/admin/organisations", domain: "People & Access" },
   { label: "Team Management", href: "/admin/team", domain: "People & Access" },
   { label: "Lookups", href: "/admin/lookups", domain: "Reference Data" },
   { label: "Job Items", href: "/admin/job-items", domain: "Reference Data" },

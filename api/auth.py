@@ -12,7 +12,7 @@ from fastapi import Header, HTTPException, Request
 from core.auth import get_user_by_id
 from core.database import get_conn
 from services.permissions import enrich_user_permissions
-from services.tenancy import attach_org_id
+from services.tenancy import attach_org_id, set_current_org_context
 
 try:
     import jwt
@@ -169,6 +169,7 @@ def _current_user(
             if not user:
                 raise HTTPException(status_code=401, detail="Unknown or inactive user")
             user = attach_org_id(user)
+            set_current_org_context(user.get("org_id"))
             return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
 
         # Compatibility fallback: older sessions may still rely on the browser
@@ -183,6 +184,7 @@ def _current_user(
             if not user:
                 raise HTTPException(status_code=401, detail="Unknown or inactive user")
             user = attach_org_id(user)
+            set_current_org_context(user.get("org_id"))
             return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
@@ -201,4 +203,5 @@ def _current_user(
     if not user:
         raise HTTPException(status_code=401, detail="Unknown or inactive user")
     user = attach_org_id(user)
+    set_current_org_context(user.get("org_id"))
     return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))

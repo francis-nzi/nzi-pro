@@ -7,7 +7,6 @@ from typing import Any
 import pandas as pd
 
 from core.database import db_backend, get_conn, next_id
-from services.tenancy import get_default_org_id
 
 
 @dataclass
@@ -26,9 +25,11 @@ def _default_valid_to(d: date | None) -> date:
     return base + timedelta(days=30)
 
 
-def _org_value(org_id: str | None) -> str | None:
+def _org_value(org_id: str | None) -> str:
     value = str(org_id or "").strip()
-    return value or get_default_org_id()
+    if not value:
+        raise ValueError("Organisation context required")
+    return value
 
 
 def list_quotes(client_db_id: int, org_id: str | None = None) -> pd.DataFrame:

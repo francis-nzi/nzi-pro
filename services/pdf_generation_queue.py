@@ -52,6 +52,7 @@ def queue_pdf_generation(
     job_id: int,
     template_id: Optional[int] = None,
     user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> str:
     """
     Queue a PDF generation job.
@@ -76,6 +77,7 @@ def queue_pdf_generation(
             job_id=job_id,
             template_id=template_id,
             user_id=user_id,
+            org_id=org_id,
             job_timeout=300,  # 5 minute timeout
             result_ttl=3600,  # Keep result for 1 hour
         )

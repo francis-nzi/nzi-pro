@@ -2,7 +2,9 @@
 Admin API routes for team, lookups, datasets, and system management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form, Query
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from api.auth import _current_user
@@ -31,7 +33,7 @@ from services.attribute_override_import import (
     commit_override_rows,
     parse_override_workbook,
 )
-from services.audit_log import ensure_audit_log_table, parse_json_text
+from services.audit_log import ensure_audit_log_table, parse_json_text, record_audit_event
 from services.permissions import (
     ACCESS_SCOPES,
     ADMIN_ACCESS_PERMISSION,
@@ -53,12 +55,94 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
 )
+logger = logging.getLogger(__name__)
 
 _LOOKUP_BOOTSTRAP_LOCK = Lock()
 _LOOKUP_BOOTSTRAPPED: set[str] = set()
 _ADMIN_USER_BOOTSTRAPPED = False
 _ADMIN_USER_BOOTSTRAP_LOCK = Lock()
 _ORG_SCOPED_LOOKUP_TABLES = {"job_types", "time_subjects", "portfolios_lookup"}
+
+
+def _ensure_org_lifecycle_schema(con) -> None:
+    """Keep org lifecycle tables and columns available on older databases."""
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id UUID")
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS organisation_memberships (
+              membership_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              org_id UUID REFERENCES organisations(org_id) NOT NULL,
+              user_id VARCHAR NOT NULL,
+              role VARCHAR DEFAULT 'Consultant',
+              is_active BOOLEAN DEFAULT TRUE,
+              is_owner BOOLEAN DEFAULT FALSE,
+              created_at TIMESTAMP DEFAULT NOW(),
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_organisation_memberships_org_user
+            ON organisation_memberships (org_id, user_id)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE organisation_invitations ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP")
+        con.execute("ALTER TABLE organisation_invitations ADD COLUMN IF NOT EXISTS invited_by VARCHAR")
+        con.execute("ALTER TABLE organisation_invitations ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
+            SELECT org_id, user_id, COALESCE(role, 'Consultant'), TRUE,
+                   CASE WHEN lower(COALESCE(role, '')) IN ('admin', 'superadmin') THEN TRUE ELSE FALSE END
+            FROM users
+            WHERE org_id IS NOT NULL
+            ON CONFLICT (org_id, user_id) DO UPDATE SET
+              role = EXCLUDED.role,
+              is_active = TRUE,
+              updated_at = NOW()
+            """
+        )
+    except Exception:
+        pass
+
+
+def _slugify_org_name(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower()).strip("-")
+    return slug or "organisation"
+
+
+def _organisation_row_to_dict(row) -> dict[str, object]:
+    def _value(idx: int):
+        try:
+            return row[idx]
+        except Exception:
+            return None
+
+    return {
+        "org_id": str(_value(0)) if _value(0) is not None else None,
+        "name": str(_value(1) or ""),
+        "slug": str(_value(2) or ""),
+        "plan": str(_value(3) or "trial"),
+        "plan_status": str(_value(4) or "active"),
+        "max_users": int(_value(5) or 0),
+        "max_clients": int(_value(6) or 0),
+        "created_at": str(_value(7)) if _value(7) else None,
+        "updated_at": str(_value(8)) if _value(8) else None,
+    }
 
 
 def _ensure_legacy_cleanup_schema(con) -> None:
@@ -2277,6 +2361,341 @@ def admin_reinvite_user(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to re-invite user: {e}")
+
+
+@router.get("/organisations")
+def list_organisations(_user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            rows = con.execute(
+                """
+                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at
+                FROM organisations
+                ORDER BY created_at ASC, name ASC
+                """
+            ).fetchall()
+            member_rows = con.execute(
+                """
+                SELECT org_id, role, is_active, is_owner
+                FROM organisation_memberships
+                WHERE lower(user_id) = lower(%s)
+                """,
+                [str(_user.get("user_id") or "").strip()],
+            ).fetchall()
+            memberships = {
+                str(r[0]): {
+                    "role": str(r[1] or ""),
+                    "is_active": bool(r[2]) if r[2] is not None else True,
+                    "is_owner": bool(r[3]) if r[3] is not None else False,
+                }
+                for r in member_rows or []
+                if r and r[0] is not None
+            }
+            active_org_id = str(_user.get("org_id") or "").strip() or None
+            items = []
+            for row in rows or []:
+                item = _organisation_row_to_dict(row)
+                item["is_member"] = str(item["org_id"] or "") in memberships
+                item["membership"] = memberships.get(str(item["org_id"] or ""))
+                item["is_active_org"] = item["org_id"] == active_org_id
+                items.append(item)
+            return {"items": items, "active_org_id": active_org_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list organisations: {e}")
+
+
+@router.post("/organisations")
+def create_organisation(body: dict = Body(...), request: Request = None, _user: dict = Depends(_current_user)):
+    try:
+        name = str(body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required")
+        plan = str(body.get("plan") or "trial").strip() or "trial"
+        plan_status = str(body.get("plan_status") or "active").strip() or "active"
+        slug = str(body.get("slug") or "").strip().lower() or _slugify_org_name(name)
+        max_users = int(body.get("max_users", 3) or 3)
+        max_clients = int(body.get("max_clients", 10) or 10)
+        actor_user_id = str(_user.get("user_id") or "").strip() or None
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            existing = con.execute(
+                "SELECT 1 FROM organisations WHERE lower(slug) = lower(%s) LIMIT 1",
+                [slug],
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=409, detail="Organisation slug already exists")
+            row = con.execute(
+                """
+                INSERT INTO organisations (name, slug, plan, plan_status, max_users, max_clients)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at
+                """,
+                [name, slug, plan, plan_status, max_users, max_clients],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to create organisation")
+            if actor_user_id:
+                con.execute(
+                    """
+                    INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
+                    VALUES (%s, %s, %s, TRUE, TRUE)
+                    ON CONFLICT (org_id, user_id) DO UPDATE SET
+                      role = EXCLUDED.role,
+                      is_active = TRUE,
+                      is_owner = TRUE,
+                      updated_at = NOW()
+                    """,
+                    [row[0], actor_user_id, "Administrator"],
+                )
+                con.execute(
+                    "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
+                    [row[0], actor_user_id],
+                )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="organisation",
+                entity_id=row[0],
+                metadata={"org_id": str(row[0]), "name": name, "slug": slug, "plan": plan, "plan_status": plan_status},
+            )
+            logger.info("Organisation created org_id=%s slug=%s actor=%s", row[0], slug, actor_user_id or "unknown")
+            return {"ok": True, "organisation": _organisation_row_to_dict(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organisation: {e}")
+
+
+@router.patch("/organisations/{org_id}")
+def update_organisation(org_id: str, body: dict = Body(...), request: Request = None, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            existing = con.execute(
+                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
+                [org_id],
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            updates = []
+            params: list[object] = []
+            for key in ("name", "slug", "plan", "plan_status"):
+                if key in body and body.get(key) is not None and str(body.get(key)).strip():
+                    updates.append(f"{key} = %s")
+                    value = str(body.get(key)).strip()
+                    if key == "slug":
+                        value = value.lower()
+                    params.append(value)
+            for key in ("max_users", "max_clients"):
+                if key in body and body.get(key) is not None:
+                    updates.append(f"{key} = %s")
+                    params.append(int(body.get(key)))
+            if not updates:
+                return {"ok": True, "organisation": _organisation_row_to_dict(existing)}
+            updates.append("updated_at = NOW()")
+            row = con.execute(
+                f"""
+                UPDATE organisations
+                SET {', '.join(updates)}
+                WHERE org_id = %s
+                RETURNING org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at
+                """,
+                [*params, org_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=500, detail="Failed to update organisation")
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="update",
+                entity_type="organisation",
+                entity_id=row[0],
+                metadata={"org_id": str(row[0]), "updated_fields": list(body.keys())},
+            )
+            logger.info("Organisation updated org_id=%s actor=%s", row[0], _actor_identifier(_user))
+            return {"ok": True, "organisation": _organisation_row_to_dict(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update organisation: {e}")
+
+
+@router.post("/organisations/{org_id}/invite")
+def invite_user_to_organisation(org_id: str, body: dict = Body(...), request: Request = None, _user: dict = Depends(_current_user)):
+    try:
+        email = str(body.get("email") or "").strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="email is required")
+        role = str(body.get("role") or "Consultant").strip() or "Consultant"
+        days = int(body.get("days_valid", 7) or 7)
+        token = secrets.token_urlsafe(32)
+        expires_at = _invite_expiry(days)
+        actor = _actor_identifier(_user)
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            org_row = con.execute(
+                "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, created_at, updated_at FROM organisations WHERE org_id = %s",
+                [org_id],
+            ).fetchone()
+            if not org_row:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            con.execute(
+                """
+                INSERT INTO organisation_invitations (org_id, email, role, invited_by, token, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                [org_id, email, role, actor, token, expires_at],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="create",
+                entity_type="organisation_invitation",
+                entity_id=token,
+                metadata={"org_id": org_id, "email": email, "role": role, "expires_at": expires_at.isoformat()},
+            )
+            logger.info("Organisation invite created org_id=%s email=%s actor=%s", org_id, email, actor)
+            return {
+                "ok": True,
+                "organisation": _organisation_row_to_dict(org_row),
+                "invite": {
+                    "email": email,
+                    "role": role,
+                    "token": token,
+                    "expires_at": expires_at.isoformat(),
+                },
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to invite user to organisation: {e}")
+
+
+@router.post("/organisation-invitations/{token}/accept")
+def accept_organisation_invitation(token: str, request: Request = None, _user: dict = Depends(_current_user)):
+    try:
+        user_email = str(_user.get("email") or "").strip().lower()
+        user_id = str(_user.get("user_id") or "").strip()
+        if not user_email or not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user")
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            invite = con.execute(
+                """
+                SELECT invitation_id, org_id, email, role, accepted_at, expires_at
+                FROM organisation_invitations
+                WHERE token = %s
+                """,
+                [token],
+            ).fetchone()
+            if not invite:
+                raise HTTPException(status_code=404, detail="Invitation not found")
+            invite_email = str(invite[2] or "").strip().lower()
+            if invite_email and invite_email != user_email:
+                raise HTTPException(status_code=403, detail="Invitation does not match the current user")
+            if invite[4] is not None:
+                raise HTTPException(status_code=400, detail="Invitation already accepted")
+            invite_expires_at = invite[5]
+            if isinstance(invite_expires_at, str):
+                try:
+                    invite_expires_at = datetime.fromisoformat(invite_expires_at)
+                except Exception:
+                    invite_expires_at = None
+            if invite_expires_at and invite_expires_at < datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="Invitation has expired")
+
+            con.execute(
+                """
+                INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
+                VALUES (%s, %s, %s, TRUE, FALSE)
+                ON CONFLICT (org_id, user_id) DO UPDATE SET
+                  role = EXCLUDED.role,
+                  is_active = TRUE,
+                  updated_at = NOW()
+                """,
+                [invite[1], user_id, invite[3] or "Consultant"],
+            )
+            con.execute(
+                "UPDATE users SET org_id = %s, role = COALESCE(%s, role) WHERE lower(user_id) = lower(%s)",
+                [invite[1], invite[3], user_id],
+            )
+            con.execute(
+                "UPDATE organisation_invitations SET accepted_at = NOW() WHERE invitation_id = %s",
+                [invite[0]],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="accept",
+                entity_type="organisation_membership",
+                entity_id=f"{invite[1]}:{user_id}",
+                metadata={"org_id": str(invite[1]), "email": user_email, "role": str(invite[3] or "Consultant")},
+            )
+            logger.info("Organisation invite accepted org_id=%s user_id=%s", invite[1], user_id)
+            return {
+                "ok": True,
+                "org_id": str(invite[1]),
+                "email": invite_email,
+                "role": str(invite[3] or "Consultant"),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to accept organisation invitation: {e}")
+
+
+@router.post("/organisations/{org_id}/switch")
+def switch_active_organisation(org_id: str, request: Request = None, _user: dict = Depends(_current_user)):
+    try:
+        user_id = str(_user.get("user_id") or "").strip()
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid user")
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            membership = con.execute(
+                """
+                SELECT 1
+                FROM organisation_memberships
+                WHERE org_id = %s
+                  AND lower(user_id) = lower(%s)
+                  AND COALESCE(is_active, TRUE) = TRUE
+                LIMIT 1
+                """,
+                [org_id, user_id],
+            ).fetchone()
+            if not membership and str(_user.get("role") or "").strip().lower() not in (SUPERADMIN_ROLE, "superadmin"):
+                raise HTTPException(status_code=403, detail="User is not a member of this organisation")
+            con.execute(
+                "UPDATE users SET org_id = %s WHERE lower(user_id) = lower(%s)",
+                [org_id, user_id],
+            )
+            record_audit_event(
+                con,
+                request=request,
+                actor=_user,
+                action="switch",
+                entity_type="organisation_membership",
+                entity_id=f"{org_id}:{user_id}",
+                metadata={"org_id": org_id, "user_id": user_id},
+            )
+            logger.info("Active organisation switched org_id=%s user_id=%s", org_id, user_id)
+            return {"ok": True, "org_id": org_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to switch organisation: {e}")
 
 
 # =========================

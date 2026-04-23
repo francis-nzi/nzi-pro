@@ -34,6 +34,7 @@ def generate_pdf_task(
     job_id: int,
     template_id: Optional[int] = None,
     user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> dict:
     """
     Main PDF generation task (runs in RQ worker).
@@ -58,14 +59,10 @@ def generate_pdf_task(
     
     try:
         # Import existing functions from job_report_routes
-        # These are the SAME functions used by the old /generate-report endpoint
+        # These are the SAME functions used by the report endpoints.
         from api.job_report_routes import (
-            _fetch_job_data,
-            _generate_report_assets,
-            _build_report_render_values,
-            render_html_from_template,
-            _render_html_to_pdf_bytes,
-            _save_job_report_version,
+            get_job_data as _fetch_job_data,
+            generate_report_with_assets,
         )
         
         logger.info(f"Starting PDF generation for job {job_id}")
@@ -75,7 +72,7 @@ def generate_pdf_task(
         # ==========================================
         _update_progress(job, 10, 'Fetching job data...')
         
-        job_data = _fetch_job_data(job_id)
+        job_data = _fetch_job_data(job_id, org_id=org_id)
         
         if not job_data:
             raise ValueError(f"Job {job_id} not found or inaccessible")
@@ -83,67 +80,34 @@ def generate_pdf_task(
         logger.info(f"Fetched job data: {job_data.get('job_number', 'unknown')}")
         
         # ==========================================
-        # Step 2: Generate chart assets (30%)
+        # Step 2: Render and save report (90%)
         # ==========================================
-        _update_progress(job, 30, 'Generating charts...')
-        
-        try:
-            assets = _generate_report_assets(job_id, job_data)
-            logger.info(f"Generated {len(assets)} chart assets")
-        except Exception as e:
-            logger.warning(f"Chart generation failed, continuing without charts: {e}")
-            assets = {}
-        
-        # ==========================================
-        # Step 3: Build template render context (60%)
-        # ==========================================
-        _update_progress(job, 60, 'Building report...')
-        
-        render_values = _build_report_render_values(job_data, assets, template_id)
-        logger.info(f"Built render context with {len(render_values)} variables")
-        
-        # ==========================================
-        # Step 4: Render HTML from template (70%)
-        # ==========================================
-        _update_progress(job, 70, 'Rendering HTML...')
-        
-        html_content = render_html_from_template(render_values, template_id)
-        logger.info(f"Rendered HTML ({len(html_content)} bytes)")
-        
-        # ==========================================
-        # Step 5: Convert HTML to PDF (85%)
-        # ==========================================
-        _update_progress(job, 85, 'Converting to PDF...')
-        
-        pdf_bytes = _render_html_to_pdf_bytes(html_content)
-        logger.info(f"Generated PDF ({len(pdf_bytes)} bytes)")
-        
-        # ==========================================
-        # Step 6: Save version to database (95%)
-        # ==========================================
-        _update_progress(job, 95, 'Saving report...')
-        
-        version_data = _save_job_report_version(
+        _update_progress(job, 60, 'Rendering and saving report...')
+
+        report_response = generate_report_with_assets(
             job_id=job_id,
-            pdf_bytes=pdf_bytes,
-            render_values=render_values,
-            user_id=user_id,
-            template_id=template_id,
+            request=None,
+            skip_validation=False,
+            save_version=True,
+            _user={"email": user_id or "system", "org_id": org_id},
         )
-        
-        logger.info(f"Saved report version {version_data.get('version_id')}")
-        
+        pdf_bytes = bytes(getattr(report_response, "body", b"") or b"")
+        logger.info(f"Generated PDF ({len(pdf_bytes)} bytes)")
+
+        version_id = str(getattr(report_response, "headers", {}).get("X-Report-Version-Id") or "").strip() or None
+        file_id = str(getattr(report_response, "headers", {}).get("X-Report-File-Id") or "").strip() or None
+
         # ==========================================
-        # Step 7: Complete (100%)
+        # Step 3: Complete (100%)
         # ==========================================
         _update_progress(job, 100, 'Complete')
         
         result = {
             'status': 'success',
             'job_id': job_id,
-            'version_id': version_data.get('version_id'),
-            'file_path': version_data.get('file_path'),
-            'download_url': f'/jobs/{job_id}/report-versions/{version_data.get("version_id")}/download',
+            'version_id': int(version_id) if version_id and version_id.isdigit() else None,
+            'file_id': int(file_id) if file_id and file_id.isdigit() else None,
+            'download_url': f'/jobs/{job_id}/report-versions/{version_id}/download' if version_id else None,
         }
         
         logger.info(f"PDF generation completed successfully for job {job_id}")
@@ -166,6 +130,7 @@ def generate_pdf_task(
 def generate_pdf_task_sync(
     job_id: int,
     template_id: Optional[int] = None,
+    org_id: Optional[str] = None,
 ) -> dict:
     """
     Synchronous version of PDF generation (for testing/debugging).
@@ -193,4 +158,4 @@ def generate_pdf_task_sync(
     mock_job = MockJob()
     
     with patch('services.pdf_generation_tasks.get_current_job', return_value=mock_job):
-        return generate_pdf_task(job_id, template_id, user_id=None)
+        return generate_pdf_task(job_id, template_id, user_id=None, org_id=org_id)

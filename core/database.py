@@ -55,6 +55,27 @@ class _PgConn:
     def __init__(self, conn, autocommit=False):
         self._conn = conn
         self._autocommit = autocommit
+        self._apply_tenant_session_context()
+
+    def _apply_tenant_session_context(self):
+        try:
+            from services.tenancy import get_current_org_context
+        except Exception:
+            return
+
+        org_id = get_current_org_context()
+        if not org_id:
+            return
+
+        try:
+            cur = self._conn.cursor()
+            cur.execute("SELECT set_config(%s, %s, false)", ["app.current_org_id", org_id])
+            try:
+                cur.close()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def __enter__(self):
         # For autocommit connections, just return self

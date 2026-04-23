@@ -15,6 +15,7 @@ from typing import Optional
 
 from core.database import get_conn
 from api.auth import _current_user
+from services.tenancy import require_org
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["pdf_generation"])
@@ -53,11 +54,18 @@ async def api_queue_pdf_generation(
         500: Queue unavailable
     """
     try:
-        # Verify job exists and user has access
+        org_id = require_org(current_user)
+
+        # Verify job exists and belongs to the caller's org before enqueueing.
         with get_conn() as con:
             job = con.execute(
-                'SELECT id, job_number FROM jobs WHERE id = %s',
-                (job_id,)
+                """
+                SELECT j.job_id, j.job_number
+                FROM jobs j
+                JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id = %s AND c.org_id = %s
+                """,
+                (job_id, org_id)
             ).fetchone()
             if not job:
                 raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -67,7 +75,8 @@ async def api_queue_pdf_generation(
         job_token = queue_pdf_generation(
             job_id=job_id,
             template_id=template_id,
-            user_id=current_user.get('id'),
+            user_id=str(current_user.get('email') or current_user.get('user_id') or current_user.get('id') or "system"),
+            org_id=org_id,
         )
         
         logger.info(f"Queued PDF for job {job_id}, token: {job_token}")

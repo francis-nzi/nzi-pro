@@ -1336,16 +1336,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_job_original_portfolio_column(con)
-            try:
-                assert_job_access(_user, int(job_id))
-            except HTTPException as exc:
-                if exc.status_code == 403:
-                    # Fail open for legacy jobs that are missing tenant org metadata.
-                    # The page can still render from the job row itself while the
-                    # remaining setup widgets are loaded through their own guarded routes.
-                    pass
-                else:
-                    raise
+            assert_job_access(_user, int(job_id))
 
             def _table_exists(table_name: str) -> bool:
                 row = con.execute(
@@ -3477,7 +3468,9 @@ def list_clients(
     _user: dict[str, str] = Depends(_current_user),
 ):
     assert_permission(_user, "clients.view")
-    org_id = str(_user.get("org_id") or "").strip() or get_default_org_id()
+    org_id = str(_user.get("org_id") or "").strip()
+    if not org_id:
+        raise HTTPException(status_code=403, detail="Organisation context required")
     query = (q or "").strip()
     org_placeholder = "%s" if db_backend() == "postgres" else "?"
 
@@ -3780,65 +3773,35 @@ def list_clients(
 @app.get("/clients/{client_db_id}")
 def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
     assert_permission(_user, "clients.view")
-    org_id = str(_user.get("org_id") or "").strip() or get_default_org_id()
+    org_id = str(_user.get("org_id") or "").strip()
+    if not org_id:
+        raise HTTPException(status_code=403, detail="Organisation context required")
     with get_conn() as con:
         _ensure_client_org_columns(con)
         _ensure_client_billing_columns(con)
         ensure_client_benchmark_columns(con)
-        try:
-            assert_client_access(_user, int(client_db_id))
-        except HTTPException as exc:
-            if exc.status_code == 403:
-                # Fail open for legacy clients that have not yet been assigned
-                # tenant metadata. The job setup page still needs to read the
-                # client record for benchmark period and reporting defaults.
-                pass
-            else:
-                raise
-        if org_id:
-            row = con.execute(
-                """
-                SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
-                       c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
-                       c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
-                       c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
-                       c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-                       c.interim_s3_pct, c.portfolio, c.benchmark_year,
-                       c.benchmark_period_start, c.benchmark_period_end, c.currency,
-                       COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
-                       c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
-                       c.billing_addr_postcode, c.billing_addr_country,
-                       c.create_site_from_address,
-                       c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
-                       COALESCE(c.billing_company, c.client_name)
-                FROM clients c
-                WHERE c.db_id=? AND c.org_id=?
-                """,
-                [int(client_db_id), org_id],
-            ).fetchone()
-        else:
-            row = con.execute(
-                """
-                SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
-                       c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
-                       c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
-                       c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
-                       c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-                       c.interim_s3_pct, c.portfolio, c.benchmark_year,
-                       c.benchmark_period_start, c.benchmark_period_end, c.currency,
-                       COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
-                       c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
-                       c.billing_addr_postcode, c.billing_addr_country,
-                       c.create_site_from_address,
-                       c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-                       c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
-                       COALESCE(c.billing_company, c.client_name)
-                FROM clients c
-                WHERE c.db_id=?
-                """,
-                [int(client_db_id)],
-            ).fetchone()
+        assert_client_access(_user, int(client_db_id))
+        row = con.execute(
+            """
+            SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
+                   c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
+                   c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
+                   c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
+                   c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
+                   c.interim_s3_pct, c.portfolio, c.benchmark_year,
+                   c.benchmark_period_start, c.benchmark_period_end, c.currency,
+                   COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
+                   c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
+                   c.billing_addr_postcode, c.billing_addr_country,
+                   c.create_site_from_address,
+                   c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
+                   c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
+                   COALESCE(c.billing_company, c.client_name)
+            FROM clients c
+            WHERE c.db_id=? AND c.org_id=?
+            """,
+            [int(client_db_id), org_id],
+        ).fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")

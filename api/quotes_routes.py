@@ -18,14 +18,13 @@ from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
-from services.tenancy import get_default_org_id, require_org
+from services.tenancy import require_org
 
 router = APIRouter(tags=["quotes"])
 
 
 def _quote_org_id(user: dict | None) -> str | None:
-    org_id = str((user or {}).get("org_id") or "").strip()
-    return org_id or get_default_org_id()
+    return require_org(user or {})
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:

@@ -309,6 +309,7 @@ def _ensure_report_template_schema(con) -> None:
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_report_variable_values (
+          org_id TEXT,
           job_id INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
           template_id INTEGER NOT NULL REFERENCES report_templates(template_id) ON DELETE CASCADE,
           version_id INTEGER REFERENCES report_template_versions(version_id) ON DELETE CASCADE,
@@ -323,19 +324,34 @@ def _ensure_report_template_schema(con) -> None:
     con.execute(
         """
         CREATE INDEX IF NOT EXISTS job_report_variable_values_lookup_idx
-        ON job_report_variable_values (job_id, template_id, version_id)
+        ON job_report_variable_values (org_id, job_id, template_id, version_id)
         """
     )
+    con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS org_id TEXT")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS template_id INTEGER")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS version_id INTEGER")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS variable_key VARCHAR")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS variable_value TEXT")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
     con.execute("ALTER TABLE job_report_variable_values ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
+    try:
+        con.execute(
+            """
+            UPDATE job_report_variable_values jrv
+            SET org_id = COALESCE(jrv.org_id, c.org_id)
+            FROM jobs j
+            JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.job_id = jrv.job_id
+              AND jrv.org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
 
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_report_template_assignments (
+          org_id TEXT,
           job_id INTEGER PRIMARY KEY REFERENCES jobs(job_id) ON DELETE CASCADE,
           template_id INTEGER NOT NULL REFERENCES report_templates(template_id) ON DELETE RESTRICT,
           version_id INTEGER REFERENCES report_template_versions(version_id) ON DELETE SET NULL,
@@ -344,10 +360,24 @@ def _ensure_report_template_schema(con) -> None:
         )
         """
     )
+    con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS org_id TEXT")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS template_id INTEGER")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS version_id INTEGER")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP DEFAULT NOW()")
     con.execute("ALTER TABLE job_report_template_assignments ADD COLUMN IF NOT EXISTS assigned_by VARCHAR")
+    try:
+        con.execute(
+            """
+            UPDATE job_report_template_assignments jra
+            SET org_id = COALESCE(jra.org_id, c.org_id)
+            FROM jobs j
+            JOIN clients c ON c.db_id = j.client_db_id
+            WHERE j.job_id = jra.job_id
+              AND jra.org_id IS NULL
+            """
+        )
+    except Exception:
+        pass
 
     con.execute(
         """
@@ -2369,6 +2399,21 @@ def _get_job_client_id(con, job_id: int) -> int:
     return int(row[0])
 
 
+def _get_job_org_id(con, job_id: int) -> str:
+    row = con.execute(
+        """
+        SELECT c.org_id
+        FROM jobs j
+        JOIN clients c ON c.db_id = j.client_db_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return str(row[0])
+
+
 def _get_job_reporting_context(con, job_id: int) -> dict[str, Any]:
     row = con.execute(
         """
@@ -2605,19 +2650,21 @@ def _auto_assign_default_crp_template(con, job_id: int, actor_email: str) -> tup
         return None
 
     version_id = int(vrow[0])
+    org_id = _get_job_org_id(con, int(job_id))
     con.execute(
         """
         INSERT INTO job_report_template_assignments
-          (job_id, template_id, version_id, assigned_at, assigned_by)
-        VALUES (%s, %s, %s, NOW(), %s)
+          (org_id, job_id, template_id, version_id, assigned_at, assigned_by)
+        VALUES (%s, %s, %s, %s, NOW(), %s)
         ON CONFLICT (job_id)
         DO UPDATE SET
+          org_id = EXCLUDED.org_id,
           template_id = EXCLUDED.template_id,
           version_id = EXCLUDED.version_id,
           assigned_at = NOW(),
           assigned_by = EXCLUDED.assigned_by
         """,
-        [int(job_id), template_id, version_id, actor_email or "system:auto-template"],
+        [org_id, int(job_id), template_id, version_id, actor_email or "system:auto-template"],
     )
     return template_id, version_id
 
@@ -2971,6 +3018,7 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
     with get_conn() as con:
         _ensure_report_template_schema(con)
         client_db_id = _get_job_client_id(con, int(job_id))
+        org_id = _get_job_org_id(con, int(job_id))
         try:
             _auto_assign_default_crp_template(
                 con,
@@ -3133,6 +3181,7 @@ def upsert_job_report_template_assignment(
     with get_conn() as con:
         _ensure_report_template_schema(con)
         client_db_id = _get_job_client_id(con, int(job_id))
+        org_id = _get_job_org_id(con, int(job_id))
 
         template = con.execute(
             """
@@ -3182,16 +3231,18 @@ def upsert_job_report_template_assignment(
         con.execute(
             """
             INSERT INTO job_report_template_assignments
-              (job_id, template_id, version_id, assigned_at, assigned_by)
-            VALUES (%s, %s, %s, NOW(), %s)
+              (org_id, job_id, template_id, version_id, assigned_at, assigned_by)
+            VALUES (%s, %s, %s, %s, NOW(), %s)
             ON CONFLICT (job_id)
             DO UPDATE SET
+              org_id = EXCLUDED.org_id,
               template_id = EXCLUDED.template_id,
               version_id = EXCLUDED.version_id,
               assigned_at = NOW(),
               assigned_by = EXCLUDED.assigned_by
             """,
             [
+                org_id,
                 int(job_id),
                 int(payload.template_id),
                 int(version_id),
@@ -3220,6 +3271,7 @@ def get_job_report_variables(
         with get_conn() as con:
             _ensure_report_template_schema(con)
             _get_job_client_id(con, int(job_id))
+            org_id = _get_job_org_id(con, int(job_id))
 
             version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
             _validate_template_version(con, int(template_id), version_id)
@@ -3352,6 +3404,7 @@ def save_job_report_variables(
         with get_conn() as con:
             _ensure_report_template_schema(con)
             _get_job_client_id(con, int(job_id))
+            org_id = _get_job_org_id(con, int(job_id))
 
             version_id = _resolve_effective_version_id(con, int(job_id), int(template_id), version_id)
             _validate_template_version(con, int(template_id), version_id)
@@ -3366,15 +3419,17 @@ def save_job_report_variables(
                 con.execute(
                     """
                     INSERT INTO job_report_variable_values
-                        (job_id, template_id, version_id, variable_key, variable_value, updated_by)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                        (org_id, job_id, template_id, version_id, variable_key, variable_value, updated_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (job_id, template_id, version_id, variable_key)
                     DO UPDATE SET
+                        org_id = EXCLUDED.org_id,
                         variable_value = EXCLUDED.variable_value,
                         updated_at = CURRENT_TIMESTAMP,
                         updated_by = EXCLUDED.updated_by
                     """,
                     [
+                        org_id,
                         int(job_id),
                         int(template_id),
                         int(version_id),

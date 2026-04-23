@@ -2494,7 +2494,6 @@ def _openai_generate_service_leads(
     limit: int,
     target_industries: list[str],
     target_roles: list[str],
-    allow_fallback: bool = False,
     include_keywords: list[str] | None = None,
     exclude_keywords: list[str] | None = None,
     min_score: float = 0,
@@ -2503,14 +2502,10 @@ def _openai_generate_service_leads(
     try:
         from openai import OpenAI
     except Exception:
-        if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "OpenAI SDK unavailable; used fallback."
         return [], "OpenAI SDK unavailable."
 
     api_key = _env_value("OPENAI_API_KEY", "")
     if not api_key:
-        if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "OPENAI_API_KEY missing; used fallback."
         return [], "OPENAI_API_KEY missing."
 
     configured_model = _env_value("OPENAI_MODEL", "gpt-4.1")
@@ -2629,16 +2624,11 @@ def _openai_generate_service_leads(
                 if len(out) >= limit:
                     break
             if out:
-                if len(out) < limit and allow_fallback:
-                    extra = _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out), target_industries, target_roles)
-                    out.extend(extra)
                 return out[:limit], None
             last_error = f"{model}: produced 0 qualifying leads"
         except Exception as e:
             last_error = f"{model}: {str(e)}"
             continue
-    if allow_fallback:
-        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), (last_error or "OpenAI failed; used fallback.")
     return [], (last_error or "OpenAI returned no qualifying leads.")
 
 
@@ -2651,7 +2641,6 @@ def _gemini_generate_service_leads(
     limit: int,
     target_industries: list[str],
     target_roles: list[str],
-    allow_fallback: bool = False,
     include_keywords: list[str] | None = None,
     exclude_keywords: list[str] | None = None,
     min_score: float = 0,
@@ -2659,8 +2648,6 @@ def _gemini_generate_service_leads(
 ) -> tuple[list[dict[str, Any]], str | None]:
     api_key = _env_value("GEMINI_API_KEY", "")
     if not api_key:
-        if allow_fallback:
-            return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), "GEMINI_API_KEY missing; used fallback."
         return [], "GEMINI_API_KEY missing."
 
     configured_model = _env_value("GEMINI_MODEL", "gemini-2.0-flash")
@@ -2824,8 +2811,6 @@ def _gemini_generate_service_leads(
                 if len(out) >= limit:
                     break
             if out:
-                if len(out) < limit and allow_fallback:
-                    out.extend(_leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit - len(out), target_industries, target_roles))
                 return out[:limit], None
             errors.append(f"{model}: produced 0 qualifying leads")
         except HTTPError as e:
@@ -2843,8 +2828,6 @@ def _gemini_generate_service_leads(
             errors.append(f"{model}: {str(e)}")
             continue
     detail = "; ".join(errors[:5]) if errors else "Gemini returned no qualifying leads."
-    if allow_fallback:
-        return _leadgen_fallback(service_name, regions, revenue_min, revenue_max, limit, target_industries, target_roles), detail + "; used fallback."
     return [], detail
 
 
@@ -3339,7 +3322,6 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
         revenue_min = float(max(0, _safe_float(body.get("revenue_min_m_gbp"), 5.0)))
         revenue_max = float(max(revenue_min, _safe_float(body.get("revenue_max_m_gbp"), 15.0)))
         replace_existing = bool(body.get("replace_existing", True))
-        allow_fallback = bool(body.get("allow_fallback", False))
         industries_input = body.get("target_industries")
         if isinstance(industries_input, list):
             target_industries = [str(x).strip() for x in industries_input if str(x).strip()]
@@ -3524,7 +3506,6 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             limit=leads_per_service,
                             target_industries=target_industries,
                             target_roles=target_roles,
-                            allow_fallback=allow_fallback,
                             include_keywords=include_keywords,
                             exclude_keywords=exclude_keywords,
                             min_score=min_score,
@@ -3559,7 +3540,6 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                             limit=leads_per_service,
                             target_industries=target_industries,
                             target_roles=target_roles,
-                            allow_fallback=allow_fallback,
                             include_keywords=include_keywords,
                             exclude_keywords=exclude_keywords,
                             min_score=min_score,
@@ -3756,7 +3736,7 @@ def generate_daily_leads(body: dict = Body(default={}), _user: dict = Depends(_c
                 diag_msg = " Diagnostics: " + "; ".join([f"{k}: {v}" for k, v in diagnostics.items()])
             raise HTTPException(
                 status_code=422,
-                detail="No verifiable leads generated. Try broader regions/filters, check provider status, or enable allow_fallback=true." + diag_msg,
+                detail="No verifiable leads generated. Try broader regions/filters or check provider status." + diag_msg,
             )
 
         return {

@@ -1,7 +1,31 @@
-"""Tenant scoping helpers used during the staged rollout."""
+"""Tenant scoping helpers for organization-aware requests."""
+from contextvars import ContextVar
+import logging
+
 from fastapi import HTTPException
 
 from core.database import get_conn
+
+logger = logging.getLogger(__name__)
+
+_CURRENT_ORG_ID: ContextVar[str | None] = ContextVar("nzi_current_org_id", default=None)
+
+
+def set_current_org_context(org_id: str | None) -> None:
+    """Store the active org for the current request context."""
+    normalized = str(org_id or "").strip() or None
+    _CURRENT_ORG_ID.set(normalized)
+
+
+def get_current_org_context() -> str | None:
+    """Return the active org for the current request context, if any."""
+    org_id = _CURRENT_ORG_ID.get()
+    return str(org_id).strip() if org_id else None
+
+
+def clear_current_org_context() -> None:
+    """Clear any org bound to the current request context."""
+    _CURRENT_ORG_ID.set(None)
 
 
 def get_default_org_id() -> str | None:
@@ -24,8 +48,13 @@ def get_default_org_id() -> str | None:
     return None
 
 
-def attach_org_id(user: dict) -> dict:
-    """Attach or hydrate the user's org id without enforcing tenant scope."""
+def attach_org_id(user: dict, *, allow_fallback: bool = False) -> dict:
+    """Attach the user's org id.
+
+    In normal runtime mode this only reads the user's stored organisation.
+    Callers must opt in to fallback hydration explicitly during migrations or
+    other one-off bootstrap flows.
+    """
     user_id = str(user.get("user_id") or "").strip()
     if not user_id:
         user["org_id"] = None
@@ -39,36 +68,31 @@ def attach_org_id(user: dict) -> dict:
             ).fetchone()
             if row and row[0]:
                 user["org_id"] = str(row[0])
+                set_current_org_context(user["org_id"])
                 return user
     except Exception:
         pass
 
-    org_id = get_default_org_id()
-    if org_id:
-        try:
-            with get_conn() as con:
-                con.execute(
-                    "UPDATE users SET org_id = ? WHERE user_id = ? AND org_id IS NULL",
-                    [org_id, user_id],
-                )
-        except Exception:
-            pass
-    user["org_id"] = org_id
+    user["org_id"] = None
+    clear_current_org_context()
+    logger.warning("Tenant resolution failed for user_id=%s", user_id or "unknown")
     return user
 
 
-def require_org(user: dict) -> str:
-    """Return the org id, falling back to the default org when possible."""
+def require_org(user: dict, *, allow_fallback: bool = False) -> str:
+    """Return the org id for a request.
+
+    Normal runtime requests must have a real organisation context. Fallback is
+    only available when the caller explicitly opts into staged-rollout behavior.
+    """
     org_id = str(user.get("org_id") or "").strip()
     if org_id:
+        set_current_org_context(org_id)
         return org_id
 
-    fallback = get_default_org_id()
-    if fallback:
-        user["org_id"] = fallback
-        return fallback
-
-    # Keep the staged rollout permissive if the org cannot be resolved yet.
-    # Returning an empty string is safer than blocking the whole page with a 403.
-    user["org_id"] = ""
-    return ""
+    clear_current_org_context()
+    logger.warning(
+        "Organisation context missing for user_id=%s",
+        str(user.get("user_id") or "unknown").strip() or "unknown",
+    )
+    raise HTTPException(status_code=403, detail="Organisation context required")
