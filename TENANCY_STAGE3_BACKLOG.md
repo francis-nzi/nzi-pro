@@ -17,7 +17,7 @@ Use this file as the living checklist for the next phase of multi-tenant archite
 
 | ID | Ticket | Priority | Status | Owner | Due date | Dependencies | Evidence |
 |---|---|---|---|---|---|---|---|
-| S3-1 | Finalise tenant role hierarchy and delegated admin model | P0 | Not started | You | 2026-07-24 | S2-2, S2-3 |  |
+| S3-1 | Finalise tenant role hierarchy and delegated admin model | P0 | Complete | You | 2026-07-24 | S2-2, S2-3 | `Files: api/admin_routes.py, frontend/src/app/admin/organisations/page.tsx, tests/test_org_roles.py, tests/test_stage2_regressions.py; tests: python -m pytest tests/test_org_roles.py tests/test_stage2_regressions.py tests/test_org_lifecycle.py tests/test_auth_routes.py, python -m pytest tests/test_main_tenancy.py tests/test_permissions.py tests/test_business_development_limits.py tests/test_pdf_tenancy.py tests/test_tenant_observability.py, npm run build; notes: owner/admin/billing/member/consultant capabilities are now explicit, and only owners can transfer ownership` |
 | S3-2 | Add subscription and entitlement source of truth | P0 | Not started | You | 2026-07-31 | S2-4 |  |
 | S3-3 | Enforce plan limits in all tenant-scoped product flows | P0 | Not started | You | 2026-07-31 | S3-2 |  |
 | S3-4 | Add org billing, invoices, and payment lifecycle | P1 | Not started | You | 2026-08-07 | S3-2, S3-3 |  |

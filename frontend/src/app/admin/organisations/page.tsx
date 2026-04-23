@@ -32,6 +32,19 @@ type OrganisationMembership = {
   role?: string | null;
   is_active?: boolean;
   is_owner?: boolean;
+  capabilities?: OrganisationRoleCapabilities | null;
+};
+
+type OrganisationRoleCapabilities = {
+  can_switch?: boolean;
+  can_manage_members?: boolean;
+  can_invite?: boolean;
+  can_manage_organisation?: boolean;
+  can_transfer_ownership?: boolean;
+  can_manage_billing?: boolean;
+  is_owner_role?: boolean;
+  is_admin_role?: boolean;
+  role?: string | null;
 };
 
 type OrganisationMember = {
@@ -62,11 +75,14 @@ type Organisation = {
   is_member?: boolean;
   is_active_org?: boolean;
   membership?: OrganisationMembership | null;
+  role_capabilities?: OrganisationRoleCapabilities | null;
 };
 
 type OrganisationsResponse = {
   items?: Organisation[];
   active_org_id?: string | null;
+  current_membership?: OrganisationMembership | null;
+  current_capabilities?: OrganisationRoleCapabilities | null;
 };
 
 type OrganisationMembersResponse = {
@@ -123,6 +139,7 @@ export default function OrganisationsPage() {
   const [status, setStatus] = useState("");
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+  const [currentCapabilities, setCurrentCapabilities] = useState<OrganisationRoleCapabilities | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [form, setForm] = useState<OrganisationForm>(DEFAULT_FORM);
   const [invite, setInvite] = useState<InviteForm>(DEFAULT_INVITE);
@@ -187,6 +204,7 @@ export default function OrganisationsPage() {
       }
       const items = Array.isArray(payload.items) ? payload.items : [];
       setOrganisations(items);
+      setCurrentCapabilities((payload as OrganisationsResponse).current_capabilities || null);
       const nextActive = payload.active_org_id || items.find((item) => item.is_active_org)?.org_id || items[0]?.org_id || null;
       setActiveOrgId(nextActive);
       setSelectedOrgId((current) => current || nextActive);
@@ -701,6 +719,7 @@ export default function OrganisationsPage() {
                       {members.map((member) => {
                         const draftRole = memberDraftRoles[member.user_id] || member.role || "Member";
                         const changed = draftRole !== (member.role || "Member");
+                        const canTransferOwnership = Boolean(selectedOrg?.membership?.capabilities?.can_transfer_ownership || currentCapabilities?.can_transfer_ownership);
                         return (
                           <TableRow key={member.user_id}>
                             <TableCell>
@@ -732,7 +751,7 @@ export default function OrganisationsPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-2">
-                                {!member.is_owner ? (
+                                {!member.is_owner && canTransferOwnership ? (
                                   <Button
                                     size="sm"
                                     variant="secondary"
@@ -769,8 +788,18 @@ export default function OrganisationsPage() {
                 <div>Selected org: {selectedOrg?.name || "-"}</div>
                 <div>Selected org id: {selectedOrg?.org_id || "-"}</div>
                 <div>Active org id: {activeOrgId || "-"}</div>
+                <div>
+                  Your role: {selectedOrg?.membership?.role || currentCapabilities?.role || "-"}
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {currentCapabilities?.can_manage_members ? <Badge variant="secondary">Manage members</Badge> : null}
+                  {currentCapabilities?.can_invite ? <Badge variant="secondary">Invite users</Badge> : null}
+                  {currentCapabilities?.can_manage_organisation ? <Badge variant="secondary">Manage org</Badge> : null}
+                  {currentCapabilities?.can_manage_billing ? <Badge variant="secondary">Billing</Badge> : null}
+                  {currentCapabilities?.can_transfer_ownership ? <Badge variant="secondary">Transfer ownership</Badge> : null}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                  Use Switch to change your current session org. Edit to adjust plan details or create a new organisation.
+                  Owners can transfer ownership. Admins can manage members and settings. Billing, member, and consultant roles can switch orgs but not transfer ownership.
                 </div>
               </CardContent>
             </Card>

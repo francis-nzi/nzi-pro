@@ -76,6 +76,48 @@ _ORG_ROLE_LABELS = {
     "member": "Member",
     "consultant": "Consultant",
 }
+_ORG_ROLE_CAPABILITIES = {
+    "owner": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": True,
+        "can_manage_billing": True,
+    },
+    "admin": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "billing": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": True,
+    },
+    "member": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "consultant": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+}
 _ORG_MANAGEMENT_ROLES = {"owner", "admin"}
 _ORG_SWITCH_ROLES = {"owner", "admin", "billing", "member", "consultant"}
 
@@ -232,6 +274,15 @@ def _org_role_rank(value: object | None) -> int:
     return _ORG_ROLE_RANKS.get(normalized.strip().lower(), 10)
 
 
+def _org_role_capabilities(value: object | None) -> dict[str, bool]:
+    normalized = _normalize_org_role(value).strip().lower()
+    caps = dict(_ORG_ROLE_CAPABILITIES.get(normalized, _ORG_ROLE_CAPABILITIES["member"]))
+    caps["is_owner_role"] = normalized == "owner"
+    caps["is_admin_role"] = normalized == "admin"
+    caps["role"] = _ORG_ROLE_LABELS.get(normalized, "Member")
+    return caps
+
+
 def _membership_for_user(con, user_id: str, org_id: str) -> dict[str, object] | None:
     try:
         row = con.execute(
@@ -270,7 +321,18 @@ def _org_role_info(con, user: dict, org_id: str) -> dict[str, object]:
         "role": role,
         "is_active": True,
         "is_owner": role == "Owner",
+        "capabilities": _org_role_capabilities(role),
     }
+
+
+def _require_org_owner_role(con, user: dict, org_id: str, *, allow_superadmin: bool = True) -> dict[str, object]:
+    role_info = _org_role_info(con, user, org_id)
+    user_role = str(role_info.get("role") or "Member").strip().lower()
+    if allow_superadmin and str(user.get("role") or "").strip().lower() in (SUPERADMIN_ROLE, "superadmin"):
+        return role_info
+    if user_role != "owner":
+        raise HTTPException(status_code=403, detail="Organisation owner role required")
+    return role_info
 
 
 def _require_org_management_role(con, user: dict, org_id: str, *, allow_superadmin: bool = True) -> dict[str, object]:
@@ -2699,6 +2761,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
                     "role": _normalize_org_role(r[1]),
                     "is_active": bool(r[2]) if r[2] is not None else True,
                     "is_owner": bool(r[3]) if r[3] is not None else False,
+                    "capabilities": _org_role_capabilities(r[1]),
                 }
                 for r in member_rows or []
                 if r and r[0] is not None
@@ -2711,11 +2774,20 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 item["is_member"] = str(item["org_id"] or "") in memberships
                 item["membership"] = memberships.get(str(item["org_id"] or ""))
                 item["is_active_org"] = item["org_id"] == active_org_id
-                item["can_manage"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_MANAGEMENT_ROLES
-                item["can_switch"] = bool(item["membership"]) and str(item["membership"].get("role") or "").strip().lower() in _ORG_SWITCH_ROLES
+                caps = dict(item["membership"].get("capabilities") or {}) if item["membership"] else {}
+                item["role_capabilities"] = caps
+                item["can_manage"] = bool(caps.get("can_manage_members"))
+                item["can_switch"] = bool(caps.get("can_switch"))
+                item["can_transfer_ownership"] = bool(caps.get("can_transfer_ownership"))
                 item["usage"] = usage
                 items.append(item)
-            return {"items": items, "active_org_id": active_org_id}
+            current_membership = memberships.get(active_org_id or "")
+            return {
+                "items": items,
+                "active_org_id": active_org_id,
+                "current_membership": current_membership,
+                "current_capabilities": dict((current_membership or {}).get("capabilities") or {}),
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -3059,7 +3131,7 @@ def update_organisation_member(org_id: str, member_user_id: str, body: dict = Bo
     try:
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
-            _require_org_management_role(con, _user, org_id)
+            role_info = _require_org_management_role(con, _user, org_id)
             membership = con.execute(
                 """
                 SELECT membership_id, org_id, user_id, role, is_active, is_owner
@@ -3073,6 +3145,8 @@ def update_organisation_member(org_id: str, member_user_id: str, body: dict = Bo
                 raise HTTPException(status_code=404, detail="Member not found")
             next_role = _normalize_org_role(body.get("role"), default="Member") if "role" in body and body.get("role") is not None else None
             transfer_owner = bool(body.get("is_owner")) or next_role == "Owner"
+            if transfer_owner and not bool((role_info.get("capabilities") or {}).get("can_transfer_ownership")):
+                raise HTTPException(status_code=403, detail="Organisation owner role required")
             if transfer_owner:
                 con.execute(
                     """
@@ -3182,7 +3256,7 @@ def transfer_organisation_ownership(
 
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
-            _require_org_management_role(con, _user, org_id)
+            _require_org_owner_role(con, _user, org_id)
             membership = con.execute(
                 """
                 SELECT membership_id, org_id, user_id, role, is_active, is_owner
