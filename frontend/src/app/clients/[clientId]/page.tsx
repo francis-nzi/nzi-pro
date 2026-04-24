@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
@@ -200,6 +200,8 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
 function ClientDetailPageContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
+  const router = useRouter();
+  const pathname = usePathname();
   const params = useParams<{ clientId: string }>();
   const searchParams = useSearchParams();
   const clientId = Number(params?.clientId);
@@ -364,6 +366,18 @@ function ClientDetailPageContent() {
       setActiveSection(validSection.id);
     }
   }, [searchParams]);
+
+  function setSection(section: ClientSection) {
+    setActiveSection(section);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (section === "dashboard") {
+      nextParams.delete("section");
+    } else {
+      nextParams.set("section", section);
+    }
+    const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1584,7 +1598,7 @@ function ClientDetailPageContent() {
                     key={section.id}
                     variant={activeSection === section.id ? "default" : "outline"}
                     className="w-full justify-start"
-                    onClick={() => setActiveSection(section.id)}
+                    onClick={() => setSection(section.id)}
                   >
                     {section.label}
                   </Button>
