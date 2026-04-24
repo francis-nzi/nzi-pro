@@ -265,7 +265,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           <CardContent className="pt-6 text-right">
             <div className="space-y-1">
               <div className="text-sm text-muted-foreground">Total Emissions</div>
-              <div className="text-3xl font-semibold tabular-nums">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+              <div className="text-3xl font-semibold tabular-nums">{total.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</div>
               <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
             </div>
           </CardContent>
@@ -328,7 +328,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <div className="text-center leading-none">
                           <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
-                            {total.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                            {total.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                           </div>
                           <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
                         </div>

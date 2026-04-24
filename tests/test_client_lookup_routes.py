@@ -104,7 +104,8 @@ def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
     monkeypatch.setattr(client_dashboard_routes, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(client_dashboard_routes, "require_org", lambda *_args, **_kwargs: "org-a")
     monkeypatch.setattr(client_dashboard_routes, "_load_client_jobs", lambda *_args, **_kwargs: jobs_df)
-    monkeypatch.setattr(client_dashboard_routes, "load_combined_emissions_summary_rows", lambda *_args, **_kwargs: emissions_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_reporting_rows", lambda *_args, **_kwargs: emissions_df)
+    monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, rows_df: rows_df)
     monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
 
     result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
@@ -116,7 +117,7 @@ def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
     assert result["top_categories"][0]["emissions"] == 40.57
 
 
-def test_client_dashboard_falls_back_to_exact_reporting_rows(monkeypatch) -> None:
+def test_client_dashboard_falls_back_to_summary_when_exact_empty(monkeypatch) -> None:
     conn = _DashboardConn()
     jobs_df = pd.DataFrame(
         [
@@ -128,7 +129,7 @@ def test_client_dashboard_falls_back_to_exact_reporting_rows(monkeypatch) -> Non
             }
         ]
     )
-    exact_rows_df = pd.DataFrame(
+    summary_rows_df = pd.DataFrame(
         [
             {
                 "job_id": 627,
@@ -136,7 +137,7 @@ def test_client_dashboard_falls_back_to_exact_reporting_rows(monkeypatch) -> Non
                 "scope": "Scope 3",
                 "category": "Office",
                 "emissions": 40.57,
-                "record_type": "legacy",
+                "record_type": "source_register",
             }
         ]
     )
@@ -145,9 +146,9 @@ def test_client_dashboard_falls_back_to_exact_reporting_rows(monkeypatch) -> Non
     monkeypatch.setattr(client_dashboard_routes, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(client_dashboard_routes, "require_org", lambda *_args, **_kwargs: "org-a")
     monkeypatch.setattr(client_dashboard_routes, "_load_client_jobs", lambda *_args, **_kwargs: jobs_df)
-    monkeypatch.setattr(client_dashboard_routes, "load_combined_emissions_summary_rows", lambda *_args, **_kwargs: pd.DataFrame([]))
-    monkeypatch.setattr(client_dashboard_routes, "load_combined_reporting_rows", lambda *_args, **_kwargs: exact_rows_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_reporting_rows", lambda *_args, **_kwargs: pd.DataFrame([]))
     monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, rows_df: rows_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_emissions_summary_rows", lambda *_args, **_kwargs: summary_rows_df)
     monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
 
     result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})

@@ -225,33 +225,35 @@ def get_client_dashboard(
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
             diagnostic["jobs_count"] = len(job_ids)
 
-            # Load emissions summary rows for the resolved jobs.
+            # Primary: exact per-row resolver path (matches /clients/{id}/reporting
+            # and the Job Report views, including monthly factor handling).
             try:
-                scope_df = load_combined_emissions_summary_rows(con, job_ids)
+                scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
                 if scope_df is not None:
-                    diagnostic["summary_row_count"] = int(len(scope_df))
+                    diagnostic["exact_row_count"] = int(len(scope_df))
             except Exception as exc:
                 logger.exception(
-                    "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
+                    "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
                     client_db_id,
                     job_ids,
                 )
-                diagnostic["error"] = f"emissions_summary: {exc}"
+                diagnostic["error"] = f"exact_reporting: {exc}"
                 scope_df = None
 
-            # Fallback: compute emissions row-by-row from the exact resolver.
+            # Fallback: aggregated summary query — faster but uses a single factor
+            # per row. Only consulted if the exact path fails, to preserve a response.
             if (scope_df is None or scope_df.empty) and job_ids:
                 try:
-                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
+                    scope_df = load_combined_emissions_summary_rows(con, job_ids)
                     if scope_df is not None:
-                        diagnostic["exact_row_count"] = int(len(scope_df))
+                        diagnostic["summary_row_count"] = int(len(scope_df))
                 except Exception as exc:
                     logger.exception(
-                        "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
+                        "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
                         client_db_id,
                         job_ids,
                     )
-                    diagnostic["error"] = f"exact_reporting: {exc}"
+                    diagnostic["error"] = f"emissions_summary: {exc}"
                     scope_df = None
 
             benchmark_metrics = None
