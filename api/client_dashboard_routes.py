@@ -225,35 +225,35 @@ def get_client_dashboard(
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
             diagnostic["jobs_count"] = len(job_ids)
 
-            # Primary: exact per-row resolver path (matches /clients/{id}/reporting
-            # and the Job Report views, including monthly factor handling).
+            # Primary: use the aggregated summary path for speed. Exact per-row
+            # resolution is retained only as a fallback for missing/empty results.
             try:
-                scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
+                scope_df = load_combined_emissions_summary_rows(con, job_ids)
                 if scope_df is not None:
-                    diagnostic["exact_row_count"] = int(len(scope_df))
+                    diagnostic["summary_row_count"] = int(len(scope_df))
             except Exception as exc:
                 logger.exception(
-                    "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
+                    "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
                     client_db_id,
                     job_ids,
                 )
-                diagnostic["error"] = f"exact_reporting: {exc}"
+                diagnostic["error"] = f"emissions_summary: {exc}"
                 scope_df = None
 
-            # Fallback: aggregated summary query — faster but uses a single factor
-            # per row. Only consulted if the exact path fails, to preserve a response.
+            # Fallback: exact per-row resolver path (matches /clients/{id}/reporting
+            # and the Job Report views, including monthly factor handling).
             if (scope_df is None or scope_df.empty) and job_ids:
                 try:
-                    scope_df = load_combined_emissions_summary_rows(con, job_ids)
+                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
                     if scope_df is not None:
-                        diagnostic["summary_row_count"] = int(len(scope_df))
+                        diagnostic["exact_row_count"] = int(len(scope_df))
                 except Exception as exc:
                     logger.exception(
-                        "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
+                        "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
                         client_db_id,
                         job_ids,
                     )
-                    diagnostic["error"] = f"emissions_summary: {exc}"
+                    diagnostic["error"] = f"exact_reporting: {exc}"
                     scope_df = None
 
             benchmark_metrics = None
@@ -382,8 +382,7 @@ def get_client_dashboard(
                             'percentage': round(percentage, 1)
                         })
 
-            # Additional summary: industry average and net-zero progress
-            industry_average_emissions = None
+            # Additional summary: net-zero progress.
             net_zero_progress = None
 
             try:
@@ -566,7 +565,7 @@ def get_client_dashboard(
                         "net_zero_year": int(net_year),
                         "years_to_target": int(net_year) - int(cur_year)
                     }
-            
+
             # Calculate year-over-year change for selected year
             yoy_change = None
             if selected_year is not None:
@@ -609,7 +608,7 @@ def get_client_dashboard(
                                     'intensity': round(intensity, 2)
                                 })
             
-            # Get client currency for display
+            # Get client currency for display.
             try:
                 if org_id:
                     client_currency = con.execute(
@@ -639,7 +638,7 @@ def get_client_dashboard(
                 'intensity_metrics': intensity_metrics,
                 'currency': currency,
                 'benchmark_metrics': benchmark_metrics,
-                'industry_average_emissions': industry_average_emissions,
+                'industry_average_emissions': None,
                 'net_zero_progress': net_zero_progress,
                 'diagnostic': diagnostic,
             }
