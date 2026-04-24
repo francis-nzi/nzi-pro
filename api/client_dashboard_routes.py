@@ -4,8 +4,11 @@ Provides aggregated emissions data and metrics for client dashboards
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from copy import deepcopy
 import logging
 import os
+import threading
+import time
 from core.database import get_conn
 from api.auth import _current_user
 from api.permissions import assert_client_access
@@ -18,6 +21,10 @@ from services.emissions_reporting import attach_exact_emissions, load_combined_e
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_DASHBOARD_CACHE_TTL_SECONDS = 15.0
+_dashboard_cache: dict[tuple[int, int | None, str | None], tuple[float, dict[str, object]]] = {}
+_dashboard_cache_lock = threading.Lock()
 
 
 def _org_match_clause(job_alias: str = "j", client_alias: str = "c") -> str:
@@ -48,6 +55,30 @@ def _extract_job_years(jobs_df) -> list[int]:
         if year is not None:
             years.append(year)
     return sorted(set(years))
+
+
+def _dashboard_cache_key(client_db_id: int, year: int | None, org_id: str | None) -> tuple[int, int | None, str | None]:
+    return (int(client_db_id), _safe_year_value(year), str(org_id) if org_id else None)
+
+
+def _get_cached_dashboard(client_db_id: int, year: int | None, org_id: str | None):
+    key = _dashboard_cache_key(client_db_id, year, org_id)
+    now = time.monotonic()
+    with _dashboard_cache_lock:
+        cached = _dashboard_cache.get(key)
+        if not cached:
+            return None
+        created_at, payload = cached
+        if (now - created_at) > _DASHBOARD_CACHE_TTL_SECONDS:
+            _dashboard_cache.pop(key, None)
+            return None
+        return deepcopy(payload)
+
+
+def _set_cached_dashboard(client_db_id: int, year: int | None, org_id: str | None, payload: dict[str, object]) -> None:
+    key = _dashboard_cache_key(client_db_id, year, org_id)
+    with _dashboard_cache_lock:
+        _dashboard_cache[key] = (time.monotonic(), deepcopy(payload))
 
 
 def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
@@ -160,6 +191,9 @@ def get_client_dashboard(
     try:
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
+        cached = _get_cached_dashboard(int(client_db_id), year, org_id)
+        if cached is not None:
+            return cached
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
             diagnostic: dict[str, object] = {
@@ -627,7 +661,7 @@ def get_client_dashboard(
                 ).fetchone()
             
             currency = client_currency[0] if client_currency and client_currency[0] else 'GBP'
-            return {
+            payload = {
                 'client_db_id': int(client_db_id),
                 'selected_year': selected_year,
                 'available_years': available_years,
@@ -642,6 +676,8 @@ def get_client_dashboard(
                 'net_zero_progress': net_zero_progress,
                 'diagnostic': diagnostic,
             }
+            _set_cached_dashboard(int(client_db_id), year, org_id, payload)
+            return payload
     except HTTPException:
         raise
     except Exception as e:
