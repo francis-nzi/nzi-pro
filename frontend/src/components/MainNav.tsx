@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { apiUrl, clearAuthState, hasAuthState } from "@/lib/auth-client";
+import { apiUrl, clearAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -112,7 +112,6 @@ export function MainNav() {
     let cancelled = false;
     const timer = setTimeout(() => {
       void (async () => {
-        const authed = hasAuthState();
         let userId = "";
         let adminAccess = false;
         let currentOrgId = "";
@@ -120,44 +119,51 @@ export function MainNav() {
         let currentOrgSlug = "";
         let currentOrgRole = "";
         let organisations: NavOrganisation[] = [];
+        let authed = false;
 
-        if (authed) {
-          try {
-            const res = await fetch(apiUrl("/auth/me"), { credentials: "include" });
-            if (res.ok) {
-              const payload = await res.json().catch(() => ({}));
-              const user = payload?.user || {};
-              const currentOrg = payload?.current_org || {};
-              adminAccess = hasAdminAccessFromPayload(user, currentOrg);
-              userId = String(user?.email || user?.user_id || "").trim();
-              currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
-              currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
-              currentOrgSlug = String(currentOrg?.slug || "").trim();
-              currentOrgRole = String(currentOrg?.role || "").trim();
-              if (adminAccess) {
-                try {
-                  const orgRes = await fetch(apiUrl("/admin/organisations"), { credentials: "include" });
-                  if (orgRes.ok) {
-                    const orgPayload = await orgRes.json().catch(() => ({}));
-                    organisations = Array.isArray(orgPayload?.items) ? orgPayload.items : [];
-                    const activeOrg =
-                      organisations.find((item) => item.is_active_org) ||
-                      organisations.find((item) => item.org_id === orgPayload?.active_org_id) ||
-                      null;
-                    if (activeOrg) {
-                      currentOrgId = String(activeOrg.org_id || currentOrgId || "").trim();
-                      currentOrgLabel = String(activeOrg.name || activeOrg.org_id || currentOrgLabel || "").trim();
-                      currentOrgSlug = String(activeOrg.slug || "").trim();
-                    }
+        try {
+          const res = await fetch(apiUrl("/auth/me"), {
+            credentials: "include",
+            headers: { "X-NZI-Skip-Auth-Redirect": "1" },
+          });
+          if (res.ok) {
+            authed = true;
+            const payload = await res.json().catch(() => ({}));
+            const user = payload?.user || {};
+            const currentOrg = payload?.current_org || {};
+            adminAccess = hasAdminAccessFromPayload(user, currentOrg);
+            userId = String(user?.email || user?.user_id || "").trim();
+            currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
+            currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
+            currentOrgSlug = String(currentOrg?.slug || "").trim();
+            currentOrgRole = String(currentOrg?.role || "").trim();
+            if (adminAccess) {
+              try {
+                const orgRes = await fetch(apiUrl("/admin/organisations"), {
+                  credentials: "include",
+                  headers: { "X-NZI-Skip-Auth-Redirect": "1" },
+                });
+                if (orgRes.ok) {
+                  const orgPayload = await orgRes.json().catch(() => ({}));
+                  organisations = Array.isArray(orgPayload?.items) ? orgPayload.items : [];
+                  const activeOrg =
+                    organisations.find((item) => item.is_active_org) ||
+                    organisations.find((item) => item.org_id === orgPayload?.active_org_id) ||
+                    null;
+                  if (activeOrg) {
+                    currentOrgId = String(activeOrg.org_id || currentOrgId || "").trim();
+                    currentOrgLabel = String(activeOrg.name || activeOrg.org_id || currentOrgLabel || "").trim();
+                    currentOrgSlug = String(activeOrg.slug || "").trim();
                   }
-                } catch {
-                  organisations = [];
                 }
+              } catch {
+                organisations = [];
               }
             }
-          } catch {
-            adminAccess = false;
           }
+        } catch {
+          authed = false;
+          adminAccess = false;
         }
 
         if (!cancelled) {

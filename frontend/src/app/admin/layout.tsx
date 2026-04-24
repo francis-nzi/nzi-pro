@@ -37,7 +37,10 @@ export default function AdminLayout({ children }: PropsWithChildren) {
 
     async function checkAccess() {
       try {
-        const res = await fetch(apiUrl("/auth/me"), { credentials: "include" });
+        const res = await fetch(apiUrl("/auth/me"), {
+          credentials: "include",
+          headers: { "X-NZI-Skip-Auth-Redirect": "1" },
+        });
         if (!res.ok) {
           if (!cancelled) setAccessState("denied");
           return;

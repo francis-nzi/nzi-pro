@@ -174,6 +174,8 @@ export function installAuthFetchPatch(): void {
       headers.set("Authorization", `Bearer ${token}`);
     }
 
+    const skipAuthRedirect = headers.get("X-NZI-Skip-Auth-Redirect") === "1";
+
     const requestInit: RequestInit = { ...init, headers };
     if (isApiRequest(requestUrl)) {
       requestInit.credentials = requestInit.credentials ?? "include";
@@ -181,7 +183,7 @@ export function installAuthFetchPatch(): void {
 
     const response = await originalFetch(input, requestInit);
 
-    if (isApiRequest(requestUrl) && response.status === 401) {
+    if (isApiRequest(requestUrl) && response.status === 401 && !skipAuthRedirect) {
       clearAuthState();
       if (typeof window !== "undefined" && window.location.pathname !== "/login") {
         const next = encodeURIComponent(window.location.pathname + window.location.search);

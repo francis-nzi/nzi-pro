@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { apiUrl, hasAuthState, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
+import { apiUrl, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
 
 function appendNext(path: string, next: string): string {
   return `${path}?next=${encodeURIComponent(next)}`;
@@ -43,7 +43,6 @@ export function AuthBootstrap() {
       pathname?.startsWith("/legal/") ||
       pathname === "/support/legal" ||
       pathname?.startsWith("/support/legal/");
-    const loggedIn = hasAuthState();
     const mustChange = mustChangePassword();
     const mustAcceptTerms = mustAcceptPortalTerms();
     const currentNext =
@@ -53,19 +52,18 @@ export function AuthBootstrap() {
     const loginNext = searchParams?.get("next") || "/";
     const desiredNext = isLoginPage ? loginNext : currentNext;
 
-    if (!loggedIn && !isPublicPage) {
-      router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
-      return;
-    }
-
-    if (!loggedIn) return;
-
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(apiUrl("/auth/me"), { credentials: "include" });
+        const res = await fetch(apiUrl("/auth/me"), {
+          credentials: "include",
+          headers: { "X-NZI-Skip-Auth-Redirect": "1" },
+        });
         if (cancelled) return;
         if (!res.ok) {
+          if (!isPublicPage && !isLoginPage) {
+            router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
+          }
           if (isLoginPage) {
             router.replace(loginNext || "/");
           }
@@ -127,15 +125,19 @@ export function AuthBootstrap() {
         }
       } catch {
         if (cancelled) return;
-        if (loggedIn && mustChange && !isChangePasswordPage) {
+        if (!isPublicPage && !isLoginPage) {
+          router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
+          return;
+        }
+        if (mustChange && !isChangePasswordPage) {
           router.replace("/change-password");
           return;
         }
-        if (loggedIn && mustAcceptTerms && !isAcceptTermsPage) {
+        if (mustAcceptTerms && !isAcceptTermsPage) {
           router.replace("/accept-terms");
           return;
         }
-        if (loggedIn && isLoginPage) {
+        if (isLoginPage) {
           router.replace(loginNext || "/");
         }
       }

@@ -136,6 +136,30 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     return [...new Set(derivedYears)].sort((a, b) => b - a);
   }, [data]);
 
+  useEffect(() => {
+    if (!data || loading) return;
+
+    const responseYear = data.selected_year ?? data.current_metrics?.year ?? null;
+    if (selectedYear === null) {
+      if (responseYear !== null) {
+        setSelectedYear(Number(responseYear));
+        return;
+      }
+      if (yearOptions.length > 0) {
+        const latestYear = yearOptions[0];
+        setSelectedYear(latestYear);
+        void loadDashboard(latestYear);
+      }
+      return;
+    }
+
+    if (yearOptions.length > 0 && !yearOptions.includes(selectedYear)) {
+      const latestYear = yearOptions[0];
+      setSelectedYear(latestYear);
+      void loadDashboard(latestYear);
+    }
+  }, [data, loading, loadDashboard, selectedYear, yearOptions]);
+
   const topCategoryData = useMemo(() => {
     if (!data) return [];
     return [...(data.top_categories || [])]
@@ -191,7 +215,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   if (!data) return <div className="py-8 text-center">No data available</div>;
 
   const total = Number(data.current_metrics.total_emissions || 0);
-  const displayYear = data.selected_year ?? data.current_metrics.year ?? "N/A";
+  const displayYear = selectedYear ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
   const benchmarkCaption = benchmarkPoint
     ? benchmarkPoint.source === "client"
       ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
