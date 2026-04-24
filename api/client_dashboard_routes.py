@@ -4,6 +4,7 @@ Provides aggregated emissions data and metrics for client dashboards
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+import logging
 import os
 from core.database import get_conn
 from api.auth import _current_user
@@ -13,6 +14,8 @@ from services.tenancy import org_context
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
 from services.emissions_reporting import attach_exact_emissions, load_combined_emissions_summary_rows, load_combined_reporting_rows
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -159,21 +162,97 @@ def get_client_dashboard(
         org_id = require_org(_user)
         with get_conn() as con:
             ensure_client_benchmark_columns(con)
+            diagnostic: dict[str, object] = {
+                "org_id": org_id,
+                "jobs_source": None,
+                "jobs_count": 0,
+                "summary_row_count": 0,
+                "exact_row_count": 0,
+                "error": None,
+            }
+            jobs_df = None
+            scope_df = None
+            job_ids: list[int] = []
+
+            # Stage 1: try to find CRP jobs scoped to the user's org.
             try:
-                # Prefer CRP jobs for the dashboard, but fall back to all client jobs
-                # when the client has no CRP-tagged jobs yet.
                 jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=True)
-                if jobs_df is None or jobs_df.empty:
+                if jobs_df is not None and not jobs_df.empty:
+                    diagnostic["jobs_source"] = "crp_org"
+            except Exception as exc:
+                logger.exception(
+                    "dashboard.jobs_lookup_failed stage=crp_org client_db_id=%s org_id=%s",
+                    client_db_id,
+                    org_id,
+                )
+                diagnostic["error"] = f"crp_org: {exc}"
+
+            # Stage 2: broaden to all jobs for this org.
+            if jobs_df is None or jobs_df.empty:
+                try:
                     jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=False)
-                if jobs_df is None or jobs_df.empty:
+                    if jobs_df is not None and not jobs_df.empty:
+                        diagnostic["jobs_source"] = "all_org"
+                except Exception as exc:
+                    logger.exception(
+                        "dashboard.jobs_lookup_failed stage=all_org client_db_id=%s org_id=%s",
+                        client_db_id,
+                        org_id,
+                    )
+                    diagnostic["error"] = f"all_org: {exc}"
+
+            # Stage 3: last-resort fallback that ignores org scoping. Kept for parity
+            # with pre-tenancy clients whose jobs/clients rows still have a null org_id.
+            if jobs_df is None or jobs_df.empty:
+                try:
                     jobs_df = _load_client_jobs(con, int(client_db_id), None, crp_only=False)
-                job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
+                    if jobs_df is not None and not jobs_df.empty:
+                        diagnostic["jobs_source"] = "any_org"
+                        logger.warning(
+                            "dashboard.jobs_lookup_any_org client_db_id=%s user_org_id=%s job_count=%s",
+                            client_db_id,
+                            org_id,
+                            len(jobs_df),
+                        )
+                except Exception as exc:
+                    logger.exception(
+                        "dashboard.jobs_lookup_failed stage=any_org client_db_id=%s",
+                        client_db_id,
+                    )
+                    diagnostic["error"] = f"any_org: {exc}"
+
+            if jobs_df is not None and not jobs_df.empty:
+                job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
+            diagnostic["jobs_count"] = len(job_ids)
+
+            # Load emissions summary rows for the resolved jobs.
+            try:
                 scope_df = load_combined_emissions_summary_rows(con, job_ids)
-                if (scope_df is None or scope_df.empty) and job_ids:
-                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
-            except Exception:
-                jobs_df = None
+                if scope_df is not None:
+                    diagnostic["summary_row_count"] = int(len(scope_df))
+            except Exception as exc:
+                logger.exception(
+                    "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
+                    client_db_id,
+                    job_ids,
+                )
+                diagnostic["error"] = f"emissions_summary: {exc}"
                 scope_df = None
+
+            # Fallback: compute emissions row-by-row from the exact resolver.
+            if (scope_df is None or scope_df.empty) and job_ids:
+                try:
+                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
+                    if scope_df is not None:
+                        diagnostic["exact_row_count"] = int(len(scope_df))
+                except Exception as exc:
+                    logger.exception(
+                        "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
+                        client_db_id,
+                        job_ids,
+                    )
+                    diagnostic["error"] = f"exact_reporting: {exc}"
+                    scope_df = None
 
             benchmark_metrics = None
             try:
@@ -187,6 +266,11 @@ def get_client_dashboard(
                     _safe_year_value(year)
                     if _safe_year_value(year) is not None and _safe_year_value(year) in available_years
                     else (available_years[-1] if available_years else None)
+                )
+                logger.warning(
+                    "dashboard.empty_response client_db_id=%s diagnostic=%s",
+                    client_db_id,
+                    diagnostic,
                 )
                 return {
                     'client_db_id': int(client_db_id),
@@ -206,7 +290,8 @@ def get_client_dashboard(
                     'currency': 'GBP',
                     'benchmark_metrics': benchmark_metrics,
                     'industry_average_emissions': None,
-                    'net_zero_progress': None
+                    'net_zero_progress': None,
+                    'diagnostic': diagnostic,
                 }
 
             scope_df = scope_df.copy()
@@ -553,9 +638,13 @@ def get_client_dashboard(
                 'currency': currency,
                 'benchmark_metrics': benchmark_metrics,
                 'industry_average_emissions': industry_average_emissions,
-                'net_zero_progress': net_zero_progress
+                'net_zero_progress': net_zero_progress,
+                'diagnostic': diagnostic,
             }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.exception("dashboard.unhandled_error client_db_id=%s", client_db_id)
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard data: {e}")
 
 
