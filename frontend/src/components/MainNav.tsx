@@ -250,10 +250,7 @@ export function MainNav() {
     { href: "/business-development", label: "Sales" },
     { href: "/support", label: "Help" },
   ];
-  const showAdminNav = authUi.ready && authUi.authed;
-  if (showAdminNav) {
-    links.splice(6, 0, { href: "/admin", label: "Admin" });
-  }
+  links.splice(6, 0, { href: "/admin", label: "Admin" });
   const isAdminRoute = pathname === "/admin" || pathname?.startsWith("/admin/");
   const isHelpRoute =
     pathname === "/support" ||

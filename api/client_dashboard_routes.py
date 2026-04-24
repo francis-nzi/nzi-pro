@@ -12,7 +12,7 @@ from services.tenancy import require_org
 from services.tenancy import org_context
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
-from services.emissions_reporting import load_combined_emissions_summary_rows
+from services.emissions_reporting import attach_exact_emissions, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -129,6 +129,18 @@ def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool
     ).df()
 
 
+def _dashboard_rows_from_exact_reporting(con, job_ids: list[int]):
+    if not job_ids:
+        return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
+    rows_df = load_combined_reporting_rows(con, job_ids)
+    if rows_df is None or rows_df.empty:
+        return rows_df
+    rows_df = attach_exact_emissions(con, rows_df)
+    if "dashboard_year" not in rows_df.columns:
+        return rows_df
+    return rows_df
+
+
 @router.get("/clients/{client_db_id}/dashboard")
 def get_client_dashboard(
     client_db_id: int,
@@ -153,8 +165,12 @@ def get_client_dashboard(
                 jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=True)
                 if jobs_df is None or jobs_df.empty:
                     jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=False)
+                if jobs_df is None or jobs_df.empty:
+                    jobs_df = _load_client_jobs(con, int(client_db_id), None, crp_only=False)
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
                 scope_df = load_combined_emissions_summary_rows(con, job_ids)
+                if (scope_df is None or scope_df.empty) and job_ids:
+                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
             except Exception:
                 jobs_df = None
                 scope_df = None
