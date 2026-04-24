@@ -798,6 +798,33 @@ export default function OrganisationsPage() {
           </div>
         ) : null}
 
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle>Organisation Onboarding Checklist</CardTitle>
+            <CardDescription>
+              Use this when you bring a new tenant online or hand a workspace to a new team.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 text-sm">
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">1. Review the active org</div>
+              <p className="text-muted-foreground">Confirm the tenant name, plan, and member count before making changes.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">2. Invite the team</div>
+              <p className="text-muted-foreground">Add owners, admins, billing users, and consultants from the member panel.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">3. Switch safely</div>
+              <p className="text-muted-foreground">Use the organisation switch action only after you confirm the tenant context in Support.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">4. Check billing and limits</div>
+              <p className="text-muted-foreground">Review plan status, member limits, and client capacity before the first job goes live.</p>
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
           <Card>
             <CardHeader>

@@ -146,6 +146,13 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "System & Governance",
   },
   {
+    title: "Background Jobs",
+    description: "Monitor queued PDF jobs, inspect failures, and replay safe jobs.",
+    href: "/admin/background-jobs",
+    cta: "Open Job Monitor",
+    domain: "System & Governance",
+  },
+  {
     title: "Archive Management",
     description: "Restore or permanently remove archived records.",
     href: "/admin/archive",

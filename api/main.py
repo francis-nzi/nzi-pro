@@ -1,4 +1,5 @@
 import io
+from datetime import datetime, timezone
 import mimetypes
 import os
 import re
@@ -120,6 +121,7 @@ from api.xero_routes import router as xero_router
 from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
+from api.auth_routes import _current_org_summary
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from services.tenancy import require_org
 
@@ -319,6 +321,42 @@ def support_database_fingerprint(_user: dict[str, str] = Depends(_current_user))
         "host_ip": row[2],
         "host_port": row[3],
         "pg_version": row[4],
+    }
+
+
+@app.get("/support/diagnostics")
+def support_diagnostics(user: dict[str, str] = Depends(_current_user)):
+    """Return a support-friendly snapshot of the active session and database."""
+    fingerprint = support_database_fingerprint(user)
+    current_org = _current_org_summary(user)
+    permissions = sorted(
+        {
+            str(permission).strip()
+            for permission in (user.get("effective_permissions") or [])
+            if str(permission).strip()
+        }
+    )
+    role = str(user.get("role") or "").strip()
+    can_manage_organisations = bool(
+        user.get("is_super_admin")
+        or "admin.access" in permissions
+        or role.lower() in {"admin", "superadmin"}
+    )
+    return {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "database": fingerprint,
+        "session": {
+            "user_id": str(user.get("user_id") or "").strip() or None,
+            "email": str(user.get("email") or "").strip() or None,
+            "role": role or None,
+            "org_id": str(user.get("org_id") or "").strip() or None,
+            "mfa_enabled": bool(user.get("mfa_enabled")) if user.get("mfa_enabled") is not None else None,
+            "must_change_password": bool(user.get("must_change_password")) if user.get("must_change_password") is not None else None,
+            "is_super_admin": bool(user.get("is_super_admin")) if user.get("is_super_admin") is not None else None,
+            "effective_permissions": permissions,
+        },
+        "current_org": current_org,
+        "can_manage_organisations": can_manage_organisations,
     }
 
 # Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
@@ -3521,8 +3559,8 @@ def list_clients(
 
         params: list[object] = [org_id, org_id]
         clause = (
-            f"(CAST(c.org_id AS TEXT) = {org_placeholder} "
-            f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = {org_placeholder})"
+            f"(c.org_id = {org_placeholder} "
+            f"OR EXISTS (SELECT 1 FROM jobs j WHERE j.client_db_id = c.db_id AND j.org_id = {org_placeholder})"
         )
         clause += ")"
         return clause, params
@@ -4594,7 +4632,7 @@ def client_jobs(
                         SELECT COUNT(*)
                         FROM jobs j
                         WHERE j.client_db_id = ?
-                          AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ?
+                          AND j.org_id = ?
                         """,
                         [int(client_db_id), org_text],
                     ).fetchone()
@@ -4631,7 +4669,7 @@ def client_jobs(
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
                         WHERE j.client_db_id = ?
-                          AND TRIM(COALESCE(CAST(j.org_id AS TEXT), '')) = ?
+                          AND j.org_id = ?
                         GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                                  j.job_type, j.is_crp, j.reporting_period_end,
                                  jp.data_collection_due, jp.data_collection_completed_at,

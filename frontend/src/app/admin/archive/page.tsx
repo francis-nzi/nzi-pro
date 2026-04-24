@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -35,6 +37,19 @@ type ArchivedIndustry = {
   is_active?: boolean | null;
 };
 
+type ArchiveRetentionSummary = {
+  retention_days: number;
+  cutoff_at: string | null;
+  datasets: {
+    archived_total: number;
+    purgeable_total: number;
+  };
+  clients: {
+    archived_total: number;
+    purgeable_total: number;
+  };
+};
+
 export default function ArchivePage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
@@ -42,8 +57,13 @@ export default function ArchivePage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [clients, setClients] = useState<ArchivedClient[]>([]);
   const [industries, setIndustries] = useState<ArchivedIndustry[]>([]);
+  const [retentionSummary, setRetentionSummary] = useState<ArchiveRetentionSummary | null>(null);
+  const [retentionDays, setRetentionDays] = useState("365");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [retentionStatus, setRetentionStatus] = useState("");
+  const [retentionError, setRetentionError] = useState("");
+  const [purging, setPurging] = useState(false);
 
   useEffect(() => {
     void loadArchivedData();
@@ -52,10 +72,11 @@ export default function ArchivePage() {
   async function loadArchivedData() {
     setLoading(true);
     try {
-      const [datasetsRes, clientsRes, industriesRes] = await Promise.all([
+      const [datasetsRes, clientsRes, industriesRes, retentionRes] = await Promise.all([
         fetch(`${baseUrl}/admin/datasets?include_archived=true`),
         fetch(`${baseUrl}/admin/archived-clients`),
         fetch(`${baseUrl}/admin/lookups/industries_lookup?include_archived=true`),
+        fetch(`${baseUrl}/admin/archive/retention-summary`),
       ]);
 
       if (datasetsRes.ok) {
@@ -75,10 +96,89 @@ export default function ArchivePage() {
             : []
         );
       }
+      if (retentionRes.ok) {
+        const json = (await retentionRes.json()) as ArchiveRetentionSummary;
+        setRetentionSummary(json);
+        setRetentionDays(String(json.retention_days || 365));
+      }
     } catch (e) {
       setStatus(`Error loading archived items: ${(e as Error).message}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveRetentionPolicy() {
+    const parsedDays = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(parsedDays) || parsedDays < 1) {
+      setRetentionError("Retention days must be a positive number.");
+      return;
+    }
+
+    setRetentionError("");
+    setRetentionStatus("Saving retention policy...");
+    try {
+      const res = await fetch(`${baseUrl}/system-settings/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ settings: { archive_retention_days: String(parsedDays) } }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(String((payload as { detail?: string }).detail || "Failed to save retention policy"));
+      }
+      setRetentionStatus(`Retention policy saved: ${parsedDays} days.`);
+      await loadArchivedData();
+      setTimeout(() => setRetentionStatus(""), 3000);
+    } catch (e) {
+      setRetentionError((e as Error).message);
+      setRetentionStatus("");
+    }
+  }
+
+  async function purgeArchivedData() {
+    const parsedDays = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(parsedDays) || parsedDays < 1) {
+      setRetentionError("Retention days must be a positive number.");
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: "Purge archived data?",
+      description: `This will permanently delete archived datasets and archived clients older than ${parsedDays} days. Archived clients with dependent jobs, quotes, or invoices will be skipped.`,
+      confirmLabel: "Purge archived data",
+      destructive: true,
+      confirmationText: "PURGE",
+    });
+    if (!confirmed) return;
+
+    setPurging(true);
+    setRetentionError("");
+    setRetentionStatus("Purging archived data...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/archive/purge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ retention_days: parsedDays }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(String((payload as { detail?: string }).detail || "Failed to purge archived data"));
+      }
+      const counts = (payload as { counts?: { datasets_deleted?: number; clients_deleted?: number; clients_skipped?: number } }).counts || {};
+      setRetentionStatus(
+        `Purged ${Number(counts.datasets_deleted || 0)} datasets and ${Number(counts.clients_deleted || 0)} clients.`
+        + (Number(counts.clients_skipped || 0) ? ` Skipped ${Number(counts.clients_skipped || 0)} clients with dependencies.` : "")
+      );
+      await loadArchivedData();
+      setTimeout(() => setRetentionStatus(""), 4000);
+    } catch (e) {
+      setRetentionError((e as Error).message);
+      setRetentionStatus("");
+    } finally {
+      setPurging(false);
     }
   }
 
@@ -290,6 +390,46 @@ export default function ArchivePage() {
         {status && (
           <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>
         )}
+
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle>Retention & Purge Controls</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="archive-retention-days">Archive retention days</Label>
+                <Input
+                  id="archive-retention-days"
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={retentionDays}
+                  onChange={(event) => setRetentionDays(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Archived clients and datasets older than this window become eligible for purge.
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background p-4">
+                <div><span className="font-medium">Configured retention:</span> {retentionSummary?.retention_days || retentionDays} days</div>
+                <div><span className="font-medium">Cutoff:</span> {retentionSummary?.cutoff_at || "-"}</div>
+                <div><span className="font-medium">Purgeable datasets:</span> {retentionSummary?.datasets.purgeable_total ?? 0}</div>
+                <div><span className="font-medium">Purgeable clients:</span> {retentionSummary?.clients.purgeable_total ?? 0}</div>
+              </div>
+            </div>
+            {retentionError ? <p className="text-destructive">{retentionError}</p> : null}
+            {retentionStatus ? <p className="text-muted-foreground">{retentionStatus}</p> : null}
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" onClick={saveRetentionPolicy} disabled={loading}>
+                Save Retention
+              </Button>
+              <Button type="button" variant="destructive" onClick={purgeArchivedData} disabled={loading || purging}>
+                {purging ? "Purging..." : "Purge Archived Data"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

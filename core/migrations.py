@@ -1700,24 +1700,6 @@ def run_migrations():
         except Exception:
             pass
 
-        # Optional compatibility view for legacy readers during deprecation window.
-        # IMPORTANT: treat this as read-only and migrate all writes to
-        # job_report_variable_values (versioned table).
-        con.execute(
-            """
-            CREATE OR REPLACE VIEW job_report_variables_legacy_view AS
-            SELECT
-              jrv.job_id,
-              jrv.template_id,
-              jrv.version_id,
-              jrv.variable_key,
-              jrv.variable_value,
-              jrv.updated_at,
-              jrv.updated_by
-            FROM job_report_variable_values jrv
-            """
-        )
-
         # One active report template assignment per job
         con.execute(
             """
@@ -1947,6 +1929,77 @@ def run_migrations():
                     )
                 except Exception:
                     pass
+
+        try:
+            # These indexes back the busiest tenant-scoped list and lookup paths.
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_clients_org_name_lookup
+                ON clients (org_id, lower(trim(coalesce(client_name, ''))), db_id)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_jobs_org_client_lookup
+                ON jobs (org_id, client_db_id, job_id DESC)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_client_sites_org_client_lookup
+                ON client_sites (org_id, client_db_id, site_id)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_client_contacts_org_client_lookup
+                ON client_contacts (org_id, client_db_id, contact_id)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_time_logs_org_job_lookup
+                ON time_logs (org_id, job_id, work_date DESC, created_at DESC)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_time_logs_org_user_lookup
+                ON time_logs (org_id, user_id, work_date DESC, created_at DESC)
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_job_types_org_name_lookup
+                ON job_types (COALESCE(org_id, ''), lower(name))
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_time_subjects_org_name_lookup
+                ON time_subjects (COALESCE(org_id, ''), lower(name))
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_portfolios_lookup_org_name_lookup
+                ON portfolios_lookup (COALESCE(org_id, ''), lower(name))
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_organisation_memberships_org_user_lookup
+                ON organisation_memberships (org_id, lower(user_id))
+                """
+            )
+            con.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_organisation_invitations_org_email_lookup
+                ON organisation_invitations (org_id, lower(email))
+                """
+            )
+        except Exception:
+            pass
 
         try:
             con.execute(

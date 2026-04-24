@@ -21,6 +21,23 @@ type DatabaseFingerprint = {
   pg_version: string;
 };
 
+type SupportDiagnostics = {
+  generated_at_utc?: string | null;
+  database: DatabaseFingerprint;
+  session: {
+    user_id?: string | null;
+    email?: string | null;
+    role?: string | null;
+    org_id?: string | null;
+    mfa_enabled?: boolean | null;
+    must_change_password?: boolean | null;
+    is_super_admin?: boolean | null;
+    effective_permissions?: string[];
+  };
+  current_org?: CurrentOrgSummary | null;
+  can_manage_organisations?: boolean;
+};
+
 type CurrentOrgSummary = {
   org_id?: string | null;
   name?: string | null;
@@ -38,6 +55,8 @@ type SupportOrganisation = {
 };
 
 const SUPPORT_TOPICS: SupportTopic[] = [
+  { page: "Support Diagnostics", path: "/support", purpose: "Verify the live session, active organisation, and connected database before troubleshooting.", process: ["Open Support Center.", "Review the Current Organisation and Database Fingerprint cards.", "Copy the diagnostic snapshot when raising a support issue."] },
+  { page: "New Organisation Checklist", path: "/support", purpose: "Guide new org users through the first setup steps inside the app.", process: ["Confirm the active organisation.", "Invite the right people in Organisation Management.", "Create the first client and first job.", "Capture a support snapshot if anything looks wrong."] },
   { page: "Dashboard", path: "/", purpose: "Platform overview and workload monitoring.", process: ["Review high-level KPIs.", "Use quick links to jump into clients/jobs.", "Check recent activity before starting work."] },
   { page: "Clients List", path: "/clients", purpose: "Search, filter, and manage clients.", process: ["Use search/status filters.", "Open client profile to view jobs and reporting.", "Create a new client when needed."] },
   { page: "New Client", path: "/clients/new", purpose: "Create a new client record.", process: ["Complete client profile and contact details.", "Set reporting and benchmark details.", "Save and verify client appears in list."] },
@@ -67,34 +86,37 @@ const SUPPORT_TOPICS: SupportTopic[] = [
 
 export default function SupportPage() {
   const [query, setQuery] = useState("");
-  const [fingerprint, setFingerprint] = useState<DatabaseFingerprint | null>(null);
-  const [fingerprintError, setFingerprintError] = useState<string>("");
+  const [diagnostics, setDiagnostics] = useState<SupportDiagnostics | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string>("");
   const [currentOrg, setCurrentOrg] = useState<CurrentOrgSummary | null>(null);
   const [organisations, setOrganisations] = useState<SupportOrganisation[]>([]);
   const [orgContextError, setOrgContextError] = useState<string>("");
   const [canManageOrganisations, setCanManageOrganisations] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
-    async function loadFingerprint() {
+    async function loadDiagnostics() {
       try {
-        const res = await fetch("/api/backend/support/database-fingerprint", { credentials: "include" });
+        const res = await fetch("/api/backend/support/diagnostics", { credentials: "include" });
         if (!res.ok) {
-          throw new Error(`Failed to load fingerprint: ${res.status}`);
+          throw new Error(`Failed to load diagnostics: ${res.status}`);
         }
-        const data = (await res.json()) as DatabaseFingerprint;
+        const data = (await res.json()) as SupportDiagnostics;
         if (!cancelled) {
-          setFingerprint(data);
-          setFingerprintError("");
+          setDiagnostics(data);
+          setDiagnosticsError("");
+          setCurrentOrg(data.current_org || null);
+          setCanManageOrganisations(Boolean(data.can_manage_organisations));
         }
       } catch (err) {
         if (!cancelled) {
-          setFingerprint(null);
-          setFingerprintError((err as Error).message);
+          setDiagnostics(null);
+          setDiagnosticsError((err as Error).message);
         }
       }
     }
-    loadFingerprint();
+    loadDiagnostics();
     return () => {
       cancelled = true;
     };
@@ -102,42 +124,16 @@ export default function SupportPage() {
 
   useEffect(() => {
     let cancelled = false;
-    async function loadOrganisationContext() {
-      try {
-        const meRes = await fetch("/api/backend/auth/me", { credentials: "include" });
-        if (!meRes.ok) {
-          throw new Error(`Failed to load current organisation: ${meRes.status}`);
-        }
-        const payload = await meRes.json().catch(() => ({}));
-        const user = payload?.user || {};
-        const current = payload?.current_org || {};
-        const currentOrgPayload: CurrentOrgSummary = {
-          org_id: String(current?.org_id || user?.org_id || "").trim() || null,
-          name: String(current?.name || current?.org_id || user?.org_id || "").trim() || null,
-          slug: String(current?.slug || "").trim() || null,
-          role: String(current?.role || "").trim() || null,
-          archived: typeof current?.archived === "boolean" ? current.archived : null,
-        };
+    async function loadOrganisationManagement() {
+      if (!canManageOrganisations) {
         if (!cancelled) {
-          setCurrentOrg(currentOrgPayload);
+          setOrganisations([]);
           setOrgContextError("");
         }
+        return;
+      }
 
-        const permissions = Array.isArray(user?.effective_permissions) ? user.effective_permissions : [];
-        const role = String(user?.role || "").trim().toLowerCase();
-        const adminAccess =
-          Boolean(user?.is_super_admin) ||
-          permissions.includes("admin.access") ||
-          role === "superadmin" ||
-          role === "admin";
-        if (!cancelled) {
-          setCanManageOrganisations(adminAccess);
-        }
-        if (!adminAccess) {
-          if (!cancelled) setOrganisations([]);
-          return;
-        }
-
+      try {
         const orgRes = await fetch("/api/backend/admin/organisations", { credentials: "include" });
         if (!orgRes.ok) {
           throw new Error(`Failed to load organisations: ${orgRes.status}`);
@@ -146,20 +142,33 @@ export default function SupportPage() {
         const items = Array.isArray(orgPayload?.items) ? orgPayload.items : [];
         if (!cancelled) {
           setOrganisations(items);
+          setOrgContextError("");
         }
       } catch (err) {
         if (!cancelled) {
-          setCurrentOrg(null);
           setOrganisations([]);
           setOrgContextError((err as Error).message);
         }
       }
     }
-    loadOrganisationContext();
+    loadOrganisationManagement();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canManageOrganisations]);
+
+  async function handleCopyDiagnostics() {
+    if (!diagnostics || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
+      setCopyMessage("Diagnostic snapshot copied.");
+      window.setTimeout(() => setCopyMessage(""), 3000);
+    } catch {
+      setCopyMessage("Unable to copy snapshot automatically.");
+    }
+  }
 
   const filteredTopics = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -200,6 +209,37 @@ export default function SupportPage() {
           </CardContent>
         </Card>
 
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardHeader>
+            <CardTitle>New Organisation Checklist</CardTitle>
+            <CardDescription>
+              Start here if you have just been invited into a new tenant or are setting one up for the first time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 text-sm">
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">1. Confirm your tenant</div>
+              <p className="text-muted-foreground">Check the current organisation card above before you create clients or jobs.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">2. Invite the right people</div>
+              <p className="text-muted-foreground">Use Organisation Management to add owners, admins, billing, and consultants.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">3. Create the first client</div>
+              <p className="text-muted-foreground">Add the client profile, benchmark period, and reporting details before starting work.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">4. Create the first job</div>
+              <p className="text-muted-foreground">Use the Jobs area to create a reporting year and move into setup and data entry.</p>
+            </div>
+            <div className="rounded-lg border bg-background p-4 space-y-2">
+              <div className="font-medium">5. Save diagnostics</div>
+              <p className="text-muted-foreground">Copy the Support Diagnostics Snapshot when you need help from the team.</p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Legal Documents</CardTitle>
@@ -217,17 +257,79 @@ export default function SupportPage() {
           </CardContent>
         </Card>
 
+        <Card className="mb-6 border-primary/20 bg-primary/5">
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle>Support Diagnostics Snapshot</CardTitle>
+              <CardDescription>
+                Capture the active session, organisation, and database details when reporting an issue.
+              </CardDescription>
+            </div>
+            <Button variant="secondary" type="button" onClick={handleCopyDiagnostics} disabled={!diagnostics}>
+              Copy Snapshot
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            {diagnosticsError ? (
+              <p className="text-destructive">{diagnosticsError}</p>
+            ) : diagnostics ? (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border bg-background p-4">
+                    <p className="mb-2 font-medium">Session</p>
+                    <div className="space-y-1 text-muted-foreground">
+                      <div><span className="font-medium text-foreground">User:</span> {diagnostics.session.email || diagnostics.session.user_id || "-"}</div>
+                      <div><span className="font-medium text-foreground">Role:</span> {diagnostics.session.role || "-"}</div>
+                      <div><span className="font-medium text-foreground">Org ID:</span> {diagnostics.session.org_id || "-"}</div>
+                      <div><span className="font-medium text-foreground">MFA:</span> {diagnostics.session.mfa_enabled ? "Enabled" : "Disabled"}</div>
+                      <div><span className="font-medium text-foreground">Password Change:</span> {diagnostics.session.must_change_password ? "Required" : "Not required"}</div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-background p-4">
+                    <p className="mb-2 font-medium">Organisation</p>
+                    <div className="space-y-1 text-muted-foreground">
+                      <div><span className="font-medium text-foreground">Name:</span> {diagnostics.current_org?.name || diagnostics.current_org?.org_id || "-"}</div>
+                      <div><span className="font-medium text-foreground">Slug:</span> {diagnostics.current_org?.slug || "-"}</div>
+                      <div><span className="font-medium text-foreground">Role:</span> {diagnostics.current_org?.role || "-"}</div>
+                      <div><span className="font-medium text-foreground">Archived:</span> {diagnostics.current_org?.archived ? "Yes" : "No"}</div>
+                      <div><span className="font-medium text-foreground">Org management:</span> {diagnostics.can_manage_organisations ? "Available" : "Read-only"}</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="mb-2 font-medium">Database</p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div><span className="font-medium">Database:</span> {diagnostics.database.db_name}</div>
+                    <div><span className="font-medium">User:</span> {diagnostics.database.db_user}</div>
+                    <div><span className="font-medium">Host:</span> {diagnostics.database.host_ip}</div>
+                    <div><span className="font-medium">Port:</span> {diagnostics.database.host_port}</div>
+                    <div className="md:col-span-2"><span className="font-medium">Version:</span> {diagnostics.database.pg_version}</div>
+                  </div>
+                </div>
+                {diagnostics.generated_at_utc ? (
+                  <p className="text-xs text-muted-foreground">
+                    Snapshot generated at {diagnostics.generated_at_utc}
+                  </p>
+                ) : null}
+                {copyMessage ? <p className="text-xs text-muted-foreground">{copyMessage}</p> : null}
+              </>
+            ) : (
+              <p className="text-muted-foreground">Loading support diagnostics...</p>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="mb-6 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Current Organisation</CardTitle>
-              <CardDescription>
-                The tenant context the application is currently using for this session.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {orgContextError ? (
-                <p className="text-destructive">{orgContextError}</p>
+            <CardTitle>Current Organisation</CardTitle>
+            <CardDescription>
+              The tenant context the application is currently using for this session.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+              {diagnosticsError ? (
+                <p className="text-destructive">{diagnosticsError}</p>
               ) : currentOrg ? (
                 <>
                   <div className="grid gap-2 md:grid-cols-2">
@@ -316,15 +418,15 @@ export default function SupportPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {fingerprintError ? (
-              <p className="text-sm text-destructive">{fingerprintError}</p>
-            ) : fingerprint ? (
+            {diagnosticsError ? (
+              <p className="text-sm text-destructive">{diagnosticsError}</p>
+            ) : diagnostics ? (
               <div className="grid gap-3 text-sm md:grid-cols-2">
-                <div><span className="font-medium">Database:</span> {fingerprint.db_name}</div>
-                <div><span className="font-medium">User:</span> {fingerprint.db_user}</div>
-                <div><span className="font-medium">Host:</span> {fingerprint.host_ip}</div>
-                <div><span className="font-medium">Port:</span> {fingerprint.host_port}</div>
-                <div className="md:col-span-2"><span className="font-medium">Version:</span> {fingerprint.pg_version}</div>
+                <div><span className="font-medium">Database:</span> {diagnostics.database.db_name}</div>
+                <div><span className="font-medium">User:</span> {diagnostics.database.db_user}</div>
+                <div><span className="font-medium">Host:</span> {diagnostics.database.host_ip}</div>
+                <div><span className="font-medium">Port:</span> {diagnostics.database.host_port}</div>
+                <div className="md:col-span-2"><span className="font-medium">Version:</span> {diagnostics.database.pg_version}</div>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Loading database fingerprint...</p>

@@ -3,6 +3,7 @@ Admin API routes for team, lookups, datasets, and system management.
 """
 
 import logging
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form, Query, Request
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,7 @@ from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
 from core.auth import set_user_password
+from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
 from services.tenancy import require_org, get_current_org_context, run_with_org_context
@@ -909,6 +911,480 @@ def _ensure_legacy_cleanup_schema(con) -> None:
             con.execute(ddl)
         except Exception:
             pass
+
+
+def _dr_setting_value(con, key: str) -> str | None:
+    try:
+        row = con.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = %s LIMIT 1",
+            [str(key).strip()],
+        ).fetchone()
+        return str(row[0]).strip() if row and row[0] is not None else None
+    except Exception:
+        return None
+
+
+def _dr_upsert_setting(con, *, key: str, value: str, updated_by: str, description: str | None = None) -> None:
+    try:
+        existing = con.execute(
+            "SELECT setting_id FROM system_settings WHERE setting_key = %s LIMIT 1",
+            [key],
+        ).fetchone()
+        if existing:
+            con.execute(
+                """
+                UPDATE system_settings
+                SET setting_value = %s,
+                    setting_type = %s,
+                    description = %s,
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = %s
+                WHERE setting_key = %s
+                """,
+                [value, "json", description, updated_by, key],
+            )
+            return
+        con.execute(
+            """
+            INSERT INTO system_settings (setting_key, setting_value, setting_type, description, updated_by)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            [key, value, "json", description, updated_by],
+        )
+    except Exception:
+        raise
+
+
+def _dr_inventory_snapshot(con) -> dict[str, object]:
+    tables = [
+        "organisations",
+        "organisation_memberships",
+        "organisation_invitations",
+        "users",
+        "clients",
+        "client_contacts",
+        "client_sites",
+        "jobs",
+        "quotes",
+        "invoices",
+        "datasets",
+        "factor_lookup",
+        "report_templates",
+        "audit_log",
+    ]
+    inventory: dict[str, object] = {}
+    for table_name in tables:
+        try:
+            row = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            inventory[table_name] = int(row[0] or 0) if row else 0
+        except Exception as exc:
+            inventory[table_name] = {"error": str(exc)}
+
+    return {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "inventory": inventory,
+        "database": {
+            "backend": "postgres" if os.getenv("DATABASE_URL") else "unknown",
+        },
+    }
+
+
+def _dr_snapshot_keys() -> dict[str, str]:
+    return {
+        "backup": "dr_last_backup_snapshot_json",
+        "backup_at": "dr_last_backup_at",
+        "backup_by": "dr_last_backup_by",
+        "backup_sha": "dr_last_backup_sha256",
+        "restore": "dr_last_restore_check_json",
+        "restore_at": "dr_last_restore_check_at",
+        "restore_by": "dr_last_restore_check_by",
+    }
+
+
+def _bg_dt(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    try:
+        return value.isoformat()
+    except Exception:
+        return str(value)
+
+
+def _bg_job_payload(rq_job, *, queue_name: str) -> dict[str, object]:
+    meta = dict(getattr(rq_job, "meta", {}) or {})
+    status = "unknown"
+    try:
+        status = str(rq_job.get_status() or "unknown")
+    except Exception:
+        status = str(getattr(rq_job, "status", "unknown") or "unknown")
+
+    payload = {
+        "job_token": str(getattr(rq_job, "id", "") or ""),
+        "queue_name": queue_name,
+        "status": status,
+        "rq_status": status,
+        "func_name": str(getattr(rq_job, "func_name", "") or ""),
+        "description": str(getattr(rq_job, "description", "") or ""),
+        "org_id": str(meta.get("org_id") or "").strip() or None,
+        "user_id": str(meta.get("user_id") or "").strip() or None,
+        "job_id": meta.get("job_id"),
+        "template_id": meta.get("template_id"),
+        "progress": meta.get("progress", 0),
+        "message": meta.get("message", ""),
+        "created_at": _bg_dt(getattr(rq_job, "created_at", None)),
+        "started_at": _bg_dt(getattr(rq_job, "started_at", None)),
+        "ended_at": _bg_dt(getattr(rq_job, "ended_at", None)),
+        "replayed_from": str(meta.get("replayed_from") or "").strip() or None,
+        "replayed_at_utc": str(meta.get("replayed_at_utc") or "").strip() or None,
+        "replayed_by": str(meta.get("replayed_by") or "").strip() or None,
+        "can_replay": status in {"failed", "canceled"},
+    }
+    if getattr(rq_job, "is_failed", False):
+        payload["error"] = getattr(rq_job, "exc_info", None) or "Unknown error"
+    if getattr(rq_job, "is_finished", False):
+        payload["result"] = getattr(rq_job, "result", None)
+    return payload
+
+
+def _bg_queue_registry_counts(queue) -> dict[str, int | None]:
+    try:
+        from rq.registry import CanceledJobRegistry, DeferredJobRegistry, FailedJobRegistry, FinishedJobRegistry, StartedJobRegistry
+    except Exception:
+        return {
+            "queued": None,
+            "failed": None,
+            "started": None,
+            "deferred": None,
+            "finished": None,
+            "canceled": None,
+        }
+
+    registry_map = {
+        "queued": None,
+        "failed": FailedJobRegistry,
+        "started": StartedJobRegistry,
+        "deferred": DeferredJobRegistry,
+        "finished": FinishedJobRegistry,
+        "canceled": CanceledJobRegistry,
+    }
+    counts: dict[str, int | None] = {}
+    try:
+        counts["queued"] = len(queue)
+    except Exception:
+        counts["queued"] = None
+    for key, registry_cls in registry_map.items():
+        if key == "queued":
+            continue
+        try:
+            counts[key] = len(registry_cls(queue=queue))
+        except Exception:
+            counts[key] = None
+    return counts
+
+
+def _bg_queue_jobs(queue, limit: int = 20) -> list[dict[str, object]]:
+    try:
+        from rq.registry import CanceledJobRegistry, DeferredJobRegistry, FailedJobRegistry, FinishedJobRegistry, StartedJobRegistry
+    except Exception:
+        registry_classes = []
+    else:
+        registry_classes = [
+            FailedJobRegistry,
+            StartedJobRegistry,
+            DeferredJobRegistry,
+            FinishedJobRegistry,
+            CanceledJobRegistry,
+        ]
+
+    job_ids: list[str] = []
+    try:
+        job_ids.extend([str(job_id) for job_id in list(getattr(queue, "job_ids", []) or []) if str(job_id).strip()])
+    except Exception:
+        pass
+
+    for registry_cls in registry_classes:
+        try:
+            registry = registry_cls(queue=queue)
+            job_ids.extend([str(job_id) for job_id in registry.get_job_ids() if str(job_id).strip()])
+        except Exception:
+            continue
+
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for job_id in job_ids:
+        if job_id in seen:
+            continue
+        seen.add(job_id)
+        unique_ids.append(job_id)
+
+    jobs: list[dict[str, object]] = []
+    for job_id in unique_ids:
+        try:
+            rq_job = queue.fetch_job(job_id)
+        except Exception:
+            rq_job = None
+        if not rq_job:
+            continue
+        jobs.append(_bg_job_payload(rq_job, queue_name=getattr(queue, "name", "pdf_generation")))
+
+    jobs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return jobs[: max(int(limit or 20), 1)]
+
+
+def _bg_monitor_snapshot() -> dict[str, object]:
+    queue = get_pdf_queue()
+    counts = _bg_queue_registry_counts(queue)
+    jobs = _bg_queue_jobs(queue, limit=25)
+    return {
+        "queue_name": getattr(queue, "name", "pdf_generation"),
+        "counts": counts,
+        "jobs": jobs,
+        "connection": getattr(getattr(queue, "connection", None), "connection_pool", None).connection_kwargs
+        if getattr(getattr(queue, "connection", None), "connection_pool", None)
+        else None,
+    }
+
+
+def _bg_find_job(queue, job_token: str):
+    try:
+        return queue.fetch_job(job_token)
+    except Exception:
+        return None
+
+
+@router.get("/disaster-recovery/status")
+def disaster_recovery_status(_user: dict = Depends(_current_user)):
+    """Summarise the current backup snapshot and restore readiness."""
+    try:
+        with get_conn() as con:
+            keys = _dr_snapshot_keys()
+            backup_raw = _dr_setting_value(con, keys["backup"])
+            restore_raw = _dr_setting_value(con, keys["restore"])
+            backup = json.loads(backup_raw) if backup_raw else None
+            restore = json.loads(restore_raw) if restore_raw else None
+            inventory = _dr_inventory_snapshot(con)
+            backup_at = _dr_setting_value(con, keys["backup_at"])
+            backup_by = _dr_setting_value(con, keys["backup_by"])
+            restore_at = _dr_setting_value(con, keys["restore_at"])
+            restore_by = _dr_setting_value(con, keys["restore_by"])
+        return {
+            "ok": True,
+            "backup": backup,
+            "restore_check": restore,
+            "live_inventory": inventory,
+            "backup_at": backup_at,
+            "backup_by": backup_by,
+            "restore_check_at": restore_at,
+            "restore_check_by": restore_by,
+            "backup_available": bool(backup),
+            "restore_check_available": bool(restore),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load disaster recovery status: {e}")
+
+
+@router.post("/disaster-recovery/backup")
+def create_disaster_recovery_backup(_user: dict = Depends(_current_user)):
+    """Create and persist a lightweight recovery snapshot for critical tables."""
+    try:
+        actor = str(_user.get("email") or _user.get("user_id") or "admin").strip() or "admin"
+        with get_conn() as con:
+            snapshot = _dr_inventory_snapshot(con)
+            snapshot["snapshot_type"] = "backup"
+            snapshot["actor"] = actor
+            payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str)
+            snapshot_sha = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            keys = _dr_snapshot_keys()
+            _dr_upsert_setting(
+                con,
+                key=keys["backup"],
+                value=payload,
+                updated_by=actor,
+                description="Latest disaster recovery backup snapshot",
+            )
+            _dr_upsert_setting(
+                con,
+                key=keys["backup_at"],
+                value=snapshot["generated_at_utc"],
+                updated_by=actor,
+                description="Timestamp of latest disaster recovery backup snapshot",
+            )
+            _dr_upsert_setting(
+                con,
+                key=keys["backup_by"],
+                value=actor,
+                updated_by=actor,
+                description="Actor who created latest disaster recovery backup snapshot",
+            )
+            _dr_upsert_setting(
+                con,
+                key=keys["backup_sha"],
+                value=snapshot_sha,
+                updated_by=actor,
+                description="SHA256 of latest disaster recovery backup snapshot",
+            )
+        return {
+            "ok": True,
+            "snapshot": snapshot,
+            "snapshot_sha256": snapshot_sha,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create disaster recovery backup: {e}")
+
+
+@router.post("/disaster-recovery/restore-check")
+def run_disaster_recovery_restore_check(_user: dict = Depends(_current_user)):
+    """Compare the current database inventory against the latest backup snapshot."""
+    try:
+        actor = str(_user.get("email") or _user.get("user_id") or "admin").strip() or "admin"
+        with get_conn() as con:
+            keys = _dr_snapshot_keys()
+            backup_raw = _dr_setting_value(con, keys["backup"])
+            if not backup_raw:
+                raise HTTPException(status_code=404, detail="No disaster recovery backup snapshot is available")
+            backup = json.loads(backup_raw)
+            live = _dr_inventory_snapshot(con)
+
+            backup_inventory = dict(backup.get("inventory") or {})
+            live_inventory = dict(live.get("inventory") or {})
+            mismatches: list[dict[str, object]] = []
+            for table_name in sorted(set(backup_inventory) | set(live_inventory)):
+                backup_value = backup_inventory.get(table_name)
+                live_value = live_inventory.get(table_name)
+                if backup_value != live_value:
+                    mismatches.append(
+                        {
+                            "table": table_name,
+                            "backup": backup_value,
+                            "live": live_value,
+                        }
+                    )
+
+            status = "pass" if not mismatches else "warn"
+            payload = {
+                "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                "checked_by": actor,
+                "status": status,
+                "backup_snapshot_at": backup.get("generated_at_utc"),
+                "mismatches": mismatches,
+                "backup_inventory": backup_inventory,
+                "live_inventory": live_inventory,
+            }
+            payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+            _dr_upsert_setting(
+                con,
+                key=keys["restore"],
+                value=payload_json,
+                updated_by=actor,
+                description="Latest disaster recovery restore check result",
+            )
+            _dr_upsert_setting(
+                con,
+                key=keys["restore_at"],
+                value=payload["checked_at_utc"],
+                updated_by=actor,
+                description="Timestamp of latest disaster recovery restore check",
+            )
+            _dr_upsert_setting(
+                con,
+                key=keys["restore_by"],
+                value=actor,
+                updated_by=actor,
+                description="Actor who ran latest disaster recovery restore check",
+            )
+        return {"ok": True, **payload}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to run disaster recovery restore check: {e}")
+
+
+@router.get("/background-jobs/status")
+def background_jobs_status(_user: dict = Depends(_current_user)):
+    """Summarise the state of the background PDF generation queue."""
+    try:
+        return {"ok": True, **_bg_monitor_snapshot()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load background job status: {e}")
+
+
+@router.post("/background-jobs/replay")
+def replay_background_job(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    """Replay a previously failed or canceled background job."""
+    try:
+        job_token = str((body or {}).get("job_token") or "").strip()
+        if not job_token:
+            raise HTTPException(status_code=400, detail="job_token is required")
+
+        actor = _actor_identifier(_user)
+        queue = get_pdf_queue()
+        rq_job = _bg_find_job(queue, job_token)
+        if not rq_job:
+            raise HTTPException(status_code=404, detail="Job token not found")
+
+        meta = dict(getattr(rq_job, "meta", {}) or {})
+        org_id = str(meta.get("org_id") or "").strip()
+        if not org_id:
+            raise HTTPException(status_code=400, detail="Job is missing org metadata and cannot be replayed safely")
+
+        current_status = "unknown"
+        try:
+            current_status = str(rq_job.get_status() or "unknown")
+        except Exception:
+            current_status = str(getattr(rq_job, "status", "unknown") or "unknown")
+
+        if current_status not in {"failed", "canceled"}:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Job {job_token} is {current_status} and cannot be replayed",
+            )
+
+        func_name = str(getattr(rq_job, "func_name", "") or "").strip()
+        if not func_name:
+            raise HTTPException(status_code=500, detail="Original job function is unavailable")
+
+        args = tuple(getattr(rq_job, "args", ()) or ())
+        kwargs = dict(getattr(rq_job, "kwargs", {}) or {})
+        timeout = int(getattr(rq_job, "timeout", 300) or 300)
+        result_ttl = int(getattr(rq_job, "result_ttl", 3600) or 3600)
+
+        replayed_job = queue.enqueue(
+            func_name,
+            *args,
+            **kwargs,
+            job_timeout=timeout,
+            result_ttl=result_ttl,
+        )
+        replay_meta = dict(meta)
+        replay_meta.update(
+            {
+                "replayed_from": job_token,
+                "replayed_at_utc": datetime.now(timezone.utc).isoformat(),
+                "replayed_by": actor,
+            }
+        )
+        try:
+            replayed_job.meta = replay_meta
+            replayed_job.save_meta()
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "original_job_token": job_token,
+            "replayed_job_token": str(getattr(replayed_job, "id", "") or ""),
+            "queue_name": getattr(queue, "name", "pdf_generation"),
+            "status": "queued",
+            "message": "Background job replayed.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to replay background job: {e}")
 
 
 def _normalize_user_type(value: object | None) -> str:
@@ -6019,6 +6495,27 @@ def patch_supplier_item(supplier_item_id: int, body: dict = Body(...), _user: di
 # ARCHIVED CLIENTS
 # =========================
 
+def _archive_retention_days(con) -> int:
+    try:
+        row = con.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = %s LIMIT 1",
+            ["archive_retention_days"],
+        ).fetchone()
+        raw = str(row[0] if row else "").strip()
+        if raw:
+            value = int(raw)
+            if value > 0:
+                return min(value, 3650)
+    except Exception:
+        pass
+    return 365
+
+
+def _archive_cutoff(retention_days: int) -> datetime:
+    safe_days = max(1, min(int(retention_days or 0), 3650))
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=safe_days)
+
+
 @router.get("/archived-clients")
 def list_archived_clients(q: str = "", _user: dict = Depends(_current_user)):
     """List archived clients."""
@@ -6026,10 +6523,11 @@ def list_archived_clients(q: str = "", _user: dict = Depends(_current_user)):
         with get_conn() as con:
             df = con.execute(
                 """
-                SELECT db_id, client_name, industry, status
+                SELECT db_id, client_name, industry, status, archived, archived_at, archived_by
                 FROM clients
-                WHERE status = 'Archived' AND client_name ILIKE %s
-                ORDER BY client_name
+                WHERE (status = 'Archived' OR COALESCE(archived, FALSE) = TRUE)
+                  AND client_name ILIKE %s
+                ORDER BY COALESCE(archived_at, created_at) DESC NULLS LAST, client_name
                 LIMIT 100
                 """,
                 [f"%{q}%"],
@@ -6043,6 +6541,9 @@ def list_archived_clients(q: str = "", _user: dict = Depends(_current_user)):
                     "client_name": str(r.get("client_name") or ""),
                     "industry": str(r.get("industry") or ""),
                     "status": str(r.get("status") or ""),
+                    "archived": bool(r.get("archived")) if r.get("archived") is not None else True,
+                    "archived_at": str(r.get("archived_at")) if r.get("archived_at") else None,
+                    "archived_by": str(r.get("archived_by")) if r.get("archived_by") else None,
                 })
         
         return {"items": items}
@@ -6056,7 +6557,14 @@ def reactivate_client(client_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             con.execute(
-                "UPDATE clients SET status = 'Active' WHERE db_id = %s",
+                """
+                UPDATE clients
+                SET status = 'Active',
+                    archived = FALSE,
+                    archived_at = NULL,
+                    archived_by = NULL
+                WHERE db_id = %s
+                """,
                 [int(client_id)],
             )
         
@@ -6126,6 +6634,139 @@ def permanently_delete_archived_client(client_id: int, _user: dict = Depends(_cu
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to permanently delete archived client: {e}")
+
+
+@router.get("/archive/retention-summary")
+def archive_retention_summary(_user: dict = Depends(_current_user)):
+    """Summarize archived data and the current purge cutoff."""
+    try:
+        with get_conn() as con:
+            retention_days = _archive_retention_days(con)
+            cutoff = _archive_cutoff(retention_days)
+            dataset_counts = con.execute(
+                """
+                SELECT
+                  COUNT(*) AS archived_total,
+                  COUNT(*) FILTER (WHERE archived_at IS NOT NULL AND archived_at <= %s) AS purgeable_total
+                FROM datasets
+                WHERE COALESCE(archived, FALSE) = TRUE
+                """,
+                [cutoff],
+            ).fetchone()
+            client_counts = con.execute(
+                """
+                SELECT
+                  COUNT(*) AS archived_total,
+                  COUNT(*) FILTER (WHERE archived_at IS NOT NULL AND archived_at <= %s) AS purgeable_total
+                FROM clients
+                WHERE status = 'Archived' OR COALESCE(archived, FALSE) = TRUE
+                """,
+                [cutoff],
+            ).fetchone()
+        return {
+            "retention_days": retention_days,
+            "cutoff_at": cutoff.isoformat(sep=" "),
+            "datasets": {
+                "archived_total": int(dataset_counts[0] or 0) if dataset_counts else 0,
+                "purgeable_total": int(dataset_counts[1] or 0) if dataset_counts else 0,
+            },
+            "clients": {
+                "archived_total": int(client_counts[0] or 0) if client_counts else 0,
+                "purgeable_total": int(client_counts[1] or 0) if client_counts else 0,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load archive retention summary: {e}")
+
+
+@router.post("/archive/purge")
+def purge_archived_data(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    """Purge archived datasets and clients that are older than the configured retention window."""
+    try:
+        actor = str(_user.get("email") or _user.get("user_id") or "admin").strip() or "admin"
+        with get_conn() as con:
+            retention_days = body.get("retention_days")
+            if retention_days is None:
+                retention_days = _archive_retention_days(con)
+            try:
+                retention_days = max(1, min(int(retention_days), 3650))
+            except Exception:
+                retention_days = _archive_retention_days(con)
+            cutoff = _archive_cutoff(retention_days)
+
+            dataset_rows = con.execute(
+                """
+                SELECT dataset_id, name
+                FROM datasets
+                WHERE COALESCE(archived, FALSE) = TRUE
+                  AND archived_at IS NOT NULL
+                  AND archived_at <= %s
+                ORDER BY archived_at ASC NULLS LAST, dataset_id ASC
+                """,
+                [cutoff],
+            ).fetchall()
+            client_rows = con.execute(
+                """
+                SELECT db_id, client_name, archived_at
+                FROM clients
+                WHERE (status = 'Archived' OR COALESCE(archived, FALSE) = TRUE)
+                  AND archived_at IS NOT NULL
+                  AND archived_at <= %s
+                ORDER BY archived_at ASC NULLS LAST, db_id ASC
+                """,
+                [cutoff],
+            ).fetchall()
+
+            deleted_datasets: list[dict[str, object]] = []
+            for row in dataset_rows:
+                dataset_id = int(row[0])
+                dataset_name = str(row[1] or "")
+                con.execute("DELETE FROM factor_lookup WHERE dataset_id = %s", [dataset_id])
+                con.execute("DELETE FROM datasets WHERE dataset_id = %s", [dataset_id])
+                deleted_datasets.append({"dataset_id": dataset_id, "name": dataset_name})
+
+            deleted_clients: list[dict[str, object]] = []
+            skipped_clients: list[dict[str, object]] = []
+            for row in client_rows:
+                client_id = int(row[0])
+                client_name = str(row[1] or "")
+                deps = {
+                    "jobs": int((con.execute("SELECT COUNT(*) FROM jobs WHERE client_db_id = %s", [client_id]).fetchone() or [0])[0]),
+                    "quotes": int((con.execute("SELECT COUNT(*) FROM quotes WHERE client_db_id = %s", [client_id]).fetchone() or [0])[0]),
+                    "invoices": int((con.execute("SELECT COUNT(*) FROM invoices WHERE client_db_id = %s", [client_id]).fetchone() or [0])[0]),
+                    "spend_mappings": int((con.execute("SELECT COUNT(*) FROM client_spend_mappings WHERE client_db_id = %s", [client_id]).fetchone() or [0])[0]),
+                }
+                if any(v > 0 for v in deps.values()):
+                    skipped_clients.append({
+                        "client_id": client_id,
+                        "name": client_name,
+                        "dependencies": deps,
+                    })
+                    continue
+
+                con.execute("DELETE FROM client_contacts WHERE client_db_id = %s", [client_id])
+                con.execute("DELETE FROM client_sites WHERE client_db_id = %s", [client_id])
+                con.execute("DELETE FROM clients WHERE db_id = %s", [client_id])
+                deleted_clients.append({"client_id": client_id, "name": client_name})
+
+        return {
+            "ok": True,
+            "retention_days": int(retention_days),
+            "cutoff_at": cutoff.isoformat(sep=" "),
+            "datasets_deleted": deleted_datasets,
+            "clients_deleted": deleted_clients,
+            "clients_skipped": skipped_clients,
+            "counts": {
+                "datasets_deleted": len(deleted_datasets),
+                "clients_deleted": len(deleted_clients),
+                "clients_skipped": len(skipped_clients),
+            },
+            "actor": actor,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to purge archived data: {e}")
 
 
 @router.post("/datasets/{dataset_id}/upload-factors")

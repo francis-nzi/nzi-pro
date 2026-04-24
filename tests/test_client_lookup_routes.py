@@ -54,4 +54,4 @@ def test_client_dashboard_jobs_use_job_org_matching(monkeypatch) -> None:
 
     client_dashboard_routes._load_client_jobs(conn, 89, "org-a", crp_only=True)
 
-    assert any("TRIM(COALESCE(CAST(j.org_id AS TEXT), CAST(c.org_id AS TEXT), ''))" in sql for sql, _ in conn.queries)
+    assert any("COALESCE(j.org_id, c.org_id) = %s" in sql for sql, _ in conn.queries)

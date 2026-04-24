@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import UploadProgressBar from "@/components/UploadProgressBar";
@@ -93,6 +93,34 @@ type RunResult = {
     warnings?: string[];
     errors?: string[];
   };
+};
+type DisasterRecoveryStatus = {
+  ok?: boolean;
+  backup_available?: boolean;
+  restore_check_available?: boolean;
+  backup_at?: string | null;
+  backup_by?: string | null;
+  restore_check_at?: string | null;
+  restore_check_by?: string | null;
+  backup?: {
+    generated_at_utc?: string;
+    inventory?: Record<string, unknown>;
+    actor?: string;
+    snapshot_type?: string;
+  } | null;
+  restore_check?: {
+    checked_at_utc?: string;
+    checked_by?: string;
+    status?: string;
+    backup_snapshot_at?: string | null;
+    mismatches?: Array<{ table?: string; backup?: unknown; live?: unknown }>;
+    backup_inventory?: Record<string, unknown>;
+    live_inventory?: Record<string, unknown>;
+  } | null;
+  live_inventory?: {
+    generated_at_utc?: string;
+    inventory?: Record<string, unknown>;
+  } | null;
 };
 type LegacyCommitResult = {
   ok?: boolean;
@@ -338,6 +366,11 @@ export default function AdminImportExportPage() {
   const [mappingTargets, setMappingTargets] = useState<MappingTargets>({});
   const [mappingEdits, setMappingEdits] = useState<Record<string, MappingEdit>>({});
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
+  const [drStatus, setDrStatus] = useState<DisasterRecoveryStatus | null>(null);
+  const [drLoading, setDrLoading] = useState(false);
+  const [drBusy, setDrBusy] = useState(false);
+  const [drMessage, setDrMessage] = useState("");
+  const [drError, setDrError] = useState("");
 
   const [maxClients, setMaxClients] = useState("3");
   const [clientIds, setClientIds] = useState("");
@@ -457,8 +490,28 @@ export default function AdminImportExportPage() {
     }
   }
 
+  async function loadDisasterRecoveryStatus() {
+    setDrLoading(true);
+    setDrError("");
+    try {
+      const res = await fetch(`${baseUrl}/admin/disaster-recovery/status`, { credentials: "include" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : `Failed to load disaster recovery status (${res.status})`);
+      }
+      setDrStatus(payload as DisasterRecoveryStatus);
+    } catch (e) {
+      setDrError((e as Error).message);
+      setDrStatus(null);
+    } finally {
+      setDrLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadSummary();
+    void loadDisasterRecoveryStatus();
   }, []);
 
   async function runImport(mode: "dry-run" | "import") {
@@ -607,6 +660,60 @@ export default function AdminImportExportPage() {
       setStatus("");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function createDisasterRecoveryBackup() {
+    setDrBusy(true);
+    setDrError("");
+    setDrMessage("Creating disaster recovery snapshot...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/disaster-recovery/backup`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : `Backup failed (${res.status})`);
+      }
+      setDrStatus(payload as DisasterRecoveryStatus);
+      setDrMessage("Disaster recovery snapshot saved.");
+      await loadDisasterRecoveryStatus();
+      setTimeout(() => setDrMessage(""), 3000);
+    } catch (e) {
+      setDrError((e as Error).message);
+      setDrMessage("");
+    } finally {
+      setDrBusy(false);
+    }
+  }
+
+  async function runDisasterRecoveryCheck() {
+    setDrBusy(true);
+    setDrError("");
+    setDrMessage("Running disaster recovery restore check...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/disaster-recovery/restore-check`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (payload as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : `Restore check failed (${res.status})`);
+      }
+      const nextStatus = payload as DisasterRecoveryStatus;
+      setDrStatus((prev) => ({ ...(prev || {}), ...nextStatus }));
+      const mismatches = Array.isArray(nextStatus.restore_check?.mismatches) ? nextStatus.restore_check?.mismatches.length || 0 : 0;
+      setDrMessage(mismatches ? `Restore check completed with ${mismatches} mismatch(es).` : "Restore check passed.");
+      await loadDisasterRecoveryStatus();
+      setTimeout(() => setDrMessage(""), 3000);
+    } catch (e) {
+      setDrError((e as Error).message);
+      setDrMessage("");
+    } finally {
+      setDrBusy(false);
     }
   }
 
@@ -1200,6 +1307,42 @@ export default function AdminImportExportPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-6xl px-6 py-10 space-y-6">
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="space-y-2">
+            <CardTitle>Disaster Recovery</CardTitle>
+            <CardDescription>
+              Capture a recovery snapshot and run a restore check against the live database inventory.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border bg-background p-4 space-y-1">
+                <div><span className="font-medium">Backup snapshot:</span> {drStatus?.backup_at || "-"}</div>
+                <div><span className="font-medium">Backup actor:</span> {drStatus?.backup_by || "-"}</div>
+                <div><span className="font-medium">Restore check:</span> {drStatus?.restore_check_at || "-"}</div>
+                <div><span className="font-medium">Restore checker:</span> {drStatus?.restore_check_by || "-"}</div>
+              </div>
+              <div className="rounded-lg border bg-background p-4 space-y-1">
+                <div><span className="font-medium">Live inventory:</span> {drStatus?.live_inventory?.generated_at_utc || "-"}</div>
+                <div><span className="font-medium">Backup available:</span> {drStatus?.backup_available ? "Yes" : "No"}</div>
+                <div><span className="font-medium">Restore check available:</span> {drStatus?.restore_check_available ? "Yes" : "No"}</div>
+                <div><span className="font-medium">Restore status:</span> {drStatus?.restore_check?.status || "-"}</div>
+              </div>
+            </div>
+            {drError ? <p className="text-destructive">{drError}</p> : null}
+            {drMessage ? <p className="text-muted-foreground">{drMessage}</p> : null}
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" onClick={createDisasterRecoveryBackup} disabled={busy || drBusy}>
+                {drBusy ? "Working..." : "Create Backup Snapshot"}
+              </Button>
+              <Button type="button" variant="secondary" onClick={runDisasterRecoveryCheck} disabled={busy || drBusy || !drStatus?.backup_available}>
+                Run Restore Check
+              </Button>
+            </div>
+            {drLoading ? <p className="text-xs text-muted-foreground">Loading disaster recovery status...</p> : null}
+          </CardContent>
+        </Card>
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>Import / Export</h1>

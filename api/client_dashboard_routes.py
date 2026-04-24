@@ -20,8 +20,7 @@ router = APIRouter()
 
 def _org_match_clause(job_alias: str = "j", client_alias: str = "c") -> str:
     return (
-        f"TRIM(COALESCE(CAST({job_alias}.org_id AS TEXT), CAST({client_alias}.org_id AS TEXT), '')) = "
-        f"TRIM(COALESCE(CAST(%s AS TEXT), ''))"
+        f"COALESCE({job_alias}.org_id, {client_alias}.org_id) = %s"
     )
 
 

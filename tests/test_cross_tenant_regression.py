@@ -93,6 +93,7 @@ def test_list_client_quotes_includes_org_filter(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(quotes_routes, "_ensure_quote_tables", lambda con: None)
     monkeypatch.setattr(quotes_routes, "_quote_org_id", lambda _user: "org-a")
     monkeypatch.setattr(quotes_routes, "_compute_totals", lambda lines: {"total": 0.0})
+    monkeypatch.setattr(quotes_routes, "assert_client_access", lambda *_args, **_kwargs: None)
 
     quotes_routes.list_client_quotes(10, _user={"user_id": "u1", "org_id": "org-a"})
 
@@ -105,6 +106,7 @@ def test_create_quote_rejects_cross_org_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(quotes_routes, "get_conn", lambda: fake)
     monkeypatch.setattr(quotes_routes, "_ensure_quote_tables", lambda con: None)
     monkeypatch.setattr(quotes_routes, "_quote_org_id", lambda _user: "org-b")
+    monkeypatch.setattr(quotes_routes, "_require_org_plan_active", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(quotes_routes, "_next_quote_number", lambda con: "Q000999/1")
     monkeypatch.setattr(quotes_routes, "_write_lines", lambda con, quote_id, lines: None)
     monkeypatch.setattr(quotes_routes, "_serialize_quote", lambda con, quote_id, org_id=None: {"quote_id": quote_id, "org_id": org_id})
@@ -137,7 +139,7 @@ def test_create_time_log_rejects_cross_org_job(monkeypatch: pytest.MonkeyPatch):
 def test_create_lookup_item_scopes_org_lookup_tables(monkeypatch: pytest.MonkeyPatch):
     fake = _RecordingConn()
     monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
-    monkeypatch.setattr(admin_routes, "_ensure_lookup_table", lambda con, table_name: None)
+    monkeypatch.setattr(admin_routes, "_ensure_lookup_table", lambda *args, **kwargs: None)
 
     result = admin_routes.create_lookup_item(
         "time_subjects",
