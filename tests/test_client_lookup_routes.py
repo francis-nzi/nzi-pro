@@ -87,6 +87,15 @@ def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
                 "category": "Office",
                 "emissions": 40.57,
                 "record_type": "source_register",
+            },
+            {
+                "job_id": 627,
+                "dashboard_year": pd.NA,
+                "dashboard_year_norm": pd.NA,
+                "scope": "Scope 3",
+                "category": "Ignored",
+                "emissions": 1.0,
+                "record_type": "source_register",
             }
         ]
     )

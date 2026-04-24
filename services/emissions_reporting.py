@@ -227,11 +227,17 @@ def attach_exact_emissions(con, rows_df):
 
 def exact_job_total_emissions(con, job_id: int) -> float:
     """Return the exact total emissions for a single job."""
-    rows_df = load_combined_reporting_rows(con, [int(job_id)])
-    if rows_df is None or rows_df.empty:
-        return 0.0
-    rows_df = attach_exact_emissions(con, rows_df)
-    return round(float(rows_df["emissions"].sum()), 2)
+    try:
+        from api.job_report_routes import get_scope_totals
+
+        totals = get_scope_totals(int(job_id))
+        return round(float(totals.get("Total") or 0.0), 2)
+    except Exception:
+        rows_df = load_combined_reporting_rows(con, [int(job_id)])
+        if rows_df is None or rows_df.empty:
+            return 0.0
+        rows_df = attach_exact_emissions(con, rows_df)
+        return round(float(rows_df["emissions"].sum()), 2)
 
 
 def load_combined_emissions_summary_rows(con, job_ids: list[int]):

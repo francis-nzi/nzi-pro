@@ -23,6 +23,17 @@ def _org_match_clause(job_alias: str = "j", client_alias: str = "c") -> str:
     )
 
 
+def _safe_year_value(value):
+    try:
+        if value is None:
+            return None
+        if str(value).strip().lower() in {"nan", "<na>", "none", "null", ""}:
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+
 def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
     if org_id:
         if crp_only:
@@ -177,7 +188,7 @@ def get_client_dashboard(
                 }
 
             scope_df = scope_df.copy()
-            scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(lambda value: int(value) if value is not None and str(value) != 'nan' else None)
+            scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(_safe_year_value)
             scope_df = scope_df[scope_df['dashboard_year_norm'].notna()].copy()
             years = sorted(
                 [
