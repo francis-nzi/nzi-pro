@@ -12,8 +12,7 @@ from services.tenancy import require_org
 from services.tenancy import org_context
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
-from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows
+from services.emissions_reporting import attach_exact_emissions, load_combined_reporting_rows
 
 router = APIRouter()
 
@@ -131,7 +130,8 @@ def get_client_dashboard(
                 if jobs_df is None or jobs_df.empty:
                     jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=False)
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
-                scope_df = load_combined_emissions_summary_rows(con, job_ids)
+                scope_df = load_combined_reporting_rows(con, job_ids)
+                scope_df = attach_exact_emissions(con, scope_df)
             except Exception:
                 jobs_df = None
                 scope_df = None
@@ -176,22 +176,27 @@ def get_client_dashboard(
                     'net_zero_progress': None
                 }
 
+            scope_df = scope_df.copy()
+            scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(lambda value: int(value) if value is not None and str(value) != 'nan' else None)
+            scope_df = scope_df[scope_df['dashboard_year_norm'].notna()].copy()
             years = sorted(
                 [
                     int(y)
-                    for y in scope_df['dashboard_year'].dropna().unique().tolist()
+                    for y in scope_df['dashboard_year_norm'].dropna().unique().tolist()
                     if y is not None and str(y) != 'nan'
                 ]
             )
             available_years = years
+            try:
+                requested_year = int(year) if year is not None else None
+            except Exception:
+                requested_year = None
             selected_year = (
-                int(year)
-                if year is not None and int(year) in available_years
+                requested_year
+                if requested_year is not None and requested_year in available_years
                 else (available_years[-1] if available_years else None)
             )
 
-            scope_df = scope_df.copy()
-            scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(lambda value: int(value) if value is not None and str(value) != 'nan' else None)
             scope_groups = scope_df.groupby(['dashboard_year_norm', 'scope'])['emissions'].sum().reset_index()
             yearly_emissions = []
             for yr in available_years:

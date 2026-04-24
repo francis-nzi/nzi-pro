@@ -9,13 +9,23 @@ type AccessState = "loading" | "allowed" | "denied";
 
 function hasAdminAccess(user: Record<string, unknown> | null | undefined): boolean {
   if (!user) return false;
-  const permissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
+  const permissions = Array.isArray(user.effective_permissions)
+    ? user.effective_permissions
+    : Array.isArray(user.permissions)
+      ? user.permissions
+      : [];
   const role = String(user.role || "").trim().toLowerCase();
+  const currentOrg = (user.current_org as Record<string, unknown> | null | undefined) || null;
+  const currentOrgRole = String(currentOrg?.role || "").trim().toLowerCase();
   return (
     Boolean(user.is_super_admin) ||
+    Boolean(currentOrg?.is_owner) ||
     permissions.includes("admin.access") ||
     role === "superadmin" ||
-    role === "admin"
+    role === "admin" ||
+    currentOrgRole === "superadmin" ||
+    currentOrgRole === "admin" ||
+    currentOrgRole === "owner"
   );
 }
 
@@ -34,7 +44,9 @@ export default function AdminLayout({ children }: PropsWithChildren) {
         }
         const payload = await res.json().catch(() => ({}));
         const user = payload?.user || {};
-        if (!cancelled) setAccessState(hasAdminAccess(user) ? "allowed" : "denied");
+        const currentOrg = payload?.current_org || {};
+        const mergedUser = { ...user, current_org: currentOrg };
+        if (!cancelled) setAccessState(hasAdminAccess(mergedUser) ? "allowed" : "denied");
       } catch {
         if (!cancelled) setAccessState("denied");
       }

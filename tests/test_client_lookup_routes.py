@@ -35,6 +35,14 @@ class _FakeConn:
         return False
 
 
+class _DashboardConn(_FakeConn):
+    def fetchone(self):
+        sql = self._last_sql
+        if "SELECT industry, net_zero_year FROM clients" in sql:
+            return ("Engineering", 2030)
+        return None
+
+
 def test_quote_lookups_allows_client_row_without_org_filter(monkeypatch) -> None:
     conn = _FakeConn(("Advanced Electric Machines (AEM)", "London, UK", "GBP"))
     monkeypatch.setattr(quotes_routes, "assert_client_access", lambda *_args, **_kwargs: None)
@@ -55,3 +63,44 @@ def test_client_dashboard_jobs_use_job_org_matching(monkeypatch) -> None:
     client_dashboard_routes._load_client_jobs(conn, 89, "org-a", crp_only=True)
 
     assert any("COALESCE(j.org_id, c.org_id) = %s" in sql for sql, _ in conn.queries)
+
+
+def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
+    conn = _DashboardConn()
+    jobs_df = pd.DataFrame(
+        [
+            {
+                "job_id": 627,
+                "reporting_year": 2025,
+                "dashboard_year": 2025,
+                "title": "Lendco Annual Support 2025",
+            }
+        ]
+    )
+    emissions_df = pd.DataFrame(
+        [
+            {
+                "job_id": 627,
+                "dashboard_year": 2025,
+                "dashboard_year_norm": 2025,
+                "scope": "Scope 3",
+                "category": "Office",
+                "emissions": 40.57,
+                "record_type": "source_register",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(client_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(client_dashboard_routes, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(client_dashboard_routes, "require_org", lambda *_args, **_kwargs: "org-a")
+    monkeypatch.setattr(client_dashboard_routes, "_load_client_jobs", lambda *_args, **_kwargs: jobs_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_reporting_rows", lambda *_args, **_kwargs: emissions_df)
+    monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, frame: frame)
+    monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
+
+    result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["current_metrics"]["total_emissions"] == 40.57
+    assert result["top_categories"][0]["category"] == "Office"
+    assert result["top_categories"][0]["emissions"] == 40.57

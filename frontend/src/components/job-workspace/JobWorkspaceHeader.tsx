@@ -147,7 +147,7 @@ function SummaryCard({
           : "text-slate-950";
 
   return (
-    <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+    <div className="rounded-2xl border border-slate-200/75 bg-white/90 px-4 py-3.5 text-right shadow-[0_1px_0_rgba(15,23,42,0.02)]">
       <div className={`text-[0.92rem] font-semibold leading-[0.95] tracking-tight tabular-nums sm:text-[1.02rem] xl:text-[1.14rem] ${toneClassName}`}>
         {typeof value === "number" ? value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
       </div>

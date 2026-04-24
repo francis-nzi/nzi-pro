@@ -56,15 +56,27 @@ type NavOrganisation = {
   is_active_org?: boolean;
 };
 
-function hasAdminAccessFromPayload(user: Record<string, unknown> | null | undefined): boolean {
+function hasAdminAccessFromPayload(
+  user: Record<string, unknown> | null | undefined,
+  currentOrg: Record<string, unknown> | null | undefined,
+): boolean {
   if (!user) return false;
-  const permissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
+  const permissions = Array.isArray(user.effective_permissions)
+    ? user.effective_permissions
+    : Array.isArray(user.permissions)
+      ? user.permissions
+      : [];
   const role = String(user.role || "").trim().toLowerCase();
+  const currentOrgRole = String(currentOrg?.role || "").trim().toLowerCase();
   return (
     Boolean(user.is_super_admin) ||
+    Boolean(currentOrg?.is_owner) ||
     permissions.includes("admin.access") ||
     role === "superadmin" ||
-    role === "admin"
+    role === "admin" ||
+    currentOrgRole === "superadmin" ||
+    currentOrgRole === "admin" ||
+    currentOrgRole === "owner"
   );
 }
 
@@ -116,7 +128,7 @@ export function MainNav() {
               const payload = await res.json().catch(() => ({}));
               const user = payload?.user || {};
               const currentOrg = payload?.current_org || {};
-              adminAccess = hasAdminAccessFromPayload(user);
+              adminAccess = hasAdminAccessFromPayload(user, currentOrg);
               userId = String(user?.email || user?.user_id || "").trim();
               currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
               currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();

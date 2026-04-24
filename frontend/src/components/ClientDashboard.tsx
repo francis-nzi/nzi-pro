@@ -225,38 +225,48 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Total Emissions</div>
-            <div className="text-3xl font-semibold">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
-            <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Benchmark Emissions</div>
-            <div className="text-3xl font-semibold">
-              {benchmarkPoint ? Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {benchmarkCaption}
+          <CardContent className="pt-6 text-right">
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">Benchmark Emissions</div>
+              <div className="text-3xl font-semibold tabular-nums">
+                {benchmarkPoint ? Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {benchmarkCaption}
+              </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Top Category</div>
-            <div className="truncate text-lg font-semibold">{topCategoryData[0]?.category || "-"}</div>
-            <div className="text-xs text-muted-foreground">
-              {topCategoryData[0] ? `${topCategoryData[0].emissions.toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e` : "No category data"}
+          <CardContent className="pt-6 text-right">
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">Total Emissions</div>
+              <div className="text-3xl font-semibold tabular-nums">{total.toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+              <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Net Zero Target</div>
-            <div className="text-3xl font-semibold">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
-            <div className="text-xs text-muted-foreground">
-              {data.net_zero_progress ? `${data.net_zero_progress.years_to_target} years to target` : "Target not set"}
+          <CardContent className="pt-6 text-right">
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">Highest Emissions</div>
+              <div className="text-3xl font-semibold tabular-nums">
+                {topCategoryData[0] ? topCategoryData[0].emissions.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
+              </div>
+              <div className="truncate text-lg font-semibold">
+                {topCategoryData[0]?.category || "No category data"}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 text-right">
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">Net Zero Target</div>
+              <div className="text-3xl font-semibold tabular-nums">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
+              <div className="text-xs text-muted-foreground">
+                {data.net_zero_progress ? `${data.net_zero_progress.years_to_target} years to target` : "Target not set"}
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -191,6 +191,49 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
     return df
 
 
+def attach_exact_emissions(con, rows_df):
+    """Attach exact tCO2e values using the same per-row calculation as job reports."""
+    if rows_df is None or rows_df.empty:
+        return rows_df
+
+    from services.monthly_emissions import JobMonthlyEmissionsResolver
+
+    resolver_by_job: dict[int, JobMonthlyEmissionsResolver] = {}
+    emissions_vals: list[float] = []
+
+    for _, row in rows_df.iterrows():
+        row_type = str(row.get("record_type") or "legacy").strip().lower()
+        if row_type == "source_register":
+            metrics = combined_row_metrics(row)
+        else:
+            job_id = _safe_float(row.get("job_id"))
+            if job_id is None:
+                emissions_vals.append(0.0)
+                continue
+
+            job_id_int = int(job_id)
+            resolver = resolver_by_job.get(job_id_int)
+            if resolver is None:
+                resolver = JobMonthlyEmissionsResolver(con, job_id_int)
+                resolver_by_job[job_id_int] = resolver
+            metrics = combined_row_metrics(row, resolver)
+
+        emissions_vals.append(float(metrics.get("calc_tco2e") or 0.0))
+
+    result = rows_df.copy()
+    result["emissions"] = emissions_vals
+    return result
+
+
+def exact_job_total_emissions(con, job_id: int) -> float:
+    """Return the exact total emissions for a single job."""
+    rows_df = load_combined_reporting_rows(con, [int(job_id)])
+    if rows_df is None or rows_df.empty:
+        return 0.0
+    rows_df = attach_exact_emissions(con, rows_df)
+    return round(float(rows_df["emissions"].sum()), 2)
+
+
 def load_combined_emissions_summary_rows(con, job_ids: list[int]):
     """Load pre-aggregated emissions rows for dashboards and high-level reporting."""
     if not job_ids:
