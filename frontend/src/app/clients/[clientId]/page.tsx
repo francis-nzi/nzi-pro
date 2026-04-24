@@ -216,6 +216,10 @@ function ClientDetailPageContent() {
   const [financialSummary, setFinancialSummary] = useState<ClientFinancialSummary | null>(null);
   const [financialStatus, setFinancialStatus] = useState<string>("");
   const [quoteLookupItems, setQuoteLookupItems] = useState<QuoteLookupItem[]>([]);
+  const [sitesLoaded, setSitesLoaded] = useState<boolean>(false);
+  const [contactsLoaded, setContactsLoaded] = useState<boolean>(false);
+  const [jobsLoaded, setJobsLoaded] = useState<boolean>(false);
+  const [financialLoaded, setFinancialLoaded] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [clientNotFound, setClientNotFound] = useState<boolean>(false);
@@ -304,6 +308,8 @@ function ClientDetailPageContent() {
       }
     } catch {
       setContacts([]);
+    } finally {
+      setContactsLoaded(true);
     }
   }, [baseUrl, clientId]);
 
@@ -316,18 +322,24 @@ function ClientDetailPageContent() {
       }
     } catch {
       setJobs([]);
+    } finally {
+      setJobsLoaded(true);
     }
   }, [baseUrl, clientId]);
 
   async function reloadSites() {
-    const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!sitesRes.ok) return;
-    const data = (await sitesRes.json()) as ClientSitesResponse;
-    setSites(data.active_sites ?? data.sites ?? []);
-    setVacatedSites(data.vacated_sites ?? []);
+    try {
+      const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!sitesRes.ok) return;
+      const data = (await sitesRes.json()) as ClientSitesResponse;
+      setSites(data.active_sites ?? data.sites ?? []);
+      setVacatedSites(data.vacated_sites ?? []);
+    } finally {
+      setSitesLoaded(true);
+    }
   }
 
   async function reloadFinancialData() {
@@ -356,6 +368,8 @@ function ClientDetailPageContent() {
       }
     } catch {
       // Keep the client page usable if one of the optional financial calls fails.
+    } finally {
+      setFinancialLoaded(true);
     }
   }
 
@@ -391,23 +405,16 @@ function ClientDetailPageContent() {
       setLoading(true);
       setError("");
       setClientNotFound(false);
+      setSitesLoaded(false);
+      setContactsLoaded(false);
+      setJobsLoaded(false);
+      setFinancialLoaded(false);
 
       try {
-        const [cRes, sRes, quotesRes, invoicesRes, summaryRes, lookupsRes] = await Promise.allSettled([
-          fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" }),
-          fetch(`${baseUrl}/clients/${clientId}/sites`, { credentials: "include", cache: "no-store" }),
-          fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
-          fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" }),
-          fetch(`${baseUrl}/clients/${clientId}/financial/summary`, { credentials: "include" }),
-          fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" }),
-        ]);
+        const cRes = await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" });
 
-        if (cRes.status !== "fulfilled") {
-          throw new Error("Failed to load client");
-        }
-
-        if (!cRes.value.ok) {
-          if (cRes.value.status === 404) {
+        if (!cRes.ok) {
+          if (cRes.status === 404) {
             if (cancelled) return;
             setClientNotFound(true);
             setClient(null);
@@ -419,28 +426,21 @@ function ClientDetailPageContent() {
             setInvoices([]);
             setFinancialSummary(null);
             setQuoteLookupItems([]);
+            setSitesLoaded(true);
+            setContactsLoaded(true);
+            setJobsLoaded(true);
+            setFinancialLoaded(true);
             return;
           }
-          const t = await cRes.value.text().catch(() => "");
-          throw new Error(`Failed to load client: ${cRes.value.status} ${cRes.value.statusText}${t ? ` - ${t}` : ""}`);
+          const t = await cRes.text().catch(() => "");
+          throw new Error(`Failed to load client: ${cRes.status} ${cRes.statusText}${t ? ` - ${t}` : ""}`);
         }
 
-        const cJson = (await cRes.value.json()) as Client;
-        const sJson = sRes.status === "fulfilled" && sRes.value.ok ? ((await sRes.value.json()) as ClientSitesResponse) : null;
-        const quotesJson = quotesRes.status === "fulfilled" && quotesRes.value.ok ? ((await quotesRes.value.json()) as ClientQuotesResponse) : null;
-        const invoicesJson = invoicesRes.status === "fulfilled" && invoicesRes.value.ok ? ((await invoicesRes.value.json()) as ClientInvoicesResponse) : null;
-        const summaryJson = summaryRes.status === "fulfilled" && summaryRes.value.ok ? ((await summaryRes.value.json()) as ClientFinancialSummary) : null;
-        const lookupsJson = lookupsRes.status === "fulfilled" && lookupsRes.value.ok ? await lookupsRes.value.json() : null;
+        const cJson = (await cRes.json()) as Client;
 
         if (cancelled) return;
 
         setClient(cJson);
-        setSites(sJson?.active_sites ?? sJson?.sites ?? []);
-        setVacatedSites(sJson?.vacated_sites ?? []);
-        setQuotes(quotesJson?.items ?? []);
-        setInvoices(invoicesJson?.items ?? []);
-        setFinancialSummary(summaryJson ?? null);
-        setQuoteLookupItems(Array.isArray(lookupsJson?.items) ? lookupsJson.items : []);
       } catch (e) {
         if (cancelled) return;
         setError((e as Error).message);
@@ -454,6 +454,10 @@ function ClientDetailPageContent() {
         setInvoices([]);
         setFinancialSummary(null);
         setQuoteLookupItems([]);
+        setSitesLoaded(false);
+        setContactsLoaded(false);
+        setJobsLoaded(false);
+        setFinancialLoaded(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -467,13 +471,19 @@ function ClientDetailPageContent() {
 
   useEffect(() => {
     if (clientNotFound) return;
-    if (activeSection === "contacts" && contacts.length === 0) {
+    if (activeSection === "contacts" && !contactsLoaded) {
       void reloadContacts();
     }
-    if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && jobs.length === 0) {
+    if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && !jobsLoaded) {
       void reloadJobs();
     }
-  }, [activeSection, clientNotFound, contacts.length, jobs.length, reloadContacts, reloadJobs]);
+    if ((activeSection === "details" || activeSection === "sites") && !sitesLoaded) {
+      void reloadSites();
+    }
+    if (activeSection === "financial" && !financialLoaded) {
+      void reloadFinancialData();
+    }
+  }, [activeSection, clientNotFound, contactsLoaded, jobsLoaded, sitesLoaded, financialLoaded, reloadContacts, reloadJobs, reloadFinancialData]);
 
   async function handleAddContact() {
     try {
