@@ -221,6 +221,20 @@ def get_client_dashboard(
             )
             job_years = _extract_job_years(jobs_df)
             available_years = sorted(set(years + job_years)) if (years or job_years) else []
+            if not years and job_ids:
+                scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
+                if scope_df is not None and not scope_df.empty:
+                    scope_df = scope_df.copy()
+                    scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(_safe_year_value)
+                    scope_df = scope_df[scope_df['dashboard_year_norm'].notna()].copy()
+                    years = sorted(
+                        [
+                            int(y)
+                            for y in scope_df['dashboard_year_norm'].dropna().unique().tolist()
+                            if y is not None and str(y) != 'nan'
+                        ]
+                    )
+                    available_years = sorted(set(years + job_years)) if (years or job_years) else []
             requested_year = _safe_year_value(year)
             selected_year = (
                 requested_year

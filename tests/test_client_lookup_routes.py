@@ -156,3 +156,56 @@ def test_client_dashboard_falls_back_to_exact_reporting_rows(monkeypatch) -> Non
     assert result["selected_year"] == 2025
     assert result["current_metrics"]["total_emissions"] == 40.57
     assert result["top_categories"][0]["category"] == "Office"
+
+
+def test_client_dashboard_falls_back_when_summary_years_are_missing(monkeypatch) -> None:
+    conn = _DashboardConn()
+    jobs_df = pd.DataFrame(
+        [
+            {
+                "job_id": 627,
+                "reporting_year": 2025,
+                "dashboard_year": 2025,
+                "title": "Lendco Annual Support 2025",
+            }
+        ]
+    )
+    summary_rows_df = pd.DataFrame(
+        [
+            {
+                "job_id": 627,
+                "dashboard_year": pd.NA,
+                "scope": "Scope 3",
+                "category": "Office",
+                "emissions": 0.0,
+                "record_type": "source_register",
+            }
+        ]
+    )
+    exact_rows_df = pd.DataFrame(
+        [
+            {
+                "job_id": 627,
+                "dashboard_year": 2025,
+                "scope": "Scope 3",
+                "category": "Office",
+                "emissions": 40.57,
+                "record_type": "legacy",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(client_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(client_dashboard_routes, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(client_dashboard_routes, "require_org", lambda *_args, **_kwargs: "org-a")
+    monkeypatch.setattr(client_dashboard_routes, "_load_client_jobs", lambda *_args, **_kwargs: jobs_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_emissions_summary_rows", lambda *_args, **_kwargs: summary_rows_df)
+    monkeypatch.setattr(client_dashboard_routes, "load_combined_reporting_rows", lambda *_args, **_kwargs: exact_rows_df)
+    monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, rows_df: rows_df)
+    monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
+
+    result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["available_years"] == [2025]
+    assert result["selected_year"] == 2025
+    assert result["current_metrics"]["total_emissions"] == 40.57
