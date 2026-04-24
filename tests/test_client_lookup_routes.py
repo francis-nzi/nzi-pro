@@ -109,6 +109,8 @@ def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
 
     result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
 
+    assert result["available_years"] == [2025]
+    assert result["selected_year"] == 2025
     assert result["current_metrics"]["total_emissions"] == 40.57
     assert result["top_categories"][0]["category"] == "Office"
     assert result["top_categories"][0]["emissions"] == 40.57

@@ -34,6 +34,19 @@ def _safe_year_value(value):
         return None
 
 
+def _extract_job_years(jobs_df) -> list[int]:
+    if jobs_df is None or jobs_df.empty:
+        return []
+    years: list[int] = []
+    for _, row in jobs_df.iterrows():
+        year = _safe_year_value(row.get("dashboard_year"))
+        if year is None:
+            year = _safe_year_value(row.get("reporting_year"))
+        if year is not None:
+            years.append(year)
+    return sorted(set(years))
+
+
 def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
     if org_id:
         if crp_only:
@@ -153,16 +166,10 @@ def get_client_dashboard(
                 benchmark_metrics = None
 
             if scope_df is None or scope_df.empty:
-                available_years = sorted(
-                    [
-                        int(y)
-                        for y in jobs_df['dashboard_year'].dropna().unique().tolist()
-                        if y is not None and str(y) != 'nan'
-                    ]
-                ) if jobs_df is not None and not jobs_df.empty else []
+                available_years = _extract_job_years(jobs_df)
                 selected_year = (
-                    int(year)
-                    if year is not None and int(year) in available_years
+                    _safe_year_value(year)
+                    if _safe_year_value(year) is not None and _safe_year_value(year) in available_years
                     else (available_years[-1] if available_years else None)
                 )
                 return {
@@ -196,11 +203,9 @@ def get_client_dashboard(
                     if y is not None and str(y) != 'nan'
                 ]
             )
-            available_years = years
-            try:
-                requested_year = int(year) if year is not None else None
-            except Exception:
-                requested_year = None
+            job_years = _extract_job_years(jobs_df)
+            available_years = sorted(set(years + job_years)) if (years or job_years) else []
+            requested_year = _safe_year_value(year)
             selected_year = (
                 requested_year
                 if requested_year is not None and requested_year in available_years
