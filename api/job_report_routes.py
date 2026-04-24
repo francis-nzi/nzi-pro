@@ -351,6 +351,8 @@ def _get_job_assigned_template_selection(job_id: int):
 
     if not row:
         return None
+    if row[0] is None:
+        return None
 
     return _get_template_selection(int(row[0]), int(row[1]) if row[1] is not None else None)
 
@@ -1596,14 +1598,48 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    scope_totals = get_scope_totals(job_id)
-    categories = get_emissions_by_category(job_id)
-    benchmark_totals = get_benchmark_emissions(job_id, job_data.get("benchmark_year"))
-    benchmark_job_id = _resolve_benchmark_reference_job(job_id, job_data.get("benchmark_year"))
-    previous_job_data = get_job_data(benchmark_job_id) if benchmark_job_id else None
-    previous_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
-    job_actions = get_job_report_actions_payload(job_id)
-    selected_template = _get_job_assigned_template_selection(int(job_id))
+    def _safe_totals() -> dict[str, float]:
+        return {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+
+    try:
+        scope_totals = get_scope_totals(job_id)
+    except Exception:
+        scope_totals = _safe_totals()
+
+    try:
+        categories = get_emissions_by_category(job_id)
+    except Exception:
+        categories = []
+
+    try:
+        benchmark_totals = get_benchmark_emissions(job_id, job_data.get("benchmark_year"))
+    except Exception:
+        benchmark_totals = _safe_totals()
+
+    try:
+        benchmark_job_id = _resolve_benchmark_reference_job(job_id, job_data.get("benchmark_year"))
+    except Exception:
+        benchmark_job_id = None
+
+    try:
+        previous_job_data = get_job_data(benchmark_job_id) if benchmark_job_id else None
+    except Exception:
+        previous_job_data = None
+
+    try:
+        previous_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
+    except Exception:
+        previous_categories = []
+
+    try:
+        job_actions = get_job_report_actions_payload(job_id)
+    except Exception:
+        job_actions = {"items": [], "term_counts": {}}
+
+    try:
+        selected_template = _get_job_assigned_template_selection(int(job_id))
+    except Exception:
+        selected_template = None
 
     current_total = _coerce_float(scope_totals.get("Total"))
     previous_total = _coerce_float(benchmark_totals.get("Total"))
@@ -1623,9 +1659,11 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
     if top:
         context_summary += f" Largest category: {top.get('category')} at {_coerce_float(top.get('emissions')):.2f} tCO₂e."
 
+    selected_template_key = selected_template.get("template_key") if selected_template else None
+
     return {
         "job_id": int(job_id),
-        "template_key": template_key or selected_template.get("template_key"),
+        "template_key": template_key or selected_template_key,
         "selected_template": selected_template or {},
         "job_data": job_data,
         "previous_job_data": previous_job_data,
@@ -4182,7 +4220,20 @@ def get_report_draft_context(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load report draft context: {exc}")
+        return {
+            "job_id": int(job_id),
+            "template_key": template_key,
+            "selected_template": {},
+            "job_data": None,
+            "previous_job_data": None,
+            "scope_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
+            "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
+            "categories": [],
+            "previous_categories": [],
+            "job_actions": {"items": [], "term_counts": {}},
+            "context_summary": "Draft context is temporarily unavailable.",
+            "top_category": None,
+        }
 
 
 @router.get("/jobs/{job_id}/report-drafts")
@@ -4213,7 +4264,7 @@ def list_report_drafts(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to load report drafts: {exc}")
+        return {"job_id": int(job_id), "template_key": template_key, "items": []}
 
 
 @router.put("/jobs/{job_id}/report-drafts")
