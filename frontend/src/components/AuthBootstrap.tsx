@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { apiUrl, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
+import { apiUrl, hasAuthState, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
 
 function appendNext(path: string, next: string): string {
   return `${path}?next=${encodeURIComponent(next)}`;
@@ -43,6 +43,7 @@ export function AuthBootstrap() {
       pathname?.startsWith("/legal/") ||
       pathname === "/support/legal" ||
       pathname?.startsWith("/support/legal/");
+    const loggedIn = hasAuthState();
     const mustChange = mustChangePassword();
     const mustAcceptTerms = mustAcceptPortalTerms();
     const currentNext =
@@ -51,6 +52,13 @@ export function AuthBootstrap() {
         : pathname || "/";
     const loginNext = searchParams?.get("next") || "/";
     const desiredNext = isLoginPage ? loginNext : currentNext;
+
+    if (!loggedIn && !isPublicPage) {
+      router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
+      return;
+    }
+
+    if (!loggedIn) return;
 
     let cancelled = false;
     void (async () => {
@@ -61,11 +69,31 @@ export function AuthBootstrap() {
         });
         if (cancelled) return;
         if (!res.ok) {
-          if (!isPublicPage && !isLoginPage) {
-            router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
+          let detailText = "";
+          try {
+            const payload = await res.json();
+            detailText = String(payload?.detail || payload?.message || "").trim().toLowerCase();
+          } catch {
+            detailText = "";
           }
-          if (isLoginPage) {
-            router.replace(loginNext || "/");
+
+          if (res.status === 403) {
+            if (detailText.includes("password") && !isChangePasswordPage) {
+              router.replace(`/change-password?next=${encodeURIComponent(desiredNext)}`);
+            } else if (detailText.includes("mfa") && !isMfaSetupPage) {
+              router.replace(`/account/mfa-setup?next=${encodeURIComponent(desiredNext)}`);
+            } else if (detailText.includes("term") && !isAcceptTermsPage) {
+              router.replace(buildRequiredFlow(desiredNext, {
+                mustChangePassword: false,
+                mustAcceptPortalTerms: true,
+                mfaSetupRequired: false,
+              }));
+            }
+            return;
+          }
+
+          if (res.status === 401 && !isPublicPage && !isLoginPage) {
+            router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
           }
           return;
         }
@@ -125,7 +153,7 @@ export function AuthBootstrap() {
         }
       } catch {
         if (cancelled) return;
-        if (!isPublicPage && !isLoginPage) {
+        if (!isPublicPage && !isLoginPage && loggedIn) {
           router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
           return;
         }
