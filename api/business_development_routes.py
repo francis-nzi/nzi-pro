@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from api.auth import _current_user
 from api.admin_routes import _require_org_capacity, _require_org_plan_active
 from core.database import get_conn
-from services.tenancy import get_default_org_id, require_org
+from services.tenancy import require_org
 
 router = APIRouter(tags=["business-development"])
 
@@ -654,23 +654,6 @@ def _ensure_tables(con) -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_bd_ai_leads_org_day_service_company ON bd_ai_generated_leads (org_id, bin_date, service_key, company_name)"
     )
     con.execute("CREATE INDEX IF NOT EXISTS ix_bd_ai_leads_bin ON bd_ai_generated_leads (org_id, bin_date, service_key, qualification_status)")
-
-    default_org_id = get_default_org_id()
-    if default_org_id:
-        for table in (
-            "bd_scan_batches",
-            "bd_market_companies",
-            "bd_company_verifications",
-            "bd_company_contacts",
-            "bd_market_scores",
-            "bd_leads",
-            "bd_opportunities",
-            "bd_ai_generated_leads",
-        ):
-            con.execute(
-                f"UPDATE {table} SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL",
-                [default_org_id],
-            )
 
     defaults = [
         ("lead", "Lead", 1, 10),

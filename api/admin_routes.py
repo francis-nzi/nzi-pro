@@ -13,7 +13,7 @@ from core.database import get_conn
 from core.auth import set_user_password
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
-from services.tenancy import get_default_org_id, require_org, get_current_org_context, run_with_org_context
+from services.tenancy import require_org, get_current_org_context, run_with_org_context
 from pathlib import Path
 import io
 import zipfile
@@ -1814,9 +1814,12 @@ def _missing_data_update_one(con, *, entity: str, field_name: str, record_id: in
     return coerced_value
 
 
-def _ensure_job_types_lookup_table(con) -> None:
+def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
     """Ensure job types table is present with the columns the admin UI expects."""
     try:
+        org_id = str(org_id or "").strip() or None
+        if not org_id:
+            return
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS job_types (
@@ -1832,7 +1835,6 @@ def _ensure_job_types_lookup_table(con) -> None:
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS org_id TEXT")
-        org_id = get_default_org_id()
         default_job_types = [
             ("Life Cycle Assessment", "", 0, 0, False, True),
             ("Net Zero Bronze/Core - CRP Only", "- Carbon Reduction Plan report only", 975, 0, True, True),
@@ -2019,9 +2021,12 @@ def _ensure_payment_terms_lookup_table(con) -> None:
         pass
 
 
-def _ensure_time_subjects_lookup_table(con) -> None:
+def _ensure_time_subjects_lookup_table(con, org_id: str | None) -> None:
     """Ensure time subjects lookup exists and supports budget hours."""
     try:
+        org_id = str(org_id or "").strip() or None
+        if not org_id:
+            return
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS time_subjects (
@@ -2038,7 +2043,6 @@ def _ensure_time_subjects_lookup_table(con) -> None:
             con.execute("ALTER TABLE time_subjects ADD COLUMN IF NOT EXISTS org_id TEXT")
         except Exception:
             pass
-        org_id = get_default_org_id()
         default_subjects = [
             "Client Calls",
             "Client Data Collection",
@@ -2059,9 +2063,12 @@ def _ensure_time_subjects_lookup_table(con) -> None:
         pass
 
 
-def _ensure_portfolios_lookup_table(con) -> None:
+def _ensure_portfolios_lookup_table(con, org_id: str | None) -> None:
     """Ensure portfolios lookup exists with the standard NZI portfolio."""
     try:
+        org_id = str(org_id or "").strip() or None
+        if not org_id:
+            return
         con.execute(
             """
             CREATE TABLE IF NOT EXISTS portfolios_lookup (
@@ -2073,7 +2080,6 @@ def _ensure_portfolios_lookup_table(con) -> None:
             """
         )
         con.execute("ALTER TABLE portfolios_lookup ADD COLUMN IF NOT EXISTS org_id TEXT")
-        org_id = get_default_org_id()
         con.execute(
             """
             INSERT INTO portfolios_lookup (org_id, name, is_active)
@@ -2331,10 +2337,10 @@ def _ensure_currency_lookup_table(con) -> None:
         pass
 
 
-def _ensure_lookup_table(con, table_name: str) -> None:
+def _ensure_lookup_table(con, table_name: str, org_id: str | None = None) -> None:
     """Ensure lookup tables and standard seed options exist before admin operations."""
     if table_name == "job_types":
-        _ensure_job_types_lookup_table(con)
+        _ensure_job_types_lookup_table(con, org_id)
     elif table_name == "job_statuses_lookup":
         _ensure_job_statuses_lookup_table(con)
     elif table_name == "vat_rates_lookup":
@@ -2342,9 +2348,9 @@ def _ensure_lookup_table(con, table_name: str) -> None:
     elif table_name == "payment_terms_lookup":
         _ensure_payment_terms_lookup_table(con)
     elif table_name == "time_subjects":
-        _ensure_time_subjects_lookup_table(con)
+        _ensure_time_subjects_lookup_table(con, org_id)
     elif table_name == "portfolios_lookup":
-        _ensure_portfolios_lookup_table(con)
+        _ensure_portfolios_lookup_table(con, org_id)
     elif table_name == "industries_lookup":
         _ensure_industries_lookup_table(con)
     elif table_name == "currency_lookup":
@@ -2361,11 +2367,11 @@ def _ensure_lookup_table(con, table_name: str) -> None:
         _ensure_bd_bin_reasons_lookup_table(con)
 
 
-def _ensure_lookup_table_once(con, table_name: str) -> None:
+def _ensure_lookup_table_once(con, table_name: str, org_id: str | None = None) -> None:
     with _LOOKUP_BOOTSTRAP_LOCK:
         if table_name in _LOOKUP_BOOTSTRAPPED:
             return
-        _ensure_lookup_table(con, table_name)
+        _ensure_lookup_table(con, table_name, org_id)
         _LOOKUP_BOOTSTRAPPED.add(table_name)
 
 
@@ -5341,7 +5347,7 @@ def list_lookup_items(
 
     def _fetch_data():
         with get_conn() as con:
-            _ensure_lookup_table_once(con, table_name)
+            _ensure_lookup_table_once(con, table_name, org_id)
             has_active_flag = _lookup_has_active_flag(con, query_table)
             active_filter = ""
             if has_active_flag and not include_archived:
@@ -5438,8 +5444,8 @@ def permanently_delete_lookup_item(
 
     try:
         with get_conn() as con:
-            _ensure_lookup_table(con, table_name)
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            _ensure_lookup_table(con, table_name, org_id)
             where_clause = f"WHERE {id_col} = %s"
             params = [int(item_id)]
             if org_id is not None:
@@ -5485,8 +5491,8 @@ def create_lookup_item(
     
     try:
         with get_conn() as con:
-            _ensure_lookup_table(con, table_name)
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            _ensure_lookup_table(con, table_name, org_id)
             org_match = str(org_id or "").strip()
             # This is simplified - you'd need table-specific logic for different schemas
             if table_name == "vat_rates_lookup":
@@ -5646,8 +5652,8 @@ def update_lookup_item(
     
     try:
         with get_conn() as con:
-            _ensure_lookup_table(con, table_name)
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
+            _ensure_lookup_table(con, table_name, org_id)
             org_match = str(org_id or "").strip()
             # Build update query
             updates = []

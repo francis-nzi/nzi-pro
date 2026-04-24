@@ -6,7 +6,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.admin_routes as admin_routes
+import api.business_development_routes as business_development_routes
 import api.auth_routes as auth_routes
+import api.main as main
 
 
 class _FakeRow:
@@ -131,3 +133,21 @@ def test_billing_ledger_stays_scoped_to_selected_org(monkeypatch):
     assert result["billing"]["invoices"][0]["org_id"] == "org-123"
     assert result["billing"]["events"][0]["org_id"] == "org-123"
     assert result["billing"]["role"] == "Owner"
+
+
+def test_client_org_columns_do_not_backfill_default_org():
+    fake = _Stage3Conn()
+    main._ensure_client_org_columns(fake)
+
+    assert any("ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id" in sql for sql, _ in fake.executed)
+    assert not any("UPDATE clients SET org_id = COALESCE" in sql for sql, _ in fake.executed)
+    assert not any("UPDATE client_sites SET org_id = COALESCE" in sql for sql, _ in fake.executed)
+    assert not any("UPDATE client_contacts SET org_id = COALESCE" in sql for sql, _ in fake.executed)
+
+
+def test_business_development_bootstrap_does_not_backfill_default_org():
+    fake = _Stage3Conn()
+    business_development_routes._ensure_tables(fake)
+
+    assert any("CREATE TABLE IF NOT EXISTS bd_scan_batches" in sql for sql, _ in fake.executed)
+    assert not any("UPDATE bd_" in sql and "org_id" in sql for sql, _ in fake.executed)

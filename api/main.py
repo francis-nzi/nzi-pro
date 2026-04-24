@@ -121,7 +121,7 @@ from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
 from api.permissions import assert_client_access, assert_job_access, assert_permission
-from services.tenancy import get_default_org_id, require_org
+from services.tenancy import require_org
 
 
 def _client_audit_snapshot(con, client_db_id: int, org_id: str | None = None) -> dict | None:
@@ -678,7 +678,7 @@ def _ensure_client_billing_columns(con) -> None:
 
 
 def _ensure_client_org_columns(con) -> None:
-    """Ensure client/org tenancy columns exist and backfill rows to the default org."""
+    """Ensure client/org tenancy columns exist."""
     statements = [
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id VARCHAR",
         "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS org_id VARCHAR",
@@ -689,16 +689,6 @@ def _ensure_client_org_columns(con) -> None:
             con.execute(statement)
         except Exception:
             pass
-    default_org_id = get_default_org_id()
-    if default_org_id:
-        try:
-            con.execute("UPDATE clients SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL", [default_org_id])
-            con.execute("UPDATE client_sites SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL", [default_org_id])
-            con.execute("UPDATE client_contacts SET org_id = COALESCE(org_id, ?) WHERE org_id IS NULL", [default_org_id])
-        except Exception:
-            pass
-
-
 def _resolve_scope_dataset_map(
     job_id: int,
 ) -> tuple[dict[str, int], dict[str, object] | None, list[str]]:

@@ -40,26 +40,6 @@ def org_context(org_id: str | None):
         _CURRENT_ORG_ID.reset(token)
 
 
-def get_default_org_id() -> str | None:
-    """Return the fallback organisation id for this deployment."""
-    try:
-        with get_conn() as con:
-            row = con.execute(
-                "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
-            ).fetchone()
-            if row and row[0]:
-                return str(row[0])
-
-            row = con.execute(
-                "SELECT org_id FROM organisations ORDER BY created_at ASC LIMIT 1"
-            ).fetchone()
-            if row and row[0]:
-                return str(row[0])
-    except Exception:
-        return None
-    return None
-
-
 def attach_org_id(user: dict) -> dict:
     """Attach the user's stored org id, if present."""
     user_id = str(user.get("user_id") or "").strip()
