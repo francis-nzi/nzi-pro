@@ -141,6 +141,40 @@ class _ClientJobsExactConn(_ClientJobsConn):
         return pd.DataFrame([])
 
 
+class _ClientJobsMismatchConn(_ClientJobsConn):
+    def fetchone(self):
+        if "COUNT(*)" in self._last_sql and "j.org_id = ?" in self._last_sql:
+            return (0,)
+        if "COUNT(*)" in self._last_sql:
+            return (1,)
+        return None
+
+    def df(self):
+        if "FROM jobs j" in self._last_sql and "j.org_id = ?" not in self._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 640,
+                        "job_number": "J000640",
+                        "title": "Job title",
+                        "reporting_year": 2025,
+                        "reporting_period_end": pd.Timestamp("2026-03-31"),
+                        "status": "Open",
+                        "job_type": "CRP",
+                        "is_crp": True,
+                        "data_collection_due": None,
+                        "data_collection_completed_at": None,
+                        "first_draft_due": None,
+                        "first_draft_completed_at": None,
+                        "final_report_due": None,
+                        "final_report_completed_at": None,
+                        "total_emissions": 0,
+                    }
+                ]
+            )
+        return super().df()
+
+
 class _ClientLimitConn(_FakeConn):
     def __init__(self):
         self.queries = []
@@ -344,6 +378,25 @@ def test_client_jobs_use_exact_emissions_totals(monkeypatch: pytest.MonkeyPatch)
         _user={"user_id": "u1", "org_id": "org-a"},
     )
 
+    assert result["items"][0]["total_emissions"] == 40.57
+
+
+def test_client_jobs_falls_back_when_org_filter_returns_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ClientJobsMismatchConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+    monkeypatch.setattr(main, "exact_job_total_emissions", lambda *_args, **_kwargs: 40.57)
+
+    result = main.client_jobs(
+        58,
+        limit=50,
+        offset=0,
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["total"] == 1
+    assert result["items"][0]["job_id"] == 640
     assert result["items"][0]["total_emissions"] == 40.57
 
 
