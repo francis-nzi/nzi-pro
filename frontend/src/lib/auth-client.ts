@@ -52,19 +52,18 @@ export function getToken(): string | null {
 }
 
 export function getAuthUserIdentifier(): string | null {
-  return cookieValue(USER_COOKIE);
+  return null;
 }
 
 export function hasAuthState(): boolean {
-  return Boolean(getToken() || getAuthUserIdentifier());
+  return Boolean(getToken());
 }
 
 export function setAuthState(token: string | null, userIdentifier: string | null): void {
   if (token) setCookie(TOKEN_COOKIE, token);
   else clearCookie(TOKEN_COOKIE);
 
-  if (userIdentifier) setCookie(USER_COOKIE, userIdentifier);
-  else clearCookie(USER_COOKIE);
+  clearCookie(USER_COOKIE);
 }
 
 export function clearAuthState(): void {
@@ -178,12 +177,9 @@ export function installAuthFetchPatch(): void {
 
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
     const token = getToken();
-    const userIdentifier = getAuthUserIdentifier();
 
     if (token && isApiRequest(requestUrl) && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
-    } else if (!token && userIdentifier && isApiRequest(requestUrl) && !headers.has("X-User-Email")) {
-      headers.set("X-User-Email", userIdentifier);
     }
 
     const requestInit: RequestInit = { ...init, headers };

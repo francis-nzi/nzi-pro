@@ -18,7 +18,7 @@ Use this file as the living checklist for the next hardening phase after multi-t
 
 | ID | Ticket | Priority | Status | Owner | Due date | Dependencies | Evidence |
 |---|---|---|---|---|---|---|---|
-| S4-1 | Modernise auth to a single primary session model | P0 | Not started | You | 2026-09-04 | S3-7, S3-8, S3-9 |  |
+| S4-1 | Modernise auth to a single primary session model | P0 | Complete | You | 2026-09-04 | S3-7, S3-8, S3-9 | Files: `frontend/src/lib/auth-client.ts`, `frontend/src/components/MainNav.tsx`; tests: `npm run build`; notes: bearer token is now the primary client session path and the displayed user label is sourced from `/auth/me` |
 | S4-2 | Remove remaining browser-cookie and X-User compatibility bridges | P0 | Not started | You | 2026-09-04 | S4-1 |  |
 | S4-3 | Replace deprecated startup and query patterns with current framework APIs | P1 | Not started | You | 2026-09-11 | S4-1 |  |
 | S4-4 | Audit and document remaining safe fallback paths outside tenancy | P1 | Not started | You | 2026-09-11 | S3-9 |  |
@@ -39,4 +39,3 @@ When we agree a ticket is finished, update its `Status` to `Complete` and add a 
 - file(s) changed
 - tests run
 - any remaining caveats
-

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { apiUrl, clearAuthState, getAuthUserIdentifier, hasAuthState } from "@/lib/auth-client";
+import { apiUrl, clearAuthState, hasAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -101,7 +101,7 @@ export function MainNav() {
     const timer = setTimeout(() => {
       void (async () => {
         const authed = hasAuthState();
-        const userId = getAuthUserIdentifier() || "";
+        let userId = "";
         let adminAccess = false;
         let currentOrgId = "";
         let currentOrgLabel = "";
@@ -117,6 +117,7 @@ export function MainNav() {
               const user = payload?.user || {};
               const currentOrg = payload?.current_org || {};
               adminAccess = hasAdminAccessFromPayload(user);
+              userId = String(user?.email || user?.user_id || "").trim();
               currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
               currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
               currentOrgSlug = String(currentOrg?.slug || "").trim();
