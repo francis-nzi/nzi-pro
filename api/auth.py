@@ -1,7 +1,8 @@
 """API authentication helpers.
 
 Supports JWT Bearer tokens when `NZI_JWT_SECRET` is set.
-Otherwise supports header-based identity via `X-User` / `X-User-Email`.
+Otherwise supports header-based identity via `X-User` / `X-User-Email`
+for local/dev compatibility.
 Anonymous access is not allowed.
 """
 from typing import Dict, Optional
@@ -171,28 +172,10 @@ def _current_user(
             user = attach_org_id(user)
             set_current_org_context(user.get("org_id"))
             return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
-
-        # Compatibility fallback: older sessions may still rely on the browser
-        # identity cookie or X-User-Email while the app is in strict JWT mode.
-        # This keeps already-signed-in users working while new logins still get
-        # a signed bearer token.
-        ident = (x_user_email or x_user or "").strip()
-        if not ident:
-            ident = str(request.cookies.get("nzi_user") or "").strip()
-        if ident:
-            user = _active_user_from_identifier(ident)
-            if not user:
-                raise HTTPException(status_code=401, detail="Unknown or inactive user")
-            user = attach_org_id(user)
-            set_current_org_context(user.get("org_id"))
-            return _enforce_mfa_setup(_enforce_password_change(enrich_user_permissions(user) or user))
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     # Header-based compatibility mode (still strict; no anonymous access)
     ident = (x_user_email or x_user or "").strip()
-    if not ident:
-        # Allow same-browser new-tab navigation to backend routes.
-        ident = str(request.cookies.get("nzi_user") or "").strip()
     if not ident and _allow_dev_login():
         ident = str(os.getenv("DEV_LOGIN_EMAIL") or os.getenv("NZI_DEV_LOGIN_EMAIL") or "").strip()
 

@@ -1,7 +1,6 @@
 "use client";
 
 export const TOKEN_COOKIE = "nzi_token";
-export const USER_COOKIE = "nzi_user";
 export const FORCE_PASSWORD_CHANGE_COOKIE = "nzi_force_pw_change";
 export const ACCEPT_TERMS_COOKIE = "nzi_accept_terms";
 
@@ -51,10 +50,6 @@ export function getToken(): string | null {
   return cookieValue(TOKEN_COOKIE);
 }
 
-export function getAuthUserIdentifier(): string | null {
-  return null;
-}
-
 export function hasAuthState(): boolean {
   return Boolean(getToken());
 }
@@ -62,13 +57,10 @@ export function hasAuthState(): boolean {
 export function setAuthState(token: string | null, userIdentifier: string | null): void {
   if (token) setCookie(TOKEN_COOKIE, token);
   else clearCookie(TOKEN_COOKIE);
-
-  clearCookie(USER_COOKIE);
 }
 
 export function clearAuthState(): void {
   clearCookie(TOKEN_COOKIE);
-  clearCookie(USER_COOKIE);
   clearCookie(FORCE_PASSWORD_CHANGE_COOKIE);
   clearCookie(ACCEPT_TERMS_COOKIE);
 }

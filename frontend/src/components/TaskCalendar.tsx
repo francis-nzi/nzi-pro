@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -97,10 +97,8 @@ const MONTH_NAMES = [
 
 function authHeaders(): Record<string, string> {
   const token = getToken();
-  const userId = getAuthUserIdentifier();
   const h: Record<string, string> = {};
   if (token) h.Authorization = `Bearer ${token}`;
-  else if (userId) h["X-User-Email"] = userId;
   return h;
 }
 

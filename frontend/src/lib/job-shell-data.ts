@@ -1,6 +1,6 @@
 "use client";
 
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 
 export type JobShellJob = {
   job_id: number;
@@ -34,9 +34,7 @@ function cacheKey(baseUrl: string, jobId: number): string {
 function authHeaders(): HeadersInit {
   const headers: Record<string, string> = {};
   const token = getToken();
-  const userIdentifier = getAuthUserIdentifier();
   if (token) headers.Authorization = `Bearer ${token}`;
-  else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
   return headers;
 }
 

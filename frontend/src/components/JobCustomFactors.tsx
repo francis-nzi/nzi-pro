@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 
 type JobCustomFactor = {
   factor_id: number;
@@ -110,10 +110,8 @@ export default function JobCustomFactors({
         ? [activeApiBase, ...apiBases.filter((b) => b !== activeApiBase)]
         : apiBases;
       const token = getToken();
-      const userIdentifier = getAuthUserIdentifier();
       const authHeaders: Record<string, string> = {};
       if (token) authHeaders.Authorization = `Bearer ${token}`;
-      else if (userIdentifier) authHeaders["X-User-Email"] = userIdentifier;
 
       for (const base of orderedBases) {
         try {

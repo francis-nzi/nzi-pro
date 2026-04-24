@@ -6,6 +6,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.auth_routes as auth_routes
+import api.auth as auth_module
+from fastapi import HTTPException
+import pytest
 
 
 class _FakeRow:
@@ -37,6 +40,53 @@ class _AuthConn:
 
     def __exit__(self, exc_type, exc, tb):
         return False
+
+
+class _FakeUrl:
+    def __init__(self, path: str):
+        self.path = path
+
+
+class _FakeRequest:
+    def __init__(self, path: str = "/auth/me", method: str = "GET"):
+        self.url = _FakeUrl(path)
+        self.method = method
+
+
+def test_current_user_requires_bearer_token_when_jwt_enabled(monkeypatch):
+    monkeypatch.setenv("NZI_JWT_SECRET", "test-secret")
+    request = _FakeRequest()
+
+    with pytest.raises(HTTPException, match="Missing bearer token"):
+        auth_routes._current_user(
+            request,
+            authorization=None,
+            x_user="legacy@example.com",
+            x_user_email="legacy@example.com",
+        )
+
+
+def test_current_user_accepts_bearer_token_and_sets_org_context(monkeypatch):
+    monkeypatch.setenv("NZI_JWT_SECRET", "test-secret")
+
+    token = auth_routes.jwt.encode({"sub": "u1"}, "test-secret", algorithm="HS256")
+    request = _FakeRequest()
+    seen_context: list[str | None] = []
+
+    monkeypatch.setattr(
+        auth_module,
+        "_active_user_from_identifier",
+        lambda ident: {"user_id": ident, "email": "owner@example.com", "org_id": "org-123", "must_change_password": False, "mfa_enabled": False},
+    )
+    monkeypatch.setattr(auth_module, "attach_org_id", lambda user: user)
+    monkeypatch.setattr(auth_module, "enrich_user_permissions", lambda user: user)
+    monkeypatch.setattr(auth_module, "set_current_org_context", lambda org_id: seen_context.append(org_id))
+
+    result = auth_routes._current_user(request, authorization=f"Bearer {token}")
+
+    assert result["user_id"] == "u1"
+    assert result["org_id"] == "org-123"
+    assert seen_context == ["org-123"]
 
 
 def test_me_includes_current_org_summary(monkeypatch):

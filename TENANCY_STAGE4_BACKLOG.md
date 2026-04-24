@@ -19,10 +19,10 @@ Use this file as the living checklist for the next hardening phase after multi-t
 | ID | Ticket | Priority | Status | Owner | Due date | Dependencies | Evidence |
 |---|---|---|---|---|---|---|---|
 | S4-1 | Modernise auth to a single primary session model | P0 | Complete | You | 2026-09-04 | S3-7, S3-8, S3-9 | Files: `frontend/src/lib/auth-client.ts`, `frontend/src/components/MainNav.tsx`; tests: `npm run build`; notes: bearer token is now the primary client session path and the displayed user label is sourced from `/auth/me` |
-| S4-2 | Remove remaining browser-cookie and X-User compatibility bridges | P0 | Not started | You | 2026-09-04 | S4-1 |  |
-| S4-3 | Replace deprecated startup and query patterns with current framework APIs | P1 | Not started | You | 2026-09-11 | S4-1 |  |
-| S4-4 | Audit and document remaining safe fallback paths outside tenancy | P1 | Not started | You | 2026-09-11 | S3-9 |  |
-| S4-5 | Add regression coverage for strict auth and session flows | P0 | Not started | You | 2026-09-11 | S4-1, S4-2 |  |
+| S4-2 | Remove remaining browser-cookie and X-User compatibility bridges | P0 | Complete | You | 2026-09-04 | S4-1 | Files: api/auth.py, frontend/src/app/api/backend/[...path]/route.ts, frontend/src/lib/auth-client.ts, frontend/src/components/ClientDashboard.tsx, frontend/src/components/JobCustomDataset.tsx, frontend/src/components/JobCustomFactors.tsx, frontend/src/components/JobSourceRegister.tsx, frontend/src/components/JobWorkspacePrototype.tsx, frontend/src/components/TaskCalendar.tsx, frontend/src/app/admin/custom-factors/page.tsx; tests: tests/test_auth_routes.py; notes: frontend no longer emits X-User or cookie-based identity headers, and strict JWT auth now rejects legacy identity headers when a bearer token is required |
+| S4-3 | Replace deprecated startup and query patterns with current framework APIs | P1 | Complete | You | 2026-09-11 | S4-1 | Files: frontend/src/components/JobWorkspacePrototype.tsx; tests: frontend build; notes: repo-wide search did not find any deprecated next/router or getServerSideProps patterns, and the remaining prototype-shell auth state display is now token-only |
+| S4-4 | Audit and document remaining safe fallback paths outside tenancy | P1 | Complete | You | 2026-09-11 | S3-9 | Files: TENANCY_SAFE_FALLBACK_AUDIT.md; notes: documented the intentional non-tenancy fallbacks that remain for resilience, and separated them from removed auth/session bridges |
+| S4-5 | Add regression coverage for strict auth and session flows | P0 | Complete | You | 2026-09-11 | S4-1, S4-2 | Files: tests/test_auth_routes.py; tests: python -m pytest tests/test_auth_routes.py; notes: strict JWT mode now rejects legacy identity headers without a bearer token and accepts a bearer token session with org context |
 
 ## Suggested Order
 

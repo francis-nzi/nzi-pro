@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 
@@ -86,10 +86,8 @@ export default function JobCustomDataset({
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();
-    const userIdentifier = getAuthUserIdentifier();
     const authHeaders: Record<string, string> = {};
     if (token) authHeaders.Authorization = `Bearer ${token}`;
-    else if (userIdentifier) authHeaders["X-User-Email"] = userIdentifier;
 
     const orderedBases = activeApiBase
       ? [activeApiBase, ...apiBases.filter((b) => b !== activeApiBase)]

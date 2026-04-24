@@ -1,4 +1,4 @@
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 
 export type UploadProgressHandler = (progress: {
   percent: number;
@@ -52,12 +52,9 @@ export function uploadFormDataWithProgress(
 
     const headers = new Headers(init.headers || {});
     const token = getToken();
-    const userIdentifier = getAuthUserIdentifier();
 
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
-    } else if (!token && userIdentifier && !headers.has("X-User-Email")) {
-      headers.set("X-User-Email", userIdentifier);
     }
 
     headers.forEach((value, key) => xhr.setRequestHeader(key, value));

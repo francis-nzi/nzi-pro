@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AIInsights from "@/components/AIInsights";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 
 type DashboardData = {
   client_db_id: number;
@@ -89,10 +89,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
       setError("");
       const params = year !== null ? `?year=${year}` : "";
       const token = getToken();
-      const userIdentifier = getAuthUserIdentifier();
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
-      else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
 
       const res = await fetch(`${baseUrl}/clients/${clientId}/dashboard${params}`, {
         cache: "no-store",

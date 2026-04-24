@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseCandidates(): string[] {
@@ -202,10 +202,8 @@ export default function JobSourceRegister({
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();
-    const userIdentifier = getAuthUserIdentifier();
     const authHeaders: Record<string, string> = {};
     if (token) authHeaders.Authorization = `Bearer ${token}`;
-    else if (userIdentifier) authHeaders["X-User-Email"] = userIdentifier;
 
     const orderedBases = activeApiBase
       ? [activeApiBase, ...apiBases.filter((b) => b !== activeApiBase)]
@@ -571,10 +569,8 @@ export default function JobSourceRegister({
           method: "POST",
           headers: (() => {
             const token = getToken();
-            const userIdentifier = getAuthUserIdentifier();
             const headers: Record<string, string> = {};
             if (token) headers.Authorization = `Bearer ${token}`;
-            else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
             return headers;
           })(),
           credentials: "include",
@@ -629,10 +625,8 @@ export default function JobSourceRegister({
             method: "POST",
             headers: (() => {
               const token = getToken();
-              const userIdentifier = getAuthUserIdentifier();
               const headers: Record<string, string> = {};
               if (token) headers.Authorization = `Bearer ${token}`;
-              else if (userIdentifier) headers["X-User-Email"] = userIdentifier;
               return headers;
             })(),
             credentials: "include",

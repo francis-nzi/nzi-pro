@@ -25,12 +25,6 @@ function forwardHeaders(req: NextRequest): Headers {
   const auth = req.headers.get("authorization");
   if (auth) headers.set("authorization", auth);
 
-  const xUserEmail = req.headers.get("x-user-email");
-  if (xUserEmail) headers.set("x-user-email", xUserEmail);
-
-  const cookie = req.headers.get("cookie");
-  if (cookie) headers.set("cookie", cookie);
-
   return headers;
 }
 

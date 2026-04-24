@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { getAuthUserIdentifier, getToken } from "@/lib/auth-client";
+import { getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 
 function apiBaseCandidates(): string[] {
@@ -112,10 +112,8 @@ export default function CustomFactorsPage() {
         ? [activeApiBase, ...apiBases.filter((b) => b !== activeApiBase)]
         : apiBases;
       const token = getToken();
-      const userIdentifier = getAuthUserIdentifier();
       const authHeaders: Record<string, string> = {};
       if (token) authHeaders.Authorization = `Bearer ${token}`;
-      else if (userIdentifier) authHeaders["X-User-Email"] = userIdentifier;
 
       for (const base of orderedBases) {
         try {
