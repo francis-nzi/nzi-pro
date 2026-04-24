@@ -12,7 +12,7 @@ from services.tenancy import require_org
 from services.tenancy import org_context
 from services import ai_insights
 from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
-from services.emissions_reporting import attach_exact_emissions, load_combined_reporting_rows
+from services.emissions_reporting import load_combined_emissions_summary_rows
 
 router = APIRouter()
 
@@ -141,8 +141,7 @@ def get_client_dashboard(
                 if jobs_df is None or jobs_df.empty:
                     jobs_df = _load_client_jobs(con, int(client_db_id), org_id, crp_only=False)
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()] if jobs_df is not None and not jobs_df.empty else []
-                scope_df = load_combined_reporting_rows(con, job_ids)
-                scope_df = attach_exact_emissions(con, scope_df)
+                scope_df = load_combined_emissions_summary_rows(con, job_ids)
             except Exception:
                 jobs_df = None
                 scope_df = None
