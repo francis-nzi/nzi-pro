@@ -775,6 +775,37 @@ def _require_org_capacity(
     count_pending_invites: bool = False,
 ) -> dict[str, int | bool | str]:
     usage = _organisation_usage_info(con, org_id)
+    def _raise_capacity_error(
+        *,
+        reason: str,
+        message: str,
+        limit_type: str | None = None,
+        limit_value: int | None = None,
+        current_value: int | None = None,
+        additional_value: int | None = None,
+    ) -> None:
+        detail: dict[str, object] = {
+            "message": message,
+            "reason": reason,
+            "org_id": org_id,
+            "plan": usage.get("plan"),
+            "plan_status": usage.get("plan_status"),
+            "max_users": usage.get("max_users"),
+            "max_clients": usage.get("max_clients"),
+            "active_members": usage.get("active_members"),
+            "active_clients": usage.get("active_clients"),
+            "pending_invites": usage.get("pending_invites"),
+        }
+        if limit_type is not None:
+            detail["limit_type"] = limit_type
+        if limit_value is not None:
+            detail["limit_value"] = limit_value
+        if current_value is not None:
+            detail["current_value"] = current_value
+        if additional_value is not None:
+            detail["additional_value"] = additional_value
+        raise HTTPException(status_code=403, detail=detail)
+
     if bool(usage.get("archived")):
         logger.warning(
             "Organisation capacity denied org_id=%s reason=archived plan_status=%s max_users=%s max_clients=%s active_members=%s active_clients=%s pending_invites=%s",
@@ -786,7 +817,7 @@ def _require_org_capacity(
             usage.get("active_clients"),
             usage.get("pending_invites"),
         )
-        raise HTTPException(status_code=403, detail="Organisation is archived")
+        _raise_capacity_error(reason="archived", message="Organisation is archived")
 
     plan_status = str(usage.get("plan_status") or "active").strip().lower()
     if plan_status not in {"active", "trial"}:
@@ -800,7 +831,7 @@ def _require_org_capacity(
             usage.get("active_clients"),
             usage.get("pending_invites"),
         )
-        raise HTTPException(status_code=403, detail="Organisation plan is not active")
+        _raise_capacity_error(reason="inactive_plan", message="Organisation plan is not active")
 
     max_users = int(usage.get("max_users") or 0)
     max_clients = int(usage.get("max_clients") or 0)
@@ -818,9 +849,13 @@ def _require_org_capacity(
             additional_users,
             active_clients,
         )
-        raise HTTPException(
-            status_code=403,
-            detail=f"Organisation user limit reached ({users_in_use}/{max_users})",
+        _raise_capacity_error(
+            reason="user_limit",
+            message=f"Organisation user limit reached ({users_in_use}/{max_users})",
+            limit_type="users",
+            limit_value=max_users,
+            current_value=users_in_use,
+            additional_value=additional_users,
         )
     if max_clients > 0 and active_clients + additional_clients > max_clients:
         logger.warning(
@@ -832,9 +867,13 @@ def _require_org_capacity(
             active_members,
             pending_invites,
         )
-        raise HTTPException(
-            status_code=403,
-            detail=f"Organisation client limit reached ({active_clients}/{max_clients})",
+        _raise_capacity_error(
+            reason="client_limit",
+            message=f"Organisation client limit reached ({active_clients}/{max_clients})",
+            limit_type="clients",
+            limit_value=max_clients,
+            current_value=active_clients,
+            additional_value=additional_clients,
         )
     return usage
 
@@ -852,7 +891,21 @@ def _require_org_plan_active(con, org_id: str) -> dict[str, int | bool | str]:
             usage.get("active_clients"),
             usage.get("pending_invites"),
         )
-        raise HTTPException(status_code=403, detail="Organisation is archived")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "Organisation is archived",
+                "reason": "archived",
+                "org_id": org_id,
+                "plan": usage.get("plan"),
+                "plan_status": usage.get("plan_status"),
+                "max_users": usage.get("max_users"),
+                "max_clients": usage.get("max_clients"),
+                "active_members": usage.get("active_members"),
+                "active_clients": usage.get("active_clients"),
+                "pending_invites": usage.get("pending_invites"),
+            },
+        )
 
     plan_status = str(usage.get("plan_status") or "active").strip().lower()
     if plan_status not in {"active", "trial"}:
@@ -866,7 +919,21 @@ def _require_org_plan_active(con, org_id: str) -> dict[str, int | bool | str]:
             usage.get("active_clients"),
             usage.get("pending_invites"),
         )
-        raise HTTPException(status_code=403, detail="Organisation plan is not active")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "Organisation plan is not active",
+                "reason": "inactive_plan",
+                "org_id": org_id,
+                "plan": usage.get("plan"),
+                "plan_status": usage.get("plan_status"),
+                "max_users": usage.get("max_users"),
+                "max_clients": usage.get("max_clients"),
+                "active_members": usage.get("active_members"),
+                "active_clients": usage.get("active_clients"),
+                "pending_invites": usage.get("pending_invites"),
+            },
+        )
     return usage
 
 

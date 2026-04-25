@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
 import { withAuditHeaders } from "@/lib/auth-client";
+import { parseApiError, type OrgCapacityErrorInfo } from "@/lib/org-capacity-errors";
 import {
   Select,
   SelectContent,
@@ -68,6 +69,7 @@ export default function NewClientPage() {
 
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [capacityError, setCapacityError] = useState<OrgCapacityErrorInfo | null>(null);
   const [portfolios, setPortfolios] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [users, setUsers] = useState<Array<{ email: string; full_name: string }>>(
@@ -384,6 +386,7 @@ export default function NewClientPage() {
 
     setSaving(true);
     setStatus("Creating client...");
+    setCapacityError(null);
 
       try {
         const res = await fetch(`${baseUrl}/clients`, {
@@ -439,8 +442,11 @@ export default function NewClientPage() {
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Failed to create client: ${res.status} - ${text}`);
+        const body = await res.json().catch(() => ({}));
+        const detail = (body as { detail?: unknown }).detail;
+        const parsed = parseApiError(detail, `Failed to create client (${res.status})`);
+        setCapacityError(parsed.capacity || null);
+        throw new Error(parsed.message);
       }
 
       const json = await res.json();
@@ -475,6 +481,19 @@ export default function NewClientPage() {
         {status && (
           <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>
         )}
+        {capacityError ? (
+          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="font-medium">{capacityError.message}</div>
+            {capacityError.helpText ? <div className="mt-1">{capacityError.helpText}</div> : null}
+            {capacityError.ctaHref ? (
+              <div className="mt-2">
+                <Button asChild size="sm" variant="secondary">
+                  <Link href={capacityError.ctaHref}>{capacityError.ctaLabel || "Open Admin"}</Link>
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="rounded-md border bg-card p-4">

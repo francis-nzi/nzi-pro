@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { parseApiError, type OrgCapacityErrorInfo } from "@/lib/org-capacity-errors";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -333,6 +334,7 @@ export default function OrganisationsPage() {
   const [billingInvoiceForm, setBillingInvoiceForm] = useState<BillingInvoiceForm>(DEFAULT_BILLING_INVOICE_FORM);
   const [billingEventForm, setBillingEventForm] = useState<BillingEventForm>(DEFAULT_BILLING_EVENT_FORM);
   const [billingSaving, setBillingSaving] = useState<string | null>(null);
+  const [capacityError, setCapacityError] = useState<OrgCapacityErrorInfo | null>(null);
 
   const selectedOrg = useMemo(
     () => organisations.find((org) => org.org_id === selectedOrgId) || null,
@@ -341,6 +343,13 @@ export default function OrganisationsPage() {
   const canManageBilling = Boolean(
     selectedOrg?.membership?.capabilities?.can_manage_billing || currentCapabilities?.can_manage_billing
   );
+
+  function setApiError(detail: unknown, fallback: string): string {
+    const parsed = parseApiError(detail, fallback);
+    setCapacityError(parsed.capacity || null);
+    setError(parsed.message);
+    return parsed.message;
+  }
 
   const loadMembers = useCallback(
     async (orgId: string | null) => {
@@ -357,7 +366,7 @@ export default function OrganisationsPage() {
         const payload = (await res.json().catch(() => ({}))) as OrganisationMembersResponse;
         if (!res.ok) {
           const detail = (payload as { detail?: unknown }).detail;
-          throw new Error(typeof detail === "string" ? detail : "Failed to load organisation members");
+          throw new Error(setApiError(detail, "Failed to load organisation members"));
         }
         const items = Array.isArray(payload.items) ? payload.items : [];
         setMembers(items);
@@ -394,7 +403,7 @@ export default function OrganisationsPage() {
         const payload = (await res.json().catch(() => ({}))) as OrganisationBillingResponse;
         if (!res.ok) {
           const detail = (payload as { detail?: unknown }).detail;
-          throw new Error(typeof detail === "string" ? detail : "Failed to load organisation billing");
+          throw new Error(setApiError(detail, "Failed to load organisation billing"));
         }
         setBilling((payload as OrganisationBillingResponse).billing || null);
       } catch (e) {
@@ -410,12 +419,13 @@ export default function OrganisationsPage() {
   const loadOrganisations = useCallback(async () => {
     setLoading(true);
     setError("");
+    setCapacityError(null);
     try {
       const res = await fetch(`${baseUrl}/admin/organisations`, { credentials: "include" });
       const payload = (await res.json().catch(() => ({}))) as OrganisationsResponse;
       if (!res.ok) {
         const detail = (payload as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Failed to load organisations");
+        throw new Error(setApiError(detail, "Failed to load organisations"));
       }
       const items = Array.isArray(payload.items) ? payload.items : [];
       setOrganisations(items);
@@ -488,6 +498,7 @@ export default function OrganisationsPage() {
 
     setSaving(true);
     setError("");
+    setCapacityError(null);
     setStatus(archived ? "Archiving organisation..." : "Reactivating organisation...");
     try {
       const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(orgId)}/archive`, {
@@ -499,7 +510,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to update organisation archive state");
+        throw new Error(setApiError(detail, "Unable to update organisation archive state"));
       }
       setStatus(archived ? "Organisation archived." : "Organisation reactivated.");
       await loadOrganisations();
@@ -524,6 +535,7 @@ export default function OrganisationsPage() {
 
     setMemberSaving(member.user_id);
     setError("");
+    setCapacityError(null);
     setStatus("Transferring ownership...");
     try {
       const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/transfer-ownership`, {
@@ -535,7 +547,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to transfer ownership");
+        throw new Error(setApiError(detail, "Unable to transfer ownership"));
       }
       setStatus("Organisation ownership transferred.");
       await loadMembers(selectedOrg.org_id);
@@ -557,6 +569,7 @@ export default function OrganisationsPage() {
   async function saveOrganisation() {
     setSaving(true);
     setError("");
+    setCapacityError(null);
     setStatus(selectedOrg ? "Saving organisation..." : "Creating organisation...");
     try {
       const payload = {
@@ -579,7 +592,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to save organisation");
+        throw new Error(setApiError(detail, "Unable to save organisation"));
       }
       const organisation = (body as { organisation?: Organisation }).organisation;
       if (organisation?.org_id) {
@@ -606,6 +619,7 @@ export default function OrganisationsPage() {
 
     setSwitching(orgId);
     setError("");
+    setCapacityError(null);
     setStatus("Switching organisation...");
     try {
       const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(orgId)}/switch`, {
@@ -615,7 +629,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to switch organisation");
+        throw new Error(setApiError(detail, "Unable to switch organisation"));
       }
       setActiveOrgId(orgId);
       setStatus("Active organisation switched.");
@@ -636,6 +650,7 @@ export default function OrganisationsPage() {
     }
     setInviting(selectedOrg.org_id);
     setError("");
+    setCapacityError(null);
     setStatus("Creating invitation...");
     try {
       const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/invite`, {
@@ -651,7 +666,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to create invitation");
+        throw new Error(setApiError(detail, "Unable to create invitation"));
       }
       const result = (body as { invite?: { token?: string; expires_at?: string } }).invite;
       setInviteResult(
@@ -678,6 +693,7 @@ export default function OrganisationsPage() {
     }
     setBillingSaving("invoice");
     setError("");
+    setCapacityError(null);
     setStatus("Saving billing invoice...");
     try {
       const payload = {
@@ -704,7 +720,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to save billing invoice");
+        throw new Error(setApiError(detail, "Unable to save billing invoice"));
       }
       setBillingInvoiceForm(DEFAULT_BILLING_INVOICE_FORM);
       setStatus("Billing invoice saved.");
@@ -725,6 +741,7 @@ export default function OrganisationsPage() {
     }
     setBillingSaving("event");
     setError("");
+    setCapacityError(null);
     setStatus("Recording billing event...");
     try {
       const payload = {
@@ -750,7 +767,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to save billing event");
+        throw new Error(setApiError(detail, "Unable to save billing event"));
       }
       setBillingEventForm(DEFAULT_BILLING_EVENT_FORM);
       setStatus("Billing event recorded.");
@@ -769,6 +786,7 @@ export default function OrganisationsPage() {
     const nextRole = memberDraftRoles[member.user_id] || member.role || "Member";
     setMemberSaving(member.user_id);
     setError("");
+    setCapacityError(null);
     setStatus("Updating organisation member...");
     try {
       const res = await fetch(
@@ -783,7 +801,7 @@ export default function OrganisationsPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to update member role");
+        throw new Error(setApiError(detail, "Unable to update member role"));
       }
       setStatus("Organisation member updated.");
       await loadMembers(selectedOrg.org_id);
@@ -825,7 +843,31 @@ export default function OrganisationsPage() {
           </div>
         </div>
 
-        {error ? <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="font-medium">{error}</div>
+            {capacityError ? (
+              <div className="mt-2 flex flex-col gap-2 text-sm text-destructive/90 md:flex-row md:items-center md:justify-between">
+                <div>
+                  {capacityError.helpText ? <div>{capacityError.helpText}</div> : null}
+                  {capacityError.limitValue != null || capacityError.currentValue != null ? (
+                    <div className="mt-1 text-xs text-destructive/80">
+                      {capacityError.limitType === "users" ? "Users" : capacityError.limitType === "clients" ? "Clients" : "Usage"}:
+                      {" "}
+                      {capacityError.currentValue ?? "-"}
+                      {capacityError.limitValue != null ? ` / ${capacityError.limitValue}` : ""}
+                    </div>
+                  ) : null}
+                </div>
+                {capacityError.ctaHref ? (
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={capacityError.ctaHref}>{capacityError.ctaLabel || "Open Admin"}</Link>
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {status ? <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div> : null}
         {inviteResult ? (
           <div className="mb-4 rounded-md border bg-emerald-50 p-3 text-sm text-emerald-900">

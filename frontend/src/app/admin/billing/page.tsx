@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { parseApiError, type OrgCapacityErrorInfo } from "@/lib/org-capacity-errors";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -239,6 +240,7 @@ export default function BillingPage() {
   const [billingSaving, setBillingSaving] = useState<string | null>(null);
   const [billingInvoiceForm, setBillingInvoiceForm] = useState<BillingInvoiceForm>(DEFAULT_BILLING_INVOICE_FORM);
   const [billingEventForm, setBillingEventForm] = useState<BillingEventForm>(DEFAULT_BILLING_EVENT_FORM);
+  const [capacityError, setCapacityError] = useState<OrgCapacityErrorInfo | null>(null);
 
   const selectedOrg = useMemo(
     () => organisations.find((org) => org.org_id === selectedOrgId) || null,
@@ -246,15 +248,23 @@ export default function BillingPage() {
   );
   const canManageBilling = Boolean(selectedOrg?.entitlement || currentCapabilities?.can_manage_billing);
 
+  function setApiError(detail: unknown, fallback: string): string {
+    const parsed = parseApiError(detail, fallback);
+    setCapacityError(parsed.capacity || null);
+    setError(parsed.message);
+    return parsed.message;
+  }
+
   const loadOrganisations = useCallback(async () => {
     setLoading(true);
     setError("");
+    setCapacityError(null);
     try {
       const res = await fetch(`${baseUrl}/admin/organisations`, { credentials: "include" });
       const payload = (await res.json().catch(() => ({}))) as OrganisationsResponse;
       if (!res.ok) {
         const detail = (payload as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Failed to load organisations");
+        throw new Error(setApiError(detail, "Failed to load organisations"));
       }
       const items = Array.isArray(payload.items) ? payload.items : [];
       setOrganisations(items);
@@ -284,7 +294,7 @@ export default function BillingPage() {
       const payload = (await res.json().catch(() => ({}))) as OrganisationBillingResponse;
       if (!res.ok) {
         const detail = (payload as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Failed to load organisation billing");
+        throw new Error(setApiError(detail, "Failed to load organisation billing"));
       }
       setBilling(payload.billing || null);
     } catch (e) {
@@ -318,6 +328,7 @@ export default function BillingPage() {
     }
     setBillingSaving("invoice");
     setError("");
+    setCapacityError(null);
     setStatus("Saving billing invoice...");
     try {
       const payload = {
@@ -344,7 +355,7 @@ export default function BillingPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to save billing invoice");
+        throw new Error(setApiError(detail, "Unable to save billing invoice"));
       }
       setBillingInvoiceForm(DEFAULT_BILLING_INVOICE_FORM);
       setStatus("Billing invoice saved.");
@@ -365,6 +376,7 @@ export default function BillingPage() {
     }
     setBillingSaving("event");
     setError("");
+    setCapacityError(null);
     setStatus("Recording billing event...");
     try {
       const payload = {
@@ -390,7 +402,7 @@ export default function BillingPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = (body as { detail?: unknown }).detail;
-        throw new Error(typeof detail === "string" ? detail : "Unable to save billing event");
+        throw new Error(setApiError(detail, "Unable to save billing event"));
       }
       setBillingEventForm(DEFAULT_BILLING_EVENT_FORM);
       setStatus("Billing event recorded.");
@@ -429,7 +441,31 @@ export default function BillingPage() {
           </div>
         </div>
 
-        {error ? <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="font-medium">{error}</div>
+            {capacityError ? (
+              <div className="mt-2 flex flex-col gap-2 text-sm text-destructive/90 md:flex-row md:items-center md:justify-between">
+                <div>
+                  {capacityError.helpText ? <div>{capacityError.helpText}</div> : null}
+                  {capacityError.limitValue != null || capacityError.currentValue != null ? (
+                    <div className="mt-1 text-xs text-destructive/80">
+                      {capacityError.limitType === "users" ? "Users" : capacityError.limitType === "clients" ? "Clients" : "Usage"}:
+                      {" "}
+                      {capacityError.currentValue ?? "-"}
+                      {capacityError.limitValue != null ? ` / ${capacityError.limitValue}` : ""}
+                    </div>
+                  ) : null}
+                </div>
+                {capacityError.ctaHref ? (
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href={capacityError.ctaHref}>{capacityError.ctaLabel || "Open Admin"}</Link>
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {status ? <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div> : null}
 
         <Card className="mb-6 border-primary/20 bg-primary/5">
