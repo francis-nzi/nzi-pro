@@ -813,6 +813,9 @@ export default function OrganisationsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="secondary" asChild>
+              <Link href="/admin/billing">Billing &amp; Entitlements</Link>
+            </Button>
             <Button variant="secondary" onClick={resetNewOrganisationForm}>
               New Organisation
             </Button>

@@ -29,7 +29,7 @@ const ADMIN_MODULES: AdminModule[] = [
   {
     title: "Billing & Entitlements",
     description: "Review plan status, subscription state, usage limits, invoices, and billing events.",
-    href: "/admin/organisations",
+    href: "/admin/billing",
     cta: "Review Billing",
     domain: "People & Access",
   },
