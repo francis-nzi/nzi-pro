@@ -183,6 +183,31 @@ def test_list_organisations_ignores_stale_active_org(monkeypatch):
     assert result["current_usage"] is None
 
 
+def test_list_organisations_survives_current_usage_exception(monkeypatch):
+    fake = _OrgConn()
+    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+    monkeypatch.setattr(admin_routes, "_ensure_org_entitlement_schema", lambda con: None)
+    monkeypatch.setattr(
+        admin_routes,
+        "_organisation_entitlement_info",
+        lambda _con, org_id: {"plan": "growth", "plan_status": "active", "max_users": 12, "max_clients": 50, "subscription_status": "active"},
+    )
+
+    def usage_info(_con, org_id):
+        if org_id == "org-123":
+            raise RuntimeError("temporary usage lookup failure")
+        return {"org_id": org_id, "plan": "active", "plan_status": "active", "archived": False, "max_users": 5, "max_clients": 20, "active_members": 1, "pending_invites": 0, "active_clients": 3}
+
+    monkeypatch.setattr(admin_routes, "_organisation_usage_info", usage_info)
+
+    result = admin_routes.list_organisations(_user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123"})
+
+    assert len(result["items"]) == 2
+    assert result["current_entitlement"]["plan"] == "growth"
+    assert result["current_usage"] is None
+
+
 def test_list_organisations_survives_bad_org_row(monkeypatch):
     fake = _OrgConn()
     monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)

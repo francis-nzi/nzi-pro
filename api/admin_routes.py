@@ -3809,23 +3809,37 @@ def admin_reinvite_user(
 def list_organisations(include_usage: bool = Query(False), _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
-            _ensure_org_lifecycle_schema(con)
-            _ensure_org_entitlement_schema(con)
-            rows = con.execute(
-                """
-                SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
-                FROM organisations
-                ORDER BY created_at ASC, name ASC
-                """
-            ).fetchall()
-            member_rows = con.execute(
-                """
-                SELECT org_id, role, is_active, is_owner
-                FROM organisation_memberships
-                WHERE lower(user_id) = lower(%s)
-                """,
-                [str(_user.get("user_id") or "").strip()],
-            ).fetchall()
+            try:
+                _ensure_org_lifecycle_schema(con)
+            except Exception as exc:
+                logger.warning("Organisation lifecycle schema check failed error=%s", exc)
+            try:
+                _ensure_org_entitlement_schema(con)
+            except Exception as exc:
+                logger.warning("Organisation entitlement schema check failed error=%s", exc)
+            try:
+                rows = con.execute(
+                    """
+                    SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
+                    FROM organisations
+                    ORDER BY created_at ASC, name ASC
+                    """
+                ).fetchall()
+            except Exception as exc:
+                logger.warning("Organisation list query failed error=%s", exc)
+                rows = []
+            try:
+                member_rows = con.execute(
+                    """
+                    SELECT org_id, role, is_active, is_owner
+                    FROM organisation_memberships
+                    WHERE lower(user_id) = lower(%s)
+                    """,
+                    [str(_user.get("user_id") or "").strip()],
+                ).fetchall()
+            except Exception as exc:
+                logger.warning("Organisation membership query failed user_id=%s error=%s", _user.get("user_id"), exc)
+                member_rows = []
             memberships = {
                 str(r[0]): {
                     "role": _normalize_org_role(r[1]),
@@ -3839,69 +3853,67 @@ def list_organisations(include_usage: bool = Query(False), _user: dict = Depends
             active_org_id = str(_user.get("org_id") or "").strip() or None
             items = []
             for row in rows or []:
-                item = _organisation_row_to_dict(row)
-                item["plan"] = str(item.get("plan") or "trial")
-                item["plan_status"] = str(item.get("plan_status") or "active")
-                item["max_users"] = int(item.get("max_users") or 0)
-                item["max_clients"] = int(item.get("max_clients") or 0)
-                item["is_member"] = str(item["org_id"] or "") in memberships
-                item["membership"] = memberships.get(str(item["org_id"] or ""))
-                item["is_active_org"] = item["org_id"] == active_org_id
-                caps = dict(item["membership"].get("capabilities") or {}) if item["membership"] else {}
-                item["role_capabilities"] = caps
-                item["can_manage"] = bool(caps.get("can_manage_members"))
-                item["can_switch"] = bool(caps.get("can_switch"))
-                item["can_transfer_ownership"] = bool(caps.get("can_transfer_ownership"))
-                if include_usage:
-                    entitlement = None
-                    usage = None
-                    try:
-                        entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
-                    except HTTPException as exc:
-                        if exc.status_code != 404:
-                            logger.warning(
-                                "Organisation entitlement lookup failed org_id=%s status=%s detail=%s",
-                                item.get("org_id"),
-                                exc.status_code,
-                                exc.detail,
-                            )
+                try:
+                    item = _organisation_row_to_dict(row)
+                    item["plan"] = str(item.get("plan") or "trial")
+                    item["plan_status"] = str(item.get("plan_status") or "active")
+                    item["max_users"] = int(item.get("max_users") or 0)
+                    item["max_clients"] = int(item.get("max_clients") or 0)
+                    item["is_member"] = str(item["org_id"] or "") in memberships
+                    item["membership"] = memberships.get(str(item["org_id"] or ""))
+                    item["is_active_org"] = item["org_id"] == active_org_id
+                    caps = dict(item["membership"].get("capabilities") or {}) if item["membership"] else {}
+                    item["role_capabilities"] = caps
+                    item["can_manage"] = bool(caps.get("can_manage_members"))
+                    item["can_switch"] = bool(caps.get("can_switch"))
+                    item["can_transfer_ownership"] = bool(caps.get("can_transfer_ownership"))
+                    if include_usage:
                         entitlement = {}
-                    except Exception as exc:
-                        logger.warning("Organisation entitlement lookup failed org_id=%s error=%s", item.get("org_id"), exc)
-                        entitlement = {}
-                    try:
-                        usage = _organisation_usage_info(con, str(item["org_id"] or ""))
-                    except HTTPException as exc:
-                        if exc.status_code != 404:
-                            logger.warning(
-                                "Organisation usage lookup failed org_id=%s status=%s detail=%s",
-                                item.get("org_id"),
-                                exc.status_code,
-                                exc.detail,
-                            )
                         usage = {}
-                    except Exception as exc:
-                        logger.warning("Organisation usage lookup failed org_id=%s error=%s", item.get("org_id"), exc)
-                        usage = {}
-                    entitlement = entitlement or {}
-                    usage = usage or {}
-                    item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
-                    item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
-                    item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
-                    item["max_clients"] = int(entitlement.get("max_clients") or item.get("max_clients") or 0)
-                    item["trial_ends_at"] = entitlement.get("trial_ends_at")
-                    item["stripe_customer_id"] = entitlement.get("stripe_customer_id")
-                    item["stripe_subscription_id"] = entitlement.get("stripe_subscription_id")
-                    item["subscription_status"] = entitlement.get("subscription_status")
-                    item["current_period_start"] = entitlement.get("current_period_start")
-                    item["current_period_end"] = entitlement.get("current_period_end")
-                    item["auto_renew"] = entitlement.get("auto_renew")
-                    item["entitlement"] = entitlement
-                    item["usage"] = usage
-                else:
-                    item["entitlement"] = None
-                    item["usage"] = None
-                items.append(item)
+                        try:
+                            entitlement = _organisation_entitlement_info(con, str(item["org_id"] or "")) or {}
+                        except HTTPException as exc:
+                            if exc.status_code != 404:
+                                logger.warning(
+                                    "Organisation entitlement lookup failed org_id=%s status=%s detail=%s",
+                                    item.get("org_id"),
+                                    exc.status_code,
+                                    exc.detail,
+                                )
+                        except Exception as exc:
+                            logger.warning("Organisation entitlement lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                        try:
+                            usage = _organisation_usage_info(con, str(item["org_id"] or "")) or {}
+                        except HTTPException as exc:
+                            if exc.status_code != 404:
+                                logger.warning(
+                                    "Organisation usage lookup failed org_id=%s status=%s detail=%s",
+                                    item.get("org_id"),
+                                    exc.status_code,
+                                    exc.detail,
+                                )
+                        except Exception as exc:
+                            logger.warning("Organisation usage lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                        item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
+                        item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
+                        item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
+                        item["max_clients"] = int(entitlement.get("max_clients") or item.get("max_clients") or 0)
+                        item["trial_ends_at"] = entitlement.get("trial_ends_at")
+                        item["stripe_customer_id"] = entitlement.get("stripe_customer_id")
+                        item["stripe_subscription_id"] = entitlement.get("stripe_subscription_id")
+                        item["subscription_status"] = entitlement.get("subscription_status")
+                        item["current_period_start"] = entitlement.get("current_period_start")
+                        item["current_period_end"] = entitlement.get("current_period_end")
+                        item["auto_renew"] = entitlement.get("auto_renew")
+                        item["entitlement"] = entitlement
+                        item["usage"] = usage
+                    else:
+                        item["entitlement"] = None
+                        item["usage"] = None
+                    items.append(item)
+                except Exception as exc:
+                    logger.warning("Organisation row serialisation failed org_row=%s error=%s", row, exc)
+                    continue
             current_membership = memberships.get(active_org_id or "")
             current_entitlement = None
             current_usage = None
@@ -3916,6 +3928,8 @@ def list_organisations(include_usage: bool = Query(False), _user: dict = Depends
                             exc.status_code,
                             exc.detail,
                         )
+                except Exception as exc:
+                    logger.warning("Current entitlement lookup failed org_id=%s error=%s", active_org_id, exc)
                 try:
                     current_usage = _organisation_usage_info(con, active_org_id)
                 except HTTPException as exc:
@@ -3926,6 +3940,8 @@ def list_organisations(include_usage: bool = Query(False), _user: dict = Depends
                             exc.status_code,
                             exc.detail,
                         )
+                except Exception as exc:
+                    logger.warning("Current usage lookup failed org_id=%s error=%s", active_org_id, exc)
             return {
                 "items": items,
                 "active_org_id": active_org_id,
