@@ -153,6 +153,13 @@ const ADMIN_MODULES: AdminModule[] = [
     domain: "System & Governance",
   },
   {
+    title: "Tenant Usage Dashboard",
+    description: "Review org capacity, archive state, and queue health at a glance.",
+    href: "/admin/tenant-usage",
+    cta: "Open Usage Dashboard",
+    domain: "System & Governance",
+  },
+  {
     title: "Background Jobs",
     description: "Monitor queued PDF jobs, inspect failures, and replay safe jobs.",
     href: "/admin/background-jobs",
