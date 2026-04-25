@@ -3865,13 +3865,26 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 item["usage"] = usage
                 items.append(item)
             current_membership = memberships.get(active_org_id or "")
+            current_entitlement = None
+            current_usage = None
+            if active_org_id:
+                try:
+                    current_entitlement = _organisation_entitlement_info(con, active_org_id)
+                except HTTPException as exc:
+                    if exc.status_code != 404:
+                        raise
+                try:
+                    current_usage = _organisation_usage_info(con, active_org_id)
+                except HTTPException as exc:
+                    if exc.status_code != 404:
+                        raise
             return {
                 "items": items,
                 "active_org_id": active_org_id,
                 "current_membership": current_membership,
                 "current_capabilities": dict((current_membership or {}).get("capabilities") or {}),
-                "current_entitlement": _organisation_entitlement_info(con, active_org_id) if active_org_id else None,
-                "current_usage": _organisation_usage_info(con, active_org_id) if active_org_id else None,
+                "current_entitlement": current_entitlement,
+                "current_usage": current_usage,
             }
     except HTTPException:
         raise

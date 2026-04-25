@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.admin_routes as admin_routes
+from fastapi import HTTPException
 
 
 class _FakeRow:
@@ -152,6 +153,34 @@ def test_list_organisations_reports_membership(monkeypatch):
     assert result["items"][0]["can_manage"] is True
     assert result["items"][0]["can_switch"] is True
     assert result["current_usage"]["org_id"] == "org-123"
+
+
+def test_list_organisations_ignores_stale_active_org(monkeypatch):
+    fake = _OrgConn()
+    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+    monkeypatch.setattr(admin_routes, "_ensure_org_entitlement_schema", lambda con: None)
+    monkeypatch.setattr(
+        admin_routes,
+        "_organisation_entitlement_info",
+        lambda _con, org_id: (_ for _ in ()).throw(HTTPException(status_code=404, detail="Organisation not found"))
+        if org_id == "org-missing"
+        else {"plan": "growth", "plan_status": "active", "max_users": 12, "max_clients": 50, "subscription_status": "active"},
+    )
+    monkeypatch.setattr(
+        admin_routes,
+        "_organisation_usage_info",
+        lambda _con, org_id: (_ for _ in ()).throw(HTTPException(status_code=404, detail="Organisation not found"))
+        if org_id == "org-missing"
+        else {"org_id": org_id, "plan": "growth", "plan_status": "active", "archived": False, "max_users": 12, "max_clients": 50, "active_members": 2, "pending_invites": 1, "active_clients": 7},
+    )
+
+    result = admin_routes.list_organisations(_user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-missing"})
+
+    assert len(result["items"]) == 2
+    assert result["active_org_id"] == "org-missing"
+    assert result["current_entitlement"] is None
+    assert result["current_usage"] is None
 
 
 def test_list_and_update_organisation_members(monkeypatch):
