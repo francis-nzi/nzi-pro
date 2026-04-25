@@ -3840,8 +3840,38 @@ def list_organisations(_user: dict = Depends(_current_user)):
             items = []
             for row in rows or []:
                 item = _organisation_row_to_dict(row)
-                entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
-                usage = _organisation_usage_info(con, str(item["org_id"] or ""))
+                entitlement = None
+                usage = None
+                try:
+                    entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
+                except HTTPException as exc:
+                    if exc.status_code != 404:
+                        logger.warning(
+                            "Organisation entitlement lookup failed org_id=%s status=%s detail=%s",
+                            item.get("org_id"),
+                            exc.status_code,
+                            exc.detail,
+                        )
+                    entitlement = {}
+                except Exception as exc:
+                    logger.warning("Organisation entitlement lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                    entitlement = {}
+                try:
+                    usage = _organisation_usage_info(con, str(item["org_id"] or ""))
+                except HTTPException as exc:
+                    if exc.status_code != 404:
+                        logger.warning(
+                            "Organisation usage lookup failed org_id=%s status=%s detail=%s",
+                            item.get("org_id"),
+                            exc.status_code,
+                            exc.detail,
+                        )
+                    usage = {}
+                except Exception as exc:
+                    logger.warning("Organisation usage lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                    usage = {}
+                entitlement = entitlement or {}
+                usage = usage or {}
                 item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
                 item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
                 item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
@@ -3872,12 +3902,22 @@ def list_organisations(_user: dict = Depends(_current_user)):
                     current_entitlement = _organisation_entitlement_info(con, active_org_id)
                 except HTTPException as exc:
                     if exc.status_code != 404:
-                        raise
+                        logger.warning(
+                            "Current entitlement lookup failed org_id=%s status=%s detail=%s",
+                            active_org_id,
+                            exc.status_code,
+                            exc.detail,
+                        )
                 try:
                     current_usage = _organisation_usage_info(con, active_org_id)
                 except HTTPException as exc:
                     if exc.status_code != 404:
-                        raise
+                        logger.warning(
+                            "Current usage lookup failed org_id=%s status=%s detail=%s",
+                            active_org_id,
+                            exc.status_code,
+                            exc.detail,
+                        )
             return {
                 "items": items,
                 "active_org_id": active_org_id,

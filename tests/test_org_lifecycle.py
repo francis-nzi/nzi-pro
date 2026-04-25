@@ -183,6 +183,34 @@ def test_list_organisations_ignores_stale_active_org(monkeypatch):
     assert result["current_usage"] is None
 
 
+def test_list_organisations_survives_bad_org_row(monkeypatch):
+    fake = _OrgConn()
+    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+    monkeypatch.setattr(admin_routes, "_ensure_org_entitlement_schema", lambda con: None)
+
+    def entitlement_info(_con, org_id):
+        if org_id == "org-456":
+            raise RuntimeError("broken entitlement row")
+        return {"plan": "growth", "plan_status": "active", "max_users": 12, "max_clients": 50, "subscription_status": "active"}
+
+    def usage_info(_con, org_id):
+        if org_id == "org-456":
+            raise RuntimeError("broken usage row")
+        return {"org_id": org_id, "plan": "growth", "plan_status": "active", "archived": False, "max_users": 12, "max_clients": 50, "active_members": 2, "pending_invites": 1, "active_clients": 7}
+
+    monkeypatch.setattr(admin_routes, "_organisation_entitlement_info", entitlement_info)
+    monkeypatch.setattr(admin_routes, "_organisation_usage_info", usage_info)
+
+    result = admin_routes.list_organisations(_user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123"})
+
+    assert len(result["items"]) == 2
+    assert result["items"][0]["org_id"] == "org-123"
+    assert result["items"][1]["org_id"] == "org-456"
+    assert result["items"][1]["plan"] == "active"
+    assert result["items"][1]["max_clients"] == 20
+
+
 def test_list_and_update_organisation_members(monkeypatch):
     fake = _OrgConn()
     monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
