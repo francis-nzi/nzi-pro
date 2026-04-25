@@ -3804,6 +3804,7 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 "current_membership": current_membership,
                 "current_capabilities": dict((current_membership or {}).get("capabilities") or {}),
                 "current_entitlement": _organisation_entitlement_info(con, active_org_id) if active_org_id else None,
+                "current_usage": _organisation_usage_info(con, active_org_id) if active_org_id else None,
             }
     except HTTPException:
         raise

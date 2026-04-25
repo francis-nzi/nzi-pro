@@ -140,6 +140,9 @@ def test_list_organisations_reports_membership(monkeypatch):
     fake = _OrgConn()
     monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
     monkeypatch.setattr(admin_routes, "_ensure_org_lifecycle_schema", lambda con: None)
+    monkeypatch.setattr(admin_routes, "_ensure_org_entitlement_schema", lambda con: None)
+    monkeypatch.setattr(admin_routes, "_organisation_entitlement_info", lambda _con, org_id: {"plan": "growth", "plan_status": "active", "max_users": 12, "max_clients": 50, "subscription_status": "active"} if org_id == "org-123" else {"plan": "active", "plan_status": "active", "max_users": 5, "max_clients": 20, "subscription_status": "active"})
+    monkeypatch.setattr(admin_routes, "_organisation_usage_info", lambda _con, org_id: {"org_id": org_id, "plan": "growth", "plan_status": "active", "archived": False, "max_users": 12, "max_clients": 50, "active_members": 2, "pending_invites": 1, "active_clients": 7} if org_id == "org-123" else {"org_id": org_id, "plan": "active", "plan_status": "active", "archived": False, "max_users": 5, "max_clients": 20, "active_members": 1, "pending_invites": 0, "active_clients": 3})
 
     result = admin_routes.list_organisations(_user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123"})
 
@@ -148,6 +151,7 @@ def test_list_organisations_reports_membership(monkeypatch):
     assert result["items"][0]["is_member"] is True
     assert result["items"][0]["can_manage"] is True
     assert result["items"][0]["can_switch"] is True
+    assert result["current_usage"]["org_id"] == "org-123"
 
 
 def test_list_and_update_organisation_members(monkeypatch):

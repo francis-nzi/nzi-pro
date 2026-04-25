@@ -21,9 +21,16 @@ type AdminModule = {
 const ADMIN_MODULES: AdminModule[] = [
   {
     title: "Organisation Management",
-    description: "Create organisations, manage membership, and switch the active tenant.",
+    description: "Create organisations, manage membership, switch the active tenant, and review billing controls.",
     href: "/admin/organisations",
     cta: "Manage Organisations",
+    domain: "People & Access",
+  },
+  {
+    title: "Billing & Entitlements",
+    description: "Review plan status, subscription state, usage limits, invoices, and billing events.",
+    href: "/admin/organisations",
+    cta: "Review Billing",
     domain: "People & Access",
   },
   {

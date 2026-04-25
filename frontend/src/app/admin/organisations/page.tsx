@@ -74,6 +74,17 @@ type Organisation = {
   updated_at?: string | null;
   is_member?: boolean;
   is_active_org?: boolean;
+  usage?: {
+    org_id?: string | null;
+    plan?: string | null;
+    plan_status?: string | null;
+    archived?: boolean | null;
+    max_users?: number | null;
+    max_clients?: number | null;
+    active_members?: number | null;
+    pending_invites?: number | null;
+    active_clients?: number | null;
+  } | null;
   membership?: OrganisationMembership | null;
   role_capabilities?: OrganisationRoleCapabilities | null;
   entitlement?: {
@@ -146,6 +157,7 @@ type OrganisationsResponse = {
   current_membership?: OrganisationMembership | null;
   current_capabilities?: OrganisationRoleCapabilities | null;
   current_entitlement?: Organisation["entitlement"] | null;
+  current_usage?: Organisation["usage"] | null;
 };
 
 type OrganisationMembersResponse = {
@@ -275,6 +287,24 @@ function formatMoney(cents?: number | null, currency?: string | null): string {
   }
 }
 
+function formatLimitUsage(used?: number | null, limit?: number | null): string {
+  const usedValue = Number(used || 0);
+  const limitValue = Number(limit || 0);
+  if (!Number.isFinite(limitValue) || limitValue <= 0) {
+    return `${usedValue}`;
+  }
+  return `${usedValue}/${limitValue}`;
+}
+
+function usagePercent(used?: number | null, limit?: number | null): number | null {
+  const usedValue = Number(used || 0);
+  const limitValue = Number(limit || 0);
+  if (!Number.isFinite(limitValue) || limitValue <= 0) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round((usedValue / limitValue) * 100)));
+}
+
 export default function OrganisationsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
@@ -289,6 +319,7 @@ export default function OrganisationsPage() {
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [currentCapabilities, setCurrentCapabilities] = useState<OrganisationRoleCapabilities | null>(null);
   const [currentEntitlement, setCurrentEntitlement] = useState<Organisation["entitlement"] | null>(null);
+  const [currentUsage, setCurrentUsage] = useState<Organisation["usage"] | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [form, setForm] = useState<OrganisationForm>(DEFAULT_FORM);
   const [invite, setInvite] = useState<InviteForm>(DEFAULT_INVITE);
@@ -390,6 +421,7 @@ export default function OrganisationsPage() {
       setOrganisations(items);
       setCurrentCapabilities((payload as OrganisationsResponse).current_capabilities || null);
       setCurrentEntitlement((payload as OrganisationsResponse).current_entitlement || null);
+      setCurrentUsage((payload as OrganisationsResponse).current_usage || null);
       const nextActive = payload.active_org_id || items.find((item) => item.is_active_org)?.org_id || items[0]?.org_id || null;
       setActiveOrgId(nextActive);
       setSelectedOrgId((current) => current || nextActive);
@@ -863,6 +895,11 @@ export default function OrganisationsPage() {
                               Max users: {org.max_users ?? "-"} | Max clients: {org.max_clients ?? "-"} | Updated: {formatDate(org.updated_at)}
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
+                              Usage: {formatLimitUsage(org.usage?.active_members, org.usage?.max_users)} users
+                              {org.usage?.pending_invites ? ` + ${org.usage.pending_invites} pending` : ""} |{" "}
+                              {formatLimitUsage(org.usage?.active_clients, org.usage?.max_clients)} clients
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
                               Source of truth: {org.entitlement?.subscription_status || currentEntitlement?.subscription_status || org.plan_status || "active"}
                               {org.entitlement?.stripe_subscription_id ? ` | Subscription: ${org.entitlement.stripe_subscription_id}` : ""}
                             </div>
@@ -1114,6 +1151,36 @@ export default function OrganisationsPage() {
                 </div>
                 <div>
                   Entitlement status: {selectedOrg?.entitlement?.subscription_status || currentEntitlement?.subscription_status || selectedOrg?.plan_status || "-"}
+                </div>
+                <div>
+                  Plan: {selectedOrg?.entitlement?.plan || currentEntitlement?.plan || selectedOrg?.plan || "trial"}
+                </div>
+                <div>
+                  Billing usage: {formatLimitUsage(selectedOrg?.usage?.active_members ?? currentUsage?.active_members, selectedOrg?.usage?.max_users ?? currentUsage?.max_users)} users
+                  {selectedOrg?.usage?.pending_invites || currentUsage?.pending_invites ? ` + ${selectedOrg?.usage?.pending_invites ?? currentUsage?.pending_invites} pending` : ""} |{" "}
+                  {formatLimitUsage(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)} clients
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-md border bg-background p-3">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Users</div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {formatLimitUsage(selectedOrg?.usage?.active_members ?? currentUsage?.active_members, selectedOrg?.usage?.max_users ?? currentUsage?.max_users)}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {selectedOrg?.usage?.pending_invites ?? currentUsage?.pending_invites ?? 0} pending invites
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-background p-3">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">Clients</div>
+                    <div className="mt-1 text-lg font-semibold">
+                      {formatLimitUsage(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {usagePercent(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients) != null
+                        ? `${usagePercent(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)}% of limit`
+                        : "No limit set"}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   {currentCapabilities?.can_manage_members ? <Badge variant="secondary">Manage members</Badge> : null}
