@@ -105,7 +105,7 @@ export default function TenantUsagePage() {
       setError("");
       try {
         const [orgRes, jobRes] = await Promise.all([
-          fetch(`${baseUrl}/admin/organisations`, { credentials: "include" }),
+          fetch(`${baseUrl}/admin/organisations?include_usage=true`, { credentials: "include" }),
           fetch(`${baseUrl}/admin/background-jobs/status`, { credentials: "include" }),
         ]);
         const orgPayload = (await orgRes.json().catch(() => ({}))) as OrganisationsResponse;

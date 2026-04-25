@@ -144,6 +144,7 @@ type OrganisationBillingEvent = {
 type OrganisationBillingResponse = {
   organisation?: Organisation | null;
   entitlement?: Organisation["entitlement"] | null;
+  usage?: Organisation["usage"] | null;
   billing?: {
     role?: string | null;
     capabilities?: OrganisationRoleCapabilities | null;
@@ -331,6 +332,8 @@ export default function OrganisationsPage() {
   const [memberDraftRoles, setMemberDraftRoles] = useState<Record<string, string>>({});
   const [billingLoading, setBillingLoading] = useState(false);
   const [billing, setBilling] = useState<OrganisationBillingResponse["billing"] | null>(null);
+  const [selectedBillingEntitlement, setSelectedBillingEntitlement] = useState<Organisation["entitlement"] | null>(null);
+  const [selectedBillingUsage, setSelectedBillingUsage] = useState<Organisation["usage"] | null>(null);
   const [billingInvoiceForm, setBillingInvoiceForm] = useState<BillingInvoiceForm>(DEFAULT_BILLING_INVOICE_FORM);
   const [billingEventForm, setBillingEventForm] = useState<BillingEventForm>(DEFAULT_BILLING_EVENT_FORM);
   const [billingSaving, setBillingSaving] = useState<string | null>(null);
@@ -393,6 +396,8 @@ export default function OrganisationsPage() {
     async (orgId: string | null) => {
       if (!orgId) {
         setBilling(null);
+        setSelectedBillingEntitlement(null);
+        setSelectedBillingUsage(null);
         return;
       }
       setBillingLoading(true);
@@ -406,6 +411,8 @@ export default function OrganisationsPage() {
           throw new Error(setApiError(detail, "Failed to load organisation billing"));
         }
         setBilling((payload as OrganisationBillingResponse).billing || null);
+        setSelectedBillingEntitlement((payload as OrganisationBillingResponse).entitlement || null);
+        setSelectedBillingUsage((payload as OrganisationBillingResponse).usage || null);
       } catch (e) {
         setBilling(null);
         setError((e as Error).message);
@@ -936,19 +943,13 @@ export default function OrganisationsPage() {
                             <div className="mt-1 text-sm text-muted-foreground">
                               Slug: {org.slug} | Plan: {org.plan || "trial"} | Status: {org.plan_status || "active"}
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Max users: {org.max_users ?? "-"} | Max clients: {org.max_clients ?? "-"} | Updated: {formatDate(org.updated_at)}
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Usage: {formatLimitUsage(org.usage?.active_members, org.usage?.max_users)} users
-                              {org.usage?.pending_invites ? ` + ${org.usage.pending_invites} pending` : ""} |{" "}
-                              {formatLimitUsage(org.usage?.active_clients, org.usage?.max_clients)} clients
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Source of truth: {org.entitlement?.subscription_status || currentEntitlement?.subscription_status || org.plan_status || "active"}
-                              {org.entitlement?.stripe_subscription_id ? ` | Subscription: ${org.entitlement.stripe_subscription_id}` : ""}
-                            </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Plan: {org.plan || "trial"} | Status: {org.plan_status || "active"}
                           </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Max users: {org.max_users ?? "-"} | Max clients: {org.max_clients ?? "-"} | Updated: {formatDate(org.updated_at)}
+                          </div>
+                        </div>
                           <div className="flex flex-wrap gap-2">
                               <Button
                                 size="sm"
@@ -1201,28 +1202,28 @@ export default function OrganisationsPage() {
                   Plan: {selectedOrg?.entitlement?.plan || currentEntitlement?.plan || selectedOrg?.plan || "trial"}
                 </div>
                 <div>
-                  Billing usage: {formatLimitUsage(selectedOrg?.usage?.active_members ?? currentUsage?.active_members, selectedOrg?.usage?.max_users ?? currentUsage?.max_users)} users
-                  {selectedOrg?.usage?.pending_invites || currentUsage?.pending_invites ? ` + ${selectedOrg?.usage?.pending_invites ?? currentUsage?.pending_invites} pending` : ""} |{" "}
-                  {formatLimitUsage(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)} clients
+                  Billing usage: {formatLimitUsage(selectedBillingUsage?.active_members ?? currentUsage?.active_members, selectedBillingUsage?.max_users ?? currentUsage?.max_users)} users
+                  {selectedBillingUsage?.pending_invites ?? currentUsage?.pending_invites ? ` + ${selectedBillingUsage?.pending_invites ?? currentUsage?.pending_invites} pending` : ""} |{" "}
+                  {formatLimitUsage(selectedBillingUsage?.active_clients ?? currentUsage?.active_clients, selectedBillingUsage?.max_clients ?? currentUsage?.max_clients)} clients
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-md border bg-background p-3">
                     <div className="text-xs font-semibold uppercase text-muted-foreground">Users</div>
                     <div className="mt-1 text-lg font-semibold">
-                      {formatLimitUsage(selectedOrg?.usage?.active_members ?? currentUsage?.active_members, selectedOrg?.usage?.max_users ?? currentUsage?.max_users)}
+                      {formatLimitUsage(selectedBillingUsage?.active_members ?? currentUsage?.active_members, selectedBillingUsage?.max_users ?? currentUsage?.max_users)}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {selectedOrg?.usage?.pending_invites ?? currentUsage?.pending_invites ?? 0} pending invites
+                      {selectedBillingUsage?.pending_invites ?? currentUsage?.pending_invites ?? 0} pending invites
                     </div>
                   </div>
                   <div className="rounded-md border bg-background p-3">
                     <div className="text-xs font-semibold uppercase text-muted-foreground">Clients</div>
                     <div className="mt-1 text-lg font-semibold">
-                      {formatLimitUsage(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)}
+                      {formatLimitUsage(selectedBillingUsage?.active_clients ?? currentUsage?.active_clients, selectedBillingUsage?.max_clients ?? currentUsage?.max_clients)}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      {usagePercent(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients) != null
-                        ? `${usagePercent(selectedOrg?.usage?.active_clients ?? currentUsage?.active_clients, selectedOrg?.usage?.max_clients ?? currentUsage?.max_clients)}% of limit`
+                      {usagePercent(selectedBillingUsage?.active_clients ?? currentUsage?.active_clients, selectedBillingUsage?.max_clients ?? currentUsage?.max_clients) != null
+                        ? `${usagePercent(selectedBillingUsage?.active_clients ?? currentUsage?.active_clients, selectedBillingUsage?.max_clients ?? currentUsage?.max_clients)}% of limit`
                         : "No limit set"}
                     </div>
                   </div>
@@ -1257,11 +1258,11 @@ export default function OrganisationsPage() {
                     <div className="rounded-md border p-3 text-sm">
                       <div className="font-medium">Current billing status</div>
                       <div className="mt-1 text-muted-foreground">
-                        Plan: {selectedOrg.entitlement?.plan || currentEntitlement?.plan || selectedOrg.plan || "trial"} | Status:{" "}
-                        {selectedOrg.entitlement?.subscription_status || currentEntitlement?.subscription_status || selectedOrg.plan_status || "active"}
+                        Plan: {selectedBillingEntitlement?.plan || currentEntitlement?.plan || selectedOrg.plan || "trial"} | Status:{" "}
+                        {selectedBillingEntitlement?.subscription_status || currentEntitlement?.subscription_status || selectedOrg.plan_status || "active"}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Subscription: {selectedOrg.entitlement?.stripe_subscription_id || currentEntitlement?.stripe_subscription_id || "-"}
+                        Subscription: {selectedBillingEntitlement?.stripe_subscription_id || currentEntitlement?.stripe_subscription_id || "-"}
                       </div>
                     </div>
 

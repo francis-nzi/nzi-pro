@@ -3806,7 +3806,7 @@ def admin_reinvite_user(
 
 
 @router.get("/organisations")
-def list_organisations(_user: dict = Depends(_current_user)):
+def list_organisations(include_usage: bool = Query(False), _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_org_lifecycle_schema(con)
@@ -3840,50 +3840,10 @@ def list_organisations(_user: dict = Depends(_current_user)):
             items = []
             for row in rows or []:
                 item = _organisation_row_to_dict(row)
-                entitlement = None
-                usage = None
-                try:
-                    entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
-                except HTTPException as exc:
-                    if exc.status_code != 404:
-                        logger.warning(
-                            "Organisation entitlement lookup failed org_id=%s status=%s detail=%s",
-                            item.get("org_id"),
-                            exc.status_code,
-                            exc.detail,
-                        )
-                    entitlement = {}
-                except Exception as exc:
-                    logger.warning("Organisation entitlement lookup failed org_id=%s error=%s", item.get("org_id"), exc)
-                    entitlement = {}
-                try:
-                    usage = _organisation_usage_info(con, str(item["org_id"] or ""))
-                except HTTPException as exc:
-                    if exc.status_code != 404:
-                        logger.warning(
-                            "Organisation usage lookup failed org_id=%s status=%s detail=%s",
-                            item.get("org_id"),
-                            exc.status_code,
-                            exc.detail,
-                        )
-                    usage = {}
-                except Exception as exc:
-                    logger.warning("Organisation usage lookup failed org_id=%s error=%s", item.get("org_id"), exc)
-                    usage = {}
-                entitlement = entitlement or {}
-                usage = usage or {}
-                item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
-                item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
-                item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
-                item["max_clients"] = int(entitlement.get("max_clients") or item.get("max_clients") or 0)
-                item["trial_ends_at"] = entitlement.get("trial_ends_at")
-                item["stripe_customer_id"] = entitlement.get("stripe_customer_id")
-                item["stripe_subscription_id"] = entitlement.get("stripe_subscription_id")
-                item["subscription_status"] = entitlement.get("subscription_status")
-                item["current_period_start"] = entitlement.get("current_period_start")
-                item["current_period_end"] = entitlement.get("current_period_end")
-                item["auto_renew"] = entitlement.get("auto_renew")
-                item["entitlement"] = entitlement
+                item["plan"] = str(item.get("plan") or "trial")
+                item["plan_status"] = str(item.get("plan_status") or "active")
+                item["max_users"] = int(item.get("max_users") or 0)
+                item["max_clients"] = int(item.get("max_clients") or 0)
                 item["is_member"] = str(item["org_id"] or "") in memberships
                 item["membership"] = memberships.get(str(item["org_id"] or ""))
                 item["is_active_org"] = item["org_id"] == active_org_id
@@ -3892,7 +3852,55 @@ def list_organisations(_user: dict = Depends(_current_user)):
                 item["can_manage"] = bool(caps.get("can_manage_members"))
                 item["can_switch"] = bool(caps.get("can_switch"))
                 item["can_transfer_ownership"] = bool(caps.get("can_transfer_ownership"))
-                item["usage"] = usage
+                if include_usage:
+                    entitlement = None
+                    usage = None
+                    try:
+                        entitlement = _organisation_entitlement_info(con, str(item["org_id"] or ""))
+                    except HTTPException as exc:
+                        if exc.status_code != 404:
+                            logger.warning(
+                                "Organisation entitlement lookup failed org_id=%s status=%s detail=%s",
+                                item.get("org_id"),
+                                exc.status_code,
+                                exc.detail,
+                            )
+                        entitlement = {}
+                    except Exception as exc:
+                        logger.warning("Organisation entitlement lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                        entitlement = {}
+                    try:
+                        usage = _organisation_usage_info(con, str(item["org_id"] or ""))
+                    except HTTPException as exc:
+                        if exc.status_code != 404:
+                            logger.warning(
+                                "Organisation usage lookup failed org_id=%s status=%s detail=%s",
+                                item.get("org_id"),
+                                exc.status_code,
+                                exc.detail,
+                            )
+                        usage = {}
+                    except Exception as exc:
+                        logger.warning("Organisation usage lookup failed org_id=%s error=%s", item.get("org_id"), exc)
+                        usage = {}
+                    entitlement = entitlement or {}
+                    usage = usage or {}
+                    item["plan"] = str(entitlement.get("plan") or item.get("plan") or "trial")
+                    item["plan_status"] = str(entitlement.get("plan_status") or item.get("plan_status") or "active")
+                    item["max_users"] = int(entitlement.get("max_users") or item.get("max_users") or 0)
+                    item["max_clients"] = int(entitlement.get("max_clients") or item.get("max_clients") or 0)
+                    item["trial_ends_at"] = entitlement.get("trial_ends_at")
+                    item["stripe_customer_id"] = entitlement.get("stripe_customer_id")
+                    item["stripe_subscription_id"] = entitlement.get("stripe_subscription_id")
+                    item["subscription_status"] = entitlement.get("subscription_status")
+                    item["current_period_start"] = entitlement.get("current_period_start")
+                    item["current_period_end"] = entitlement.get("current_period_end")
+                    item["auto_renew"] = entitlement.get("auto_renew")
+                    item["entitlement"] = entitlement
+                    item["usage"] = usage
+                else:
+                    item["entitlement"] = None
+                    item["usage"] = None
                 items.append(item)
             current_membership = memberships.get(active_org_id or "")
             current_entitlement = None
@@ -4566,6 +4574,7 @@ def list_organisation_billing(org_id: str, _user: dict = Depends(_current_user))
             if not organisation:
                 raise HTTPException(status_code=404, detail="Organisation not found")
             entitlement = _organisation_entitlement_info(con, org_id)
+            usage = _organisation_usage_info(con, org_id)
             invoice_rows = con.execute(
                 """
                 SELECT billing_invoice_id, org_id, invoice_number, status, amount_cents, currency, description,
@@ -4590,6 +4599,7 @@ def list_organisation_billing(org_id: str, _user: dict = Depends(_current_user))
             return {
                 "organisation": _organisation_row_to_dict(organisation),
                 "entitlement": entitlement,
+                "usage": usage,
                 "billing": {
                     "role": str(role_info.get("role") or "Member"),
                     "capabilities": dict(role_info.get("capabilities") or {}),
