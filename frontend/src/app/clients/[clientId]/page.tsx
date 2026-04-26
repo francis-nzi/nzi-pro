@@ -1042,6 +1042,15 @@ function ClientDetailPageContent() {
     const showQuotes = financialView === "quotes";
     const showInvoices = financialView === "invoices";
     const showProfitLoss = financialView === "profit-loss";
+    const paidInvoiceCount = invoices.filter((inv) => String(inv.status || "").toLowerCase() === "paid").length;
+    const financialSummaryCaption = financialSummaryLoaded
+      ? financialSummary
+        ? "Profit & Loss summary ready"
+        : "No financial summary data"
+      : "Profit & Loss summary loading";
+    const quoteLookupCaption = quoteLookupsLoaded
+      ? `${quoteLookupItems.length.toLocaleString()} quote item${quoteLookupItems.length === 1 ? "" : "s"} ready`
+      : "Quote item catalogue loading";
 
     async function addInvoice() {
       setFinancialStatus("");
@@ -1224,131 +1233,184 @@ function ClientDetailPageContent() {
 
     return (
       <div className="space-y-6">
-        <div className="flex flex-wrap gap-2">
-          <Button variant={showQuotes ? "default" : "outline"} onClick={() => setFinancialView("quotes")}>
+        <div className="rounded-2xl border bg-card/70 p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">Financial workspace</div>
+              <h3 className="text-2xl font-semibold tracking-tight">Quotes, invoices, and profit analysis</h3>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                Keep the commercial side of the client in one place. Draft quotes, issue invoices, and compare invoiced value with estimated and actual cost.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 rounded-full bg-muted/50 p-1">
+              <Button size="sm" variant={showQuotes ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("quotes")}>
             Quotes
           </Button>
-          <Button variant={showInvoices ? "default" : "outline"} onClick={() => setFinancialView("invoices")}>
+              <Button size="sm" variant={showInvoices ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("invoices")}>
             Invoices
           </Button>
-          <Button variant={showProfitLoss ? "default" : "outline"} onClick={() => setFinancialView("profit-loss")}>
+              <Button size="sm" variant={showProfitLoss ? "default" : "ghost"} className="rounded-full" onClick={() => setFinancialView("profit-loss")}>
             Profit & Loss
           </Button>
         </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border bg-background/80 p-3 text-right">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Quotes</div>
+              <div className="text-2xl font-semibold tabular-nums">{quotes.length.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">{quotes.length === 1 ? "1 quote in the client workspace" : "Quotes available for invoicing"}</div>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-3 text-right">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Invoices</div>
+              <div className="text-2xl font-semibold tabular-nums">{invoices.length.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">{paidInvoiceCount.toLocaleString()} paid, {Math.max(invoices.length - paidInvoiceCount, 0).toLocaleString()} open</div>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-3 text-right">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">Quote items</div>
+              <div className="text-2xl font-semibold tabular-nums">{quoteLookupItems.length.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">{quoteLookupCaption}</div>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-3 text-right">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">P&L summary</div>
+              <div className="text-2xl font-semibold tabular-nums">{financialSummaryLoaded ? "Ready" : "Loading"}</div>
+              <div className="text-xs text-muted-foreground">{financialSummaryCaption}</div>
+            </div>
+          </div>
+        </div>
 
         {showQuotes ? (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Quotes ({quotes.length})</CardTitle>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={xeroInvoiceBadge.variant}>{xeroInvoiceBadge.label}</Badge>
-                <Button size="sm" asChild><Link href={`/clients/${clientId}/quotes/new`}>+ Create Quote</Link></Button>
-                <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/quotes`}>View All Quotes</Link></Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {quotes.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No quotes yet.</div>
-            ) : (
-              <div className="space-y-2">
-                {quotes.map((q) => (
-                  <div key={q.quote_id} className="rounded-md border px-3 py-2 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-medium">{q.quote_number || `#${q.quote_id}`}</div>
-                        <div className="text-muted-foreground">
-                          Date: {q.quote_date ? new Date(q.quote_date).toLocaleDateString("en-GB") : "-"} | Valid To: {q.valid_to ? new Date(q.valid_to).toLocaleDateString("en-GB") : "-"} | Status: {q.status || "-"}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right font-semibold">{currencyFmt.format(Number(q.total || 0))} {q.currency_code || ""}</div>
-                        <Button variant="outline" size="sm" onClick={() => void loadQuoteLinesToDraft(q.quote_id)}>Use Lines</Button>
-                        <Button variant="outline" size="sm" onClick={() => void convertQuoteToInvoice(q.quote_id)}>Convert</Button>
-                        <Button variant="outline" size="sm" asChild><Link href={`/clients/${clientId}/quotes/new?quoteId=${q.quote_id}`}>Open Quote</Link></Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-3 text-xs text-muted-foreground">
-              Xero badges here reflect invoice sync status for this client, since quotes are converted to invoices before Xero sync.
-            </div>
-          </CardContent>
-        </Card>
-        ) : null}
-
-        {showInvoices ? (
-        <>
-          <Card className="mb-6">
-            <CardContent className="pt-6">
-              <div className="grid gap-6 md:grid-cols-3">
-                <div className="space-y-3">
-                  <h1 className="text-5xl font-light tracking-wide">INVOICE</h1>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Quote</div>
-                    <select
-                      className="w-full rounded-md border px-3 py-2 text-sm"
-                      value={invoiceForm.quote_id}
-                      onChange={(e) => {
-                        const quoteId = e.target.value;
-                        setInvoiceForm((prev) => ({ ...prev, quote_id: quoteId }));
-                        if (quoteId) void loadQuoteLinesToDraft(Number(quoteId));
-                      }}
-                    >
-                      <option value="">No quote linked</option>
-                      {quotes.map((q) => (
-                        <option key={q.quote_id} value={String(q.quote_id)}>
-                          {q.quote_number || `#${q.quote_id}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Status</div>
-                    <Input value={invoiceForm.status} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, status: e.target.value }))} />
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Invoice Date</div>
-                    <Input type="date" value={invoiceForm.invoice_date} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoice_date: e.target.value }))} />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Due Date</div>
-                    <Input type="date" value={invoiceForm.due_date} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, due_date: e.target.value }))} />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs text-muted-foreground">Invoice Total</div>
-                    <Input value={currencyFmt.format(draftTotal)} readOnly />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    {invoiceForm.quote_id ? (
-                      <Button variant="outline" onClick={() => void convertQuoteToInvoice(Number(invoiceForm.quote_id))}>
-                        Convert Selected Quote
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <CompanyIdentityBlock baseUrl={baseUrl} />
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Invoice Lines</CardTitle>
-                <Button variant="outline" onClick={addInvoiceLine}>+ Add Line</Button>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Quotes ({quotes.length})</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={xeroInvoiceBadge.variant}>{xeroInvoiceBadge.label}</Badge>
+                  <Button size="sm" asChild><Link href={`/clients/${clientId}/quotes/new`}>+ Create Quote</Link></Button>
+                  <Button size="sm" variant="outline" asChild><Link href={`/clients/${clientId}/quotes`}>View All Quotes</Link></Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="overflow-auto rounded-md border">
-                <table className="w-full table-fixed text-sm">
+              <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                Quotes are the source of truth for invoice creation. Use a quote to prefill invoice lines or convert it directly.
+              </div>
+              {quotes.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No quotes yet. Create a quote to get the financial flow started.</div>
+              ) : (
+                <div className="space-y-2">
+                  {quotes.map((q) => (
+                    <div key={q.quote_id} className="rounded-md border px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{q.quote_number || `#${q.quote_id}`}</div>
+                          <div className="text-muted-foreground">
+                            Date: {q.quote_date ? new Date(q.quote_date).toLocaleDateString("en-GB") : "-"} | Valid To: {q.valid_to ? new Date(q.valid_to).toLocaleDateString("en-GB") : "-"} | Status: {q.status || "-"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right font-semibold">{currencyFmt.format(Number(q.total || 0))} {q.currency_code || ""}</div>
+                          <Button variant="outline" size="sm" onClick={() => void loadQuoteLinesToDraft(q.quote_id)}>Use Lines</Button>
+                          <Button variant="outline" size="sm" onClick={() => void convertQuoteToInvoice(q.quote_id)}>Convert</Button>
+                          <Button variant="outline" size="sm" asChild><Link href={`/clients/${clientId}/quotes/new?quoteId=${q.quote_id}`}>Open Quote</Link></Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="text-xs text-muted-foreground">
+                Xero badges here reflect invoice sync status for this client, since quotes are converted to invoices before Xero sync.
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {showInvoices ? (
+          <>
+            <Card className="mb-6">
+              <CardContent className="pt-6">
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">Invoice composer</div>
+                      <h3 className="text-3xl font-light tracking-wide">INVOICE</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Link a quote, set the dates, and build the invoice lines without leaving the client workspace.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Quote</div>
+                        <select
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                          value={invoiceForm.quote_id}
+                          onChange={(e) => {
+                            const quoteId = e.target.value;
+                            setInvoiceForm((prev) => ({ ...prev, quote_id: quoteId }));
+                            if (quoteId) void loadQuoteLinesToDraft(Number(quoteId));
+                          }}
+                        >
+                          <option value="">No quote linked</option>
+                          {quotes.map((q) => (
+                            <option key={q.quote_id} value={String(q.quote_id)}>
+                              {q.quote_number || `#${q.quote_id}`}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Status</div>
+                        <Input value={invoiceForm.status} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, status: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Invoice Date</div>
+                        <Input type="date" value={invoiceForm.invoice_date} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, invoice_date: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Due Date</div>
+                        <Input type="date" value={invoiceForm.due_date} onChange={(e) => setInvoiceForm((prev) => ({ ...prev, due_date: e.target.value }))} />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-muted-foreground">Invoice Total</div>
+                        <Input value={currencyFmt.format(draftTotal)} readOnly />
+                      </div>
+                      <div className="flex items-end">
+                        {invoiceForm.quote_id ? (
+                          <Button variant="outline" className="w-full" onClick={() => void convertQuoteToInvoice(Number(invoiceForm.quote_id))}>
+                            Convert Selected Quote
+                          </Button>
+                        ) : (
+                          <div className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                            Select a quote to prefill lines and convert faster.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <CompanyIdentityBlock baseUrl={baseUrl} />
+                    <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                      <div className="font-medium text-foreground">Invoice helper</div>
+                      <div className="mt-1">{quoteLookupCaption}</div>
+                    </div>
+                    <CompanyLegalFooter baseUrl={baseUrl} className="text-right text-xs text-muted-foreground" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>Invoice Lines</CardTitle>
+                  <Button variant="outline" onClick={addInvoiceLine}>+ Add Line</Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-auto rounded-md border">
+                  <table className="w-full table-fixed text-sm">
                   <colgroup>
                     <col style={{ width: "45%" }} />
                     <col style={{ width: "8%" }} />
@@ -1418,7 +1480,9 @@ function ClientDetailPageContent() {
                 <div className="flex justify-between"><span>Sub-total</span><span>{currencyFmt.format(draftSubtotal)}</span></div>
                 <div className="flex justify-between"><span>VAT</span><span>{currencyFmt.format(draftVat)}</span></div>
                 <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span>{currencyFmt.format(draftTotal)}</span></div>
-                <CompanyLegalFooter baseUrl={baseUrl} className="pt-3 text-right text-xs text-muted-foreground" />
+                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  {financialStatus ? financialStatus : "Use the draft lines to shape the invoice before saving."}
+                </div>
               </div>
               <div className="flex justify-end">
                 <Button onClick={addInvoice}>Add Invoice</Button>
@@ -1426,92 +1490,110 @@ function ClientDetailPageContent() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader><CardTitle>Invoices ({invoices.length})</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {invoices.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No invoices yet.</div>
-              ) : (
-                <div className="space-y-2">
-                  {invoices.map((inv) => (
-                    <div key={inv.invoice_id} className="rounded-md border px-3 py-2 text-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">{inv.invoice_number || `#${inv.invoice_id}`}</div>
-                          <div className="text-muted-foreground">
-                            Date: {inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString("en-GB") : "-"} | Due: {inv.due_date ? new Date(inv.due_date).toLocaleDateString("en-GB") : "-"}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>Invoices ({invoices.length})</CardTitle>
+                  <div className="text-xs text-muted-foreground">
+                    {quoteLookupCaption}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {invoices.length === 0 ? (
+                  <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No invoices yet. Build an invoice from a quote above to start tracking revenue here.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {invoices.map((inv) => (
+                      <div key={inv.invoice_id} className="rounded-md border px-3 py-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{inv.invoice_number || `#${inv.invoice_id}`}</div>
+                            <div className="text-muted-foreground">
+                              Date: {inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString("en-GB") : "-"} | Due: {inv.due_date ? new Date(inv.due_date).toLocaleDateString("en-GB") : "-"}
+                            </div>
+                            <div className="text-muted-foreground">Status: {inv.status || "-"} | Paid: {currencyFmt.format(Number(inv.amount_paid || 0))} | Lines: {Number(inv.line_count || 0)}</div>
                           </div>
-                          <div className="text-muted-foreground">Status: {inv.status || "-"} | Paid: {currencyFmt.format(Number(inv.amount_paid || 0))} | Lines: {Number(inv.line_count || 0)}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="min-w-[150px] text-right font-semibold">
-                            {currencyFmt.format(Number(inv.total || 0))} {inv.currency_code || client?.currency || ""}
+                          <div className="flex items-center gap-2">
+                            <div className="min-w-[150px] text-right font-semibold">
+                              {currencyFmt.format(Number(inv.total || 0))} {inv.currency_code || client?.currency || ""}
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => quickUpdateInvoice(inv.invoice_id, { status: "Paid", amount_paid: inv.total || 0, paid_date: new Date().toISOString().slice(0, 10) })}>
+                              Mark Paid
+                            </Button>
+                            <Button size="sm" variant="outline" asChild>
+                              <Link href={`/clients/${clientId}/invoices/${inv.invoice_id}`}>Open</Link>
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => removeInvoice(inv.invoice_id)}>
+                              Delete
+                            </Button>
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => quickUpdateInvoice(inv.invoice_id, { status: "Paid", amount_paid: inv.total || 0, paid_date: new Date().toISOString().slice(0, 10) })}>
-                            Mark Paid
-                          </Button>
-                          <Button size="sm" variant="outline" asChild>
-                            <Link href={`/clients/${clientId}/invoices/${inv.invoice_id}`}>Open</Link>
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => removeInvoice(inv.invoice_id)}>
-                            Delete
-                          </Button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {financialStatus ? <div className="text-sm text-muted-foreground">{financialStatus}</div> : null}
-            </CardContent>
-          </Card>
-        </>
+                    ))}
+                  </div>
+                )}
+                {financialStatus ? <div className="text-sm text-muted-foreground">{financialStatus}</div> : null}
+              </CardContent>
+            </Card>
+          </>
         ) : null}
 
         {showProfitLoss ? (
-        <Card>
-          <CardHeader><CardTitle>Profit & Loss (Estimated vs Actual)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Estimated (Quotes)</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.quotes.estimated_total || 0))}</div>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Profit & Loss (Estimated vs Actual)</CardTitle>
+                <div className="text-xs text-muted-foreground">{financialSummaryCaption}</div>
               </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Invoiced</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.invoiced_total || 0))}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Outstanding</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.outstanding_total || 0))}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Paid</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.paid_total || 0))}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Variance (Invoiced - Estimated)</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.variance_amount || 0))}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Realization %</div>
-                <div className="text-xl font-semibold">{Number(financialSummary?.analysis.realization_pct || 0).toFixed(2)}%</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Actual Cost (Time Logs)</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.actual_cost_from_time || 0))}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Logged Hours</div>
-                <div className="text-xl font-semibold">{Number(financialSummary?.analysis.logged_hours || 0).toFixed(2)}h</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">Time Cost Variance vs Estimate</div>
-                <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.time_cost_variance_vs_estimate || 0))}</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              {financialSummaryLoaded && !financialSummary ? (
+                <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                  No summary data is available yet. Open invoices or quotes first, then come back here for the financial comparison.
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Estimated (Quotes)</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.quotes.estimated_total || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Invoiced</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.invoiced_total || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Outstanding</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.outstanding_total || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Paid</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.invoices.paid_total || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Variance (Invoiced - Estimated)</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.variance_amount || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Realization %</div>
+                    <div className="text-xl font-semibold">{Number(financialSummary?.analysis.realization_pct || 0).toFixed(2)}%</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Actual Cost (Time Logs)</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.actual_cost_from_time || 0))}</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Logged Hours</div>
+                    <div className="text-xl font-semibold">{Number(financialSummary?.analysis.logged_hours || 0).toFixed(2)}h</div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Time Cost Variance vs Estimate</div>
+                    <div className="text-xl font-semibold">{currencyFmt.format(Number(financialSummary?.analysis.time_cost_variance_vs_estimate || 0))}</div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         ) : null}
       </div>
     );
