@@ -47,6 +47,7 @@ function addressLines(profile: CompanyProfile): string[] {
 
 export function CompanyIdentityBlock({ baseUrl, logoClassName = "ml-auto mb-3 h-auto w-[220px] object-contain" }: { baseUrl: string; logoClassName?: string }) {
   const [profile, setProfile] = useState<CompanyProfile>(defaultProfile);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +70,18 @@ export function CompanyIdentityBlock({ baseUrl, logoClassName = "ml-auto mb-3 h-
 
   return (
     <div className="text-right">
-      <img src="/uploads/system/nzi-logo.png" alt={profile.company_display_name} className={logoClassName} />
+      {logoFailed ? (
+        <div className="ml-auto mb-3 flex h-20 w-20 items-center justify-center rounded-2xl border bg-muted/40 text-sm font-semibold tracking-[0.2em] text-muted-foreground shadow-sm">
+          NZI
+        </div>
+      ) : (
+        <img
+          src="/uploads/system/nzi-logo.png"
+          alt={profile.company_display_name}
+          className={logoClassName}
+          onError={() => setLogoFailed(true)}
+        />
+      )}
       <div className="text-2xl">{profile.company_display_name}</div>
       <div className="mt-2 text-lg leading-8">
         {addressLines(profile).map((line) => (
