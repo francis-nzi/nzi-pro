@@ -1,16 +1,12 @@
 ﻿"use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
-import ClientCommunications from "@/components/ClientCommunications";
-import ClientNotesSummary from "@/components/ClientNotesSummary";
-import { CompanyIdentityBlock, CompanyLegalFooter } from "@/components/CompanyIdentityBlock";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
-import ClientReporting from "@/components/ClientReporting";
-import CustomFields from "@/components/CustomFields";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -21,6 +17,34 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { milestoneDotClass } from "@/lib/status-utils";
+
+const ClientCommunications = dynamic(() => import("@/components/ClientCommunications"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading communications...</div>,
+});
+const ClientNotesSummary = dynamic(() => import("@/components/ClientNotesSummary"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading notes...</div>,
+});
+const ClientReporting = dynamic(() => import("@/components/ClientReporting"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading reporting...</div>,
+});
+const CustomFields = dynamic(() => import("@/components/CustomFields"), {
+  ssr: false,
+  loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading custom fields...</div>,
+});
+const CompanyIdentityBlock = dynamic(
+  () => import("@/components/CompanyIdentityBlock").then((mod) => mod.CompanyIdentityBlock),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 rounded-md border bg-muted/20 animate-pulse" />,
+  }
+);
+const CompanyLegalFooter = dynamic(
+  () => import("@/components/CompanyIdentityBlock").then((mod) => mod.CompanyLegalFooter),
+  { ssr: false }
+);
 
 function apiBaseUrl(): string {
   return "/api/backend";
