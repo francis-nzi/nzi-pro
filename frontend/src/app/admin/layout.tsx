@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PropsWithChildren, useEffect, useState } from "react";
 
 import { apiUrl } from "@/lib/auth-client";
+import { useAuthSession } from "@/components/AuthContext";
 
 type AccessState = "loading" | "allowed" | "denied";
 
@@ -30,10 +31,29 @@ function hasAdminAccess(user: Record<string, unknown> | null | undefined): boole
 }
 
 export default function AdminLayout({ children }: PropsWithChildren) {
+  const authSession = useAuthSession();
   const [accessState, setAccessState] = useState<AccessState>("loading");
 
   useEffect(() => {
     let cancelled = false;
+
+    if (authSession) {
+      if (!authSession.ready) {
+        setAccessState("loading");
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      const payload = authSession.payload || {};
+      const user = payload?.user || {};
+      const currentOrg = payload?.current_org || {};
+      const mergedUser = { ...user, current_org: currentOrg };
+      setAccessState(hasAdminAccess(mergedUser) ? "allowed" : "denied");
+      return () => {
+        cancelled = true;
+      };
+    }
 
     async function checkAccess() {
       try {
@@ -59,7 +79,7 @@ export default function AdminLayout({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authSession]);
 
   if (accessState === "loading") {
     return <div className="mx-auto max-w-7xl px-6 py-10 text-sm text-muted-foreground">Checking admin access...</div>;

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/components/AuthContext";
 import { MainNav } from "@/components/MainNav";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -31,16 +32,18 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}>
-        <ThemeProvider>
-          <ConfirmDialogProvider>
-            <Suspense fallback={null}>
-              <AuthBootstrap />
-            </Suspense>
-            <MainNav />
-            <main className="flex-1">{children}</main>
-            <SiteFooter />
-          </ConfirmDialogProvider>
-        </ThemeProvider>
+        <AuthProvider>
+          <ThemeProvider>
+            <ConfirmDialogProvider>
+              <Suspense fallback={null}>
+                <AuthBootstrap />
+              </Suspense>
+              <MainNav />
+              <main className="flex-1">{children}</main>
+              <SiteFooter />
+            </ConfirmDialogProvider>
+          </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

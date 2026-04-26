@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiUrl, hasAuthState, installAuthFetchPatch, mustAcceptPortalTerms, mustChangePassword } from "@/lib/auth-client";
+import { useAuthSession } from "@/components/AuthContext";
 
 function appendNext(path: string, next: string): string {
   return `${path}?next=${encodeURIComponent(next)}`;
@@ -26,6 +27,8 @@ export function AuthBootstrap() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const authSession = useAuthSession();
+  const setAuthSession = authSession?.setAuthSession;
 
   useEffect(() => {
     installAuthFetchPatch();
@@ -53,12 +56,17 @@ export function AuthBootstrap() {
     const loginNext = searchParams?.get("next") || "/";
     const desiredNext = isLoginPage ? loginNext : currentNext;
 
+    const shouldFetchAuth = loggedIn || !isPublicPage;
+
+    if (!shouldFetchAuth) {
+      setAuthSession?.(null);
+      return;
+    }
+
     if (!loggedIn && !isPublicPage) {
       router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
       return;
     }
-
-    if (!loggedIn) return;
 
     let cancelled = false;
     void (async () => {
@@ -69,6 +77,7 @@ export function AuthBootstrap() {
         });
         if (cancelled) return;
         if (!res.ok) {
+          setAuthSession?.(null);
           let detailText = "";
           try {
             const payload = await res.json();
@@ -99,6 +108,7 @@ export function AuthBootstrap() {
         }
         const payload = await res.json().catch(() => ({}));
         if (cancelled) return;
+        setAuthSession?.(payload);
         const user = payload?.user || {};
         const needsPasswordChange = Boolean(user?.must_change_password || payload?.must_change_password || mustChange);
         const needsTerms = Boolean(payload?.must_accept_portal_terms || mustAcceptTerms);
@@ -153,6 +163,7 @@ export function AuthBootstrap() {
         }
       } catch {
         if (cancelled) return;
+        setAuthSession?.(null);
         if (!isPublicPage && !isLoginPage && loggedIn) {
           router.replace(`/login?next=${encodeURIComponent(desiredNext)}`);
           return;
@@ -174,7 +185,7 @@ export function AuthBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [pathname, router, searchParams]);
+  }, [pathname, router, searchParams, setAuthSession]);
 
   return null;
 }

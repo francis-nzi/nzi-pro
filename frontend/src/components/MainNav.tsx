@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { apiUrl, clearAuthState } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/ThemeProvider";
+import { useAuthSession } from "@/components/AuthContext";
 
 const ADMIN_DOMAINS = [
   "People & Access",
@@ -84,6 +85,7 @@ export function MainNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { theme } = useTheme();
+  const authSession = useAuthSession();
   const [profileOpen, setProfileOpen] = useState(false);
   const [logoErrorUrl, setLogoErrorUrl] = useState<string | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -110,6 +112,43 @@ export function MainNav() {
 
   useEffect(() => {
     let cancelled = false;
+    if (authSession) {
+      if (!authSession.ready) {
+        return () => {
+          cancelled = true;
+        };
+      }
+
+      const payload = authSession.payload || {};
+      const user = (payload?.user || {}) as Record<string, unknown>;
+      const currentOrg = (payload?.current_org || {}) as Record<string, unknown>;
+      const adminAccess = hasAdminAccessFromPayload(user, currentOrg);
+      const userId = String(user?.email || user?.user_id || "").trim();
+      const currentOrgId = String(currentOrg?.org_id || user?.org_id || "").trim();
+      const currentOrgLabel = String(currentOrg?.name || currentOrgId || "").trim();
+      const currentOrgSlug = String(currentOrg?.slug || "").trim();
+      const currentOrgRole = String(currentOrg?.role || "").trim();
+
+      if (!cancelled) {
+        setAuthUi({
+          ready: true,
+          authed: Boolean(authSession.payload),
+          userId,
+          adminAccess,
+        });
+        setOrgUi({
+          currentOrgId,
+          currentOrgLabel,
+          currentOrgSlug,
+          currentOrgRole,
+          organisations: [],
+        });
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const timer = setTimeout(() => {
       void (async () => {
         let userId = "";
@@ -187,7 +226,7 @@ export function MainNav() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [pathname]);
+  }, [pathname, authSession]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setProfileOpen(false), 0);
