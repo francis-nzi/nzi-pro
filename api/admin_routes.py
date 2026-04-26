@@ -342,10 +342,6 @@ def _ensure_org_entitlement_schema(con) -> None:
         )
     except Exception:
         pass
-    try:
-        _ensure_org_entitlement_schema(con)
-    except Exception:
-        pass
 
 
 def _ensure_org_billing_schema(con) -> None:
