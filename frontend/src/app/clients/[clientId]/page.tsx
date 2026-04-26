@@ -247,6 +247,8 @@ function ClientDetailPageContent() {
   const [contactsLoaded, setContactsLoaded] = useState<boolean>(false);
   const [jobsLoaded, setJobsLoaded] = useState<boolean>(false);
   const [financialLoaded, setFinancialLoaded] = useState<boolean>(false);
+  const [financialSummaryLoaded, setFinancialSummaryLoaded] = useState<boolean>(false);
+  const [quoteLookupsLoaded, setQuoteLookupsLoaded] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [clientNotFound, setClientNotFound] = useState<boolean>(false);
@@ -371,11 +373,9 @@ function ClientDetailPageContent() {
 
   async function reloadFinancialData() {
     try {
-      const [quotesRes, invoicesRes, summaryRes, lookupsRes] = await Promise.allSettled([
+      const [quotesRes, invoicesRes] = await Promise.allSettled([
         fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/invoices`, { credentials: "include" }),
-        fetch(`${baseUrl}/clients/${clientId}/financial/summary`, { credentials: "include" }),
-        fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" }),
       ]);
       if (quotesRes.status === "fulfilled" && quotesRes.value.ok) {
         const data = (await quotesRes.value.json()) as ClientQuotesResponse;
@@ -385,18 +385,38 @@ function ClientDetailPageContent() {
         const data = (await invoicesRes.value.json()) as ClientInvoicesResponse;
         setInvoices(data.items ?? []);
       }
-      if (summaryRes.status === "fulfilled" && summaryRes.value.ok) {
-        const data = (await summaryRes.value.json()) as ClientFinancialSummary;
-        setFinancialSummary(data);
-      }
-      if (lookupsRes.status === "fulfilled" && lookupsRes.value.ok) {
-        const data = await lookupsRes.value.json();
-        setQuoteLookupItems(Array.isArray(data.items) ? data.items : []);
-      }
     } catch {
       // Keep the client page usable if one of the optional financial calls fails.
     } finally {
       setFinancialLoaded(true);
+    }
+  }
+
+  async function reloadFinancialSummary() {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/financial/summary`, { credentials: "include" });
+      if (res.ok) {
+        const data = (await res.json()) as ClientFinancialSummary;
+        setFinancialSummary(data);
+      }
+    } catch {
+      setFinancialSummary(null);
+    } finally {
+      setFinancialSummaryLoaded(true);
+    }
+  }
+
+  async function reloadQuoteLookups() {
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setQuoteLookupItems(Array.isArray(data.items) ? data.items : []);
+      }
+    } catch {
+      setQuoteLookupItems([]);
+    } finally {
+      setQuoteLookupsLoaded(true);
     }
   }
 
@@ -436,6 +456,8 @@ function ClientDetailPageContent() {
       setContactsLoaded(false);
       setJobsLoaded(false);
       setFinancialLoaded(false);
+      setFinancialSummaryLoaded(false);
+      setQuoteLookupsLoaded(false);
 
       try {
         const cRes = await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" });
@@ -457,6 +479,8 @@ function ClientDetailPageContent() {
             setContactsLoaded(true);
             setJobsLoaded(true);
             setFinancialLoaded(true);
+            setFinancialSummaryLoaded(true);
+            setQuoteLookupsLoaded(true);
             return;
           }
           const t = await cRes.text().catch(() => "");
@@ -485,6 +509,8 @@ function ClientDetailPageContent() {
         setContactsLoaded(false);
         setJobsLoaded(false);
         setFinancialLoaded(false);
+        setFinancialSummaryLoaded(false);
+        setQuoteLookupsLoaded(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -510,7 +536,28 @@ function ClientDetailPageContent() {
     if (activeSection === "financial" && !financialLoaded) {
       void reloadFinancialData();
     }
-  }, [activeSection, clientNotFound, contactsLoaded, jobsLoaded, sitesLoaded, financialLoaded, reloadContacts, reloadJobs, reloadFinancialData]);
+    if (activeSection === "financial" && financialView === "profit-loss" && !financialSummaryLoaded) {
+      void reloadFinancialSummary();
+    }
+    if (activeSection === "financial" && financialView === "invoices" && !quoteLookupsLoaded) {
+      void reloadQuoteLookups();
+    }
+  }, [
+    activeSection,
+    clientNotFound,
+    contactsLoaded,
+    jobsLoaded,
+    sitesLoaded,
+    financialLoaded,
+    financialSummaryLoaded,
+    financialView,
+    quoteLookupsLoaded,
+    reloadContacts,
+    reloadJobs,
+    reloadFinancialData,
+    reloadFinancialSummary,
+    reloadQuoteLookups,
+  ]);
 
   async function handleAddContact() {
     try {
