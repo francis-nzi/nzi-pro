@@ -203,8 +203,58 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     return { ...ordered[0], source: "job" };
   }, [data]);
 
-  if (loading) return <div className="py-8 text-center">Loading dashboard...</div>;
   if (error) return <div className="py-8 text-center text-red-500">Error: {error}</div>;
+  if (!data && loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="text-sm text-muted-foreground">Reporting Year:</span>
+          <div className="h-10 w-36 rounded-md border bg-muted/30 animate-pulse" />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={idx}>
+              <CardContent className="space-y-3 pt-6 text-right">
+                <div className="ml-auto h-4 w-24 rounded bg-muted/40 animate-pulse" />
+                <div className="ml-auto h-10 w-20 rounded bg-muted/40 animate-pulse" />
+                <div className="ml-auto h-3 w-28 rounded bg-muted/30 animate-pulse" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Emissions Summary by Scope</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
+                <div className="mx-auto h-[420px] w-full max-w-[520px] rounded-full bg-muted/20 animate-pulse" />
+                <div className="space-y-3 pt-2">
+                  {Array.from({ length: 5 }).map((_, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2">
+                      <div className="h-4 w-28 rounded bg-muted/30 animate-pulse" />
+                      <div className="h-4 w-12 rounded bg-muted/30 animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Top Emissions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[320px] rounded-md bg-muted/20 animate-pulse" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
   if (!data) return <div className="py-8 text-center">No data available</div>;
 
   const total = Number(data.current_metrics.total_emissions || 0);
@@ -221,6 +271,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         <span className="text-sm text-muted-foreground">Reporting Year:</span>
         <Select
           value={selectedYear !== null ? selectedYear.toString() : ""}
+          disabled={loading}
           onValueChange={(value) => {
             const year = Number(value);
             setSelectedYear(year);
@@ -239,6 +290,10 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           </SelectContent>
         </Select>
       </div>
+
+      {loading ? (
+        <div className="text-right text-xs text-muted-foreground">Refreshing dashboard data...</div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
