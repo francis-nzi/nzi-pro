@@ -76,7 +76,7 @@ export default function TemplatesPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/job-templates`);
+      const res = await fetch(`${baseUrl}/job-templates`, { cache: "no-store" });
       if (!res.ok) {
         throw new Error(`Failed to load templates: ${res.status}`);
       }
@@ -275,8 +275,8 @@ export default function TemplatesPage() {
       }
 
       setStatus(editingId ? "Template updated!" : "Template created!");
+      await loadTemplates();
       cancelEdit();
-      loadTemplates();
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
@@ -306,7 +306,7 @@ export default function TemplatesPage() {
       }
 
       setStatus("Template deactivated");
-      loadTemplates();
+      await loadTemplates();
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
@@ -334,7 +334,7 @@ export default function TemplatesPage() {
       }
 
       setStatus("Template archived");
-      loadTemplates();
+      await loadTemplates();
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
       setStatus(`Error: ${(e as Error).message}`);
