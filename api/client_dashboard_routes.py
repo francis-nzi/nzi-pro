@@ -259,10 +259,17 @@ def get_client_dashboard(
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
             diagnostic["jobs_count"] = len(job_ids)
 
+            # IMPORTANT: do not flip this primary/fallback order to "speed up"
+            # the dashboard. The exact per-row resolver path MUST stay primary
+            # because the aggregated summary SQL does not apply monthly emission
+            # factors, so swapping it in produces totals that drift from the
+            # per-job figure shown in the Jobs list and the /clients/{id}/reporting
+            # page (e.g. 39.0 vs 40.6 for jobs with monthly-resolved factors).
+            # The 15s response cache above is the right place to recover speed.
+            #
             # Primary: exact per-row resolver path (matches /clients/{id}/reporting
             # and the per-job totals shown in the Jobs list, including monthly
-            # factor handling). The 15s response cache above absorbs the cost so
-            # repeated dashboard views stay snappy.
+            # factor handling).
             try:
                 scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
                 if scope_df is not None:
