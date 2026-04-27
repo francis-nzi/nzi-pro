@@ -15,27 +15,6 @@ from services.dataset_selector import get_monthly_headers, get_reporting_period_
 from services.fetch_existing_data import fetch_existing_scope_entries
 
 
-BUSINESS_TRAVEL_KEYWORDS = (
-    "business travel",
-    "travel",
-    "rail",
-    "flight",
-    "flights",
-    "air",
-    "taxi",
-    "cab",
-    "hotel",
-    "ferry",
-    "bus",
-    "coach",
-    "car hire",
-    "rental",
-    "vehicle",
-    "mileage",
-    "commute",
-)
-
-
 def _clean(value: Any) -> str:
     if value is None:
         return ""
@@ -103,14 +82,6 @@ def _resolve_selected_site(con, client_db_id: int | None, site_id: int | None) -
         return None
     return {"site_id": int(row[0]), "site_name": str(row[1]).strip() if row[1] is not None else None}
 
-
-def _looks_like_business_travel(*values: Any) -> bool:
-    text = " ".join(_clean(v).lower() for v in values if _clean(v))
-    if not text:
-        return False
-    return any(token in text for token in BUSINESS_TRAVEL_KEYWORDS)
-
-
 def _load_reference_rows() -> list[dict[str, Any]]:
     current_dir = Path(__file__).resolve().parent
     template_path = current_dir.parent / "templates" / "NZI Data Upload Template - Standard UK.csv"
@@ -167,7 +138,7 @@ def _load_reference_rows() -> list[dict[str, Any]]:
             continue
         if scope != "Scope 3":
             continue
-        if category and category.lower() != "business travel" and not _looks_like_business_travel(category, report_label):
+        if category.lower() != "business travel":
             continue
 
         factors.append(
@@ -287,9 +258,9 @@ def _fetch_previous_year_rows(job_id: int, site_id: int | None) -> list[tuple[in
                 original_id = _clean(r[4])
                 if not original_id:
                     continue
-                if scope != "Scope 3" and not _looks_like_business_travel(scope, category, report_label):
+                if scope != "Scope 3":
                     continue
-                if not _looks_like_business_travel(category, report_label, original_id):
+                if category.lower() != "business travel":
                     continue
 
                 mapped.append(
