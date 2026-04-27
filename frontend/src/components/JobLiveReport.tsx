@@ -20,6 +20,7 @@ import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceEmissionsSummaryDat
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatDate, formatNumber } from "@/lib/format";
 
 type LiveJobData = {
   job_id: number;
@@ -94,14 +95,6 @@ type LiveActionItem = Record<string, unknown>;
 
 const SCOPE_COLORS = ["#0f766e", "#2563eb", "#8b5cf6"];
 
-function formatNumber(value: number | null | undefined, digits = 1): string {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "0.0";
-  return Number(value).toLocaleString("en-GB", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-}
-
 function toNumber(value: unknown): number {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
@@ -172,14 +165,9 @@ function liveActionItemLabel(item: LiveActionItem): string {
 
 function formatDateDisplay(value: unknown): string {
   const raw = safeText(value, "");
-  if (!raw) {
-    return "N/A";
-  }
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toLocaleDateString("en-GB");
-  }
-  return raw;
+  if (!raw) return "N/A";
+  const formatted = formatDate(raw, { day: "numeric", month: "short", year: "numeric" });
+  return formatted === "—" ? raw : formatted;
 }
 
 export default function JobLiveReport({ jobId, baseUrl, printMode = false }: JobLiveReportProps) {
@@ -296,7 +284,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
         clientName: job.client_name ?? "Client",
         reportingPeriodLabel:
           job.reporting_period_start && job.reporting_period_end
-            ? `${new Date(job.reporting_period_start).toLocaleDateString("en-GB")} - ${new Date(job.reporting_period_end).toLocaleDateString("en-GB")}`
+            ? `${formatDate(job.reporting_period_start, { day: "numeric", month: "short", year: "numeric" })} - ${formatDate(job.reporting_period_end, { day: "numeric", month: "short", year: "numeric" })}`
             : job.reporting_period_end
               ? `Year ${new Date(job.reporting_period_end).getFullYear()}`
               : job.reporting_year
@@ -357,8 +345,8 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
       }
     : null;
 
-  const periodStart = job?.reporting_period_start ? new Date(job.reporting_period_start).toLocaleDateString("en-GB") : "";
-  const periodEnd = job?.reporting_period_end ? new Date(job.reporting_period_end).toLocaleDateString("en-GB") : "";
+  const periodStart = job?.reporting_period_start ? formatDate(job.reporting_period_start, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const periodEnd = job?.reporting_period_end ? formatDate(job.reporting_period_end, { day: "numeric", month: "short", year: "numeric" }) : "";
   const reportYear = job?.reporting_year ?? new Date().getFullYear();
   const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
   const selectedDatasets = splitCommaList(reportMetadata.datasets_names);

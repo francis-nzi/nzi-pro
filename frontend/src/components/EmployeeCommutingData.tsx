@@ -18,6 +18,7 @@ import { withAuditHeaders } from "@/lib/auth-client";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
+import { formatDate, formatNumber } from "@/lib/format";
 
 type SiteOption = {
   site_id: number | null;
@@ -162,13 +163,8 @@ export default function EmployeeCommutingData({
     const raw = String(value || "").trim();
     if (!raw) return "";
     const datePart = raw.includes("T") ? raw.split("T")[0] : raw.slice(0, 10);
-    const parsed = new Date(datePart);
-    if (Number.isNaN(parsed.getTime())) return raw;
-    return parsed.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).replace(/\s+/g, "-");
+    const formatted = formatDate(datePart, { day: "2-digit", month: "short", year: "numeric" });
+    return formatted === "—" ? raw : formatted.replace(/\s+/g, "-");
   }
 
   function fallbackTemplateFilename() {
@@ -632,7 +628,7 @@ export default function EmployeeCommutingData({
           <div className="rounded-md border p-3">
             <div className="text-xs uppercase text-muted-foreground">Imported tCO₂e</div>
             <div className="mt-1 text-2xl font-semibold">
-              {(summary?.total_tco2e ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              {formatNumber(summary?.total_tco2e ?? 0, 4)}
             </div>
           </div>
           <div className="rounded-md border p-3">
@@ -1018,9 +1014,9 @@ export default function EmployeeCommutingData({
                           <td className="px-3 py-2">
                             <div className="font-mono text-xs">{row.original_id || "-"}</div>
                           </td>
-                          <td className="px-3 py-2 text-right">{row.qty?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "-"}</td>
+                          <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
                           <td className="px-3 py-2">{row.uom || ""}</td>
-                          <td className="px-3 py-2 text-right">{row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
                           <td className="px-3 py-2 text-right">
                             <div className="flex justify-end gap-2">
                               <Button variant="outline" size="sm" onClick={() => startEditDirectEntry(row)}>
@@ -1075,7 +1071,7 @@ export default function EmployeeCommutingData({
               <div className="rounded-md border p-3">
                 <div className="text-xs uppercase text-muted-foreground">Preview tCO₂e</div>
                 <div className="mt-1 text-xl font-semibold">
-                  {preview.total_tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                  {formatNumber(preview.total_tco2e, 4)}
                 </div>
               </div>
             </div>
@@ -1131,11 +1127,11 @@ export default function EmployeeCommutingData({
                           <td className="px-3 py-2 font-mono">{row.original_id}</td>
                           <td className="px-3 py-2">{row.report_label || ""}</td>
                           <td className="px-3 py-2 text-right">
-                            {row.qty.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                            {formatNumber(row.qty, 4)}
                           </td>
                           <td className="px-3 py-2">{row.uom || ""}</td>
                           <td className="px-3 py-2 text-right">
-                            {row.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                            {formatNumber(row.calc_tco2e, 6)}
                           </td>
                         </tr>
                       ))}

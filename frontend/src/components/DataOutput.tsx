@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatNumber } from "@/lib/format";
 
 type Activity = {
   row_id: number;
@@ -299,10 +300,6 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       newExpanded.add(siteKey);
     }
     setExpandedSites(newExpanded);
-  }
-
-  function formatNumber(num: number): string {
-    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   function csvEscape(value: string | number): string {
@@ -649,7 +646,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           <span className="font-semibold">{scope.scope_name}</span>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="text-sm font-medium">{formatNumber(scope.total_emissions)} tCO₂e</span>
+                          <span className="text-sm font-medium">{formatNumber(scope.total_emissions, 2)} tCO₂e</span>
                           <Button
                             size="sm"
                             variant="outline"
@@ -681,7 +678,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     {categoryExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                     <span className="text-sm font-medium">{category.category_name}</span>
                                   </div>
-                                  <span className="text-sm">{formatNumber(category.total_emissions)} tCO₂e</span>
+                                  <span className="text-sm">{formatNumber(category.total_emissions, 2)} tCO₂e</span>
                                 </div>
 
                                 {/* Sites */}
@@ -691,7 +688,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       <div key={idx} className="flex items-center justify-between p-2 text-sm bg-muted/30 rounded">
                                         <span className="text-muted-foreground">{site.site_name}</span>
                                         <div className="flex items-center gap-2">
-                                          <span>{formatNumber(site.total_emissions)} tCO₂e</span>
+                                          <span>{formatNumber(site.total_emissions, 2)} tCO₂e</span>
                                           {site.activity_count && (
                                             <span className="text-xs text-muted-foreground">({site.activity_count} activities)</span>
                                           )}
@@ -754,7 +751,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     <td className="p-2 border">{row.category}</td>
                                     {row.values.map((value, colIdx) => (
                                       <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value) : "-"}
+                                        {value > 0 ? formatNumber(value, 2) : "-"}
                                       </td>
                                     ))}
                                   </tr>
@@ -767,7 +764,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     <td className="p-2 border">Subtotal</td>
                                     {row.values.map((value, colIdx) => (
                                       <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value) : "-"}
+                                        {value > 0 ? formatNumber(value, 2) : "-"}
                                       </td>
                                     ))}
                                   </tr>
@@ -779,7 +776,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                   <td className="p-2 border">Total</td>
                                   {row.values.map((value, colIdx) => (
                                     <td key={colIdx} className="text-right p-2 border">
-                                      {value > 0 ? formatNumber(value) : "-"}
+                                      {value > 0 ? formatNumber(value, 2) : "-"}
                                     </td>
                                   ))}
                                 </tr>
@@ -815,7 +812,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     <td className="p-2 border">{row.category}</td>
                                     {row.values.map((value, colIdx) => (
                                       <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value) : "-"}
+                                        {value > 0 ? formatNumber(value, 2) : "-"}
                                       </td>
                                     ))}
                                   </tr>
@@ -828,7 +825,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                     <td className="p-2 border">Subtotal</td>
                                     {row.values.map((value, colIdx) => (
                                       <td key={colIdx} className="text-right p-2 border">
-                                        {value > 0 ? formatNumber(value) : "-"}
+                                        {value > 0 ? formatNumber(value, 2) : "-"}
                                       </td>
                                     ))}
                                   </tr>
@@ -840,7 +837,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                   <td className="p-2 border">Total</td>
                                   {row.values.map((value, colIdx) => (
                                     <td key={colIdx} className="text-right p-2 border">
-                                      {value > 0 ? formatNumber(value) : "-"}
+                                      {value > 0 ? formatNumber(value, 2) : "-"}
                                     </td>
                                   ))}
                                 </tr>
@@ -888,7 +885,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                             {siteExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             <span className="font-semibold">{site.site_name}</span>
                           </div>
-                          <span className="text-sm font-medium">{formatNumber(site.total_emissions)} tCO₂e</span>
+                          <span className="text-sm font-medium">{formatNumber(site.total_emissions, 2)} tCO₂e</span>
                         </div>
 
                         {/* Scopes for this site */}
@@ -909,7 +906,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       {scopeExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                       <span className="text-sm font-medium">{scope.scope_name}</span>
                                     </div>
-                                    <span className="text-sm">{formatNumber(scope.total_emissions)} tCO₂e</span>
+                                    <span className="text-sm">{formatNumber(scope.total_emissions, 2)} tCO₂e</span>
                                   </div>
 
                                   {/* Categories */}
@@ -918,7 +915,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       {scope.categories.map((category, idx) => (
                                         <div key={idx} className="flex items-center justify-between p-2 text-sm bg-muted/30 rounded">
                                           <span className="text-muted-foreground">{category.category_name}</span>
-                                          <span>{formatNumber(category.total_emissions)} tCO₂e</span>
+                                          <span>{formatNumber(category.total_emissions, 2)} tCO₂e</span>
                                         </div>
                                       ))}
                                     </div>
@@ -986,7 +983,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                               <td className="p-2" colSpan={7}>
                                 Subtotal: {item.site_name} / {item.scope}
                               </td>
-                              <td className="p-2 text-right">{formatNumber(item.total)}</td>
+                              <td className="p-2 text-right">{formatNumber(item.total, 2)}</td>
                               <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
@@ -997,7 +994,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                               <td className="p-2" colSpan={7}>
                                 Site Total: {item.site_name}
                               </td>
-                              <td className="p-2 text-right">{formatNumber(item.total)}</td>
+                              <td className="p-2 text-right">{formatNumber(item.total, 2)}</td>
                               <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
@@ -1013,9 +1010,9 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                             <td className="p-2">{row.id || "-"}</td>
                             <td className="p-2">{row.report_label || "-"}</td>
                             <td className="p-2">{row.uom || "-"}</td>
-                            <td className="p-2 text-right">{formatNumber(row.qty || 0)}</td>
-                            <td className="p-2 text-right">{formatNumber(row.factor || 0)}</td>
-                            <td className="p-2 text-right font-medium">{formatNumber(row.tco2e_after_apply || 0)}</td>
+                            <td className="p-2 text-right">{formatNumber(row.qty || 0, 2)}</td>
+                            <td className="p-2 text-right">{formatNumber(row.factor || 0, 2)}</td>
+                            <td className="p-2 text-right font-medium">{formatNumber(row.tco2e_after_apply || 0, 2)}</td>
                             <td className="p-2">{row.data_confidence || "-"}</td>
                             <td className="p-2">
                               <span className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium">
@@ -1063,7 +1060,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                         {categoryExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         <span className="font-semibold">{category.category_name}</span>
                       </div>
-                      <span className="font-medium">{formatNumber(category.total_emissions)} tCO₂e</span>
+                      <span className="font-medium">{formatNumber(category.total_emissions, 2)} tCO₂e</span>
                     </div>
 
                     {/* Sites with Activities */}
@@ -1084,7 +1081,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                   {siteExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                   <span className="text-sm font-medium">{site.site_name}</span>
                                 </div>
-                                <span className="text-sm">{formatNumber(site.total_emissions)} tCO₂e</span>
+                                <span className="text-sm">{formatNumber(site.total_emissions, 2)} tCO₂e</span>
                               </div>
 
                               {/* Activities */}
@@ -1124,10 +1121,10 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                             <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
                                             <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
                                             <td className="p-2 text-right">
-                                              {activity.quantity !== null ? formatNumber(activity.quantity) : "-"}
+                                              {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
                                             </td>
                                             <td className="p-2">{activity.unit || "-"}</td>
-                                            <td className="p-2 text-right font-medium">{formatNumber(activity.emissions)}</td>
+                                            <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
                                           </tr>
                                         ))}
                                       </tbody>
