@@ -2781,7 +2781,7 @@ def job_excel_import(
                     updated += 1
                 else:
                     con.execute(
-                        """
+                        f"""
                         INSERT INTO job_scope_rows
                           (job_id, site_id, scope, category, dataset_id, factor_db_id, original_id,
                            level_1, level_2, level_3, level_4, column_text,

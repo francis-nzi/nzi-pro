@@ -231,6 +231,26 @@ class _ClientLimitConn(_FakeConn):
         return None
 
 
+class _ExcelImportConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        if "SELECT client_db_id FROM jobs WHERE job_id=?" in self._last_sql:
+            return (89,)
+        if "SELECT 1 FROM client_sites WHERE site_id=? AND client_db_id=?" in self._last_sql:
+            return (1,)
+        if "SELECT row_id" in self._last_sql and "FROM job_scope_rows" in self._last_sql:
+            return None
+        return None
+
+
 def test_list_clients_requires_org(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_conn", lambda: _FakeConn())
@@ -416,3 +436,40 @@ def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.Monk
     assert exc_info.value.status_code == 403
     assert "client limit" in str(exc_info.value.detail).lower()
     assert not any("INSERT INTO clients" in sql for sql, _ in conn.queries)
+
+
+def test_job_excel_import_expands_month_placeholders(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ExcelImportConn()
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    result = main.job_excel_import(
+        job_id=3,
+        payload={
+            "site_id": 11,
+            "rows_ready": [
+                {
+                    "scope": "Scope 3",
+                    "original_id": "BT-ROW-1",
+                    "dataset_id": 321,
+                    "db_id": 654,
+                    "qty": 1.0,
+                    "uom": "km",
+                    "factor": 0.25,
+                    "ghg_unit": "kgCO2e",
+                    "calc_tco2e": 0.25,
+                    "apply_pct": 100,
+                    "data_source": "Imported",
+                    "data_confidence": "high",
+                    "notes": "business travel import",
+                    "report_label": "Business Travel",
+                    "column_text": "Mode",
+                }
+            ],
+        },
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["ok"] is True
+    insert_sql = next(sql for sql, _ in conn.queries if "INSERT INTO job_scope_rows" in sql)
+    assert "{month_placeholders}" not in insert_sql
+    assert insert_sql.count("?") >= 12
