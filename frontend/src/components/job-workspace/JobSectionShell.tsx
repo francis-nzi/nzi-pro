@@ -99,6 +99,7 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   admin: [
     { key: "files", label: "Files", href: "/jobs/__JOB_ID__/admin/files" },
     { key: "time", label: "Time Entries", href: "/jobs/__JOB_ID__/admin/time" },
+    { key: "certificate", label: "Certificate", href: "/jobs/__JOB_ID__/admin/certificate" },
   ],
 };
 
