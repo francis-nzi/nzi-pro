@@ -269,6 +269,87 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [monthlyEditRow, setMonthlyEditRow] = useState<ScopeDataRow | null>(null);
   const [monthlyValues, setMonthlyValues] = useState<number[]>(Array(12).fill(0));
+  const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+  const [pendingSaveRowIds, setPendingSaveRowIds] = useState<Set<number>>(new Set());
+  const [dirtyRowIds, setDirtyRowIds] = useState<Set<number>>(new Set());
+  const hasUnsavedChanges = dirtyRowIds.size > 0;
+
+  function markRowDirty(rowId: number) {
+    setDirtyRowIds((prev) => {
+      if (prev.has(rowId)) return prev;
+      const next = new Set(prev);
+      next.add(rowId);
+      return next;
+    });
+  }
+
+  function clearRowDirty(rowId: number) {
+    setDirtyRowIds((prev) => {
+      if (!prev.has(rowId)) return prev;
+      const next = new Set(prev);
+      next.delete(rowId);
+      return next;
+    });
+  }
+
+  function markRowSaving(rowId: number, saving: boolean) {
+    setPendingSaveRowIds((prev) => {
+      const next = new Set(prev);
+      if (saving) next.add(rowId);
+      else next.delete(rowId);
+      return next;
+    });
+  }
+
+  function recalculateRowEmissions(row: ScopeDataRow, patch: Partial<ScopeDataRow>): ScopeDataRow {
+    const nextRow = { ...row, ...patch };
+    const nextQty = patch.qty !== undefined ? Number(patch.qty ?? 0) : Number(nextRow.qty ?? 0);
+    const nextApply = patch.apply_pct !== undefined ? Number(patch.apply_pct ?? 100) : Number(nextRow.apply_pct ?? 100);
+
+    let nextBefore = Number(nextRow.tco2e_before_apply ?? 0);
+    const currentQty = Number(row.qty ?? 0);
+    const factorValue = row.factor;
+    const hasFactor = factorValue !== null && factorValue !== undefined && Number.isFinite(Number(factorValue));
+    const factor = hasFactor ? Number(factorValue) : null;
+    if (patch.qty !== undefined) {
+      if (factor !== null) {
+        nextBefore = nextQty * factor;
+      } else if (currentQty !== 0) {
+        nextBefore = Number(row.tco2e_before_apply ?? 0) * (nextQty / currentQty);
+      } else {
+        nextBefore = Number(row.tco2e_before_apply ?? 0);
+      }
+    }
+
+    const nextCalc = nextBefore * (nextApply / 100);
+    return {
+      ...nextRow,
+      qty: patch.qty !== undefined ? patch.qty : nextRow.qty,
+      apply_pct: patch.apply_pct !== undefined ? nextApply : nextRow.apply_pct,
+      tco2e_before_apply: nextBefore,
+      calc_tco2e: nextCalc,
+    };
+  }
+
+  function replaceScopeDataRow(rowId: number, patch: Partial<ScopeDataRow>) {
+    setScopeData((prev) => prev.map((row) => (row.row_id === rowId ? recalculateRowEmissions(row, patch) : row)));
+  }
+
+  function removeScopeDataRow(rowId: number) {
+    setScopeData((prev) => prev.filter((row) => row.row_id !== rowId));
+  }
+
+  async function refreshScopeTotals() {
+    try {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-totals`, { credentials: "include" });
+      if (res.ok) {
+        const totalsData = await res.json();
+        setScopeTotals(totalsData);
+      }
+    } catch (e) {
+      console.error("Error refreshing scope totals:", e);
+    }
+  }
 
   useEffect(() => {
     loadData();
@@ -288,6 +369,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   async function loadData() {
     setLoading(true);
     setError("");
+    setDeletingRowId(null);
+    setPendingSaveRowIds(new Set());
+    setDirtyRowIds(new Set());
     
     try {
       // Only load essential data on initial load (not template factors)
@@ -404,6 +488,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       setFactorsLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   async function loadMethodologyDefaults(country: string) {
     const countryValue = normalizeMethodologyCountry(country);
@@ -575,42 +669,31 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   async function updateQuantity(rowId: number, newQty: number | null) {
-      try {
-        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-          method: "PATCH",
-          headers: withAuditHeaders(
-            { "Content-Type": "application/json" },
-            { page: "Jobs", section: "Data Entry", container: "Scope Data Row" }
-          ),
-          credentials: "include",
-          body: JSON.stringify({ qty: newQty }),
-        });
-
-      if (res.ok) {
-        await loadData();
-        dispatchJobScopeRefresh("job-data-entry");
-      } else {
-        const text = await res.text();
-        setError(`Update failed: ${text}`);
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    return updateField(rowId, { qty: newQty });
   }
 
   function startEditQty(row: ScopeDataRow) {
     setEditingRowId(row.row_id);
     setEditingQty(row.qty !== null ? String(row.qty) : "");
+    markRowDirty(row.row_id);
   }
 
   async function saveEditQty(rowId: number) {
     const qty = editingQty.trim() ? parseFloat(editingQty) : null;
-    await updateQuantity(rowId, qty);
-    setEditingRowId(null);
-    setEditingQty("");
+    const saved = await updateQuantity(rowId, qty);
+    if (saved) {
+      setEditingRowId(null);
+      setEditingQty("");
+      clearRowDirty(rowId);
+    }
   }
 
-  function cancelEditQty() {
+  function cancelEditQty(rowId?: number) {
+    if (rowId !== undefined && rowId !== null) {
+      clearRowDirty(rowId);
+    } else if (editingRowId !== null) {
+      clearRowDirty(editingRowId);
+    }
     setEditingRowId(null);
     setEditingQty("");
     setEditingField(null);
@@ -620,89 +703,114 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     setEditingRowId(row.row_id);
     setEditingField("apply");
     setEditingApply(String(row.apply_pct));
+    markRowDirty(row.row_id);
   }
 
   async function saveEditApply(rowId: number) {
     const apply = editingApply.trim() ? parseFloat(editingApply) : 100;
-    await updateField(rowId, { apply_pct: apply });
-    setEditingRowId(null);
-    setEditingApply("");
-    setEditingField(null);
+    const saved = await updateField(rowId, { apply_pct: apply });
+    if (saved) {
+      setEditingRowId(null);
+      setEditingApply("");
+      setEditingField(null);
+      clearRowDirty(rowId);
+    }
   }
 
   function startEditSource(row: ScopeDataRow) {
     setEditingRowId(row.row_id);
     setEditingField("source");
     setEditingSource(row.data_source || "Company Data");
+    markRowDirty(row.row_id);
   }
 
   async function saveEditSource(rowId: number) {
-    await updateField(rowId, { data_source: editingSource.trim() || "Company Data" });
-    setEditingRowId(null);
-    setEditingSource("");
-    setEditingField(null);
+    const saved = await updateField(rowId, { data_source: editingSource.trim() || "Company Data" });
+    if (saved) {
+      setEditingRowId(null);
+      setEditingSource("");
+      setEditingField(null);
+      clearRowDirty(rowId);
+    }
   }
 
   function startEditConfidence(row: ScopeDataRow) {
     setEditingRowId(row.row_id);
     setEditingField("confidence");
     setEditingConfidence((row.data_confidence || "M").toUpperCase());
+    markRowDirty(row.row_id);
   }
 
   async function saveEditConfidence(rowId: number) {
     const value = (editingConfidence || "M").toUpperCase();
     const normalized = value === "H" || value === "L" ? value : "M";
-    await updateField(rowId, { data_confidence: normalized });
-    setEditingRowId(null);
-    setEditingField(null);
-    setEditingConfidence("M");
+    const saved = await updateField(rowId, { data_confidence: normalized });
+    if (saved) {
+      setEditingRowId(null);
+      setEditingField(null);
+      setEditingConfidence("M");
+      clearRowDirty(rowId);
+    }
   }
 
   function startEditNotes(row: ScopeDataRow) {
     setEditingRowId(row.row_id);
     setEditingField("notes");
     setEditingNotes(row.notes || "");
+    markRowDirty(row.row_id);
   }
 
   async function saveEditNotes(rowId: number) {
-    await updateField(rowId, { notes: editingNotes.trim() });
-    setEditingRowId(null);
-    setEditingNotes("");
-    setEditingField(null);
+    const saved = await updateField(rowId, { notes: editingNotes.trim() });
+    if (saved) {
+      setEditingRowId(null);
+      setEditingNotes("");
+      setEditingField(null);
+      clearRowDirty(rowId);
+    }
   }
 
   async function updateField(rowId: number, fields: Record<string, unknown>) {
-      try {
-        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-          method: "PATCH",
-          headers: withAuditHeaders(
-            { "Content-Type": "application/json" },
-            { page: "Jobs", section: "Data Entry", container: "Scope Data Row" }
-          ),
-          credentials: "include",
-          body: JSON.stringify(fields),
-        });
+    markRowSaving(rowId, true);
+    try {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+        method: "PATCH",
+        headers: withAuditHeaders(
+          { "Content-Type": "application/json" },
+          { page: "Jobs", section: "Data Entry", container: "Scope Data Row" }
+        ),
+        credentials: "include",
+        body: JSON.stringify(fields),
+      });
 
       if (res.ok) {
-        await loadData();
+        replaceScopeDataRow(rowId, fields);
+        clearRowDirty(rowId);
+        await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
-      } else {
-        const text = await res.text();
-        let message = text;
-        try {
-          const parsed = JSON.parse(text);
-          if (typeof parsed?.detail === "string") {
-            message = parsed.detail;
-          } else if (parsed?.detail && typeof parsed.detail === "object" && typeof parsed.detail.message === "string") {
-            message = parsed.detail.message;
-          }
-        } catch {
-          // Fall back to raw response text.
-        }
-        setError(`Update failed: ${message}`);
+        return true;
       }
+
+      const text = await res.text();
+      let message = text;
+      try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed?.detail === "string") {
+          message = parsed.detail;
+        } else if (parsed?.detail && typeof parsed.detail === "object" && typeof parsed.detail.message === "string") {
+          message = parsed.detail.message;
+        }
+      } catch {
+        // Fall back to raw response text.
+      }
+      setError(`Update failed: ${message}`);
+      return false;
     } catch (e) {
       setError((e as Error).message);
+      await loadData();
+      return false;
+    } finally {
+      markRowSaving(rowId, false);
     }
   }
 
@@ -795,8 +903,11 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       fields.qty = monthlySum;
     }
 
-    await updateField(monthlyEditRow.row_id, fields);
-    closeMonthlyModal();
+    const saved = await updateField(monthlyEditRow.row_id, fields);
+    if (saved) {
+      clearRowDirty(monthlyEditRow.row_id);
+      closeMonthlyModal();
+    }
   }
 
   async function addFactorToJob(factor: TemplateFactor) {
@@ -968,20 +1079,23 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       destructive: true,
     });
     if (!confirmed) return;
-    
-      try {
-        const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
-          method: "DELETE",
-          headers: withAuditHeaders(undefined, {
-            page: "Jobs",
-            section: "Data Entry",
-            container: "Scope Data Row",
-          }),
-          credentials: "include",
-        });
+
+    setDeletingRowId(rowId);
+    try {
+      const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data/${rowId}`, {
+        method: "DELETE",
+        headers: withAuditHeaders(undefined, {
+          page: "Jobs",
+          section: "Data Entry",
+          container: "Scope Data Row",
+        }),
+        credentials: "include",
+      });
 
       if (res.ok) {
-        await loadData();
+        removeScopeDataRow(rowId);
+        clearRowDirty(rowId);
+        await refreshScopeTotals();
         dispatchJobScopeRefresh("job-data-entry");
       } else {
         const text = await res.text();
@@ -989,6 +1103,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       }
     } catch (e) {
       setError((e as Error).message);
+      await loadData();
+    } finally {
+      setDeletingRowId(null);
     }
   }
 
@@ -1585,7 +1702,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <Select
                               value={row.site_id?.toString() || ""}
                               onValueChange={(value) => {
-                                if (value) updateField(row.row_id, { site_id: parseInt(value) });
+                                if (value) {
+                                  markRowDirty(row.row_id);
+                                  void updateField(row.row_id, { site_id: parseInt(value) });
+                                }
                               }}
                             >
                               <SelectTrigger className="h-7 w-32 text-xs">
@@ -1629,10 +1749,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                   autoFocus
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") saveEditQty(row.row_id);
-                                    if (e.key === "Escape") cancelEditQty();
+                                    if (e.key === "Escape") cancelEditQty(row.row_id);
                                   }}
                                 />
-                                <Button size="sm" onClick={() => saveEditQty(row.row_id)} className="h-7 px-2">Save</Button>
+                                <Button size="sm" onClick={() => saveEditQty(row.row_id)} className="h-7 px-2" disabled={pendingSaveRowIds.has(row.row_id)}>
+                                  {pendingSaveRowIds.has(row.row_id) ? "Saving..." : "Save"}
+                                </Button>
                               </div>
                             ) : (
                               <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditQty(row)}>
@@ -1663,7 +1785,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                     <SelectItem value="L">L</SelectItem>
                                   </SelectContent>
                                 </Select>
-                                <Button size="sm" onClick={() => saveEditConfidence(row.row_id)} className="h-7 px-2">Save</Button>
+                                <Button size="sm" onClick={() => saveEditConfidence(row.row_id)} className="h-7 px-2" disabled={pendingSaveRowIds.has(row.row_id)}>
+                                  {pendingSaveRowIds.has(row.row_id) ? "Saving..." : "Save"}
+                                </Button>
                               </div>
                             ) : (
                               <button
@@ -1682,6 +1806,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               variant="outline"
                               size="sm"
                               onClick={() => openMonthlyModal(row)}
+                              disabled={pendingSaveRowIds.has(row.row_id) || deletingRowId === row.row_id}
                               title={
                                 isLegacyFallbackRow(row)
                                   ? "This legacy row stores monthly fallback tCO₂e values while showing the original source volume above."
@@ -1690,7 +1815,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             >
                               {isLegacyFallbackRow(row) ? "Monthly tCO₂e" : "Monthly"}
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => deleteRow(row.row_id)}>Delete</Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteRow(row.row_id)}
+                              disabled={deletingRowId === row.row_id}
+                            >
+                              {deletingRowId === row.row_id ? "Deleting..." : "Delete"}
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -1723,10 +1855,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                       autoFocus
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") saveEditApply(row.row_id);
-                                        if (e.key === "Escape") cancelEditQty();
+                                        if (e.key === "Escape") cancelEditQty(row.row_id);
                                       }}
                                     />
-                                    <Button size="sm" onClick={() => saveEditApply(row.row_id)} className="h-7 px-2">Save</Button>
+                                    <Button size="sm" onClick={() => saveEditApply(row.row_id)} className="h-7 px-2" disabled={pendingSaveRowIds.has(row.row_id)}>
+                                      {pendingSaveRowIds.has(row.row_id) ? "Saving..." : "Save"}
+                                    </Button>
                                   </div>
                                 ) : (
                                   <button className="font-mono hover:bg-muted px-2 py-1 rounded" onClick={() => startEditApply(row)}>
@@ -1838,10 +1972,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                       autoFocus
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") saveEditSource(row.row_id);
-                                        if (e.key === "Escape") cancelEditQty();
+                                        if (e.key === "Escape") cancelEditQty(row.row_id);
                                       }}
                                     />
-                                    <Button size="sm" onClick={() => saveEditSource(row.row_id)} className="h-7 px-2">Save</Button>
+                                    <Button size="sm" onClick={() => saveEditSource(row.row_id)} className="h-7 px-2" disabled={pendingSaveRowIds.has(row.row_id)}>
+                                      {pendingSaveRowIds.has(row.row_id) ? "Saving..." : "Save"}
+                                    </Button>
                                   </div>
                                 ) : (
                                   <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditSource(row)}>
@@ -1861,10 +1997,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                       autoFocus
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") saveEditNotes(row.row_id);
-                                        if (e.key === "Escape") cancelEditQty();
+                                        if (e.key === "Escape") cancelEditQty(row.row_id);
                                       }}
                                     />
-                                    <Button size="sm" onClick={() => saveEditNotes(row.row_id)} className="h-7 px-2">Save</Button>
+                                    <Button size="sm" onClick={() => saveEditNotes(row.row_id)} className="h-7 px-2" disabled={pendingSaveRowIds.has(row.row_id)}>
+                                      {pendingSaveRowIds.has(row.row_id) ? "Saving..." : "Save"}
+                                    </Button>
                                   </div>
                                 ) : (
                                   <button className="w-full rounded border px-2 py-1 text-left hover:bg-muted" onClick={() => startEditNotes(row)}>
@@ -2466,8 +2604,8 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               {monthlyEditRow && isLegacyFallbackRow(monthlyEditRow) ? "Close" : "Cancel"}
             </Button>
             {!(monthlyEditRow && isLegacyFallbackRow(monthlyEditRow)) && (
-              <Button onClick={saveMonthlyData}>
-                Save Monthly Data
+              <Button onClick={saveMonthlyData} disabled={monthlyEditRow ? pendingSaveRowIds.has(monthlyEditRow.row_id) : false}>
+                {monthlyEditRow && pendingSaveRowIds.has(monthlyEditRow.row_id) ? "Saving..." : "Save Monthly Data"}
               </Button>
             )}
           </DialogFooter>
