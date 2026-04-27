@@ -19,6 +19,7 @@ import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
 import { formatDate, formatNumber } from "@/lib/format";
+import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 type SiteOption = {
   site_id: number | null;
@@ -146,6 +147,45 @@ export default function EmployeeCommutingData({
   const [manualNotes, setManualNotes] = useState("");
   const [manualReplaceExisting, setManualReplaceExisting] = useState(false);
   const [editingDirectSourceId, setEditingDirectSourceId] = useState<number | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  useUnsavedChangesGuard(hasUnsavedChanges);
+
+  useEffect(() => {
+    const dirty =
+      editingDirectSourceId !== null ||
+      Boolean(uploadFile) ||
+      manualEntries.length > 0 ||
+      Boolean(
+        manualEmployeeName.trim() ||
+          manualModeValue.trim() ||
+          manualServiceValue.trim() ||
+          manualUnitValue.trim() ||
+          manualOneWayDistance.trim() ||
+          manualOfficeDays.trim() ||
+          manualWeeksPerYear.trim() ||
+          manualAnnualDistance.trim() ||
+          manualAnnualDays.trim() ||
+          manualHoursPerDay.trim() ||
+          manualNotes.trim()
+      );
+    setHasUnsavedChanges(dirty);
+  }, [
+    editingDirectSourceId,
+    uploadFile,
+    manualEntries.length,
+    manualEmployeeName,
+    manualModeValue,
+    manualServiceValue,
+    manualUnitValue,
+    manualOneWayDistance,
+    manualOfficeDays,
+    manualWeeksPerYear,
+    manualAnnualDistance,
+    manualAnnualDays,
+    manualHoursPerDay,
+    manualNotes,
+  ]);
 
   const selectedSiteLabel = useMemo(() => {
     if (selectedSiteId === "__none__") return "All_Staff";
@@ -210,6 +250,7 @@ export default function EmployeeCommutingData({
     setManualAnnualDays("");
     setManualHoursPerDay("");
     setManualNotes("");
+    setHasUnsavedChanges(false);
   }
 
   function startEditDirectEntry(row: DirectEntryRow) {
@@ -232,12 +273,14 @@ export default function EmployeeCommutingData({
     setSelectedSiteId(row.site_id == null ? "__none__" : String(row.site_id));
     setError("");
     setStatus(`Editing saved entry for ${row.employee_name || row.source_name}.`);
+    setHasUnsavedChanges(true);
   }
 
   function cancelEditDirectEntry() {
     setEditingDirectSourceId(null);
     clearManualForm();
     setStatus("Edit cancelled.");
+    setHasUnsavedChanges(false);
   }
 
   useEffect(() => {

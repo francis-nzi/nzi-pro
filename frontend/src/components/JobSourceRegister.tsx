@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { getToken } from "@/lib/auth-client";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 function apiBaseCandidates(): string[] {
   return ["/api/backend"];
@@ -199,6 +200,49 @@ export default function JobSourceRegister({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return Boolean(
+      uploadFile ||
+        selectedGroupId !== "__none__" ||
+        groupName.trim() ||
+        groupCategory.trim() ||
+        groupNotes.trim() ||
+        groupSiteId !== "__none__" ||
+        selectedFactor ||
+        sourceName.trim() ||
+        assetIdentifier.trim() ||
+        employeeName.trim() ||
+        sourceSubtype.trim() ||
+        qty !== "1" ||
+        applyPct !== "100" ||
+        notes.trim() ||
+        downloadSiteId !== "__all__" ||
+        groupScope !== blankScope(sourceType) ||
+        groupRollupMethod !== "sum"
+    );
+  }, [
+    uploadFile,
+    selectedGroupId,
+    groupName,
+    groupCategory,
+    groupNotes,
+    groupSiteId,
+    selectedFactor,
+    sourceName,
+    assetIdentifier,
+    employeeName,
+    sourceSubtype,
+    qty,
+    applyPct,
+    notes,
+    downloadSiteId,
+    groupScope,
+    groupRollupMethod,
+    sourceType,
+  ]);
+
+  useUnsavedChangesGuard(hasUnsavedChanges);
 
   async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
     const token = getToken();

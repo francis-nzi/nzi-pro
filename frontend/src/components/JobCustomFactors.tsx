@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getToken } from "@/lib/auth-client";
+import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 type JobCustomFactor = {
   factor_id: number;
@@ -101,6 +102,26 @@ export default function JobCustomFactors({
   const [factor, setFactor] = useState("");
   const [factorYear, setFactorYear] = useState(String(defaultFactorYear));
   const [isActive, setIsActive] = useState(true);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return Boolean(
+      editingFactor ||
+        customId.trim() ||
+        country.trim() !== "UK" ||
+        scope.trim() !== "Scope 3" ||
+        description.trim() ||
+        reportLabel.trim() ||
+        category.trim() ||
+        uom.trim() ||
+        ghgUnit.trim() !== "kg CO2e" ||
+        source.trim() !== "Job-only factor" ||
+        factor.trim() ||
+        factorYear.trim() !== String(defaultFactorYear) ||
+        !isActive
+    );
+  }, [editingFactor, customId, country, scope, description, reportLabel, category, uom, ghgUnit, source, factor, factorYear, isActive, defaultFactorYear]);
+
+  useUnsavedChangesGuard(hasUnsavedChanges);
 
   const apiFetch = useCallback(
     async (path: string, init?: RequestInit) => {

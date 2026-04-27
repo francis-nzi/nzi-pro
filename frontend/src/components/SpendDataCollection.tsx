@@ -11,6 +11,7 @@ import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
 import { dispatchJobScopeRefresh } from "@/lib/job-scope-refresh";
+import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 type SpendEntry = {
   entry_id: number;
@@ -114,6 +115,44 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
   const [sites, setSites] = useState<Array<{ site_id: number | null; site_name: string | null }>>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("__none__");
   const [currentStep, setCurrentStep] = useState<number>(1);
+
+  const hasUnsavedChanges = useMemo(() => {
+    return Boolean(
+      uploadFile ||
+        editDialogOpen ||
+        mappingDialogOpen ||
+        referenceCode.trim() ||
+        description.trim() ||
+        currency.trim() ||
+        amountNet.trim() ||
+        vatPct.trim() ||
+        notes.trim() ||
+        editReferenceCode.trim() ||
+        editDescription.trim() ||
+        editCurrency.trim() ||
+        editAmountNet.trim() ||
+        editVatPct.trim() ||
+        editNotes.trim()
+    );
+  }, [
+    uploadFile,
+    editDialogOpen,
+    mappingDialogOpen,
+    referenceCode,
+    description,
+    currency,
+    amountNet,
+    vatPct,
+    notes,
+    editReferenceCode,
+    editDescription,
+    editCurrency,
+    editAmountNet,
+    editVatPct,
+    editNotes,
+  ]);
+
+  useUnsavedChangesGuard(hasUnsavedChanges);
 
   const selectedSiteName = useMemo(() => {
     if (selectedSiteId === "__none__") return "No Site Selected";

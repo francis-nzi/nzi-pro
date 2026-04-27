@@ -23,6 +23,7 @@ import {
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
+import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -489,15 +490,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
   }
 
-  useEffect(() => {
-    if (!hasUnsavedChanges) return;
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  useUnsavedChangesGuard(hasUnsavedChanges);
 
   async function loadMethodologyDefaults(country: string) {
     const countryValue = normalizeMethodologyCountry(country);
