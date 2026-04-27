@@ -397,10 +397,15 @@ def get_client_dashboard(
                         'year': selected_data['year']
                     }
 
+            yearly_top_categories = []
+            yearly_intensity_metrics = []
             top_categories = []
             total_selected_emissions = float(current_metrics['total_emissions'] or 0)
-            if selected_year is not None:
-                selected_rows = scope_df[scope_df['dashboard_year_norm'] == selected_year].copy()
+
+            for yr in available_years:
+                selected_rows = scope_df[scope_df['dashboard_year_norm'] == yr].copy()
+                year_total = float(next((y['total'] for y in yearly_emissions if int(y['year']) == int(yr)), 0) or 0)
+                year_top_categories = []
                 if not selected_rows.empty:
                     category_groups = selected_rows.groupby('category')['emissions'].sum().reset_index()
                     category_groups = category_groups.sort_values('emissions', ascending=False).head(10)
@@ -409,12 +414,47 @@ def get_client_dashboard(
                         if not category or category.lower() in ['nan', 'none', 'null']:
                             continue
                         emissions = float(row['emissions'])
-                        percentage = (emissions / total_selected_emissions * 100) if total_selected_emissions > 0 else 0
-                        top_categories.append({
+                        percentage = (emissions / year_total * 100) if year_total > 0 else 0
+                        year_top_categories.append({
                             'category': category,
                             'emissions': emissions,
                             'percentage': round(percentage, 1)
                         })
+                yearly_top_categories.append({
+                    'year': int(yr),
+                    'categories': year_top_categories,
+                })
+
+                year_intensity_metrics = []
+                if jobs_df is not None and not jobs_df.empty:
+                    selected_jobs = jobs_df[jobs_df['dashboard_year'] == yr]
+                    if selected_jobs is not None and not selected_jobs.empty:
+                        latest_job_id = int(selected_jobs.iloc[-1]['job_id'])
+                        metrics_result = con.execute(
+                            "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
+                            [latest_job_id]
+                        ).fetchone()
+                        if metrics_result and metrics_result[0]:
+                            job_metrics = metrics_result[0]
+                            for key, metric in list(job_metrics.items())[:3]:
+                                if metric.get('value', 0) > 0:
+                                    intensity = (year_total / metric['value']) * metric.get('divider', 1)
+                                    year_intensity_metrics.append({
+                                        'key': key,
+                                        'label': metric.get('label', key),
+                                        'value': metric.get('value', 0),
+                                        'divider': metric.get('divider', 1),
+                                        'intensity': round(intensity, 2)
+                                    })
+                yearly_intensity_metrics.append({
+                    'year': int(yr),
+                    'metrics': year_intensity_metrics,
+                })
+
+            if selected_year is not None:
+                selected_top = next((y for y in yearly_top_categories if int(y['year']) == int(selected_year)), None)
+                if selected_top:
+                    top_categories = selected_top['categories']
 
             # Additional summary: net-zero progress.
             net_zero_progress = None
@@ -612,35 +652,11 @@ def get_client_dashboard(
                         if previous > 0:
                             yoy_change = ((current - previous) / previous) * 100
             
-            # Get intensity metrics from the latest job
             intensity_metrics = []
-            if jobs_df is not None and not jobs_df.empty and selected_year is not None:
-                # Get the latest job for the selected year
-                selected_jobs = jobs_df[jobs_df['dashboard_year'] == selected_year]
-                if selected_jobs is not None and not selected_jobs.empty:
-                    latest_job_id = int(selected_jobs.iloc[-1]['job_id'])
-                
-                    # Fetch intensity metrics for the latest selected-year job
-                    metrics_result = con.execute(
-                        "SELECT intensity_metrics FROM jobs WHERE job_id = %s",
-                        [latest_job_id]
-                    ).fetchone()
-                
-                    if metrics_result and metrics_result[0]:
-                        job_metrics = metrics_result[0]
-                        total_emissions = current_metrics['total_emissions']
-                    
-                        # Calculate intensity for each metric (take first 3)
-                        for key, metric in list(job_metrics.items())[:3]:
-                            if metric.get('value', 0) > 0:
-                                intensity = (total_emissions / metric['value']) * metric.get('divider', 1)
-                                intensity_metrics.append({
-                                    'key': key,
-                                    'label': metric.get('label', key),
-                                    'value': metric.get('value', 0),
-                                    'divider': metric.get('divider', 1),
-                                    'intensity': round(intensity, 2)
-                                })
+            if selected_year is not None:
+                selected_intensity = next((y for y in yearly_intensity_metrics if int(y['year']) == int(selected_year)), None)
+                if selected_intensity:
+                    intensity_metrics = selected_intensity['metrics']
             
             # Get client currency for display.
             try:
@@ -668,6 +684,8 @@ def get_client_dashboard(
                 'current_metrics': current_metrics,
                 'yoy_change': round(yoy_change, 1) if yoy_change is not None else None,
                 'yearly_emissions': yearly_emissions,
+                'yearly_top_categories': yearly_top_categories,
+                'yearly_intensity_metrics': yearly_intensity_metrics,
                 'top_categories': top_categories,
                 'intensity_metrics': intensity_metrics,
                 'currency': currency,

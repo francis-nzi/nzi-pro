@@ -26,6 +26,24 @@ type DashboardData = {
     scope3: number;
     total: number;
   }>;
+  yearly_top_categories?: Array<{
+    year: number | null;
+    categories: Array<{
+      category: string;
+      emissions: number;
+      percentage: number;
+    }>;
+  }>;
+  yearly_intensity_metrics?: Array<{
+    year: number | null;
+    metrics: Array<{
+      key: string;
+      label: string;
+      value: number;
+      divider: number;
+      intensity: number;
+    }>;
+  }>;
   benchmark_metrics?: {
     benchmark_year: number | null;
     scope1: number | null;
@@ -106,15 +124,6 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     void loadDashboard(null);
   }, [loadDashboard]);
 
-  const scopeData = useMemo(() => {
-    if (!data) return [];
-    return [
-      { name: "Scope 1", value: Number(data.current_metrics.scope1 || 0) },
-      { name: "Scope 2", value: Number(data.current_metrics.scope2 || 0) },
-      { name: "Scope 3", value: Number(data.current_metrics.scope3 || 0) },
-    ].filter((x) => x.value > 0);
-  }, [data]);
-
   const yearOptions = useMemo(() => {
     if (!data) return [];
     const apiYears = (data.available_years || [])
@@ -131,31 +140,32 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
   useEffect(() => {
     if (!data || loading) return;
-
     const responseYear = data.selected_year ?? data.current_metrics?.year ?? null;
-    if (selectedYear === null) {
-      if (responseYear !== null) {
-        setSelectedYear(Number(responseYear));
-        return;
-      }
-      if (yearOptions.length > 0) {
-        const latestYear = yearOptions[0];
-        setSelectedYear(latestYear);
-        void loadDashboard(latestYear);
-      }
+    const latestYear = yearOptions[0] ?? null;
+    const fallbackYear = responseYear ?? latestYear;
+    if (selectedYear === null && fallbackYear !== null) {
+      setSelectedYear(Number(fallbackYear));
       return;
     }
-
-    if (yearOptions.length > 0 && !yearOptions.includes(selectedYear)) {
-      const latestYear = yearOptions[0];
+    if (selectedYear !== null && yearOptions.length > 0 && !yearOptions.includes(selectedYear)) {
       setSelectedYear(latestYear);
-      void loadDashboard(latestYear);
     }
-  }, [data, loading, loadDashboard, selectedYear, yearOptions]);
+  }, [data, loading, selectedYear, yearOptions]);
 
-  const topCategoryData = useMemo(() => {
+  const selectedYearData = useMemo(() => {
+    if (!data) return null;
+    const year = selectedYear ?? data.selected_year ?? data.current_metrics?.year ?? null;
+    if (year == null) return null;
+    return (data.yearly_emissions || []).find((x) => x.year !== null && Number(x.year) === Number(year)) || null;
+  }, [data, selectedYear]);
+
+  const selectedCategories = useMemo(() => {
     if (!data) return [];
-    return [...(data.top_categories || [])]
+    const year = selectedYear ?? data.selected_year ?? data.current_metrics?.year ?? null;
+    if (year == null) return [];
+    const yearly = (data.yearly_top_categories || []).find((x) => x.year !== null && Number(x.year) === Number(year));
+    const categories = yearly?.categories ?? data.top_categories ?? [];
+    return [...categories]
       .sort((a, b) => b.emissions - a.emissions)
       .slice(0, 6)
       .map((row) => ({
@@ -163,7 +173,30 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         emissions: Number(row.emissions || 0),
         percentage: Number(row.percentage || 0),
       }));
-  }, [data]);
+  }, [data, selectedYear]);
+
+  const currentMetrics = selectedYearData
+    ? {
+        total_emissions: Number(selectedYearData.total || 0),
+        scope1: Number(selectedYearData.scope1 || 0),
+        scope2: Number(selectedYearData.scope2 || 0),
+        scope3: Number(selectedYearData.scope3 || 0),
+        year: selectedYearData.year,
+      }
+    : data?.current_metrics ?? null;
+
+  const scopeData = useMemo(() => {
+    if (!currentMetrics) return [];
+    return [
+      { name: "Scope 1", value: Number(currentMetrics.scope1 || 0) },
+      { name: "Scope 2", value: Number(currentMetrics.scope2 || 0) },
+      { name: "Scope 3", value: Number(currentMetrics.scope3 || 0) },
+    ].filter((x) => x.value > 0);
+  }, [currentMetrics]);
+
+  const topCategoryData = useMemo(() => {
+    return selectedCategories;
+  }, [selectedCategories]);
 
   const trendData = useMemo(() => {
     if (!data) return [];
@@ -257,8 +290,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   }
   if (!data) return <div className="py-8 text-center">No data available</div>;
 
-  const total = Number(data.current_metrics.total_emissions || 0);
-  const displayYear = selectedYear ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
+  const total = Number(currentMetrics?.total_emissions || 0);
+  const displayYear = selectedYear ?? currentMetrics?.year ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
   const benchmarkCaption = benchmarkPoint
     ? benchmarkPoint.source === "client"
       ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
@@ -269,15 +302,14 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <span className="text-sm text-muted-foreground">Reporting Year:</span>
-        <Select
-          value={selectedYear !== null ? selectedYear.toString() : ""}
-          disabled={loading}
-          onValueChange={(value) => {
+          <Select
+            value={selectedYear !== null ? selectedYear.toString() : ""}
+            disabled={loading}
+            onValueChange={(value) => {
             const year = Number(value);
             setSelectedYear(year);
-            void loadDashboard(year);
-          }}
-        >
+            }}
+          >
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Select year..." />
           </SelectTrigger>
