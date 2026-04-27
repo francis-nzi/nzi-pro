@@ -1,11 +1,8 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell,
-  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from "recharts";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Briefcase, CheckCircle2, ChevronRight,
   Clock, Flame, Layers, Shield, TrendingDown, TrendingUp, Users,
@@ -17,12 +14,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TaskCalendar from "@/components/TaskCalendar";
 import StatusBadge from "@/components/StatusBadge";
+import { MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
 import { milestoneDotClass } from "@/lib/status-utils";
-import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
+const MainDashboardCharts = dynamic(() => import("@/components/MainDashboardCharts"), {
+  ssr: false,
+  loading: () => <div className="py-16 text-center text-sm text-muted-foreground">Loading charts...</div>,
+});
 
 // â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-type OverviewData = {
+export type OverviewData = {
   selected_year: number;
   available_years: number[];
   available_industries: string[];
@@ -46,7 +47,7 @@ type OverviewData = {
   jobs_per_crm: Array<{ crm_name: string; total_jobs: number; statuses: Record<string, number> }>;
 };
 
-type FinancialData = {
+export type FinancialData = {
   metrics: {
     quote_count: number; quote_value_total: number; approved_quote_value: number;
     invoice_count: number; invoice_total: number; paid_total: number;
@@ -59,7 +60,7 @@ type FinancialData = {
   top_clients_by_invoiced_total: Array<{ client_id: number; client_name: string; total_invoiced: number }>;
 };
 
-type OperationsData = {
+export type OperationsData = {
   metrics: {
     active_jobs: number; healthy_jobs: number; due_soon_jobs: number;
     overdue_jobs: number; no_milestone_jobs: number; jobs_over_estimate: number;
@@ -137,6 +138,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [ind,  setInd]  = useState<string | null>(null);
   const [crm,  setCrm]  = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview" | "financial" | "operations" | "emissions" | "tasks">("overview");
 
   const load = useCallback(async () => {
     if (!api) return;
@@ -266,7 +268,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 
       {/* Tabs */}
       {(ov || !loading) && (
-        <Tabs defaultValue="overview" className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
@@ -432,339 +434,17 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 
           {/* Financial */}
           <TabsContent value="financial" className="space-y-5 pt-3">
-            {!fin ? <Loading /> : (
-              <>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Kpi label="Quote Pipeline"  value={gbp(fin.metrics.quote_value_total)} sub={`${fin.metrics.quote_count} quotes`}    accent="blue"   icon={<TrendingUp className="h-4 w-4" />} />
-                  <Kpi label="Total Invoiced"  value={gbp(fin.metrics.invoice_total)}    sub={`${fin.metrics.invoice_count} invoices`} accent="purple" icon={<Layers className="h-4 w-4" />} />
-                  <Kpi label="Paid"            value={gbp(fin.metrics.paid_total)}       sub={`${n(fin.metrics.cash_realisation_pct)}% realisation`} accent="green" icon={<CheckCircle2 className="h-4 w-4" />} />
-                  <Kpi label="Outstanding"     value={gbp(fin.metrics.outstanding_total)} sub={`${fin.metrics.overdue_invoice_count} overdue`} accent={fin.metrics.overdue_invoice_count > 0 ? "red" : "orange"} icon={<Clock className="h-4 w-4" />} />
-                </div>
-
-                {/* Cash realisation */}
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Cash Realisation</CardTitle></CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="flex items-center gap-4 mb-2">
-                      <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(fin.metrics.cash_realisation_pct, 100)}%`, backgroundColor: fin.metrics.cash_realisation_pct >= 80 ? "#16a34a" : fin.metrics.cash_realisation_pct >= 50 ? "#d97706" : "#dc2626" }} />
-                      </div>
-                      <span className="text-lg font-semibold w-14 text-right">{n(fin.metrics.cash_realisation_pct)}%</span>
-                    </div>
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Paid: {gbp(fin.metrics.paid_total)}</span>
-                      <span>Invoiced: {gbp(fin.metrics.invoice_total)}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Monthly revenue */}
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Monthly Revenue</CardTitle></CardHeader>
-                  <CardContent className="pt-0">
-                    {monthlyData.length === 0 ? <Empty /> : (
-                      <div className="h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={monthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-                            <defs>
-                              <linearGradient id="gI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient>
-                              <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#16a34a" stopOpacity={0.25} /><stop offset="95%" stopColor="#16a34a" stopOpacity={0} /></linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
-                            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} tickFormatter={v => gbp(+v)} width={64} />
-                            <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
-                            <Area type="monotone" dataKey="invoiced" name="Invoiced" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gI)" strokeWidth={2} />
-                            <Area type="monotone" dataKey="paid"     name="Paid"     stroke="#16a34a"                 fill="url(#gP)" strokeWidth={2} />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  {/* Quote pipeline donut */}
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Quote Pipeline by Status</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {quoteDonut.length === 0 ? <Empty /> : (
-                        <div className="flex items-center gap-4">
-                          <div className="h-[180px] w-[180px] flex-shrink-0">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={quoteDonut} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
-                                  {quoteDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
-                                </Pie>
-                                <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), ""]} />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          </div>
-                          <div className="space-y-2 flex-1">
-                            {quoteDonut.map((d, i) => (
-                              <div key={i} className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: d.color }} /><span className="text-muted-foreground">{d.name}</span></div>
-                                <span className="font-medium">{gbp(d.value)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Top clients bar */}
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Clients by Revenue</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {topClients.length === 0 ? <Empty /> : (
-                        <div className="h-[200px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={topClients} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => gbp(+v)} />
-                              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
-                              <Tooltip formatter={(v: unknown) => [gbp(+Number(v || 0)), "Invoiced"]} />
-                              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                {topClients.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Invoice status */}
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Invoice Status Breakdown</CardTitle></CardHeader>
-                  <CardContent className="pt-0 space-y-2.5">
-                    {(fin.invoice_status_breakdown ?? []).map((row, i) => {
-                      const total = fin.metrics.invoice_total || 1;
-                      const pct = (+row.total_value / total) * 100;
-                      const ov2 = row.status.toLowerCase().includes("overdue");
-                      return (
-                        <div key={i} className="space-y-0.5">
-                          <div className="flex justify-between text-xs">
-                            <span className={`font-medium ${ov2 ? "text-red-600" : ""}`}>{row.status}</span>
-                            <span className="text-muted-foreground">{gbp(+row.total_value || 0)} · {row.count} inv.</span>
-                          </div>
-                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: ov2 ? "#dc2626" : MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </>
-            )}
+            <MainDashboardCharts section="financial" overview={ov} financial={fin} operations={ops} />
           </TabsContent>
 
           {/* Operations */}
           <TabsContent value="operations" className="space-y-5 pt-3">
-            {!ops ? <Loading /> : (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                  <Kpi label="Active Jobs"    value={ops.metrics.active_jobs}                     icon={<Briefcase className="h-4 w-4" />}     accent="blue"   />
-                  <Kpi label="On Track"       value={ops.metrics.healthy_jobs}                    icon={<CheckCircle2 className="h-4 w-4" />}   accent="green"  sub="green milestone" />
-                  <Kpi label="Due Soon"       value={ops.metrics.due_soon_jobs}                   icon={<AlertTriangle className="h-4 w-4" />}  accent="amber"  sub="within 7 days" />
-                  <Kpi label="Overdue"        value={ops.metrics.overdue_jobs}                    icon={<Flame className="h-4 w-4" />}          accent="red"    />
-                  <Kpi label="Utilisation"    value={ops.metrics.utilisation_pct != null ? `${n(ops.metrics.utilisation_pct)}%` : "—"} icon={<TrendingUp className="h-4 w-4" />} accent="purple" sub={`${hrs(ops.metrics.time_logged_hours)} logged`} />
-                  <Kpi label="Due in 30 days" value={ops.metrics.upcoming_milestones_30d}         icon={<Clock className="h-4 w-4" />}          accent="orange" sub="milestones" />
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  {/* Milestone health donut */}
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {milestoneDonut.length === 0 ? <Empty /> : (
-                        <div className="flex items-center gap-4">
-                          <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={milestoneDonut} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
-                                  {milestoneDonut.map((d, i) => <Cell key={i} fill={d.color} />)}
-                                </Pie>
-                                <Tooltip />
-                              </PieChart>
-                            </ResponsiveContainer>
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              <div className="text-center"><div className="text-xl font-bold">{ops.metrics.active_jobs}</div><div className="text-[10px] text-muted-foreground">jobs</div></div>
-                            </div>
-                          </div>
-                          <div className="space-y-2.5 flex-1">
-                            {milestoneDonut.map((d, i) => (
-                              <div key={i} className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} /><span>{d.name}</span></div>
-                                <span className="font-semibold">{d.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {/* Time by subject */}
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Time by Subject</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {timeSubject.length === 0 ? <Empty /> : (
-                        <div className="h-[200px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={timeSubject} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${v}h`} />
-                              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
-                              <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))}h`, "Hours"]} />
-                              <Bar dataKey="hours" radius={[0, 4, 4, 0]}>
-                                {timeSubject.map((_, i) => <Cell key={i} fill={MCKINSEY_ACTIVITY_COLORS[i % MCKINSEY_ACTIVITY_COLORS.length]} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* CRM utilisation table */}
-                {ops.crm_workload.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">CRM Utilisation</CardTitle></CardHeader>
-                    <CardContent className="pt-0 overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b text-xs text-muted-foreground">
-                            <th className="text-left pb-2 font-medium">CRM</th>
-                            <th className="text-right pb-2 font-medium">Jobs</th>
-                            <th className="text-right pb-2 font-medium text-green-600">✓</th>
-                            <th className="text-right pb-2 font-medium text-amber-600">⚠</th>
-                            <th className="text-right pb-2 font-medium text-red-600">✕</th>
-                            <th className="text-right pb-2 font-medium">Logged</th>
-                            <th className="text-right pb-2 font-medium">Est.</th>
-                            <th className="text-right pb-2 font-medium">Util.</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ops.crm_workload.map(c => {
-                            const u = c.utilisation_pct;
-                            return (
-                              <tr key={c.crm_name} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                                <td className="py-2 font-medium">{c.crm_name}</td>
-                                <td className="text-right py-2 text-muted-foreground">{c.total_jobs}</td>
-                                <td className="text-right py-2 font-medium text-green-600">{c.green_jobs}</td>
-                                <td className="text-right py-2 font-medium text-amber-600">{c.amber_jobs}</td>
-                                <td className="text-right py-2 font-medium text-red-600">{c.red_jobs}</td>
-                                <td className="text-right py-2 text-muted-foreground">{hrs(c.logged_hours)}</td>
-                                <td className="text-right py-2 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
-                                <td className={`text-right py-2 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Job status breakdown */}
-                {ov?.job_status_breakdown && ov.job_status_breakdown.length > 0 && (
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Job Status Breakdown</CardTitle></CardHeader>
-                    <CardContent className="pt-0 space-y-2">
-                      {ov.job_status_breakdown.map((s, i) => {
-                        const tot = ov.job_status_breakdown.reduce((a, x) => a + x.count, 0) || 1;
-                        const pct = (s.count / tot) * 100;
-                        return (
-                          <div key={i} className="space-y-0.5">
-                            <div className="flex justify-between text-xs"><span className="font-medium">{s.status || "Unknown"}</span><span className="text-muted-foreground">{s.count} ({pct.toFixed(0)}%)</span></div>
-                            <div className="h-1.5 bg-muted rounded-full overflow-hidden"><div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: STATUS_COLORS[s.status] ?? MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length] }} /></div>
-                          </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                )}
-              </>
-            )}
+            <MainDashboardCharts section="operations" overview={ov} financial={fin} operations={ops} />
           </TabsContent>
 
           {/* Emissions */}
           <TabsContent value="emissions" className="space-y-5 pt-3">
-            {!ov ? <Loading /> : (
-              <>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Kpi label="Total Emissions" value={`${n(ov.metrics.total_emissions)} tCO₂e`} icon={<Flame className="h-4 w-4" />}    accent="orange" sub={`${ov.selected_year}`} />
-                  <Kpi label="YoY Change"      value={ov.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "—"} icon={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} />
-                  <Kpi label="Clients"         value={ov.metrics.total_clients}               icon={<Users className="h-4 w-4" />}    accent="blue"   />
-                  <Kpi label="Datasets"        value={ov.metrics.total_datasets}              icon={<Layers className="h-4 w-4" />}   accent="purple" sub="available" />
-                </div>
-
-                <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions Trend (tCO₂e)</CardTitle></CardHeader>
-                  <CardContent className="pt-0">
-                    {emissionsTrend.length === 0 ? <Empty /> : (
-                      <div className="h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={emissionsTrend} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-                            <defs><linearGradient id="gE" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
-                            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
-                            <XAxis dataKey="year" tick={{ fontSize: 11 }} />
-                            <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${n(+v)} t`} width={64} />
-                            <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO₂e`, "Emissions"]} />
-                            <Area type="monotone" dataKey="emissions" name="Emissions" stroke={MCKINSEY_DATA_COLORS[0]} fill="url(#gE)" strokeWidth={2.5} dot={{ r: 4, fill: MCKINSEY_DATA_COLORS[0] }} />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {industryData.length === 0 ? <Empty /> : (
-                        <div className="h-[220px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={industryData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                              <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
-                              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
-                              <Tooltip formatter={(v: unknown) => [`${v} clients`, ""]} />
-                              <Bar dataKey="value" name="Clients" radius={[0, 4, 4, 0]}>
-                                {industryData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Emitting Clients</CardTitle></CardHeader>
-                    <CardContent className="pt-0">
-                      {ov.top_emitting_clients.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No emissions data for {ov.selected_year}</div> : (
-                        <div className="h-[220px]">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={ov.top_emitting_clients.slice(0, 8).map(c => ({ name: c.client_name.length > 18 ? c.client_name.slice(0, 16) + "…" : c.client_name, emissions: +c.emissions || 0 }))} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
-                              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${n(+v)} t`} />
-                              <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
-                              <Tooltip formatter={(v: unknown) => [`${n(+Number(v || 0))} tCO₂e`, "Emissions"]} />
-                              <Bar dataKey="emissions" radius={[0, 4, 4, 0]}>
-                                {ov.top_emitting_clients.slice(0, 8).map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              </>
-            )}
+            <MainDashboardCharts section="emissions" overview={ov} financial={fin} operations={ops} />
           </TabsContent>
 
           {/* Tasks */}
