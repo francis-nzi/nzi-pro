@@ -609,7 +609,7 @@ export default function JobSourceRegister({
 
         const fd = new FormData();
         fd.append("file", uploadFile);
-        const validateRes = await uploadFormDataWithProgress(`/jobs/${jobId}/excel-upload`, {
+        const validateRes = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/excel-upload`, {
           method: "POST",
           headers: (() => {
             const token = getToken();
