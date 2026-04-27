@@ -241,28 +241,31 @@ def ensure_report_actions_schema(con) -> None:
         except Exception:
             pass
 
-    for item in DEFAULT_REPORT_ACTION_OPTIONS:
-        con.execute(
-            """
-            INSERT INTO report_action_options
-              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, created_by, updated_by)
-            SELECT %s, %s, %s, %s, %s, %s, TRUE, 'system', 'system'
-            WHERE NOT EXISTS (
-              SELECT 1
-              FROM report_action_options
-              WHERE LOWER(action_name) = LOWER(%s)
+    # Bootstrap defaults only when the table is empty. The previous per-default
+    # "INSERT WHERE NOT EXISTS (name match)" reseeded any default whose name an
+    # admin had renamed, producing duplicates on the next page load.
+    existing_count_row = con.execute(
+        "SELECT COUNT(*) FROM report_action_options"
+    ).fetchone()
+    existing_count = int(existing_count_row[0]) if existing_count_row else 0
+    if existing_count == 0:
+        for item in DEFAULT_REPORT_ACTION_OPTIONS:
+            con.execute(
+                """
+                INSERT INTO report_action_options
+                  (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, created_by, updated_by)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s, TRUE, 'system', 'system')
+                """,
+                [
+                    item["action_name"],
+                    item.get("description"),
+                    normalize_action_term(item.get("action_term")),
+                    item.get("action_category"),
+                    item.get("scope_focus"),
+                    int(item.get("sort_order") or 0),
+                ],
             )
-            """,
-            [
-                item["action_name"],
-                item.get("description"),
-                normalize_action_term(item.get("action_term")),
-                item.get("action_category"),
-                item.get("scope_focus"),
-                int(item.get("sort_order") or 0),
-                item["action_name"],
-            ],
-        )
 
 
 def list_report_action_options(
