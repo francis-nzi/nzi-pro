@@ -400,17 +400,27 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
                 }
         
         # Custom factors (check by custom_id matching original_ids)
-        custom_ph = ",".join(["?"] * len(original_ids))
-        custom_sql = f"""
-            SELECT custom_factor_id, custom_id, level_1, level_2, level_3, level_4,
-                   uom, ghg_unit, factor, report_label, category
-            FROM custom_conversion_factors
-            WHERE scope=? AND custom_id IN ({custom_ph})
-              AND (job_id=? OR job_id IS NULL)
-              AND is_active=TRUE
-        """
-        
-        custom_df = con.execute(custom_sql, [scope] + original_ids + [job_id]).df()
+        if db_backend() == "postgres":
+            custom_sql = """
+                SELECT custom_factor_id, custom_id, level_1, level_2, level_3, level_4,
+                       uom, ghg_unit, factor, report_label, category
+                FROM custom_conversion_factors
+                WHERE scope=%s AND custom_id = ANY(%s)
+                  AND (job_id=%s OR job_id IS NULL)
+                  AND is_active=TRUE
+            """
+            custom_df = con.execute(custom_sql, [scope, original_ids, job_id]).df()
+        else:
+            custom_ph = ",".join(["?"] * len(original_ids))
+            custom_sql = f"""
+                SELECT custom_factor_id, custom_id, level_1, level_2, level_3, level_4,
+                       uom, ghg_unit, factor, report_label, category
+                FROM custom_conversion_factors
+                WHERE scope=? AND custom_id IN ({custom_ph})
+                  AND (job_id=? OR job_id IS NULL)
+                  AND is_active=TRUE
+            """
+            custom_df = con.execute(custom_sql, [scope] + original_ids + [job_id]).df()
         
         if custom_df is not None and not custom_df.empty:
             for _, row in custom_df.iterrows():
