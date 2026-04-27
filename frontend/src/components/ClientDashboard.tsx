@@ -286,9 +286,9 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           </Card>
         </div>
       </div>
-    );
+  );
   }
-  if (!data) return <div className="py-8 text-center">No data available</div>;
+  if (!data) return <div className="py-8 text-center">No dashboard data available</div>;
 
   const total = Number(currentMetrics?.total_emissions || 0);
   const displayYear = selectedYear ?? currentMetrics?.year ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
@@ -302,14 +302,13 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <span className="text-sm text-muted-foreground">Reporting Year:</span>
-          <Select
-            value={selectedYear !== null ? selectedYear.toString() : ""}
-            disabled={loading}
-            onValueChange={(value) => {
-            const year = Number(value);
-            setSelectedYear(year);
-            }}
-          >
+        <Select
+          value={selectedYear !== null ? selectedYear.toString() : ""}
+          disabled={loading}
+          onValueChange={(value) => {
+            setSelectedYear(Number(value));
+          }}
+        >
           <SelectTrigger className="w-36">
             <SelectValue placeholder="Select year..." />
           </SelectTrigger>
@@ -322,10 +321,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           </SelectContent>
         </Select>
       </div>
-
-      {loading ? (
-        <div className="text-right text-xs text-muted-foreground">Refreshing dashboard data...</div>
-      ) : null}
+      <div className="text-right text-xs text-muted-foreground">Year changes update this dashboard instantly.</div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
