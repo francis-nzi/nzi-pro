@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getToken } from "@/lib/auth-client";
+import { formatEmissions } from "@/lib/format";
 
 type DashboardData = {
   client_db_id: number;
@@ -294,8 +295,8 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   const displayYear = selectedYear ?? currentMetrics?.year ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
   const benchmarkCaption = benchmarkPoint
     ? benchmarkPoint.source === "client"
-      ? `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
-      : `${Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e (${benchmarkPoint.year ?? "benchmark"})`
+              ? `${formatEmissions(benchmarkPoint.total)} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
+      : `${formatEmissions(benchmarkPoint.total)} tCO₂e (${benchmarkPoint.year ?? "benchmark"})`
     : "No benchmark data available";
 
   return (
@@ -329,7 +330,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="space-y-1">
               <div className="text-sm text-muted-foreground">Benchmark Emissions</div>
               <div className="text-3xl font-semibold tabular-nums">
-                {benchmarkPoint ? Number(benchmarkPoint.total || 0).toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
+                {benchmarkPoint ? formatEmissions(benchmarkPoint.total) : "-"}
               </div>
               <div className="text-xs text-muted-foreground">
                 {benchmarkCaption}
@@ -341,7 +342,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
           <CardContent className="pt-6 text-right">
             <div className="space-y-1">
               <div className="text-sm text-muted-foreground">Total Emissions</div>
-              <div className="text-3xl font-semibold tabular-nums">{total.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</div>
+              <div className="text-3xl font-semibold tabular-nums">{formatEmissions(total)}</div>
               <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
             </div>
           </CardContent>
@@ -351,7 +352,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="space-y-1">
               <div className="text-sm text-muted-foreground">Highest Emissions</div>
               <div className="text-3xl font-semibold tabular-nums">
-                {topCategoryData[0] ? topCategoryData[0].emissions.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "-"}
+                {topCategoryData[0] ? formatEmissions(topCategoryData[0].emissions) : "-"}
               </div>
               <div className="truncate text-lg font-semibold">
                 {topCategoryData[0]?.category || "No category data"}

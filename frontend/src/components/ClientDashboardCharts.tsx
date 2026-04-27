@@ -16,7 +16,8 @@ import {
   Legend,
 } from "recharts";
 
-const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
+import { SCOPE_COLOR_SEQUENCE } from "@/lib/chart-tokens";
+import { formatEmissions } from "@/lib/format";
 
 type ScopeDatum = {
   name: string;
@@ -45,10 +46,6 @@ type ClientDashboardChartsProps = {
   view: "overview" | "trends";
 };
 
-function formatTco2e(value: number | string | undefined): string {
-  return `${Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} tCO₂e`;
-}
-
 export default function ClientDashboardCharts({
   scopeData,
   total,
@@ -66,16 +63,16 @@ export default function ClientDashboardCharts({
                 <PieChart>
                   <Pie data={scopeData} dataKey="value" nameKey="name" innerRadius="77%" outerRadius="96%" paddingAngle={2}>
                     {scopeData.map((_, idx) => (
-                      <Cell key={idx} fill={SCOPE_COLORS[idx % SCOPE_COLORS.length]} />
+                      <Cell key={idx} fill={SCOPE_COLOR_SEQUENCE[idx % SCOPE_COLOR_SEQUENCE.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(val: number | string | undefined) => formatTco2e(val)} />
+                  <Tooltip formatter={(val: number | string | undefined) => `${formatEmissions(val)} tCO₂e`} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="text-center leading-none">
                   <div className="whitespace-nowrap text-[clamp(1rem,3.2vw,2.2rem)] font-semibold">
-                    {total.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                    {formatEmissions(total)}
                   </div>
                   <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
                 </div>
@@ -87,7 +84,7 @@ export default function ClientDashboardCharts({
                 return (
                   <div key={s.name} className="flex items-center justify-between gap-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[idx % SCOPE_COLORS.length] }} />
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLOR_SEQUENCE[idx % SCOPE_COLOR_SEQUENCE.length] }} />
                       <span>{s.name}</span>
                     </div>
                     <span className="font-medium">{pct.toFixed(1)}%</span>
@@ -109,16 +106,16 @@ export default function ClientDashboardCharts({
                 {scopeData.map((s, idx) => (
                   <div key={`${s.name}-tco2e`} className="flex items-center justify-between gap-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[idx % SCOPE_COLORS.length] }} />
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLOR_SEQUENCE[idx % SCOPE_COLOR_SEQUENCE.length] }} />
                       <span>{s.name}</span>
                     </div>
-                    <span className="font-medium">{Number(s.value || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                    <span className="font-medium">{formatEmissions(s.value)}</span>
                   </div>
                 ))}
                 <div className="mt-2 border-t pt-2">
                   <div className="flex items-center justify-between gap-2 text-sm font-semibold">
                     <span>Total</span>
-                    <span>{scopeData.reduce((acc, s) => acc + Number(s.value || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                    <span>{formatEmissions(scopeData.reduce((acc, s) => acc + Number(s.value || 0), 0))}</span>
                   </div>
                 </div>
               </div>
@@ -134,7 +131,7 @@ export default function ClientDashboardCharts({
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="category" width={140} tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(val: number | string | undefined) => formatTco2e(val)} />
+                  <Tooltip formatter={(val: number | string | undefined) => `${formatEmissions(val)} tCO₂e`} />
                   <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
                 </BarChart>
               </ResponsiveContainer>
@@ -151,7 +148,7 @@ export default function ClientDashboardCharts({
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" />
                 <YAxis />
-                <Tooltip formatter={(val: number | string | undefined) => formatTco2e(val)} />
+                <Tooltip formatter={(val: number | string | undefined) => `${formatEmissions(val)} tCO₂e`} />
                 <Legend />
                 <Line type="monotone" dataKey="total" stroke="#0f766e" strokeWidth={3} dot={{ r: 4 }} name="Total" />
                 <Line type="monotone" dataKey="scope1" stroke="#0f766e" strokeOpacity={0.7} strokeWidth={1.5} dot={false} name="Scope 1" />

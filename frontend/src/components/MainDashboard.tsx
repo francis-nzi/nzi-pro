@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TaskCalendar from "@/components/TaskCalendar";
 import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
+import { formatCurrency, formatDate, formatHours, formatMonth, formatNumber, formatPercent } from "@/lib/format";
 import { milestoneDotClass } from "@/lib/status-utils";
 const MainDashboardCharts = dynamic(() => import("@/components/MainDashboardCharts"), {
   ssr: false,
@@ -104,23 +105,6 @@ const ACCENT: Record<string, { border: string; icon: string }> = {
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function norm(url: string) { return String(url || "").trim().replace(/\/+$/, ""); }
-function n(v: unknown, dp = 1) { return Number(v || 0).toLocaleString("en-GB", { maximumFractionDigits: dp }); }
-function gbp(v: number) {
-  const a = Math.abs(v);
-  if (a >= 1_000_000) return `£${n(v / 1_000_000)}M`;
-  if (a >= 1_000) return `£${Math.round(v / 1_000)}k`;
-  return `£${Math.round(v).toLocaleString("en-GB")}`;
-}
-function hrs(h: number) { return `${n(h)}h`; }
-function mon(s: string) {
-  try { return new Date(s + "T00:00:00").toLocaleDateString("en-GB", { month: "short", year: "2-digit" }); }
-  catch { return s.slice(0, 7); }
-}
-function dt(s: string | null) {
-  if (!s) return "—";
-  try { return new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
-  catch { return s; }
-}
 
 // â”€â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -175,8 +159,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const monthlyData = useMemo(() => {
     if (!fin) return [];
     const map = new Map<string, { month: string; invoiced: number; paid: number; quotes: number }>();
-    for (const x of fin.monthly_invoices ?? []) map.set(x.month_start, { month: mon(x.month_start), invoiced: +x.total_value || 0, paid: +x.paid_total || 0, quotes: 0 });
-    for (const x of fin.monthly_quotes ?? []) { const e = map.get(x.month_start); if (e) e.quotes = +x.total_value || 0; else map.set(x.month_start, { month: mon(x.month_start), invoiced: 0, paid: 0, quotes: +x.total_value || 0 }); }
+    for (const x of fin.monthly_invoices ?? []) map.set(x.month_start, { month: formatMonth(x.month_start), invoiced: +x.total_value || 0, paid: +x.paid_total || 0, quotes: 0 });
+    for (const x of fin.monthly_quotes ?? []) { const e = map.get(x.month_start); if (e) e.quotes = +x.total_value || 0; else map.set(x.month_start, { month: formatMonth(x.month_start), invoiced: 0, paid: 0, quotes: +x.total_value || 0 }); }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
   }, [fin]);
 
@@ -285,9 +269,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
               <Kpi label="Active Jobs"     value={ops?.metrics.active_jobs ?? ov?.metrics.active_jobs ?? "—"}              icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
               <Kpi label="Overdue Jobs"    value={ops?.metrics.overdue_jobs ?? mil?.red ?? "—"}                            icon={<Flame className="h-4 w-4" />}         accent="red"    sub="milestone overdue" />
               <Kpi label="Due Soon"        value={ops?.metrics.due_soon_jobs ?? mil?.amber ?? "—"}                         icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
-              <Kpi label="Outstanding"     value={fin ? gbp(fin.metrics.outstanding_total) : "—"}                            icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
-              <Kpi label="Quote Pipeline"  value={fin ? gbp(fin.metrics.quote_value_total) : "—"}                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
-              <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${n(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
+              <Kpi label="Outstanding"     value={fin ? formatCurrency(fin.metrics.outstanding_total) : "—"}                  icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
+              <Kpi label="Quote Pipeline"  value={fin ? formatCurrency(fin.metrics.quote_value_total) : "—"}                  icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
+              <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${formatNumber(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
             </div>
 
             {/* CRM Workload */}
@@ -336,9 +320,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                                 <span className="text-red-600">{c.red_jobs} ✕</span>
                               </div>
                             </td>
-                            <td className="text-right py-2.5 text-muted-foreground">{hrs(c.logged_hours)}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? hrs(c.estimated_hours) : "—"}</td>
-                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? `${n(u)}%` : "—"}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{formatHours(c.logged_hours)}</td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? formatHours(c.estimated_hours) : "—"}</td>
+                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? formatPercent(u) : "—"}</td>
                             <td className="py-2.5 pl-1"><ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></td>
                           </tr>
                         );
@@ -387,7 +371,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                           <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name}</td>
                           <td className="py-2.5 text-xs">
                             <div className="text-muted-foreground capitalize">{job.next_due_name?.replace(/_/g, " ")}</div>
-                            <div className="font-medium">{dt(job.next_due_date)}</div>
+                            <div className="font-medium">{formatDate(job.next_due_date, { day: "numeric", month: "short" })}</div>
                           </td>
                           <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_next_due == null ? "text-muted-foreground" : job.days_to_next_due < 0 ? "text-red-600" : job.days_to_next_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
                             {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "—"}
