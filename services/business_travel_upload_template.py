@@ -82,7 +82,7 @@ def _resolve_selected_site(con, client_db_id: int | None, site_id: int | None) -
         return None
     return {"site_id": int(row[0]), "site_name": str(row[1]).strip() if row[1] is not None else None}
 
-def _load_reference_rows() -> list[dict[str, Any]]:
+def _load_reference_rows_from_csv() -> list[dict[str, Any]]:
     current_dir = Path(__file__).resolve().parent
     template_path = current_dir.parent / "templates" / "NZI Data Upload Template - Standard UK.csv"
     if not template_path.exists():
@@ -157,6 +157,98 @@ def _load_reference_rows() -> list[dict[str, Any]]:
 
     factors.sort(key=lambda item: (item["report_label"].lower(), item["original_id"]))
     return factors
+
+
+def _load_reference_rows_from_dataset(reporting_year: int | None = None) -> list[dict[str, Any]]:
+    with get_conn() as con:
+        params: list[object] = []
+        where_parts = [
+            "COALESCE(d.archived, FALSE) = FALSE",
+            "LOWER(TRIM(COALESCE(fl.scope, ''))) = 'scope 3'",
+            "LOWER(TRIM(COALESCE(fl.category, fl.level_1, ''))) = 'business travel'",
+        ]
+        if reporting_year is not None:
+            where_parts.append("COALESCE(fl.year, d.year) = ?")
+            params.append(int(reporting_year))
+
+        df = con.execute(
+            f"""
+            SELECT
+                fl.db_id,
+                fl.dataset_id,
+                d.name AS dataset,
+                d.analysis_type,
+                d.country,
+                COALESCE(fl.year, d.year) AS year,
+                fl.file_name,
+                fl.original_id,
+                fl.scope,
+                fl.category,
+                fl.level_1,
+                fl.level_2,
+                fl.level_3,
+                fl.level_4,
+                fl.column_text,
+                fl.report_label,
+                fl.uom,
+                fl.ghg_unit,
+                fl.factor,
+                fl.source,
+                fl.region,
+                fl.currency,
+                fl.method,
+                fl.valid_from,
+                fl.valid_to
+            FROM factor_lookup fl
+            LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+            WHERE {" AND ".join(where_parts)}
+            ORDER BY COALESCE(fl.report_label, fl.column_text, fl.original_id), fl.original_id, fl.db_id
+            """,
+            params,
+        ).df()
+
+    factors: list[dict[str, Any]] = []
+    if df is not None and not df.empty:
+        safe_df = df.astype(object).where(df.notna(), None)
+        for record in safe_df.to_dict(orient="records"):
+            factor = _serialize_reference_row(record)
+            if factor:
+                factors.append(factor)
+    return factors
+
+
+def _serialize_reference_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    scope = _clean(row.get("scope"))
+    category = _clean(row.get("category")) or _clean(row.get("level_1"))
+    report_label = _clean(row.get("report_label")) or _clean(row.get("column_text")) or _clean(row.get("original_id"))
+    original_id = _clean(row.get("original_id"))
+    if not original_id:
+        return None
+    if scope != "Scope 3":
+        return None
+    if category.lower() != "business travel":
+        return None
+    return {
+        "scope": scope or "Scope 3",
+        "category": "Business Travel",
+        "report_label": report_label,
+        "original_id": original_id,
+        "uom": _clean(row.get("uom")),
+        "ghg_unit": _clean(row.get("ghg_unit")),
+        "factor": _clean(row.get("factor")),
+        "notes": _clean(row.get("notes")),
+    }
+
+
+def _load_reference_rows(reporting_year: int | None = None) -> list[dict[str, Any]]:
+    factors = _load_reference_rows_from_dataset(reporting_year=reporting_year)
+    if factors:
+        return factors
+
+    try:
+        return _load_reference_rows_from_csv()
+    except Exception:
+        return []
 
 
 def _fetch_previous_year_rows(job_id: int, site_id: int | None) -> list[tuple[int, list[dict[str, Any]]]]:
@@ -306,7 +398,7 @@ def generate_business_travel_upload_template(
         selected_site_name = site_name or (selected_site.get("site_name") if selected_site else "")
         existing_data = fetch_existing_scope_entries(job_id)
 
-    factors = _load_reference_rows()
+    factors = _load_reference_rows(int(reporting_year) if str(reporting_year).strip() else None)
     monthly_headers = get_monthly_headers(job_id)
     headers = ["Scope", "Category", "Report Label", "ID", "UOM"] + monthly_headers + ["Qty", "Data Source", "Notes"]
 
