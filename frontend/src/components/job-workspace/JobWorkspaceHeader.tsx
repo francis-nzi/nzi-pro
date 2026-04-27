@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import EmissionsSummary from "@/components/EmissionsSummary";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -99,6 +100,11 @@ export default function JobWorkspaceHeader({
               ) : null}
             </div>
             {note ? <p className="max-w-2xl text-xs leading-5 text-slate-500">{note}</p> : null}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/jobs/${jobId}/admin/certificate`}>Emissions certificate</Link>
+              </Button>
+            </div>
           </div>
 
           <div className="min-w-0">
