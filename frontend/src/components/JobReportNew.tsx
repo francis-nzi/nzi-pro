@@ -1318,6 +1318,12 @@ export default function JobReportNew({
                             Frozen preview
                           </a>
                         ) : null}
+                        <Link
+                          href={`/jobs/${jobId}/admin/certificate`}
+                          className="text-slate-600 underline-offset-4 hover:underline"
+                        >
+                          Emissions certificate
+                        </Link>
                       </div>
                     </div>
                   ) : (
