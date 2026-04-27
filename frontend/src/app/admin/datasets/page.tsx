@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { STANDARD_COUNTRIES } from "@/lib/countries";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
@@ -122,6 +123,31 @@ type WorkbookImportResponse = {
   sheets?: WorkbookImportSheetSummary[];
 };
 
+type BulkNormalizePreviewRow = {
+  db_id: number;
+  dataset_id?: number | null;
+  dataset: string;
+  country?: string | null;
+  year?: number | null;
+  scope?: string | null;
+  category?: string | null;
+  original_id?: string | null;
+  current_label: string;
+  new_label: string;
+};
+
+type BulkNormalizeResponse = {
+  ok?: boolean;
+  dry_run?: boolean;
+  matched_count?: number;
+  changed_count?: number;
+  updated_count?: number;
+  remove_terms?: string[];
+  preview?: BulkNormalizePreviewRow[];
+  detail?: { message?: string } | string;
+  message?: string;
+};
+
 export default function DatasetsPage() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const confirmAction = useConfirmDialog();
@@ -188,6 +214,10 @@ export default function DatasetsPage() {
   const [factorEditorStatus, setFactorEditorStatus] = useState<string>("");
   const [editingFactor, setEditingFactor] = useState<Factor | null>(null);
   const [factorSaving, setFactorSaving] = useState(false);
+  const [bulkRemoveText, setBulkRemoveText] = useState<string>("");
+  const [bulkPreview, setBulkPreview] = useState<BulkNormalizePreviewRow[]>([]);
+  const [bulkSummary, setBulkSummary] = useState<string>("");
+  const [bulkWorking, setBulkWorking] = useState(false);
   
   // Dataset filters
   const [filterCountry, setFilterCountry] = useState<string>("");
@@ -650,6 +680,95 @@ export default function DatasetsPage() {
     setFactorMethodFilter("");
     setFactors([]);
     setStatus("Factor search filters cleared.");
+  }
+
+  function buildBulkNormalizePayload(dryRun: boolean) {
+    const datasetId = parseDatasetIdRef(factorDatasetFilter);
+    const dbId = factorDbIdFilter ? Number(factorDbIdFilter) : null;
+    const yearValue = factorYear ? Number(factorYear) : null;
+    return {
+      dry_run: dryRun,
+      preview_limit: 50,
+      remove_terms: bulkRemoveText,
+      q: searchQuery,
+      db_id: Number.isFinite(dbId) ? dbId : null,
+      dataset_id: datasetId ?? null,
+      country: factorCountry || "",
+      year: Number.isFinite(yearValue) ? yearValue : null,
+      scope: factorScopeFilter || "",
+      report_label: factorReportLabelFilter || "",
+      original_id: factorOriginalIdFilter || "",
+      category: factorCategoryFilter || "",
+      level_1: factorLevel1Filter || "",
+      level_2: factorLevel2Filter || "",
+      level_3: factorLevel3Filter || "",
+      level_4: factorLevel4Filter || "",
+      column_text: factorColumnTextFilter || "",
+      uom: factorUomFilter || "",
+      ghg_unit: factorGhgUnitFilter || "",
+      source: factorSourceFilter || "",
+      region: factorRegionFilter || "",
+      method: factorMethodFilter || "",
+    };
+  }
+
+  async function previewBulkReportLabelChanges() {
+    if (!bulkRemoveText.trim()) {
+      setBulkSummary("Enter one or more fragments to remove first.");
+      return;
+    }
+
+    setBulkWorking(true);
+    setBulkSummary("Previewing changes...");
+    try {
+      const res = await fetchWithAuth(`${baseUrl}/admin/factors/bulk-normalize-report-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildBulkNormalizePayload(true)),
+      });
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed to preview changes (${res.status})`));
+      }
+      const json = (await res.json()) as BulkNormalizeResponse;
+      setBulkPreview(json.preview || []);
+      setBulkSummary(
+        `Preview ready: ${json.matched_count || 0} matched, ${json.changed_count || 0} would change.`
+      );
+    } catch (e) {
+      setBulkSummary(`Error: ${(e as Error).message}`);
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  async function applyBulkReportLabelChanges() {
+    if (!bulkRemoveText.trim()) {
+      setBulkSummary("Enter one or more fragments to remove first.");
+      return;
+    }
+
+    setBulkWorking(true);
+    setBulkSummary("Applying changes...");
+    try {
+      const res = await fetchWithAuth(`${baseUrl}/admin/factors/bulk-normalize-report-labels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildBulkNormalizePayload(false)),
+      });
+      if (!res.ok) {
+        throw new Error(await readErrorMessage(res, `Failed to apply changes (${res.status})`));
+      }
+      const json = (await res.json()) as BulkNormalizeResponse;
+      setBulkPreview(json.preview || []);
+      setBulkSummary(
+        `Applied ${json.updated_count || 0} updates from ${json.changed_count || 0} matching rows.`
+      );
+      await searchFactors();
+    } catch (e) {
+      setBulkSummary(`Error: ${(e as Error).message}`);
+    } finally {
+      setBulkWorking(false);
+    }
   }
 
   async function downloadDataset(datasetId: number, datasetName: string) {
@@ -1162,6 +1281,91 @@ export default function DatasetsPage() {
                             Edit
                           </Button>
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6 w-full">
+          <CardHeader>
+            <CardTitle>Bulk Report Label Normalisation</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Use the current factor filters above as the scope, then remove repeated fragments from <code>report_label</code>.
+              This is ideal for trimming labels like <code>- Cars (by size)</code> across Business Travel, Employee Commuting, and Company Vehicles.
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="bulkRemoveText">Remove fragments</Label>
+                <Textarea
+                  id="bulkRemoveText"
+                  value={bulkRemoveText}
+                  onChange={(e) => setBulkRemoveText(e.target.value)}
+                  placeholder={`Cars (by size)\nVehicles (by size)\nby vehicle size`}
+                  rows={6}
+                />
+                <div className="text-xs text-muted-foreground">
+                  Enter one fragment per line. Matching is case-insensitive and only affects <code>report_label</code>.
+                </div>
+              </div>
+              <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+                <div className="text-sm font-medium">Current scope</div>
+                <div className="text-xs text-muted-foreground">
+                  {searchQuery ? `Search text: "${searchQuery}"` : "Search text: none"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {factorCategoryFilter ? `Category: ${factorCategoryFilter}` : "Category: all"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {factorReportLabelFilter ? `Report label: ${factorReportLabelFilter}` : "Report label: all"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {factorCountry ? `Country: ${factorCountry}` : "Country: all"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {factorYear ? `Year: ${factorYear}` : "Year: all"}
+                </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <Button type="button" variant="secondary" onClick={previewBulkReportLabelChanges} disabled={bulkWorking}>
+                    Preview changes
+                  </Button>
+                  <Button type="button" onClick={applyBulkReportLabelChanges} disabled={bulkWorking}>
+                    Apply changes
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {bulkSummary && (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">{bulkSummary}</div>
+            )}
+
+            {bulkPreview.length > 0 && (
+              <div className="max-h-80 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted">
+                    <tr>
+                      <th className="p-2 text-left">DB ID</th>
+                      <th className="p-2 text-left">Original ID</th>
+                      <th className="p-2 text-left">Current Label</th>
+                      <th className="p-2 text-left">New Label</th>
+                      <th className="p-2 text-left">Category</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkPreview.map((row) => (
+                      <tr key={row.db_id} className="border-t align-top">
+                        <td className="p-2 text-xs text-muted-foreground">{row.db_id}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{row.original_id || "-"}</td>
+                        <td className="p-2">{row.current_label}</td>
+                        <td className="p-2 font-medium">{row.new_label}</td>
+                        <td className="p-2 text-xs text-muted-foreground">{row.category || "-"}</td>
                       </tr>
                     ))}
                   </tbody>

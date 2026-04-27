@@ -5601,6 +5601,165 @@ def _load_factor_row(con, db_id: int) -> dict[str, Any] | None:
     return _serialize_factor_row(row_df.iloc[0].to_dict())
 
 
+def _build_factor_search_filters(
+    *,
+    q: str = "",
+    db_id: int | None = None,
+    dataset_id: int | None = None,
+    country: str = "",
+    year: int | None = None,
+    scope: str = "",
+    report_label: str = "",
+    original_id: str = "",
+    category: str = "",
+    level_1: str = "",
+    level_2: str = "",
+    level_3: str = "",
+    level_4: str = "",
+    column_text: str = "",
+    uom: str = "",
+    ghg_unit: str = "",
+    source: str = "",
+    region: str = "",
+    method: str = "",
+) -> tuple[str, list[Any]]:
+    params: list[Any] = []
+    where_parts = ["COALESCE(d.archived, FALSE) = FALSE"]
+
+    if q.strip():
+        tokens = [part.strip() for part in re.split(r"\s+", q.strip()) if part.strip()]
+        token_parts: list[str] = []
+        token_params: list[Any] = []
+        searchable_sql = """
+            (
+                CAST(fl.db_id AS VARCHAR) ILIKE %s
+                OR CAST(fl.dataset_id AS VARCHAR) ILIKE %s
+                OR CAST(d.year AS VARCHAR) ILIKE %s
+                OR COALESCE(d.name, '') ILIKE %s
+                OR COALESCE(d.country, '') ILIKE %s
+                OR COALESCE(d.analysis_type, '') ILIKE %s
+                OR COALESCE(fl.original_id, '') ILIKE %s
+                OR COALESCE(fl.scope, '') ILIKE %s
+                OR COALESCE(fl.category, '') ILIKE %s
+                OR COALESCE(fl.level_1, '') ILIKE %s
+                OR COALESCE(fl.level_2, '') ILIKE %s
+                OR COALESCE(fl.level_3, '') ILIKE %s
+                OR COALESCE(fl.level_4, '') ILIKE %s
+                OR COALESCE(fl.column_text, '') ILIKE %s
+                OR COALESCE(fl.report_label, '') ILIKE %s
+                OR COALESCE(fl.uom, '') ILIKE %s
+                OR COALESCE(fl.ghg_unit, '') ILIKE %s
+                OR COALESCE(fl.source, '') ILIKE %s
+                OR COALESCE(fl.region, '') ILIKE %s
+                OR COALESCE(fl.method, '') ILIKE %s
+            )
+        """
+        for token in tokens:
+            needle = f"%{token}%"
+            token_parts.append(searchable_sql)
+            token_params.extend([needle] * 20)
+        where_parts.append(" AND ".join(token_parts))
+        params.extend(token_params)
+
+    if db_id is not None:
+        where_parts.append("fl.db_id = %s")
+        params.append(int(db_id))
+    if dataset_id is not None:
+        where_parts.append("fl.dataset_id = %s")
+        params.append(int(dataset_id))
+    if country.strip():
+        where_parts.append("LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(%s))")
+        params.append(country.strip())
+    if year is not None:
+        where_parts.append("d.year = %s")
+        params.append(int(year))
+    if scope.strip():
+        where_parts.append("LOWER(TRIM(COALESCE(fl.scope, ''))) = LOWER(TRIM(%s))")
+        params.append(scope.strip())
+    if report_label.strip():
+        where_parts.append("COALESCE(fl.report_label, fl.column_text, '') ILIKE %s")
+        params.append(f"%{report_label.strip()}%")
+    if original_id.strip():
+        where_parts.append("COALESCE(fl.original_id, '') ILIKE %s")
+        params.append(f"%{original_id.strip()}%")
+    if category.strip():
+        where_parts.append("COALESCE(fl.category, fl.level_1, '') ILIKE %s")
+        params.append(f"%{category.strip()}%")
+    if level_1.strip():
+        where_parts.append("COALESCE(fl.level_1, '') ILIKE %s")
+        params.append(f"%{level_1.strip()}%")
+    if level_2.strip():
+        where_parts.append("COALESCE(fl.level_2, '') ILIKE %s")
+        params.append(f"%{level_2.strip()}%")
+    if level_3.strip():
+        where_parts.append("COALESCE(fl.level_3, '') ILIKE %s")
+        params.append(f"%{level_3.strip()}%")
+    if level_4.strip():
+        where_parts.append("COALESCE(fl.level_4, '') ILIKE %s")
+        params.append(f"%{level_4.strip()}%")
+    if column_text.strip():
+        where_parts.append("COALESCE(fl.column_text, '') ILIKE %s")
+        params.append(f"%{column_text.strip()}%")
+    if uom.strip():
+        where_parts.append("COALESCE(fl.uom, '') ILIKE %s")
+        params.append(f"%{uom.strip()}%")
+    if ghg_unit.strip():
+        where_parts.append("COALESCE(fl.ghg_unit, '') ILIKE %s")
+        params.append(f"%{ghg_unit.strip()}%")
+    if source.strip():
+        where_parts.append("COALESCE(fl.source, '') ILIKE %s")
+        params.append(f"%{source.strip()}%")
+    if region.strip():
+        where_parts.append("COALESCE(fl.region, '') ILIKE %s")
+        params.append(f"%{region.strip()}%")
+    if method.strip():
+        where_parts.append("COALESCE(fl.method, '') ILIKE %s")
+        params.append(f"%{method.strip()}%")
+
+    return " AND ".join(where_parts), params
+
+
+def _parse_bulk_terms(raw_terms: Any) -> list[str]:
+    if raw_terms is None:
+        return []
+    if isinstance(raw_terms, str):
+        parts = re.split(r"[\n,;|]+", raw_terms)
+    elif isinstance(raw_terms, (list, tuple, set)):
+        parts = [str(part) for part in raw_terms]
+    else:
+        parts = [str(raw_terms)]
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        text = str(part or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(text)
+    return terms
+
+
+def _normalize_report_label_text(value: str | None, remove_terms: list[str]) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    for term in remove_terms:
+        if not term:
+            continue
+        text = re.sub(re.escape(term), "", text, flags=re.IGNORECASE)
+
+    text = re.sub(r"\s*-\s*-\s*", " - ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = re.sub(r"\s*([,;:])\s*", r"\1 ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip(" -|")
+
+
 @router.get("/factors")
 def search_factors(
     q: str = "",
@@ -5914,6 +6073,142 @@ def update_factor_row(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update factor row: {e}")
+
+
+@router.post("/factors/bulk-normalize-report-labels")
+def bulk_normalize_factor_report_labels(
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user),
+):
+    try:
+        def _optional_int(value: Any) -> int | None:
+            if value in (None, ""):
+                return None
+            try:
+                return int(value)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid integer value: {value}") from exc
+
+        remove_terms = _parse_bulk_terms(body.get("remove_terms") or body.get("remove_text"))
+        if not remove_terms:
+            raise HTTPException(status_code=400, detail="At least one remove term is required")
+
+        dry_run = bool(body.get("dry_run", True))
+        preview_limit = int(body.get("preview_limit", 50) or 50)
+        if preview_limit < 0:
+            preview_limit = 50
+
+        where_sql, params = _build_factor_search_filters(
+            q=str(body.get("q") or ""),
+            db_id=_optional_int(body.get("db_id")),
+            dataset_id=_optional_int(body.get("dataset_id")),
+            country=str(body.get("country") or ""),
+            year=_optional_int(body.get("year")),
+            scope=str(body.get("scope") or ""),
+            report_label=str(body.get("report_label") or ""),
+            original_id=str(body.get("original_id") or ""),
+            category=str(body.get("category") or ""),
+            level_1=str(body.get("level_1") or ""),
+            level_2=str(body.get("level_2") or ""),
+            level_3=str(body.get("level_3") or ""),
+            level_4=str(body.get("level_4") or ""),
+            column_text=str(body.get("column_text") or ""),
+            uom=str(body.get("uom") or ""),
+            ghg_unit=str(body.get("ghg_unit") or ""),
+            source=str(body.get("source") or ""),
+            region=str(body.get("region") or ""),
+            method=str(body.get("method") or ""),
+        )
+
+        with get_conn() as con:
+            _ensure_factor_lookup_schema(con)
+            df = con.execute(
+                f"""
+                SELECT
+                    fl.db_id,
+                    fl.dataset_id,
+                    d.name AS dataset,
+                    d.analysis_type,
+                    d.country,
+                    fl.year,
+                    fl.file_name,
+                    fl.original_id,
+                    fl.scope,
+                    fl.category,
+                    fl.level_1,
+                    fl.level_2,
+                    fl.level_3,
+                    fl.level_4,
+                    fl.column_text,
+                    COALESCE(fl.report_label, fl.column_text, fl.original_id, '') AS current_label,
+                    fl.report_label,
+                    fl.uom,
+                    fl.ghg_unit,
+                    fl.factor,
+                    fl.source,
+                    fl.region,
+                    fl.currency,
+                    fl.method,
+                    fl.valid_from,
+                    fl.valid_to
+                FROM factor_lookup fl
+                LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                WHERE {where_sql}
+                ORDER BY d.year DESC NULLS LAST, d.name, COALESCE(fl.category, fl.level_1), COALESCE(fl.report_label, fl.column_text, fl.original_id), fl.original_id
+                """,
+                params,
+            ).df()
+
+            preview_items: list[dict[str, Any]] = []
+            changed_rows: list[tuple[int, str]] = []
+            matched_count = 0
+            if df is not None and not df.empty:
+                matched_count = int(len(df.index))
+                safe_df = df.astype(object).where(df.notna(), None)
+                for record in safe_df.to_dict(orient="records"):
+                    current_label = str(record.get("current_label") or "").strip()
+                    new_label = _normalize_report_label_text(current_label, remove_terms)
+                    if not current_label or not new_label or new_label == current_label:
+                        continue
+                    changed_rows.append((int(record["db_id"]), new_label))
+                    if len(preview_items) < preview_limit:
+                        preview_items.append(
+                            {
+                                "db_id": int(record["db_id"]),
+                                "dataset_id": int(record["dataset_id"]) if record.get("dataset_id") is not None else None,
+                                "dataset": str(record.get("dataset") or ""),
+                                "country": str(record.get("country") or ""),
+                                "year": int(record["year"]) if record.get("year") is not None else None,
+                                "scope": str(record.get("scope") or ""),
+                                "category": str(record.get("category") or ""),
+                                "original_id": str(record.get("original_id") or ""),
+                                "current_label": current_label,
+                                "new_label": new_label,
+                            }
+                        )
+
+            updated_count = 0
+            if not dry_run and changed_rows:
+                for db_id_value, new_label in changed_rows:
+                    con.execute(
+                        "UPDATE factor_lookup SET report_label = %s WHERE db_id = %s",
+                        [new_label, db_id_value],
+                    )
+                updated_count = len(changed_rows)
+
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "matched_count": matched_count,
+            "changed_count": len(changed_rows),
+            "updated_count": updated_count,
+            "remove_terms": remove_terms,
+            "preview": preview_items,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to bulk normalize report labels: {e}")
 
 
 # =========================
