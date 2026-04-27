@@ -3,6 +3,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
+import EmptyChart from "@/components/EmptyChart";
 import type { FinancialData, OperationsData, OverviewData } from "@/components/MainDashboard";
 
 type ChartSection = "financial" | "operations" | "emissions";
@@ -41,10 +42,6 @@ function mon(s: string) {
 
 function Loading() {
   return <div className="flex items-center justify-center py-16 gap-2 text-sm text-muted-foreground">Loading…</div>;
-}
-
-function Empty() {
-  return <div className="py-10 text-center text-sm text-muted-foreground">No data available</div>;
 }
 
 export default function MainDashboardCharts({ section, overview, financial, operations }: Props) {
@@ -157,7 +154,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
           </CardHeader>
           <CardContent className="pt-0">
             {monthlyData.length === 0 ? (
-              <Empty />
+              <EmptyChart title="No monthly revenue data" description="There are no invoice or quote values available for the selected view." minHeight="min-h-[240px]" />
             ) : (
               <div className="h-[240px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -192,7 +189,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
             </CardHeader>
             <CardContent className="pt-0">
               {quoteDonut.length === 0 ? (
-                <Empty />
+                <EmptyChart title="No quote pipeline data" description="There are no quote statuses to display for this view." minHeight="min-h-[180px]" />
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="h-[180px] w-[180px] flex-shrink-0">
@@ -229,7 +226,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
             </CardHeader>
             <CardContent className="pt-0">
               {topClients.length === 0 ? (
-                <Empty />
+                <EmptyChart title="No top client data" description="Invoices have not been recorded for any clients yet." minHeight="min-h-[200px]" />
               ) : (
                 <div className="h-[200px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -315,7 +312,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
             <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
             <CardContent className="pt-0">
               {milestoneDonut.length === 0 ? (
-                <Empty />
+                <EmptyChart title="No milestone health data" description="There are no milestone statuses to display for this selection." minHeight="min-h-[180px]" />
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="relative h-[180px] w-[180px] flex-shrink-0">
@@ -356,7 +353,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
             <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Time by Subject</CardTitle></CardHeader>
             <CardContent className="pt-0">
               {timeSubject.length === 0 ? (
-                <Empty />
+                <EmptyChart title="No time-by-subject data" description="No logged hours are available for the selected CRM/view." minHeight="min-h-[200px]" />
               ) : (
                 <div className="h-[200px]">
                   <ResponsiveContainer width="100%" height="100%">
@@ -451,7 +448,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
         </CardHeader>
         <CardContent className="pt-0">
           {emissionsTrend.length === 0 ? (
-            <Empty />
+            <EmptyChart title="No emissions trend data" description="This dashboard does not have any year-over-year emissions points yet." minHeight="min-h-[220px]" />
           ) : (
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -479,7 +476,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
           <CardContent className="pt-0">
             {industryData.length === 0 ? (
-              <Empty />
+              <EmptyChart title="No industry data" description="Client industries are not available for this selection." minHeight="min-h-[220px]" />
             ) : (
               <div className="h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -503,7 +500,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
           <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Emitting Clients</CardTitle></CardHeader>
           <CardContent className="pt-0">
             {topEmittingClients.length === 0 ? (
-              <div className="py-8 text-center text-sm text-muted-foreground">No emissions data for {overview.selected_year}</div>
+              <EmptyChart title={`No emissions data for ${overview.selected_year}`} description="There are no emitting clients to chart for this year." minHeight="min-h-[220px]" />
             ) : (
               <div className="h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">

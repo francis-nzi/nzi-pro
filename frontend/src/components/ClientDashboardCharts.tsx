@@ -18,6 +18,7 @@ import {
 
 import { SCOPE_COLOR_SEQUENCE } from "@/lib/chart-tokens";
 import { formatEmissions } from "@/lib/format";
+import EmptyChart from "@/components/EmptyChart";
 
 type ScopeDatum = {
   name: string;
@@ -124,7 +125,11 @@ export default function ClientDashboardCharts({
 
           <div className="h-[320px]">
             {topCategoryData.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No category data available</div>
+              <EmptyChart
+                title="No category data available"
+                description="This client does not have category-level emissions for the selected year."
+                minHeight="min-h-[320px]"
+              />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topCategoryData} layout="vertical" margin={{ top: 4, right: 10, left: 24, bottom: 4 }}>
@@ -141,7 +146,11 @@ export default function ClientDashboardCharts({
       ) : (
         <div className="h-[320px]">
           {trendData.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">No trend data available</div>
+            <EmptyChart
+              title="No trend data available"
+              description="There are no yearly emissions points available for this client yet."
+              minHeight="min-h-[320px]"
+            />
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trendData} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
