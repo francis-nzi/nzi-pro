@@ -672,7 +672,6 @@ def _store_report_version_artifact(
             data_hash,
             snapshot_json,
             notes,
-            generated_by,
             status,
             status,
             generated_by,
