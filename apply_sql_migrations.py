@@ -91,6 +91,58 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
                     (path.name, checksum),
                 )
 
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS public.applied_maintenance_tasks (
+                  task_key TEXT PRIMARY KEY,
+                  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+
+    _run_post_migration_maintenance(url)
+
+
+def _run_post_migration_maintenance(url: str) -> None:
+    task_key = "spend_unit_backfill_v1"
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET search_path TO public")
+            cur.execute(
+                "SELECT 1 FROM public.applied_maintenance_tasks WHERE task_key = %s LIMIT 1",
+                (task_key,),
+            )
+            if cur.fetchone() is not None:
+                return
+
+    try:
+        from types import SimpleNamespace
+
+        from utils.backfill_spend_rows import backfill_spend_rows
+
+        backfill_spend_rows(
+            SimpleNamespace(
+                all_jobs=True,
+                job_id=None,
+                row_id=None,
+                original_id=None,
+                report_label=None,
+                dry_run=False,
+            )
+        )
+    except Exception:
+        # Fail loudly so we don't silently ship the code fix without
+        # repairing existing stored rows.
+        raise
+
+    with psycopg.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET search_path TO public")
+            cur.execute(
+                "INSERT INTO public.applied_maintenance_tasks (task_key) VALUES (%s)",
+                (task_key,),
+            )
+
 
 if __name__ == "__main__":
     apply_sql_migrations()

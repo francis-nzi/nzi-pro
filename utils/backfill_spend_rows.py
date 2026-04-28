@@ -158,6 +158,10 @@ def backfill_spend_rows(args: argparse.Namespace) -> int:
             FROM job_scope_rows
             WHERE {where_sql}
               AND factor_db_id IS NOT NULL
+              AND (
+                COALESCE(data_source, '') = 'Spend Data'
+                OR COALESCE(original_id, '') LIKE 'SPEND-%'
+              )
             ORDER BY row_id
             """,
             params,
