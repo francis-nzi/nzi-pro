@@ -915,7 +915,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                     {(f.ghg_unit || f.unit_warning) ? (
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(f.ghg_unit, f.unit_warning)}`}
-                        title={f.unit_warning}
+                        title={f.unit_warning || undefined}
                       >
                         {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
                       </span>
@@ -967,7 +967,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       {(f.ghg_unit || f.unit_warning) ? (
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(f.ghg_unit, f.unit_warning)}`}
-                          title={f.unit_warning}
+                          title={f.unit_warning || undefined}
                         >
                           {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
                         </span>
