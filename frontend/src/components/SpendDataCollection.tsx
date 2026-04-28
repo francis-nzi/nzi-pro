@@ -65,6 +65,20 @@ type FactorItem = {
   dataset_name: string | null;
 };
 
+function isKgBasedUnit(unit?: string | null) {
+  return Boolean(unit && unit.replace(/\s+/g, "").toLowerCase().includes("kg"));
+}
+
+function factorUnitBadgeClass(unit?: string | null, unitWarning?: string | null) {
+  if (!unit) {
+    return "bg-slate-100 text-slate-800";
+  }
+  if (isKgBasedUnit(unit) && !unitWarning) {
+    return "bg-emerald-100 text-emerald-900";
+  }
+  return "bg-amber-100 text-amber-900";
+}
+
 type JobSitesResponse = {
   sites: Array<{
     site_id: number | null;
@@ -893,9 +907,9 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                     <span className="min-w-0 truncate">
                       {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
                     </span>
-                    {f.unit_warning ? (
+                    {(f.ghg_unit || f.unit_warning) ? (
                       <span
-                        className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(f.ghg_unit, f.unit_warning)}`}
                         title={f.unit_warning}
                       >
                         {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
@@ -945,9 +959,9 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <span className="min-w-0 truncate">
                         {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
                       </span>
-                      {f.unit_warning ? (
+                      {(f.ghg_unit || f.unit_warning) ? (
                         <span
-                          className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(f.ghg_unit, f.unit_warning)}`}
                           title={f.unit_warning}
                         >
                           {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
