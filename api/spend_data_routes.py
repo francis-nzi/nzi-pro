@@ -1128,7 +1128,7 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
         label_expr = _factor_label_expr(con, "f")
         df = con.execute(
             f"""
-            SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor,
+            SELECT f.db_id, f.dataset_id, f.original_id, f.scope, {category_expr} AS category, {label_expr} AS report_label, f.factor, f.ghg_unit,
                    d.name AS dataset_name, d.analysis_type
             FROM factor_lookup f
             LEFT JOIN datasets d ON d.dataset_id = f.dataset_id
@@ -1158,6 +1158,8 @@ def search_spend_factors(job_id: int, q: str = Query("", min_length=0), limit: i
                     "category": r.get("category"),
                     "report_label": r.get("report_label"),
                     "factor": _safe_float(r.get("factor"), 0.0),
+                    "ghg_unit": _safe_optional_str(r.get("ghg_unit")),
+                    "unit_warning": _spend_factor_warning(_safe_optional_str(r.get("ghg_unit"))),
                     "dataset_name": r.get("dataset_name"),
                     "analysis_type": r.get("analysis_type"),
                 }

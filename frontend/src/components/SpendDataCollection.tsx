@@ -60,6 +60,8 @@ type FactorItem = {
   scope: string | null;
   category: string | null;
   factor: number;
+  ghg_unit?: string | null;
+  unit_warning?: string | null;
   dataset_name: string | null;
 };
 
@@ -887,8 +889,18 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
               <SelectContent>
                 <SelectItem value="__none__">Select factor</SelectItem>
                 {factorResults.map((f) => (
-                  <SelectItem key={f.db_id} value={String(f.db_id)}>
-                    {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
+                  <SelectItem key={f.db_id} value={String(f.db_id)} className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate">
+                      {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
+                    </span>
+                    {f.unit_warning ? (
+                      <span
+                        className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                        title={f.unit_warning}
+                      >
+                        Unit warning
+                      </span>
+                    ) : null}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -929,8 +941,18 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                 <SelectContent>
                   <SelectItem value="__none__">Select factor</SelectItem>
                   {factorResults.map((f) => (
-                    <SelectItem key={f.db_id} value={String(f.db_id)}>
-                      {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
+                    <SelectItem key={f.db_id} value={String(f.db_id)} className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate">
+                        {f.report_label || f.category || `Factor ${f.db_id}`} ({f.scope || "-"}) [{f.db_id}]
+                      </span>
+                      {f.unit_warning ? (
+                        <span
+                          className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                          title={f.unit_warning}
+                        >
+                          Unit warning
+                        </span>
+                      ) : null}
                     </SelectItem>
                   ))}
                 </SelectContent>
