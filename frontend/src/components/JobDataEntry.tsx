@@ -78,6 +78,7 @@ type ScopeDataRow = {
   reference_factor?: number | null;
   factor_reference?: string | null;
   storage_reason?: string | null;
+  unit_warning?: string | null;
   uses_emissions_fallback?: boolean;
   source_volume_available?: boolean;
   ghg_unit: string | null;
@@ -1721,6 +1722,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                           <div className="truncate text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
                             {rowDisplaySubtitle(row)}
                           </div>
+                          {row.unit_warning ? (
+                            <div
+                              className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                              title={row.unit_warning}
+                            >
+                              Unit check
+                            </div>
+                          ) : null}
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
@@ -1835,6 +1844,14 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 <div className="text-muted-foreground">Factor</div>
                                 <div className="font-mono break-all">{factorDisplayText(row)}</div>
                               </div>
+                              {row.unit_warning && (
+                                <div className="text-xs md:col-span-2 lg:col-span-4">
+                                  <div className="text-muted-foreground">Unit Warning</div>
+                                  <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                                    {row.unit_warning}
+                                  </div>
+                                </div>
+                              )}
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Apply %</div>
                                 {editingRowId === row.row_id && editingField === "apply" ? (

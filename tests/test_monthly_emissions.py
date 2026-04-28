@@ -42,6 +42,8 @@ def test_row_metrics_prefers_lookup_kg_unit_for_spend_rows():
 
     assert metrics["calc_tco2e"] == pytest.approx(14.65075113, rel=1e-9)
     assert metrics["tco2e_before_apply"] == pytest.approx(14.65075113, rel=1e-9)
+    assert metrics["unit_warning"] is not None
+    assert "Stored unit" in metrics["unit_warning"]
 
 
 def test_row_metrics_keeps_tco2e_storage_rows_unchanged():
@@ -66,3 +68,4 @@ def test_row_metrics_keeps_tco2e_storage_rows_unchanged():
     assert metrics["uses_emissions_fallback"] is True
     assert metrics["calc_tco2e"] == pytest.approx(14650.7815, rel=1e-9)
     assert metrics["tco2e_before_apply"] == pytest.approx(14650.7815, rel=1e-9)
+    assert metrics["unit_warning"] is None

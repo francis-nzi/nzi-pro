@@ -98,6 +98,32 @@ def _effective_ghg_unit(
     return storage_unit or reference_unit
 
 
+def _unit_warning(
+    storage_uom: str | None,
+    storage_ghg_unit: str | None,
+    reference_ghg_unit: str | None,
+) -> str | None:
+    storage_unit = str(storage_ghg_unit or "").strip() or None
+    reference_unit = str(reference_ghg_unit or "").strip() or None
+    storage_uom_norm = str(storage_uom or "").strip().lower()
+
+    if not storage_unit:
+        if reference_unit and _is_kg_based_unit(reference_unit):
+            return "Stored unit missing; using factor lookup unit for calculation."
+        return None
+
+    if storage_uom_norm == "tco2e":
+        return None
+
+    if not _is_kg_based_unit(storage_unit) and _is_kg_based_unit(reference_unit):
+        return f"Stored unit '{storage_unit}' differs from factor unit '{reference_unit}'; using factor unit for calculation."
+
+    if reference_unit and storage_unit != reference_unit and _is_kg_based_unit(reference_unit):
+        return f"Stored unit '{storage_unit}' differs from factor unit '{reference_unit}'; using factor unit for calculation."
+
+    return None
+
+
 def _choose_factor_for_year(year_values: Mapping[int, float], preferred_year: int | None) -> tuple[float | None, int | None]:
     if not year_values:
         return None, None
@@ -528,6 +554,7 @@ class JobMonthlyEmissionsResolver:
                 reference_ghg_unit = ref_lookup.get("ghg_unit") or reference_ghg_unit
 
         effective_ghg_unit = _effective_ghg_unit(storage_uom, storage_ghg_unit, reference_ghg_unit)
+        unit_warning = _unit_warning(storage_uom, storage_ghg_unit, reference_ghg_unit)
 
         has_source_volume = bool(source_qty is not None and source_uom)
         fallback_storage = bool(
@@ -580,6 +607,7 @@ class JobMonthlyEmissionsResolver:
                 "reference_ghg_unit": reference_ghg_unit,
                 "factor_reference": factor_reference,
                 "storage_reason": storage_reason,
+                "unit_warning": unit_warning,
                 "uses_emissions_fallback": True,
                 "source_volume_available": has_source_volume,
                 "display_dataset_id": dataset_id,
@@ -654,6 +682,7 @@ class JobMonthlyEmissionsResolver:
                 "reference_ghg_unit": reference_ghg_unit,
                 "factor_reference": factor_reference,
                 "storage_reason": storage_reason,
+                "unit_warning": unit_warning,
                 "uses_emissions_fallback": False,
                 "source_volume_available": has_source_volume,
                 "display_dataset_id": _safe_int(row.get("dataset_id")),
@@ -682,6 +711,7 @@ class JobMonthlyEmissionsResolver:
             "reference_ghg_unit": reference_ghg_unit,
             "factor_reference": factor_reference,
             "storage_reason": storage_reason,
+            "unit_warning": unit_warning,
             "uses_emissions_fallback": False,
             "source_volume_available": has_source_volume,
             "display_dataset_id": dataset_id,

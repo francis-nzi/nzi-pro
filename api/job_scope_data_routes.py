@@ -559,6 +559,7 @@ def get_job_scope_data(
                         "reference_factor": reference_factor_val,
                         "factor_reference": metrics.get("factor_reference"),
                         "storage_reason": metrics.get("storage_reason"),
+                        "unit_warning": metrics.get("unit_warning"),
                         "uses_emissions_fallback": bool(metrics.get("uses_emissions_fallback")),
                         "source_volume_available": bool(metrics.get("source_volume_available")),
                         "factor_label": metrics.get("factor_label"),
