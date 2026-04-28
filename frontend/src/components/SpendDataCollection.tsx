@@ -857,16 +857,16 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{r.mapped_scope ? `${r.mapped_scope} - ${r.mapped_report_label || ""}` : "Unmapped"}</td>
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
                       <td className="p-2">
-                        {r.unit_warning ? (
+                        {r.factor_ghg_unit ? (
                           <span
                             className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(r.factor_ghg_unit, r.unit_warning)}`}
-                            title={r.unit_warning}
+                            title={r.unit_warning || `Factor unit: ${r.factor_ghg_unit}`}
                           >
-                            {r.factor_ghg_unit ? `Unit: ${r.factor_ghg_unit}` : "Unit missing"}
+                            {`Unit: ${r.factor_ghg_unit}`}
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
-                            OK
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                            Unit missing
                           </span>
                         )}
                       </td>
@@ -1028,16 +1028,16 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{r.mapped_scope ? `${r.mapped_scope} - ${r.mapped_report_label || ""}` : "Unmapped"}</td>
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
                       <td className="p-2">
-                        {r.unit_warning ? (
+                        {r.factor_ghg_unit ? (
                           <span
                             className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(r.factor_ghg_unit, r.unit_warning)}`}
-                            title={r.unit_warning}
+                            title={r.unit_warning || `Factor unit: ${r.factor_ghg_unit}`}
                           >
-                            {r.factor_ghg_unit ? `Unit: ${r.factor_ghg_unit}` : "Unit missing"}
+                            {`Unit: ${r.factor_ghg_unit}`}
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
-                            OK
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                            Unit missing
                           </span>
                         )}
                       </td>
