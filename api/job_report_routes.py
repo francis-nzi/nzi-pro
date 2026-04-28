@@ -647,6 +647,7 @@ def _store_report_version_artifact(
           notes, generated_by, reviewed_at, reviewed_by, finalized_at, finalized_by
         )
         VALUES (%s, %s, %s, %s, %s, %s, 'pdf', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s,
                 CASE WHEN lower(%s) = 'review' THEN NOW() ELSE NULL END,
                 CASE WHEN lower(%s) = 'review' THEN %s ELSE NULL END,
                 CASE WHEN lower(%s) = 'final' THEN NOW() ELSE NULL END,
@@ -672,6 +673,7 @@ def _store_report_version_artifact(
             data_hash,
             snapshot_json,
             notes,
+            generated_by,
             status,
             status,
             generated_by,
