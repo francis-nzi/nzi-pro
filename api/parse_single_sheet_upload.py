@@ -355,6 +355,16 @@ def parse_single_sheet_upload(
     return rows_ready, errors, warnings, details
 
 
+def _safe_str(val) -> str | None:
+    """Convert a pandas/DB value to str or None, handling NaN and None safely."""
+    if val is None:
+        return None
+    if isinstance(val, float) and pd.isna(val):
+        return None
+    text = str(val).strip()
+    return text or None
+
+
 def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id: int) -> dict[str, dict]:
     """
     Lookup factors from factor_lookup and custom_conversion_factors.
@@ -388,15 +398,15 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
                 factor_map[oid] = {
                     "db_id": int(row["db_id"]) if pd.notna(row["db_id"]) else None,
                     "original_id": oid,
-                    "level_1": row.get("level_1"),
-                    "level_2": row.get("level_2"),
-                    "level_3": row.get("level_3"),
-                    "level_4": row.get("level_4"),
-                    "column_text": row.get("column_text"),
-                    "uom": row.get("uom"),
-                    "ghg_unit": row.get("ghg_unit"),
+                    "level_1": _safe_str(row.get("level_1")),
+                    "level_2": _safe_str(row.get("level_2")),
+                    "level_3": _safe_str(row.get("level_3")),
+                    "level_4": _safe_str(row.get("level_4")),
+                    "column_text": _safe_str(row.get("column_text")),
+                    "uom": _safe_str(row.get("uom")),
+                    "ghg_unit": _safe_str(row.get("ghg_unit")),
                     "factor": float(row["factor"]) if pd.notna(row["factor"]) else 0.0,
-                    "report_label": row.get("report_label")
+                    "report_label": _safe_str(row.get("report_label")),
                 }
         
         # Custom factors (check by custom_id matching original_ids)
@@ -430,15 +440,15 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
                     "db_id": None,  # Custom factors don't have db_id in factor_lookup
                     "custom_factor_id": int(row["custom_factor_id"]),
                     "original_id": cid,
-                    "level_1": row.get("level_1"),
-                    "level_2": row.get("level_2"),
-                    "level_3": row.get("level_3"),
-                    "level_4": row.get("level_4"),
-                    "column_text": row.get("category"),
-                    "uom": row.get("uom"),
-                    "ghg_unit": row.get("ghg_unit"),
+                    "level_1": _safe_str(row.get("level_1")),
+                    "level_2": _safe_str(row.get("level_2")),
+                    "level_3": _safe_str(row.get("level_3")),
+                    "level_4": _safe_str(row.get("level_4")),
+                    "column_text": _safe_str(row.get("category")),
+                    "uom": _safe_str(row.get("uom")),
+                    "ghg_unit": _safe_str(row.get("ghg_unit")),
                     "factor": float(row["factor"]) if pd.notna(row["factor"]) else 0.0,
-                    "report_label": row.get("report_label")
+                    "report_label": _safe_str(row.get("report_label")),
                 }
     
     return factor_map
