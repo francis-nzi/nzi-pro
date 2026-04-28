@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, CheckCircle2, FileText, Sparkles, Target } from "lucide-react";
+import { apiUrl } from "@/lib/auth-client";
 
 type ReportTemplate = {
   template_id: number;
@@ -410,6 +411,7 @@ export default function JobReportNew({
   const [loading, setLoading] = useState(true);
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [savingReportVersion, setSavingReportVersion] = useState(false);
+  const [reportVersionBusy, setReportVersionBusy] = useState<{ id: number; kind: "download" | "snapshot" } | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -722,6 +724,92 @@ export default function JobReportNew({
   }).length;
   const draftStarted = draftedSectionCount > 0;
   const latestReportVersion = reportVersions[0] || null;
+
+  const downloadReportVersion = useCallback(
+    async (version: ReportVersion) => {
+      if (!version.download_url || reportVersionBusy) {
+        return;
+      }
+      setReportVersionBusy({ id: version.report_version_id, kind: "download" });
+      setError("");
+      try {
+        const res = await fetchWithRetry(apiUrl(version.download_url), { credentials: "include" }, 1);
+        if (!res.ok) {
+          let message = `Failed to download version PDF (${res.status})`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) {
+              message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+            }
+          } catch {
+            // Keep fallback message.
+          }
+          throw new Error(message);
+        }
+        const blob = await res.blob();
+        const disposition = res.headers.get("Content-Disposition") || "";
+        const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+        const filename = filenameMatch?.[1] || `job-${jobId}-report-v${version.version_number}.pdf`;
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(url);
+        setStatus(`Downloaded ${version.version_label || `v${version.version_number}`}.`);
+      } catch (err) {
+        setError(formatFriendlyFetchError(err, "Failed to download report version"));
+      } finally {
+        setReportVersionBusy(null);
+      }
+    },
+    [jobId, reportVersionBusy]
+  );
+
+  const openReportVersionSnapshot = useCallback(
+    async (version: ReportVersion) => {
+      if (!version.snapshot_url || reportVersionBusy) {
+        return;
+      }
+      setReportVersionBusy({ id: version.report_version_id, kind: "snapshot" });
+      setError("");
+      const previewWindow = window.open("", "_blank", "noopener,noreferrer");
+      if (!previewWindow) {
+        setReportVersionBusy(null);
+        setError("Pop-up blocked. Please allow pop-ups for frozen previews.");
+        return;
+      }
+      try {
+        const res = await fetchWithRetry(apiUrl(version.snapshot_url), { credentials: "include" }, 1);
+        if (!res.ok) {
+          let message = `Failed to open frozen preview (${res.status})`;
+          try {
+            const payload = await res.json();
+            if (payload?.detail) {
+              message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
+            }
+          } catch {
+            // Keep fallback message.
+          }
+          throw new Error(message);
+        }
+        const html = await res.text();
+        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+        const url = window.URL.createObjectURL(blob);
+        previewWindow.location.href = url;
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+        setStatus(`Opened frozen preview for ${version.version_label || `v${version.version_number}`}.`);
+      } catch (err) {
+        previewWindow.close();
+        setError(formatFriendlyFetchError(err, "Failed to open frozen preview"));
+      } finally {
+        setReportVersionBusy(null);
+      }
+    },
+    [reportVersionBusy]
+  );
 
   const saveReviewPdf = useCallback(async () => {
     setSavingReportVersion(true);
@@ -1299,24 +1387,28 @@ export default function JobReportNew({
                       ) : null}
                       <div className="mt-2 flex flex-wrap gap-3 text-xs">
                         {latestReportVersion.download_url ? (
-                          <a
-                            href={`${baseUrl}${latestReportVersion.download_url}`}
-                            className="text-slate-600 underline-offset-4 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-xs text-slate-600 underline-offset-4 hover:underline"
+                            onClick={() => void downloadReportVersion(latestReportVersion)}
+                            disabled={reportVersionBusy?.id === latestReportVersion.report_version_id}
                           >
                             Download
-                          </a>
+                          </Button>
                         ) : null}
                         {latestReportVersion.snapshot_url ? (
-                          <a
-                            href={`${baseUrl}${latestReportVersion.snapshot_url}`}
-                            className="text-slate-600 underline-offset-4 hover:underline"
-                            target="_blank"
-                            rel="noreferrer"
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-xs text-slate-600 underline-offset-4 hover:underline"
+                            onClick={() => void openReportVersionSnapshot(latestReportVersion)}
+                            disabled={reportVersionBusy?.id === latestReportVersion.report_version_id}
                           >
                             Frozen preview
-                          </a>
+                          </Button>
                         ) : null}
                         <Link
                           href={`/jobs/${jobId}/admin/certificate`}
