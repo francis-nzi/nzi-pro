@@ -1128,6 +1128,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return "bg-amber-100 text-amber-800";
   }
 
+  function isKgBasedUnit(unit?: string | null): boolean {
+    return Boolean(unit && unit.replace(/\s+/g, "").toLowerCase().includes("kg"));
+  }
+
+  function unitBadgeClass(unit?: string | null, warning?: string | null): string {
+    if (!unit) return "bg-slate-100 text-slate-800";
+    if (isKgBasedUnit(unit) && !warning) return "bg-emerald-100 text-emerald-900";
+    return "bg-amber-100 text-amber-900";
+  }
+
   function isLegacyFallbackRow(row: ScopeDataRow): boolean {
     return Boolean(row.uses_emissions_fallback);
   }
@@ -1722,14 +1732,18 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                           <div className="truncate text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
                             {rowDisplaySubtitle(row)}
                           </div>
-                          {row.unit_warning ? (
+                          {row.ghg_unit ? (
                             <div
-                              className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
-                              title={row.unit_warning}
+                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(row.ghg_unit, row.unit_warning)}`}
+                              title={row.unit_warning || `Factor unit: ${row.ghg_unit}`}
                             >
-                              Unit check
+                              {`Unit: ${row.ghg_unit}`}
                             </div>
-                          ) : null}
+                          ) : (
+                            <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                              Unit missing
+                            </div>
+                          )}
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
@@ -1844,11 +1858,21 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                 <div className="text-muted-foreground">Factor</div>
                                 <div className="font-mono break-all">{factorDisplayText(row)}</div>
                               </div>
-                              {row.unit_warning && (
+                              {row.ghg_unit ? (
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
-                                  <div className="text-muted-foreground">Unit Warning</div>
-                                  <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
-                                    {row.unit_warning}
+                                  <div className="text-muted-foreground">Unit</div>
+                                  <div
+                                    className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(row.ghg_unit, row.unit_warning)}`}
+                                    title={row.unit_warning || `Factor unit: ${row.ghg_unit}`}
+                                  >
+                                    {`Unit: ${row.ghg_unit}`}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-xs md:col-span-2 lg:col-span-4">
+                                  <div className="text-muted-foreground">Unit</div>
+                                  <div className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                                    Unit missing
                                   </div>
                                 </div>
                               )}
