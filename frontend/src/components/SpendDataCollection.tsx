@@ -898,7 +898,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                         className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
                         title={f.unit_warning}
                       >
-                        Unit warning
+                        {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
                       </span>
                     ) : null}
                   </SelectItem>
@@ -950,7 +950,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                           className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
                           title={f.unit_warning}
                         >
-                          Unit warning
+                          {f.ghg_unit ? `Unit: ${f.ghg_unit}` : "Unit missing"}
                         </span>
                       ) : null}
                     </SelectItem>
