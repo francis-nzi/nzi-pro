@@ -6,6 +6,7 @@ import { Download, FileText, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatEmissions } from "@/lib/format";
+import { getToken } from "@/lib/auth-client";
 
 type CertificateDetails = {
   certificate_id: number;
@@ -47,10 +48,12 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
       setLoading(true);
       setError("");
       try {
+        const token = getToken();
         const response = await fetch(`${baseUrl}/jobs/${jobId}/emissions-certificate`, {
           cache: "no-store",
           headers: {
             "Cache-Control": "no-cache",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         });
         if (!response.ok) {
@@ -77,13 +80,33 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
     };
   }, [baseUrl, jobId]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!jobId || downloading) return;
     setDownloading(true);
     try {
-      window.open(`${baseUrl}/jobs/${jobId}/emissions-certificate/pdf?ts=${Date.now()}`, "_blank", "noopener,noreferrer");
+      const token = getToken();
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/emissions-certificate/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      a.download = match ? match[1] : `emissions-certificate-${jobId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Download failed");
     } finally {
-      setTimeout(() => setDownloading(false), 1000);
+      setDownloading(false);
     }
   };
 
