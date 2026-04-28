@@ -30,6 +30,8 @@ type SpendEntry = {
   factor_db_id: number | null;
   mapped_scope: string | null;
   mapped_report_label: string | null;
+  factor_ghg_unit?: string | null;
+  unit_warning?: string | null;
   estimated_emissions_kgco2e: number;
   estimated_emissions_tco2e: number;
   notes?: string | null;
@@ -46,6 +48,8 @@ type SpendPreviewRow = {
   mapping_status: string;
   mapped_scope: string | null;
   mapped_report_label: string | null;
+  factor_ghg_unit?: string | null;
+  unit_warning?: string | null;
   estimated_emissions_kgco2e?: number | null;
   estimated_emissions_tco2e?: number | null;
 };
@@ -94,6 +98,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
     total_spend_net?: number;
     mapped_spend_net?: number;
     unmapped_spend_net?: number;
+    warning_count?: number;
   } | null>(null);
   const [replaceExisting, setReplaceExisting] = useState(false);
 
@@ -816,13 +821,14 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
               {" "}Total Spend (Net): {(previewSummary.total_spend_net ?? 0).toLocaleString()}.
               {" "}Mapped Spend (Net): {(previewSummary.mapped_spend_net ?? 0).toLocaleString()}.
               {" "}Unmapped Spend (Net): {(previewSummary.unmapped_spend_net ?? 0).toLocaleString()}.
+              {previewSummary.warning_count ? ` ${previewSummary.warning_count} factor warning(s).` : ""}
             </div>
           ) : null}
           {previewRows.length > 0 ? (
             <div className="max-h-72 overflow-auto rounded border">
               <table className="w-full text-sm">
                 <thead className="bg-muted">
-                  <tr><th className="p-2 text-left">Site</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Net</th><th className="p-2 text-left">Gross</th><th className="p-2 text-left">Suggested Mapping</th><th className="p-2 text-left">Est tCO₂e</th></tr>
+                  <tr><th className="p-2 text-left">Site</th><th className="p-2 text-left">Code</th><th className="p-2 text-left">Description</th><th className="p-2 text-left">Net</th><th className="p-2 text-left">Gross</th><th className="p-2 text-left">Suggested Mapping</th><th className="p-2 text-left">Est tCO₂e</th><th className="p-2 text-left">Check</th></tr>
                 </thead>
                 <tbody>
                   {previewRows.slice(0, 100).map((r, idx) => (
@@ -834,6 +840,15 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{r.currency} {r.amount_gross.toLocaleString()}</td>
                       <td className="p-2">{r.mapped_scope ? `${r.mapped_scope} - ${r.mapped_report_label || ""}` : "Unmapped"}</td>
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
+                      <td className="p-2">
+                        {r.unit_warning ? (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900" title={r.unit_warning}>
+                            Unit warning
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">OK</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -956,6 +971,7 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                     <th className="p-2 text-left">VAT %</th>
                     <th className="p-2 text-left">Mapping</th>
                     <th className="p-2 text-left">Est tCO₂e</th>
+                    <th className="p-2 text-left">Check</th>
                     <th className="p-2 text-left">Actions</th>
                   </tr>
                 </thead>
@@ -970,6 +986,15 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{r.vat_pct}</td>
                       <td className="p-2">{r.mapped_scope ? `${r.mapped_scope} - ${r.mapped_report_label || ""}` : "Unmapped"}</td>
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
+                      <td className="p-2">
+                        {r.unit_warning ? (
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900" title={r.unit_warning}>
+                            Unit warning
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">OK</span>
+                        )}
+                      </td>
                       <td className="p-2">
                         <div className="flex gap-2">
                           <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(r)}>Edit</Button>

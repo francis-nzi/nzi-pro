@@ -230,7 +230,7 @@ def _factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
     label_expr = _factor_label_expr(con)
     row = con.execute(
         f"""
-        SELECT db_id, dataset_id, original_id, scope, {category_expr} AS category, {label_expr} AS report_label, factor
+        SELECT db_id, dataset_id, original_id, scope, {category_expr} AS category, {label_expr} AS report_label, factor, ghg_unit
         FROM factor_lookup
         WHERE db_id = %s
         LIMIT 1
@@ -247,7 +247,21 @@ def _factor_by_id(con, factor_db_id: int) -> dict[str, Any] | None:
         "category": row[4],
         "report_label": row[5],
         "factor": _safe_float(row[6], 0.0),
+        "ghg_unit": str(row[7]).strip() if row[7] is not None else None,
     }
+
+
+def _is_kg_based_unit(ghg_unit: str | None) -> bool:
+    return "kg" in str(ghg_unit or "").replace(" ", "").lower()
+
+
+def _spend_factor_warning(ghg_unit: str | None) -> str | None:
+    unit = str(ghg_unit or "").strip()
+    if not unit:
+        return "Factor unit is missing; review the mapped factor before pushing."
+    if not _is_kg_based_unit(unit):
+        return f"Mapped factor unit is '{unit}'. Spend rows should normally use a kg-based factor before conversion to tCO2e."
+    return None
 
 
 def _auto_mapping(con, client_db_id: int, code_type: str, reference_code: str, normalized_description: str) -> dict[str, Any] | None:
@@ -611,9 +625,11 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
                    amount_net, amount_gross, vat_pct, dataset_id, factor_db_id, factor_original_id,
                    mapped_scope, mapped_category, mapped_report_label,
                    mapping_status, mapping_confidence, estimated_emissions_tco2e,
+                   fl.ghg_unit AS factor_ghg_unit,
                    notes, e.created_at, e.updated_at
             FROM job_spend_entries e
             LEFT JOIN client_sites s ON s.site_id = e.site_id
+            LEFT JOIN factor_lookup fl ON fl.db_id = e.factor_db_id
             WHERE e.job_id = %s AND COALESCE(e.is_deleted, FALSE) = FALSE
             ORDER BY e.entry_id DESC
             """,
@@ -649,6 +665,8 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
                     "mapped_report_label": _safe_optional_str(row.get("mapped_report_label")),
                     "mapping_status": _safe_optional_str(row.get("mapping_status")) or "unmapped",
                     "mapping_confidence": _safe_optional_str(row.get("mapping_confidence")),
+                    "factor_ghg_unit": _safe_optional_str(row.get("factor_ghg_unit")),
+                    "unit_warning": _spend_factor_warning(_safe_optional_str(row.get("factor_ghg_unit"))),
                     "estimated_emissions_kgco2e": _safe_float(row.get("estimated_emissions_tco2e"), 0.0),
                     "estimated_emissions_tco2e": _safe_float(row.get("estimated_emissions_tco2e"), 0.0) / 1000.0,
                     "notes": _safe_optional_str(row.get("notes")),
@@ -1332,6 +1350,7 @@ async def preview_spend_upload(
             converted_net = amount_net * conversion_rate
             amount = _gross_from_net(converted_net, _safe_float(r.get("vat_pct"), 0.0))
             factor = _safe_float((mapping or {}).get("factor"), 0.0)
+            factor_ghg_unit = str((mapping or {}).get("ghg_unit") or "").strip() or None
             items.append(
                 {
                     "reference_code": code,
@@ -1347,6 +1366,8 @@ async def preview_spend_upload(
                     "mapped_scope": (mapping or {}).get("scope"),
                     "mapped_report_label": (mapping or {}).get("report_label"),
                     "factor_db_id": (mapping or {}).get("factor_db_id"),
+                    "factor_ghg_unit": factor_ghg_unit,
+                    "unit_warning": _spend_factor_warning(factor_ghg_unit) if mapping else None,
                     "estimated_emissions_kgco2e": converted_net * factor if mapping else None,
                     "estimated_emissions_tco2e": (converted_net * factor / 1000.0) if mapping else None,
                 }
@@ -1361,6 +1382,7 @@ async def preview_spend_upload(
             "total_spend_net": round(sum(_safe_float(x.get("amount_net"), 0.0) for x in items), 2),
             "mapped_spend_net": round(sum(_safe_float(x.get("amount_net"), 0.0) for x in items if str(x.get("mapping_status") or "").lower() == "suggested"), 2),
             "unmapped_spend_net": round(sum(_safe_float(x.get("amount_net"), 0.0) for x in items if str(x.get("mapping_status") or "").lower() != "suggested"), 2),
+            "warning_count": len([x for x in items if x.get("unit_warning")]),
         },
     }
 
