@@ -307,6 +307,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     const nextRow = { ...row, ...patch };
     const nextQty = patch.qty !== undefined ? Number(patch.qty ?? 0) : Number(nextRow.qty ?? 0);
     const nextApply = patch.apply_pct !== undefined ? Number(patch.apply_pct ?? 100) : Number(nextRow.apply_pct ?? 100);
+    const nextGhgUnit = patch.ghg_unit !== undefined ? patch.ghg_unit : nextRow.ghg_unit;
 
     let nextBefore = Number(nextRow.tco2e_before_apply ?? 0);
     const currentQty = Number(row.qty ?? 0);
@@ -316,6 +317,9 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     if (patch.qty !== undefined) {
       if (factor !== null) {
         nextBefore = nextQty * factor;
+        if (isKgBasedUnit(nextGhgUnit)) {
+          nextBefore /= 1000.0;
+        }
       } else if (currentQty !== 0) {
         nextBefore = Number(row.tco2e_before_apply ?? 0) * (nextQty / currentQty);
       } else {
