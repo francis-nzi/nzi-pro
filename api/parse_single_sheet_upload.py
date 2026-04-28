@@ -303,16 +303,16 @@ def parse_single_sheet_upload(
                 continue
             
             factor_info = factor_map[oid]
-            
+
             # Calculate tCO2e
             qty = r["qty"]
             factor = factor_info["factor"]
             apply_pct = r["apply_pct"]
-            ghg_unit = factor_info.get("ghg_unit", "kgCO2e")
-            
+            ghg_unit = factor_info.get("ghg_unit") or "kgCO2e"
+
             # Convert to tCO2e
             emissions = qty * factor * (apply_pct / 100.0)
-            if "kg" in ghg_unit.lower():
+            if "kg" in str(ghg_unit).lower():
                 emissions = emissions / 1000.0  # kg to tonnes
             
             rows_ready.append({

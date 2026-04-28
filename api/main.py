@@ -3034,9 +3034,12 @@ async def job_excel_upload(
         details["template_format"] = "single-sheet"
         
         # Parse single-sheet format
-        rows_ready, parse_errors, parse_warnings, parse_details = parse_single_sheet_upload(
-            raw, int(job_id), ds_map
-        )
+        try:
+            rows_ready, parse_errors, parse_warnings, parse_details = parse_single_sheet_upload(
+                raw, int(job_id), ds_map
+            )
+        except Exception as parse_exc:
+            raise HTTPException(status_code=400, detail=f"Failed to parse workbook: {parse_exc}")
         
         errors.extend(parse_errors)
         warnings.extend(parse_warnings)
