@@ -530,6 +530,7 @@ def run_migrations():
                   excel_template_path VARCHAR,
                   crp_template_path VARCHAR,
                   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                  created_by VARCHAR,
                   created_at TIMESTAMP DEFAULT NOW()
                 )
                 """
@@ -537,13 +538,15 @@ def run_migrations():
 
             con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS template_type VARCHAR DEFAULT 'dataset'")
             con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS file_path VARCHAR")
+            con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR")
+            con.execute("UPDATE job_templates SET created_by = COALESCE(created_by, 'system') WHERE created_by IS NULL")
             
             # Insert default Standard UK template
             con.execute(
                 """
-                INSERT INTO job_templates (template_key, template_name, template_type, excel_template_path, is_active)
+                INSERT INTO job_templates (template_key, template_name, template_type, excel_template_path, is_active, created_by)
                 SELECT 'STANDARD_UK', 'NZI Standard UK Template', 'dataset', 
-                       'templates/NZI Data Upload Template - Standard UK.xlsx', TRUE
+                       'templates/NZI Data Upload Template - Standard UK.xlsx', TRUE, 'system'
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_templates WHERE template_key = 'STANDARD_UK'
                 )
@@ -605,13 +608,14 @@ def run_migrations():
 
             con.execute(
                 """
-                INSERT INTO job_templates (template_key, template_name, excel_template_path, crp_template_path, is_active)
+                INSERT INTO job_templates (template_key, template_name, excel_template_path, crp_template_path, is_active, created_by)
                 SELECT
                   'basic_uk',
                   'NZI Data Upload Template - Basic UK',
                   'templates/NZI Data Upload Template - Basic UK.xlsx',
                   'templates/DEMOCO Carbon Reduction Plan Dec 2025 - Second Year Onwards.docx',
-                  TRUE
+                  TRUE,
+                  'system'
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_templates WHERE template_key='basic_uk'
                 )

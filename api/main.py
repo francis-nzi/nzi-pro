@@ -1900,19 +1900,26 @@ def complete_milestone(
 
 
 @app.get("/job-templates")
-def list_job_templates(_user: dict[str, str] = Depends(_current_user)):
+def list_job_templates(
+    include_archived: bool = Query(False),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    if not isinstance(include_archived, bool):
+        include_archived = bool(getattr(include_archived, "default", False))
     try:
         with get_conn() as con:
-            df = (
-                con.execute(
-                    """
-                    SELECT job_template_id, template_key, template_name,
-                           template_type, file_path, excel_template_path, crp_template_path, is_active
-                    FROM job_templates
-                    ORDER BY template_type, template_key
-                    """
-                ).df()
-            )
+            where_clause = "" if include_archived else "WHERE COALESCE(archived, FALSE) = FALSE"
+            df = con.execute(
+                f"""
+                SELECT job_template_id, template_key, template_name,
+                       template_type, file_path, excel_template_path, crp_template_path,
+                       is_active, COALESCE(archived, FALSE) AS archived, archived_at, archived_by,
+                       created_at, created_by
+                FROM job_templates
+                {where_clause}
+                ORDER BY template_type, template_key
+                """
+            ).df()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"/job-templates failed: {e}")
 
@@ -1921,6 +1928,19 @@ def list_job_templates(_user: dict[str, str] = Depends(_current_user)):
         import numpy as np
         df = df.replace({np.nan: None})
         for _, row in df.iterrows():
+            file_name = None
+            for candidate in (
+                row.get("file_path"),
+                row.get("excel_template_path"),
+                row.get("crp_template_path"),
+            ):
+                if candidate:
+                    try:
+                        file_name = Path(str(candidate)).name
+                    except Exception:
+                        file_name = str(candidate)
+                    if file_name:
+                        break
             items.append(
                 {
                     "job_template_id": int(row["job_template_id"]),
@@ -1931,6 +1951,12 @@ def list_job_templates(_user: dict[str, str] = Depends(_current_user)):
                     "excel_template_path": row["excel_template_path"],
                     "crp_template_path": row["crp_template_path"],
                     "is_active": bool(row["is_active"]),
+                    "archived": bool(row["archived"]) if row.get("archived") is not None else False,
+                    "archived_at": row.get("archived_at"),
+                    "archived_by": row.get("archived_by"),
+                    "created_at": row.get("created_at"),
+                    "created_by": row.get("created_by"),
+                    "file_name": file_name,
                 }
             )
 
@@ -2035,11 +2061,12 @@ async def create_job_template(
             if exists:
                 raise HTTPException(status_code=400, detail="Template key already exists")
             
+            creator = _user.get("email") or _user.get("name") or "system"
             row = con.execute(
                 """
                 INSERT INTO job_templates 
-                (template_key, template_name, template_type, file_path, is_active)
-                VALUES (%s, %s, %s, %s, %s)
+                (template_key, template_name, template_type, file_path, is_active, created_by, archived)
+                VALUES (%s, %s, %s, %s, %s, %s, FALSE)
                 RETURNING job_template_id
                 """,
                 [
@@ -2047,7 +2074,8 @@ async def create_job_template(
                     template_name or None,
                     template_type,
                     str(file_path),
-                    is_active.lower() == "true"
+                    is_active.lower() == "true",
+                    creator,
                 ]
             ).fetchone()
             
@@ -2114,8 +2142,22 @@ async def update_job_template(
                 params.append(template_type)
             
             if is_active is not None:
+                active_value = is_active.lower() == "true"
                 updates.append("is_active = %s")
-                params.append(is_active.lower() == "true")
+                params.append(active_value)
+                if active_value:
+                    updates.extend([
+                        "archived = FALSE",
+                        "archived_at = NULL",
+                        "archived_by = NULL",
+                    ])
+                else:
+                    updates.extend([
+                        "archived = TRUE",
+                        "archived_at = NOW()",
+                        "archived_by = %s",
+                    ])
+                    params.append(_user.get("email") or _user.get("name") or "system")
             
             # Handle file upload if provided
             if file and file.filename:
@@ -2185,13 +2227,13 @@ def archive_job_template(
                 raise HTTPException(status_code=404, detail="Template not found")
             
             archived = body.get("archived", True)
-            user_name = _user.get("name", "system")
+            user_name = _user.get("email") or _user.get("name") or "system"
             
             if archived:
                 con.execute(
                     """
                     UPDATE job_templates 
-                    SET archived = %s, archived_at = NOW(), archived_by = %s
+                    SET is_active = FALSE, archived = %s, archived_at = NOW(), archived_by = %s
                     WHERE job_template_id = %s
                     """,
                     [True, user_name, int(template_id)]
@@ -2200,7 +2242,7 @@ def archive_job_template(
                 con.execute(
                     """
                     UPDATE job_templates 
-                    SET archived = %s, archived_at = NULL, archived_by = NULL
+                    SET is_active = TRUE, archived = %s, archived_at = NULL, archived_by = NULL
                     WHERE job_template_id = %s
                     """,
                     [False, int(template_id)]
@@ -2214,7 +2256,7 @@ def archive_job_template(
 
 
 @app.put("/jobs/{job_id}/job-template")
-def update_job_template(
+def update_job_template_assignment(
     request: Request,
     job_id: int,
     payload: dict[str, object] = Body(...),

@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS public.job_templates (
   excel_template_path text,
   crp_template_path text,
   is_active boolean NOT NULL DEFAULT true,
+  created_by text,
+  archived boolean NOT NULL DEFAULT false,
+  archived_at timestamptz,
+  archived_by text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -27,13 +31,14 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO public.job_templates (template_key, template_name, excel_template_path, crp_template_path, is_active)
+INSERT INTO public.job_templates (template_key, template_name, excel_template_path, crp_template_path, is_active, created_by)
 SELECT
   'basic_uk',
   'NZI Data Upload Template - Basic UK',
   'templates/NZI Data Upload Template - Basic UK.xlsx',
   'templates/DEMOCO Carbon Reduction Plan Dec 2025 - Second Year Onwards.docx',
-  true
+  true,
+  'system'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.job_templates WHERE template_key='basic_uk'
 );

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +32,12 @@ type JobTemplate = {
   template_type: string;
   file_path: string | null;
   is_active: boolean;
+  archived?: boolean | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+  file_name?: string | null;
 };
 
 type DatasetCatalogItem = {
@@ -88,6 +94,16 @@ export default function TemplatesPage() {
       setLoading(false);
     }
   }, [baseUrl]);
+
+  function formatTemplateTimestamp(value: string | null | undefined) {
+    if (!value) return "Unknown";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return new Intl.DateTimeFormat("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed);
+  }
 
   const loadDatasetCatalog = useCallback(async () => {
     try {
@@ -193,9 +209,9 @@ export default function TemplatesPage() {
     setTemplateType(activeTab);
   }, [activeTab]);
 
-  const filteredTemplates = templates.filter(t => t.template_type === activeTab);
-  const activeTemplates = filteredTemplates.filter(t => t.is_active);
-  const inactiveTemplates = filteredTemplates.filter(t => !t.is_active);
+  const filteredTemplates = templates.filter((t) => t.template_type === activeTab && !t.archived);
+  const activeTemplates = filteredTemplates.filter((t) => t.is_active);
+  const inactiveTemplates = filteredTemplates.filter((t) => !t.is_active);
 
   function startEdit(template: JobTemplate) {
     setEditingId(template.job_template_id);
@@ -288,17 +304,17 @@ export default function TemplatesPage() {
   async function deleteTemplate(id: number) {
     const confirmed = await confirmAction({
       title: "Deactivate template?",
-      description: "This template will be marked inactive.",
+      description: "This template will be archived and removed from the active list.",
       confirmLabel: "Deactivate",
       destructive: true,
     });
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`${baseUrl}/job-templates/${id}`, {
+      const res = await fetch(`${baseUrl}/job-templates/${id}/archive`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: false }),
+        body: JSON.stringify({ archived: true }),
       });
 
       if (!res.ok) {
@@ -461,7 +477,7 @@ export default function TemplatesPage() {
             </p>
           </div>
           <Button variant="secondary" asChild>
-            <Link href="/admin">← Back to Admin</Link>
+            <Link href="/admin">â† Back to Admin</Link>
           </Button>
         </div>
 
@@ -512,11 +528,15 @@ export default function TemplatesPage() {
                             {t.template_key}
                           </div>
                           <div className="mt-2 space-y-1 text-xs">
-                            {t.file_path && (
-                              <div className="break-words text-muted-foreground">
-                                � File: {t.file_path}
-                              </div>
-                            )}
+                            <div className="break-words text-muted-foreground">
+                              File: {t.file_name || t.file_path || "Unknown"}
+                            </div>
+                            <div className="break-words text-muted-foreground">
+                              Created: {formatTemplateTimestamp(t.created_at)}
+                            </div>
+                            <div className="break-words text-muted-foreground">
+                              Created by: {t.created_by || "system"}
+                            </div>
                             <div className="text-muted-foreground">
                               Type: {t.template_type === 'dataset' ? '📊 Data Collection' : '📄 Report'}
                             </div>
@@ -768,11 +788,15 @@ export default function TemplatesPage() {
                                 {t.template_key}
                               </div>
                               <div className="mt-2 space-y-1 text-xs">
-                                {t.file_path && (
-                                  <div className="text-muted-foreground">
-                                    📁 File: {t.file_path}
-                                  </div>
-                                )}
+                                <div className="text-muted-foreground">
+                                  File: {t.file_name || t.file_path || "Unknown"}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Created: {formatTemplateTimestamp(t.created_at)}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  Created by: {t.created_by || "system"}
+                                </div>
                                 <div className="text-muted-foreground">
                                   Type: {t.template_type === 'dataset' ? '📊 Data Collection' : '📄 Report'}
                                 </div>
@@ -814,21 +838,21 @@ export default function TemplatesPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
-              <h3 className="font-medium mb-2">📊 Data Collection Templates</h3>
+              <h3 className="font-medium mb-2">ðŸ“Š Data Collection Templates</h3>
               <p className="text-muted-foreground">
                 Excel templates for collecting emissions data from clients. Upload .xlsx or .xls files.
                 These templates are populated with conversion factors and sent to clients for data entry.
               </p>
             </div>
             <div>
-              <h3 className="font-medium mb-2">📄 Report Templates</h3>
+              <h3 className="font-medium mb-2">ðŸ“„ Report Templates</h3>
               <p className="text-muted-foreground">
                 Word or PDF templates for generating Carbon Reduction Plans and other reports.
                 Upload .docx or .pdf files with placeholders that will be replaced with actual data.
               </p>
             </div>
             <div>
-              <h3 className="font-medium mb-2">📋 Usage</h3>
+              <h3 className="font-medium mb-2">ðŸ“‹ Usage</h3>
               <p className="text-muted-foreground">
                 Templates are assigned to jobs. Upload files directly - they will be stored securely
                 and versioned. Each template type is managed separately in its own tab.
@@ -840,7 +864,7 @@ export default function TemplatesPage() {
         {/* Sample Templates */}
         <Card className="mt-6 border-primary/20">
           <CardHeader>
-            <CardTitle style={{ color: '#F26624' }}>📑 Sample Report Templates</CardTitle>
+            <CardTitle style={{ color: '#F26624' }}>ðŸ“‘ Sample Report Templates</CardTitle>
             <CardDescription>
               Framework templates for creating custom Word document reports
             </CardDescription>
@@ -883,7 +907,7 @@ export default function TemplatesPage() {
             </div>
 
             <div className="rounded-md bg-blue-50 border border-blue-200 p-4">
-              <h3 className="font-medium mb-2 text-blue-800">💡 Quick Start</h3>
+              <h3 className="font-medium mb-2 text-blue-800">ðŸ’¡ Quick Start</h3>
               <ol className="list-decimal ml-4 text-xs text-blue-700 space-y-1">
                 <li>Open <code>sample_report_template.html</code> in a text editor</li>
                 <li>Customize the sections to match your report format</li>
