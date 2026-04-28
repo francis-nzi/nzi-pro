@@ -858,11 +858,16 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
                       <td className="p-2">
                         {r.unit_warning ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900" title={r.unit_warning}>
-                            Unit warning
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(r.factor_ghg_unit, r.unit_warning)}`}
+                            title={r.unit_warning}
+                          >
+                            {r.factor_ghg_unit ? `Unit: ${r.factor_ghg_unit}` : "Unit missing"}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">OK</span>
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
+                            OK
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -1024,11 +1029,16 @@ export default function SpendDataCollection({ jobId, baseUrl }: { jobId: number;
                       <td className="p-2">{(r.estimated_emissions_tco2e || 0).toLocaleString()}</td>
                       <td className="p-2">
                         {r.unit_warning ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900" title={r.unit_warning}>
-                            Unit warning
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${factorUnitBadgeClass(r.factor_ghg_unit, r.unit_warning)}`}
+                            title={r.unit_warning}
+                          >
+                            {r.factor_ghg_unit ? `Unit: ${r.factor_ghg_unit}` : "Unit missing"}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground">OK</span>
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
+                            OK
+                          </span>
                         )}
                       </td>
                       <td className="p-2">
