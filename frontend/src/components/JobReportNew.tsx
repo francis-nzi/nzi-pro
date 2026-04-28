@@ -1094,21 +1094,6 @@ export default function JobReportNew({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-                {error}
-              </div>
-            )}
-            {status && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                {status}
-              </div>
-            )}
-            {loading && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                Loading the reporting workspace...
-              </div>
-            )}
             <div className="grid gap-4 md:grid-cols-2">
               {PROFILE_LIBRARY.map((profile) => {
                 const template = templates.find((item) => item.template_key === profile.templateKey);
@@ -1330,6 +1315,22 @@ export default function JobReportNew({
                 </div>
                 <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
               </div>
+
+              {loading ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  Loading the reporting workspace...
+                </div>
+              ) : null}
+              {error ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                  {error}
+                </div>
+              ) : null}
+              {status ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                  {status}
+                </div>
+              ) : null}
 
               <div className="grid gap-2">
                 {[
