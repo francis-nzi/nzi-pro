@@ -503,6 +503,7 @@ def _parse_conversion_factor_upload(path: Path, *, dataset_id: int | None = None
                 int(yr),
                 oid,
                 scope,
+                category,
                 l1,
                 l2,
                 l3,
