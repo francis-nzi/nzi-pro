@@ -65,6 +65,39 @@ def _calc_tco2e(qty: float | None, factor: float | None, ghg_unit: str | None, a
     return float(emissions)
 
 
+def _is_kg_based_unit(ghg_unit: str | None) -> bool:
+    return "kg" in str(ghg_unit or "").replace(" ", "").lower()
+
+
+def _effective_ghg_unit(
+    storage_uom: str | None,
+    storage_ghg_unit: str | None,
+    reference_ghg_unit: str | None,
+) -> str | None:
+    """Prefer the resolved factor unit when the stored row unit looks wrong.
+
+    Spend rows should normally retain kg-based factor units from the factor lookup.
+    Legacy or fallback rows intentionally storing tCO2e should keep their stored unit.
+    """
+    storage_unit = str(storage_ghg_unit or "").strip() or None
+    reference_unit = str(reference_ghg_unit or "").strip() or None
+    storage_uom_norm = str(storage_uom or "").strip().lower()
+
+    if not storage_unit:
+        return reference_unit
+
+    if _is_kg_based_unit(storage_unit):
+        return storage_unit
+
+    if storage_uom_norm == "tco2e":
+        return storage_unit
+
+    if _is_kg_based_unit(reference_unit):
+        return reference_unit
+
+    return storage_unit or reference_unit
+
+
 def _choose_factor_for_year(year_values: Mapping[int, float], preferred_year: int | None) -> tuple[float | None, int | None]:
     if not year_values:
         return None, None
@@ -494,6 +527,8 @@ class JobMonthlyEmissionsResolver:
                 reference_factor = _safe_float(ref_lookup.get("factor"))
                 reference_ghg_unit = ref_lookup.get("ghg_unit") or reference_ghg_unit
 
+        effective_ghg_unit = _effective_ghg_unit(storage_uom, storage_ghg_unit, reference_ghg_unit)
+
         has_source_volume = bool(source_qty is not None and source_uom)
         fallback_storage = bool(
             storage_uom is not None
@@ -517,8 +552,8 @@ class JobMonthlyEmissionsResolver:
 
         if uses_emissions_fallback:
             annual_storage_qty = storage_qty if storage_qty is not None else monthly_total
-            emissions = _calc_tco2e(annual_storage_qty, storage_factor, storage_ghg_unit, apply_pct)
-            emissions_before = _calc_tco2e(annual_storage_qty, storage_factor, storage_ghg_unit, 100.0)
+            emissions = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, apply_pct)
+            emissions_before = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, 100.0)
             factor_value = reference_factor if reference_factor is not None else storage_factor
             factor_label = None
             if factor_value is None and factor_reference:
@@ -570,7 +605,7 @@ class JobMonthlyEmissionsResolver:
                 )
 
                 month_factor = _safe_float((factor_info or {}).get("factor")) or storage_factor or 0.0
-                month_ghg_unit = (factor_info or {}).get("ghg_unit") or storage_ghg_unit
+                month_ghg_unit = (factor_info or {}).get("ghg_unit") or effective_ghg_unit
                 month_dataset_id = _safe_int((factor_info or {}).get("dataset_id"))
                 month_original_id = (factor_info or {}).get("original_id") or str(row.get("original_id") or "").strip() or None
                 month_dataset_category = (factor_info or {}).get("level_1") or (factor_info or {}).get("category")
@@ -625,8 +660,8 @@ class JobMonthlyEmissionsResolver:
             }
 
         annual_qty = storage_qty if storage_qty is not None else monthly_total
-        emissions = _calc_tco2e(annual_qty, storage_factor, storage_ghg_unit, apply_pct)
-        emissions_before = _calc_tco2e(annual_qty, storage_factor, storage_ghg_unit, 100.0)
+        emissions = _calc_tco2e(annual_qty, storage_factor, effective_ghg_unit, apply_pct)
+        emissions_before = _calc_tco2e(annual_qty, storage_factor, effective_ghg_unit, 100.0)
         dataset_id = _safe_int(row.get("dataset_id"))
         return {
             "display_qty": annual_qty,
