@@ -256,6 +256,7 @@ def get_client_dashboard(
                     diagnostic["error"] = f"any_org: {exc}"
 
             if jobs_df is not None and not jobs_df.empty:
+                jobs_df['dashboard_year_norm'] = jobs_df['dashboard_year'].apply(_safe_year_value)
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
             diagnostic["jobs_count"] = len(job_ids)
 
@@ -438,7 +439,7 @@ def get_client_dashboard(
 
                 year_intensity_metrics = []
                 if jobs_df is not None and not jobs_df.empty:
-                    selected_jobs = jobs_df[jobs_df['dashboard_year'] == yr]
+                    selected_jobs = jobs_df[jobs_df['dashboard_year_norm'] == yr]
                     if selected_jobs is not None and not selected_jobs.empty:
                         latest_job_id = int(selected_jobs.iloc[-1]['job_id'])
                         metrics_result = con.execute(
