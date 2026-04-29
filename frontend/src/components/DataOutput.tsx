@@ -634,6 +634,8 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               <div className="space-y-2">
                 {summaryData.scopes.map((scope) => {
                   const scopeExpanded = expandedScopes.has(scope.scope_name);
+                  const topCategories = scope.categories.slice(0, 5).map((category) => category.category_name);
+                  const remainingCategoryCount = Math.max(0, scope.categories.length - topCategories.length);
                   
                   return (
                     <div key={scope.scope_name} className="border rounded-md">
@@ -658,6 +660,25 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           >
                             View Details
                           </Button>
+                        </div>
+                      </div>
+
+                      <div className="px-3 pb-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="font-medium text-muted-foreground">Categories:</span>
+                          {topCategories.map((categoryName) => (
+                            <span
+                              key={`${scope.scope_name}-${categoryName}`}
+                              className="inline-flex rounded-full bg-sky-50 px-2 py-1 font-medium text-sky-800"
+                            >
+                              {categoryName}
+                            </span>
+                          ))}
+                          {remainingCategoryCount > 0 && (
+                            <span className="text-muted-foreground">
+                              +{remainingCategoryCount} more
+                            </span>
+                          )}
                         </div>
                       </div>
 
