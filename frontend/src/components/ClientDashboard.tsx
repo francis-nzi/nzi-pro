@@ -305,11 +305,6 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
   const total = Number(currentMetrics?.total_emissions || 0);
   const displayYear = selectedYear ?? currentMetrics?.year ?? data.selected_year ?? data.current_metrics.year ?? "N/A";
-  const benchmarkCaption = benchmarkPoint
-    ? benchmarkPoint.source === "client"
-              ? `${formatEmissions(benchmarkPoint.total)} tCO₂e (client baseline${benchmarkPoint.year ? `, ${benchmarkPoint.year}` : ""})`
-      : `${formatEmissions(benchmarkPoint.total)} tCO₂e (${benchmarkPoint.year ?? "benchmark"})`
-    : "No benchmark data available";
 
   return (
     <div className="space-y-6">
@@ -340,33 +335,33 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         <Card>
           <CardContent className="pt-6 text-right">
             <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Benchmark Emissions</div>
+              <div className="text-sm text-muted-foreground">
+                Benchmark Emissions{benchmarkPoint?.year ? ` (${benchmarkPoint.year})` : ""}
+              </div>
               <div className="text-3xl font-semibold tabular-nums">
                 {benchmarkPoint ? formatEmissions(benchmarkPoint.total) : "-"}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {benchmarkCaption}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 text-right">
+            <div className="space-y-1">
+              <div className="text-sm text-muted-foreground">
+                Current Year Emissions{displayYear ? ` (${displayYear})` : ""}
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Total Emissions</div>
               <div className="text-3xl font-semibold tabular-nums">{formatEmissions(total)}</div>
-              <div className="text-xs text-muted-foreground">tCO₂e ({displayYear})</div>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6 text-right">
             <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Employees Intensity Metric</div>
+              <div className="text-sm text-muted-foreground">Intensity Metric</div>
               <div className="text-3xl font-semibold tabular-nums">
                 {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(2) : "-"}
               </div>
-              <div className="truncate text-lg font-semibold">
+              <div className="text-xs text-muted-foreground">
                 {employeeIntensityMetric?.label || "No intensity data"}
               </div>
               <div className="text-xs text-muted-foreground">
