@@ -76,7 +76,7 @@ type DraftWorkspaceContext = {
   categories?: Array<Record<string, unknown>>;
   previous_categories?: Array<Record<string, unknown>>;
   job_actions?: JobActionsSummary | null;
-  top_category?: { category?: string; emissions?: number } | null;
+  top_category?: { category?: string; dataset_category?: string; emissions?: number } | null;
 };
 
 type ReportDraftRow = {

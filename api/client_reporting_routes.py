@@ -22,7 +22,10 @@ def _clean_label(value, fallback: str) -> str:
 
 
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
-    return _clean_label(row.get("lookup_category") or row.get("level_1") or row.get("category"), fallback)
+    return _clean_label(
+        row.get("dataset_category") or row.get("lookup_category") or row.get("level_1") or row.get("category"),
+        fallback,
+    )
 
 
 def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):

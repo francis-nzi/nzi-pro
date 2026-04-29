@@ -1134,6 +1134,16 @@ def _source_family_label(row: dict[str, Any]) -> str:
     return "Legacy Data Entry"
 
 
+def _dataset_category_label(row: dict[str, Any]) -> str:
+    for key in ("dataset_category", "lookup_category", "category", "level_1", "level_2"):
+        value = row.get(key)
+        if value not in (None, ""):
+            label = _clean_label(value)
+            if label:
+                return label
+    return "Uncategorized"
+
+
 def _source_factor_id(row: dict[str, Any]) -> str:
     for key in ("original_id", "group_original_id", "factor_db_id", "group_factor_db_id", "dataset_id", "group_dataset_id"):
         value = row.get(key)
@@ -1228,8 +1238,22 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             'legacy' AS record_type,
             COALESCE(s.site_name, 'Unassigned') AS site_name,
             jsr.scope,
-            COALESCE(jsr.category, 'Uncategorized') AS category,
-            COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS report_label,
+            CASE
+                WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
+                ELSE TRIM(CAST(fl.category AS VARCHAR))
+            END AS category,
+            CASE
+                WHEN COALESCE(NULLIF(TRIM(CAST(jsr.report_label AS VARCHAR)), ''), '') <> ''
+                THEN TRIM(CAST(jsr.report_label AS VARCHAR))
+                ELSE CASE
+                    WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
+                    ELSE TRIM(CAST(fl.category AS VARCHAR))
+                END
+            END AS report_label,
             jsr.dataset_id,
             jsr.factor_db_id,
             jsr.original_id,
@@ -1255,11 +1279,20 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             NULL::VARCHAR AS asset_identifier,
             NULL::VARCHAR AS employee_name,
             NULL::VARCHAR AS group_name,
-            COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized')) AS source_name
+            COALESCE(
+                NULLIF(jsr.report_label, ''),
+                CASE
+                    WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
+                    ELSE TRIM(CAST(fl.category AS VARCHAR))
+                END
+            ) AS source_name
         FROM job_scope_rows jsr
         LEFT JOIN client_sites s ON s.site_id = jsr.site_id
+        LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
         WHERE jsr.job_id = %s AND COALESCE(jsr.enabled, TRUE) = TRUE
-        ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, jsr.category, COALESCE(NULLIF(jsr.report_label, ''), COALESCE(jsr.category, 'Uncategorized'))
+        ORDER BY COALESCE(s.site_name, 'Unassigned'), jsr.scope, category, report_label
         """,
         [int(job_id)],
     ).df()
@@ -1273,8 +1306,25 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
             'source_register' AS record_type,
             COALESCE(cs.site_name, 'Unassigned') AS site_name,
             js.scope,
-            COALESCE(js.category, 'Uncategorized') AS category,
-            COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized')) AS report_label,
+            CASE
+                WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
+                ELSE TRIM(CAST(fl.category AS VARCHAR))
+            END AS category,
+            CASE
+                WHEN COALESCE(NULLIF(TRIM(CAST(js.source_name AS VARCHAR)), ''), '') <> ''
+                THEN TRIM(CAST(js.source_name AS VARCHAR))
+                ELSE COALESCE(
+                    NULLIF(TRIM(CAST(g.group_name AS VARCHAR)), ''),
+                    CASE
+                        WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
+                        ELSE TRIM(CAST(fl.category AS VARCHAR))
+                    END
+                )
+            END AS report_label,
             COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
             COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
             COALESCE(g.original_id, js.original_id) AS original_id,
@@ -1321,8 +1371,9 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
         FROM job_emission_sources js
         LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
         LEFT JOIN client_sites cs ON cs.site_id = js.site_id
+        LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
         WHERE js.job_id = %s AND COALESCE(js.enabled, TRUE) = TRUE
-        ORDER BY COALESCE(cs.site_name, 'Unassigned'), js.scope, COALESCE(js.category, 'Uncategorized'), COALESCE(NULLIF(js.source_name, ''), NULLIF(g.group_name, ''), COALESCE(js.category, 'Uncategorized'))
+        ORDER BY COALESCE(cs.site_name, 'Unassigned'), js.scope, category, report_label
         """,
         [int(job_id)],
     ).df()
@@ -1582,9 +1633,11 @@ def _summarize_categories(categories: list[dict[str, Any]], limit: int = 5) -> l
     ordered = sorted(categories or [], key=lambda item: _coerce_float(item.get("emissions")), reverse=True)
     summary: list[dict[str, Any]] = []
     for item in ordered[:limit]:
+        category = _dataset_category_label(item)
         summary.append(
             {
-                "category": str(item.get("category") or "Uncategorized"),
+                "category": category,
+                "dataset_category": category,
                 "emissions": _coerce_float(item.get("emissions")),
                 "scope": str(item.get("scope") or ""),
                 "report_label": str(item.get("report_label") or ""),
@@ -1980,7 +2033,8 @@ def get_emissions_by_category(job_id: int):
 
             categories.append({
                 'scope': row.get('scope', ''),
-                'category': row.get('category', 'Uncategorized'),
+                'category': _dataset_category_label(row),
+                'dataset_category': _dataset_category_label(row),
                 'report_label': row.get('report_label', ''),
                 'qty': qty_val,
                 'uom': metrics.get('display_uom') or '',
@@ -2371,7 +2425,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
         for row in rows:
             site_name = str(row.get("site_name") or "Unassigned")
             scope = str(row.get("scope") or "")
-            category = str(row.get("category") or "Uncategorized")
+            category = _dataset_category_label(row)
             report_label = str(row.get("report_label") or category)
 
             metrics = combined_row_metrics(row, resolver)
@@ -2399,6 +2453,7 @@ def get_site_emissions_breakdowns(job_id: int) -> dict[str, Any]:
                     "activity_group": group,
                     "emission_type": report_label,
                     "category": category,
+                    "dataset_category": category,
                     "record_type": row.get("record_type") or "legacy",
                     "data_source": row.get("data_source") or "",
                     "data_confidence": row.get("data_confidence") or "",

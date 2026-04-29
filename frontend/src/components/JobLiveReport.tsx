@@ -75,6 +75,7 @@ type LiveReportData = {
     delta_pct?: number | null;
     top_category?: {
       category?: string | null;
+      dataset_category?: string | null;
       scope?: string | null;
       emissions?: number | null;
       report_label?: string | null;
@@ -319,7 +320,12 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
   const topCategoryData = useMemo(() => {
     return [...(data?.categories ?? [])]
       .map((row) => ({
-        category: safeText((row as Record<string, unknown>).report_label ?? (row as Record<string, unknown>).category, "Uncategorized"),
+        category: safeText(
+          (row as Record<string, unknown>).dataset_category ??
+            (row as Record<string, unknown>).category ??
+            (row as Record<string, unknown>).report_label,
+          "Uncategorized",
+        ),
         emissions: toNumber((row as Record<string, unknown>).emissions),
         scope: safeText((row as Record<string, unknown>).scope, ""),
       }))

@@ -63,6 +63,7 @@ type ScopeDataRow = {
     dataset_id?: number | null;
     dataset_name?: string | null;
     dataset_category?: string | null;
+    lookup_category?: string | null;
     factor_db_id?: number | null;
     factor_original_id?: string | null;
     factor?: number | null;
@@ -156,6 +157,7 @@ type PreviousYearRow = {
   factor_db_id: number | null;
   original_id: string;
   category: string | null;
+  dataset_category?: string | null;
   lookup_category?: string | null;
   level_1?: string | null;
   level_2?: string | null;
