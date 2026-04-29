@@ -214,6 +214,11 @@ export default function TemplatesPage() {
   const filteredTemplates = templates.filter((t) => t.template_type === activeTab && !t.archived);
   const activeTemplates = filteredTemplates.filter((t) => t.is_active);
   const inactiveTemplates = filteredTemplates.filter((t) => !t.is_active);
+  const editingTemplate = useMemo(
+    () => (editingId ? templates.find((template) => template.job_template_id === editingId) || null : null),
+    [editingId, templates]
+  );
+  const editingTemplateFileLabel = editingTemplate?.file_name || editingTemplate?.file_path || "No file stored";
 
   function startEdit(template: JobTemplate) {
     setEditingId(template.job_template_id);
@@ -738,13 +743,18 @@ export default function TemplatesPage() {
                 />
                 {uploadingFile && (
                   <div className="text-xs text-muted-foreground">
-                    Selected: {uploadingFile.name}
+                    New file selected: {uploadingFile.name}
                   </div>
                 )}
                 {uploadingTemplate ? <UploadProgressBar value={uploadProgress} label="Uploading template..." /> : null}
                 {editingId && (
-                  <div className="text-xs text-muted-foreground">
-                    Leave empty to keep existing file
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div>
+                      Current file: {editingTemplateFileLabel}
+                    </div>
+                    <div>
+                      Leave empty to keep the current file
+                    </div>
                   </div>
                 )}
               </div>
