@@ -65,6 +65,9 @@ def generate_single_sheet_template(
     factors = _load_reference_template_rows(reference_template_path)
     existing_data = fetch_existing_scope_entries(job_id)
 
+    alt_fill = PatternFill(start_color="DEEAF1", end_color="DEEAF1", fill_type="solid")
+    num_cols = len(headers)
+
     current_row = 5
     for factor in factors:
         ws.cell(row=current_row, column=1, value=factor["scope"])
@@ -84,6 +87,11 @@ def generate_single_sheet_template(
         ws.cell(row=current_row, column=18, value=f"=SUM({month_start_col}{current_row}:{month_end_col}{current_row})")
         ws.cell(row=current_row, column=19, value="Company Data")
         ws.cell(row=current_row, column=20, value=existing.get("notes"))
+
+        if (current_row - 5) % 2 == 1:
+            for col in range(1, num_cols + 1):
+                ws.cell(row=current_row, column=col).fill = alt_fill
+
         current_row += 1
 
     ws.column_dimensions["A"].width = 10
@@ -127,6 +135,11 @@ def generate_single_sheet_template(
                 ws_prev.cell(row=out_row, column=18, value=row.get("qty"))
                 ws_prev.cell(row=out_row, column=19, value="Previous Year")
                 ws_prev.cell(row=out_row, column=20, value=row.get("notes"))
+
+                if (out_row - 2) % 2 == 1:
+                    for col in range(1, num_cols + 1):
+                        ws_prev.cell(row=out_row, column=col).fill = alt_fill
+
                 out_row += 1
 
             ws_prev.column_dimensions["A"].width = 10
