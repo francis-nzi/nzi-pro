@@ -64,6 +64,18 @@ def apply_sql_migrations(folder: str = "sql_migrations") -> None:
                 )
                 """
             )
+            cur.execute("ALTER TABLE public.applied_migrations ENABLE ROW LEVEL SECURITY")
+            cur.execute("DROP POLICY IF EXISTS applied_migrations_service_role_all ON public.applied_migrations")
+            cur.execute(
+                """
+                CREATE POLICY applied_migrations_service_role_all
+                ON public.applied_migrations
+                FOR ALL
+                TO service_role
+                USING (true)
+                WITH CHECK (true)
+                """
+            )
 
             for path in _migration_files(migrations_dir):
                 sql_text = path.read_text(encoding="utf-8")
