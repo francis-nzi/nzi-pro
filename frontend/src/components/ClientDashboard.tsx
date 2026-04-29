@@ -209,6 +209,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     });
     return employeeMetric ?? metrics[0] ?? null;
   }, [data?.intensity_metrics]);
+  const employeeIntensityUnit = employeeIntensityMetric ? "tCO₂e / employee" : "";
 
   const trendData = useMemo(() => {
     if (!data) return [];
@@ -367,6 +368,9 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
               </div>
               <div className="truncate text-lg font-semibold">
                 {employeeIntensityMetric?.label || "No intensity data"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {employeeIntensityUnit || "Intensity not available"}
               </div>
             </div>
           </CardContent>
