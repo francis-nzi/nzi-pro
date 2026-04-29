@@ -364,19 +364,19 @@ export default function JobInsights({
 
   const summaryData = useMemo(() => {
     if (!scopeTotals) return "Generate the dashboard to review the job's emissions pattern, hotspots, and target path.";
-    const topActivity = normalizedActivityData[0];
+    const topDatasetCategory = normalizedActivityData[0];
     const topSite = normalizedSiteData[0];
     const scopeRows = scopeCards
       .map((scope) => ({ ...scope, share: scopeTotals.total > 0 ? (scope.value / scopeTotals.total) * 100 : 0 }))
       .sort((a, b) => b.value - a.value);
     const dominantScope = scopeRows[0];
-    const topDriverShare = topActivity && scopeTotals.total > 0 ? (topActivity.value / scopeTotals.total) * 100 : 0;
+    const topDriverShare = topDatasetCategory && scopeTotals.total > 0 ? (topDatasetCategory.value / scopeTotals.total) * 100 : 0;
     return [
       clientName ? `${clientName} job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO₂e.` : `Job ${jobNumber ?? jobId} is tracking at ${formatTco2e(scopeTotals.total)} tCO₂e.`,
       dominantScope ? `${dominantScope.name} is the dominant scope at ${formatTco2e(dominantScope.value)} tCO₂e (${pct(dominantScope.value, scopeTotals.total)} of total).` : null,
-      topActivity ? `${topActivity.name} is the largest activity driver at ${formatTco2e(topActivity.value)} tCO₂e (${pct(topActivity.value, scopeTotals.total)} of total).` : null,
+      topDatasetCategory ? `${topDatasetCategory.name} is the largest dataset category driver at ${formatTco2e(topDatasetCategory.value)} tCO₂e (${pct(topDatasetCategory.value, scopeTotals.total)} of total).` : null,
       topSite ? `${topSite.name} is the largest site contributor at ${formatTco2e(topSite.value)} tCO₂e (${pct(topSite.value, scopeTotals.total)} of total).` : null,
-      topDriverShare > 0 ? `Your largest activity is responsible for ${topDriverShare.toFixed(1)}% of total emissions, so that is the most direct reduction lever.` : null,
+      topDriverShare > 0 ? `Your largest dataset category is responsible for ${topDriverShare.toFixed(1)}% of total emissions, so that is the most direct reduction lever.` : null,
       interimYear ? `Interim targets are plotted at ${interimYear} to show the job's midpoint pathway.` : null,
       targetYear ? `The target line extends to ${targetYear} with a piecewise path that honours any interim reduction target.` : null,
     ]
@@ -417,10 +417,10 @@ export default function JobInsights({
         <MetricCard label="Total tCO₂e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
         <MetricCard label="Target Year" value={targetYear ?? 2050} />
         <LinkMetricCard
-          label="Top Activity"
+          label="Top Dataset Category"
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
           suffix="tCO₂e"
-          name={normalizedActivityData[0]?.name ?? "No activity data"}
+          name={normalizedActivityData[0]?.name ?? "No dataset category data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
@@ -440,10 +440,10 @@ export default function JobInsights({
           <p className="text-sm text-slate-700">{summaryData}</p>
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border bg-white/70 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Top driver</div>
-              <div className="mt-1 text-sm font-medium">{normalizedActivityData[0]?.name ?? "No activity data"}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Top dataset category</div>
+              <div className="mt-1 text-sm font-medium">{normalizedActivityData[0]?.name ?? "No dataset category data"}</div>
               <div className="text-sm text-muted-foreground">
-                {normalizedActivityData[0] ? `${formatTco2e(normalizedActivityData[0].value)} tCO₂e` : "No activity data"}
+                {normalizedActivityData[0] ? `${formatTco2e(normalizedActivityData[0].value)} tCO₂e` : "No dataset category data"}
               </div>
             </div>
             <div className="rounded-lg border bg-white/70 p-3">
@@ -526,11 +526,11 @@ export default function JobInsights({
 
         <Card>
           <CardHeader>
-            <CardTitle>Top Emissions by Activity</CardTitle>
+            <CardTitle>Top Emissions by Dataset Category</CardTitle>
           </CardHeader>
           <CardContent>
             {normalizedActivityData.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">No activity data available</div>
+              <div className="py-12 text-center text-sm text-muted-foreground">No dataset category data available</div>
             ) : (
               <div className="space-y-3">
                 {normalizedActivityData.map((activity, index) => {

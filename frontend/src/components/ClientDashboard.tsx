@@ -357,7 +357,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
                 {topCategoryData[0] ? formatEmissions(topCategoryData[0].emissions) : "-"}
               </div>
               <div className="truncate text-lg font-semibold">
-                {topCategoryData[0]?.category || "No category data"}
+                {topCategoryData[0]?.category || "No dataset category data"}
               </div>
             </div>
           </CardContent>

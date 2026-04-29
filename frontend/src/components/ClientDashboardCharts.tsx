@@ -126,8 +126,8 @@ export default function ClientDashboardCharts({
           <div className="h-[320px]">
             {topCategoryData.length === 0 ? (
               <EmptyChart
-                title="No category data available"
-                description="This client does not have category-level emissions for the selected year."
+                title="No dataset category data available"
+                description="This client does not have dataset-category-level emissions for the selected year."
                 minHeight="min-h-[320px]"
               />
             ) : (
