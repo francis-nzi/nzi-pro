@@ -1143,7 +1143,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   }
 
   function uomBadgeClass(uom?: string | null): string {
-    return uom ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-800";
+    return uom ? "bg-sky-100 text-sky-900" : "bg-slate-100 text-slate-800";
   }
 
   function isLegacyFallbackRow(row: ScopeDataRow): boolean {
