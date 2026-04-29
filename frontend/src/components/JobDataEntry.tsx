@@ -1142,6 +1142,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     return "bg-amber-100 text-amber-900";
   }
 
+  function uomBadgeClass(uom?: string | null): string {
+    return uom ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-800";
+  }
+
   function isLegacyFallbackRow(row: ScopeDataRow): boolean {
     return Boolean(row.uses_emissions_fallback);
   }
@@ -1738,7 +1742,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                           </div>
                           <div className="mt-1 flex flex-wrap gap-1">
                             <div
-                              className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800"
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${uomBadgeClass(row.uom)}`}
                               title={row.uom || "Unit of measure missing"}
                             >
                               {row.uom ? `UoM: ${row.uom}` : "UoM missing"}
@@ -1872,7 +1876,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               </div>
                               <div className="text-xs md:col-span-2 lg:col-span-4">
                                 <div className="text-muted-foreground">UoM</div>
-                                <div className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                                <div className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${uomBadgeClass(row.uom)}`}>
                                   {row.uom || "UoM missing"}
                                 </div>
                               </div>
