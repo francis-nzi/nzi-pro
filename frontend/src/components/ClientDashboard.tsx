@@ -333,49 +333,49 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">
                 Benchmark Emissions{benchmarkPoint?.year ? ` (${benchmarkPoint.year})` : ""}
               </div>
-              <div className="text-3xl font-semibold tabular-nums">
+              <div className="text-3xl font-semibold leading-none tabular-nums">
                 {benchmarkPoint ? formatEmissions(benchmarkPoint.total) : "-"}
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">
                 Current Year Emissions{displayYear ? ` (${displayYear})` : ""}
               </div>
-              <div className="text-3xl font-semibold tabular-nums">{formatEmissions(total)}</div>
+              <div className="text-3xl font-semibold leading-none tabular-nums">{formatEmissions(total)}</div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Intensity Metric</div>
-              <div className="text-3xl font-semibold tabular-nums">
+              <div className="text-3xl font-semibold leading-none tabular-nums">
                 {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(2) : "-"}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityMetric?.label || "No intensity data"}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityUnit || "Intensity not available"}
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Net Zero Target</div>
-              <div className="text-3xl font-semibold tabular-nums">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-3xl font-semibold leading-none tabular-nums">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
+              <div className="text-xs leading-tight text-muted-foreground">
                 {data.net_zero_progress ? `${data.net_zero_progress.years_to_target} years to target` : "Target not set"}
               </div>
             </div>
