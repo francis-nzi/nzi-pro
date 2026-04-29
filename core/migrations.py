@@ -1768,6 +1768,21 @@ def run_migrations():
             """
         )
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS org_id TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_item_id VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_web_url TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_path TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS data_hash VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS snapshot_json TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS notes TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS generated_by VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMP")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_by VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMP")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_by VARCHAR")
         con.execute(
             """
             CREATE INDEX IF NOT EXISTS job_report_versions_job_idx
