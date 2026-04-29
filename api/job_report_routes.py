@@ -393,40 +393,32 @@ def _ensure_report_versions_schema(con) -> None:
         )
         """
     )
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS org_id TEXT")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_item_id VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_web_url TEXT")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_path TEXT")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS data_hash VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS snapshot_json TEXT")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS notes TEXT")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS generated_by VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMP")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_by VARCHAR")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMP")
-    con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_by VARCHAR")
-    con.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_report_versions_job_idx
-        ON job_report_versions (job_id, version_number DESC)
-        """
-    )
-    con.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_report_versions_client_idx
-        ON job_report_versions (client_db_id, generated_at DESC)
-        """
-    )
-    con.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_report_versions_org_idx
-        ON job_report_versions (org_id, job_id, version_number DESC)
-        """
-    )
+    _ddl_alters = [
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS org_id TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_item_id VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_web_url TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_path TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS data_hash VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS snapshot_json TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS generated_by VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMP",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_by VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMP",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_by VARCHAR",
+        "CREATE INDEX IF NOT EXISTS job_report_versions_job_idx ON job_report_versions (job_id, version_number DESC)",
+        "CREATE INDEX IF NOT EXISTS job_report_versions_client_idx ON job_report_versions (client_db_id, generated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS job_report_versions_org_idx ON job_report_versions (org_id, job_id, version_number DESC)",
+    ]
+    for _stmt in _ddl_alters:
+        try:
+            con.execute(_stmt)
+        except Exception:
+            pass
     try:
         con.execute(
             """
