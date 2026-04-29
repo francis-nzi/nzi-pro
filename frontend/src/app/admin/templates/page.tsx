@@ -65,6 +65,8 @@ export default function TemplatesPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [uploadingFile, setUploadingFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const templateFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form fields for add/edit
   const [templateKey, setTemplateKey] = useState("");
@@ -220,6 +222,10 @@ export default function TemplatesPage() {
     setTemplateType(template.template_type);
     setIsActive(template.is_active);
     setUploadingFile(null);
+    setUploadProgress(0);
+    if (templateFileInputRef.current) {
+      templateFileInputRef.current.value = "";
+    }
   }
 
   function cancelEdit() {
@@ -233,6 +239,10 @@ export default function TemplatesPage() {
     setTemplateType(activeTab);
     setIsActive(true);
     setUploadingFile(null);
+    setUploadProgress(0);
+    if (templateFileInputRef.current) {
+      templateFileInputRef.current.value = "";
+    }
   }
 
   function buildDatasetTemplateDefaults(country: string, year: string) {
@@ -257,6 +267,7 @@ export default function TemplatesPage() {
 
     setStatus("Saving...");
     setUploadProgress(0);
+    setUploadingTemplate(true);
     try {
       const formData = new FormData();
       formData.append("template_key", templateKey.trim());
@@ -298,6 +309,7 @@ export default function TemplatesPage() {
       setStatus(`Error: ${(e as Error).message}`);
     } finally {
       setUploadProgress(0);
+      setUploadingTemplate(false);
     }
   }
 
@@ -718,6 +730,7 @@ export default function TemplatesPage() {
               <div className="space-y-2">
                 <Label htmlFor="templateFile">Upload Template File {!editingId && '*'}</Label>
                 <Input
+                  ref={templateFileInputRef}
                   id="templateFile"
                   type="file"
                   accept={templateType === 'dataset' ? '.xlsx,.xls' : '.docx,.pdf'}
@@ -728,7 +741,7 @@ export default function TemplatesPage() {
                     Selected: {uploadingFile.name}
                   </div>
                 )}
-                {uploadingFile ? <UploadProgressBar value={uploadProgress} label="Uploading template..." /> : null}
+                {uploadingTemplate ? <UploadProgressBar value={uploadProgress} label="Uploading template..." /> : null}
                 {editingId && (
                   <div className="text-xs text-muted-foreground">
                     Leave empty to keep existing file
@@ -753,11 +766,11 @@ export default function TemplatesPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={saveTemplate} className="flex-1">
+                <Button onClick={saveTemplate} className="flex-1" disabled={uploadingTemplate}>
                   {editingId ? "Update Template" : "Create Template"}
                 </Button>
                 {editingId && (
-                  <Button onClick={cancelEdit} variant="outline">
+                  <Button onClick={cancelEdit} variant="outline" disabled={uploadingTemplate}>
                     Cancel
                   </Button>
                 )}
