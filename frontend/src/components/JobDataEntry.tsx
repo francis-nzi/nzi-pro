@@ -41,6 +41,7 @@ type ScopeDataRow = {
   row_id: number;
   scope: string;
   category: string | null;
+  lookup_category?: string | null;
   level_1?: string | null;
   level_2?: string | null;
   level_3?: string | null;
@@ -155,6 +156,7 @@ type PreviousYearRow = {
   factor_db_id: number | null;
   original_id: string;
   category: string | null;
+  lookup_category?: string | null;
   level_1?: string | null;
   level_2?: string | null;
   level_3?: string | null;
@@ -1275,7 +1277,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       if (confidence !== confidenceFilter) return false;
     }
     if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
-    if (categoryFilter !== "All" && String(row.dataset_category || row.level_1 || row.category || row.level_2 || "").trim() !== categoryFilter) {
+    if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.level_1 || row.category || row.level_2 || "").trim() !== categoryFilter) {
       return false;
     }
     if (!matchesMonthlyCompleteness(row)) return false;
@@ -1284,6 +1286,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         rowDisplayTitle(row),
         rowDisplaySubtitle(row),
         row.dataset_category,
+        row.lookup_category,
         row.category,
         row.original_id,
         row.level_1,
@@ -1301,7 +1304,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
   const filteredPreviousYearRows = previousYearRows.filter((row) => {
     if (selectedScope !== "All" && row.scope !== selectedScope) return false;
     if (siteFilter !== "All" && String(row.site_id ?? "") !== siteFilter) return false;
-    if (categoryFilter !== "All" && String(row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
+    if (categoryFilter !== "All" && String(row.dataset_category || row.lookup_category || row.category || row.level_2 || row.level_1 || "").trim() !== categoryFilter) {
       return false;
     }
     if (!matchesMonthlyCompleteness(row)) return false;
@@ -1344,6 +1347,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     for (const row of [...scopeData, ...previousYearRows]) {
       const category = String(
         ("dataset_category" in row ? row.dataset_category : undefined) ||
+        ("lookup_category" in row ? row.lookup_category : undefined) ||
         row.level_1 ||
         row.category ||
         row.level_2 ||
@@ -1864,7 +1868,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Category</div>
-                                <div>{row.dataset_category || row.level_1 || row.category || "-"}</div>
+                                <div>{row.dataset_category || row.lookup_category || row.level_1 || row.category || "-"}</div>
                               </div>
                               <div className="text-xs">
                                 <div className="text-muted-foreground">UOM</div>
@@ -1953,7 +1957,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                                           <div className="font-semibold">{detail.month_label || `M${detail.month_index}`}</div>
                                           <div className="text-muted-foreground">Year: {detail.year ?? "-"}</div>
                                           <div className="text-muted-foreground">{detail.dataset_name || "-"}</div>
-                                          <div className="text-muted-foreground">{detail.dataset_category || row.dataset_category || row.level_1 || row.category || "-"}</div>
+                                          <div className="text-muted-foreground">{detail.dataset_category || detail.lookup_category || row.dataset_category || row.lookup_category || row.level_1 || row.category || "-"}</div>
                                           <div className="font-mono">
                                             Qty: {detail.qty !== null && detail.qty !== undefined && !Number.isNaN(detail.qty)
                                               ? detail.qty.toFixed(2)
