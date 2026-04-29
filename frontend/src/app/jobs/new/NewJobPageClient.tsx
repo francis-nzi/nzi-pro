@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -77,6 +77,8 @@ function NewJobPageContent() {
   const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
   const [clientSearch, setClientSearch] = useState("");
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const clientSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Form fields
   const [clientId, setClientId] = useState("");
@@ -142,15 +144,7 @@ function NewJobPageContent() {
     () => clients.find((c) => c.client_db_id === Number(clientId)) || null,
     [clients, clientId]
   );
-  const filteredClients = useMemo(() => {
-    const query = clientSearch.trim().toLowerCase();
-    const sortedClients = [...clients].sort((a, b) => a.client_name.localeCompare(b.client_name));
-    if (!query) return sortedClients.slice(0, 10);
-    return sortedClients.filter((client) => {
-      const haystack = `${client.client_name} ${client.client_db_id}`.toLowerCase();
-      return haystack.includes(query);
-    }).slice(0, 10);
-  }, [clients, clientSearch]);
+  const filteredClients = clients;
 
   const requiredFieldLabels: Record<JobRequiredField, string> = {
     clientId: "Client",
@@ -320,17 +314,27 @@ function NewJobPageContent() {
     }
   }
 
+  const searchClients = useCallback(async (q: string) => {
+    setClientSearchLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (q.trim()) params.set("q", q.trim());
+      const res = await fetch(`${baseUrl}/clients?${params}`);
+      if (res.ok) {
+        const json = await res.json();
+        setClients(json.items || []);
+      }
+    } catch {
+      // ignore transient errors
+    } finally {
+      setClientSearchLoading(false);
+    }
+  }, [baseUrl]);
+
   async function loadClients() {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/clients?limit=200`);
-      if (res.ok) {
-        const json = await res.json();
-        const allClients = json.items || [];
-        setClients(allClients);
-      }
-    } catch (e) {
-      setStatus(`Error loading clients: ${(e as Error).message}`);
+      await searchClients("");
     } finally {
       setLoading(false);
     }
@@ -609,6 +613,8 @@ function NewJobPageContent() {
                               setClientId("");
                             }
                             clearFieldError("clientId");
+                            if (clientSearchTimer.current) clearTimeout(clientSearchTimer.current);
+                            clientSearchTimer.current = setTimeout(() => { void searchClients(value); }, 250);
                           }}
                           placeholder="Search clients by name or ID..."
                           aria-invalid={!!formErrors.clientId}
@@ -618,7 +624,9 @@ function NewJobPageContent() {
                         {clientPickerOpen && (
                           <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-md border bg-background shadow-lg">
                             <div className="max-h-64 overflow-y-auto py-1">
-                              {filteredClients.length > 0 ? (
+                              {clientSearchLoading ? (
+                                <div className="px-3 py-2 text-sm text-muted-foreground">Searching…</div>
+                              ) : filteredClients.length > 0 ? (
                                 filteredClients.map((client) => {
                                   const isSelected = client.client_db_id === Number(clientId);
                                   return (
