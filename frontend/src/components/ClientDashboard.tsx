@@ -201,6 +201,15 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     return selectedCategories;
   }, [selectedCategories]);
 
+  const employeeIntensityMetric = useMemo(() => {
+    const metrics = data?.intensity_metrics ?? [];
+    const employeeMetric = metrics.find((metric) => {
+      const label = String(metric.label ?? metric.key ?? "").toLowerCase();
+      return label.includes("employee");
+    });
+    return employeeMetric ?? metrics[0] ?? null;
+  }, [data?.intensity_metrics]);
+
   const trendData = useMemo(() => {
     if (!data) return [];
     return [...(data.yearly_emissions || [])]
@@ -352,12 +361,12 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         <Card>
           <CardContent className="pt-6 text-right">
             <div className="space-y-1">
-              <div className="text-sm text-muted-foreground">Highest Emissions</div>
+              <div className="text-sm text-muted-foreground">Employees Intensity Metric</div>
               <div className="text-3xl font-semibold tabular-nums">
-                {topCategoryData[0] ? formatEmissions(topCategoryData[0].emissions) : "-"}
+                {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(2) : "-"}
               </div>
               <div className="truncate text-lg font-semibold">
-                {topCategoryData[0]?.category || "No dataset category data"}
+                {employeeIntensityMetric?.label || "No intensity data"}
               </div>
             </div>
           </CardContent>
