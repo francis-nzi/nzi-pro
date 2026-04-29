@@ -466,7 +466,13 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
         return False
     if bool(user.get("is_super_admin")):
         return True
+    access_scope = str(user.get("access_scope") or "").strip().lower()
+    if access_scope == DEFAULT_INTERNAL_ACCESS_SCOPE:
+        return True
     client_id = int(client_db_id)
+    linked_client_ids = {int(x) for x in (user.get("linked_client_ids") or []) if x is not None}
+    if client_id in linked_client_ids:
+        return True
     user_org_id = str(user.get("org_id") or "").strip()
     if user_org_id:
         try:
@@ -475,28 +481,10 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
                     "SELECT org_id FROM clients WHERE db_id = ? LIMIT 1",
                     [client_id],
                 ).fetchone()
-                if row:
-                    client_org_id = str(row[0] or "").strip()
-                    if client_org_id:
-                        if client_org_id == user_org_id:
-                            return True
-
-                job_row = con.execute(
-                    """
-                    SELECT 1
-                    FROM jobs j
-                    WHERE j.client_db_id = ?
-                      AND TRIM(COALESCE(j.org_id, '')) = ?
-                    LIMIT 1
-                    """,
-                    [client_id, user_org_id],
-                ).fetchone()
-                if job_row:
+                if row and str(row[0] or "").strip() == user_org_id:
                     return True
-
-                return False
         except Exception:
-            return False
+            pass
     return False
 
 
@@ -505,27 +493,37 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
         return False
     if bool(user.get("is_super_admin")):
         return True
+    access_scope = str(user.get("access_scope") or "").strip().lower()
+    if access_scope == DEFAULT_INTERNAL_ACCESS_SCOPE:
+        return True
+    linked_client_ids = {int(x) for x in (user.get("linked_client_ids") or []) if x is not None}
     user_org_id = str(user.get("org_id") or "").strip()
-    if user_org_id:
-        try:
-            with get_conn() as con:
-                row = con.execute(
-                    """
-                    SELECT j.client_db_id, j.org_id, c.org_id
-                    FROM jobs j
-                    LEFT JOIN clients c ON c.db_id = j.client_db_id
-                    WHERE j.job_id = ?
-                    LIMIT 1
-                    """,
-                    [int(job_id)],
-                ).fetchone()
-            if row:
-                job_org_id = str(row[1] or "").strip()
-                client_org_id = str(row[2] or "").strip()
-                if job_org_id:
-                    return job_org_id == user_org_id
-                if client_org_id:
-                    return client_org_id == user_org_id
-        except Exception:
+    if not linked_client_ids and not user_org_id:
+        return False
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT j.client_db_id, j.org_id, c.org_id
+                FROM jobs j
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                WHERE j.job_id = ?
+                LIMIT 1
+                """,
+                [int(job_id)],
+            ).fetchone()
+        if not row:
             return False
+        client_db_id = int(row[0]) if row[0] is not None else None
+        if client_db_id is not None and client_db_id in linked_client_ids:
+            return True
+        if user_org_id:
+            job_org_id = str(row[1] or "").strip()
+            client_org_id = str(row[2] or "").strip()
+            if job_org_id:
+                return job_org_id == user_org_id
+            if client_org_id:
+                return client_org_id == user_org_id
+    except Exception:
+        pass
     return False
