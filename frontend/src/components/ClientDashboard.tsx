@@ -31,6 +31,7 @@ type DashboardData = {
     year: number | null;
     categories: Array<{
       category: string;
+      dataset_category?: string;
       emissions: number;
       percentage: number;
     }>;
@@ -55,6 +56,7 @@ type DashboardData = {
   } | null;
   top_categories: Array<{
     category: string;
+    dataset_category?: string;
     emissions: number;
     percentage: number;
   }>;
@@ -170,7 +172,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
       .sort((a, b) => b.emissions - a.emissions)
       .slice(0, 6)
       .map((row) => ({
-        category: row.category,
+        category: row.dataset_category ?? row.category,
         emissions: Number(row.emissions || 0),
         percentage: Number(row.percentage || 0),
       }));

@@ -33,6 +33,8 @@ type JobScopeRow = {
   scope?: string | null;
   site_name?: string | null;
   category?: string | null;
+  dataset_category?: string | null;
+  lookup_category?: string | null;
   report_label?: string | null;
   calc_tco2e?: number | null;
   month_1?: number | null;
@@ -214,7 +216,7 @@ export default function JobInsights({
   const activityData = useMemo(() => {
     const map = new Map<string, number>();
     rows.forEach((row) => {
-      const label = bucketKey(row.report_label || row.category);
+      const label = bucketKey(row.dataset_category || row.lookup_category || row.category || row.report_label);
       map.set(label, (map.get(label) ?? 0) + Number(row.calc_tco2e || 0));
     });
     return Array.from(map.entries())

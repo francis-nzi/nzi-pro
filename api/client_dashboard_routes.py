@@ -427,6 +427,7 @@ def get_client_dashboard(
                         percentage = (emissions / year_total * 100) if year_total > 0 else 0
                         year_top_categories.append({
                             'category': category,
+                            'dataset_category': category,
                             'emissions': emissions,
                             'percentage': round(percentage, 1)
                         })
