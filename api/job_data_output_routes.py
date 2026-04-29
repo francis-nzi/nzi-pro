@@ -460,6 +460,7 @@ def get_job_data_output_audit(
                     {
                         "site_name": site_name,
                         "scope": scope_name,
+                        "category": _clean_label(row.get("category"), "Uncategorized"),
                         "id": str(row.get("original_id") or ""),
                         "report_label": str(row.get("report_label") or "-"),
                         "uom": str(metrics.get("display_uom") or ""),
@@ -493,7 +494,15 @@ def get_job_data_output_audit(
                 key = (site_name, scope_name)
                 subtotal_map[key] = float(subtotal_map.get(key, 0.0) + emissions_display)
 
-            rows.sort(key=lambda r: (str(r["site_name"]).lower(), _scope_sort_key(str(r["scope"])), str(r["report_label"]).lower(), str(r["id"]).lower()))
+            rows.sort(
+                key=lambda r: (
+                    _scope_sort_key(str(r["scope"])),
+                    str(r.get("category") or "").lower(),
+                    str(r["report_label"]).lower(),
+                    str(r["id"]).lower(),
+                    str(r["site_name"]).lower(),
+                )
+            )
             scope_subtotals = [
                 {
                     "site_name": site_name,

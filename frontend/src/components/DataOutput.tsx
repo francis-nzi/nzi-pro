@@ -97,6 +97,7 @@ type ClientReportingComparisonData = {
 type AuditRow = {
   site_name: string;
   scope: string;
+  category?: string;
   id: string;
   report_label: string;
   uom: string;
@@ -315,6 +316,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     const headers = [
       "Site",
       "Scope",
+      "Category",
       "ID",
       "Report Label",
       "UOM",
@@ -328,10 +330,10 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     const lines: string[] = [headers.map(csvEscape).join(",")];
 
     for (const item of auditDisplayRows) {
-      if (item.kind === "subtotal") {
+      if (item.kind === "scope-total") {
         lines.push(
           [
-            `Subtotal: ${item.site_name} / ${item.scope}`,
+            `Scope Total: ${item.scope}`,
             "",
             "",
             "",
@@ -346,10 +348,10 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
             .map(csvEscape)
             .join(",")
         );
-      } else if (item.kind === "site-total") {
+      } else if (item.kind === "category-total") {
         lines.push(
           [
-            `Site Total: ${item.site_name}`,
+            `Category Total: ${item.scope} / ${item.category}`,
             "",
             "",
             "",
@@ -373,6 +375,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
           [
             row.site_name || "-",
             row.scope || "-",
+            row.category || "-",
             row.id || "-",
             row.report_label || "-",
             row.uom || "-",
@@ -403,58 +406,66 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
   const auditDisplayRows = useMemo(() => {
     if (!auditData) return [];
-    const subtotalMap = new Map<string, number>();
-    const siteTotalMap = new Map<string, number>();
-    for (const item of auditData.scope_subtotals || []) {
-      subtotalMap.set(`${item.site_name}||${item.scope}`, item.subtotal_tco2e_after_apply);
-      siteTotalMap.set(
-        item.site_name,
-        (siteTotalMap.get(item.site_name) ?? 0) + Number(item.subtotal_tco2e_after_apply || 0)
-      );
+    const rows = [...(auditData.rows || [])].sort((a, b) => {
+      const scopeA = String(a.scope || "").toLowerCase();
+      const scopeB = String(b.scope || "").toLowerCase();
+      if (scopeA !== scopeB) return scopeA < scopeB ? -1 : 1;
+      const catA = String(a.category || "").toLowerCase();
+      const catB = String(b.category || "").toLowerCase();
+      if (catA !== catB) return catA < catB ? -1 : 1;
+      const labelA = String(a.report_label || "").toLowerCase();
+      const labelB = String(b.report_label || "").toLowerCase();
+      if (labelA !== labelB) return labelA < labelB ? -1 : 1;
+      const idA = String(a.id || "").toLowerCase();
+      const idB = String(b.id || "").toLowerCase();
+      if (idA !== idB) return idA < idB ? -1 : 1;
+      return String(a.site_name || "").toLowerCase() < String(b.site_name || "").toLowerCase() ? -1 : 1;
+    });
+
+    const scopeTotals = new Map<string, number>();
+    const categoryTotals = new Map<string, number>();
+    for (const row of rows) {
+      const scopeKey = row.scope || "Unknown";
+      const categoryKey = `${scopeKey}||${row.category || "Uncategorized"}`;
+      const emission = Number(row.tco2e_after_apply || 0);
+      scopeTotals.set(scopeKey, (scopeTotals.get(scopeKey) ?? 0) + emission);
+      categoryTotals.set(categoryKey, (categoryTotals.get(categoryKey) ?? 0) + emission);
     }
 
     const out: Array<
       | { kind: "row"; row: AuditRow }
-      | { kind: "subtotal"; site_name: string; scope: string; total: number }
-      | { kind: "site-total"; site_name: string; total: number }
+      | { kind: "scope-total"; scope: string; total: number }
+      | { kind: "category-total"; scope: string; category: string; total: number }
     > = [];
-    let lastKey = "";
-    let lastSite = "";
-    for (const row of auditData.rows || []) {
-      const key = `${row.site_name}||${row.scope}`;
-      if (lastKey && key !== lastKey) {
-        const [siteName, scopeName] = lastKey.split("||");
+    let currentScope = "";
+    let currentCategory = "";
+    for (const row of rows) {
+      const scope = row.scope || "Unknown";
+      const category = row.category || "Uncategorized";
+      const scopeChanged = scope !== currentScope;
+      const categoryChanged = category !== currentCategory || scopeChanged;
+
+      if (scopeChanged) {
+        currentScope = scope;
+        currentCategory = "";
         out.push({
-          kind: "subtotal",
-          site_name: siteName,
-          scope: scopeName,
-          total: subtotalMap.get(lastKey) ?? 0,
+          kind: "scope-total",
+          scope,
+          total: scopeTotals.get(scope) ?? 0,
         });
-        if (lastSite && row.site_name !== lastSite) {
-          out.push({
-            kind: "site-total",
-            site_name: lastSite,
-            total: siteTotalMap.get(lastSite) ?? 0,
-          });
-        }
       }
+
+      if (categoryChanged) {
+        currentCategory = category;
+        out.push({
+          kind: "category-total",
+          scope,
+          category,
+          total: categoryTotals.get(`${scope}||${category}`) ?? 0,
+        });
+      }
+
       out.push({ kind: "row", row });
-      lastKey = key;
-      lastSite = row.site_name;
-    }
-    if (lastKey) {
-      const [siteName, scopeName] = lastKey.split("||");
-      out.push({
-        kind: "subtotal",
-        site_name: siteName,
-        scope: scopeName,
-        total: subtotalMap.get(lastKey) ?? 0,
-      });
-      out.push({
-        kind: "site-total",
-        site_name: siteName,
-        total: siteTotalMap.get(siteName) ?? 0,
-      });
     }
     return out;
   }, [auditData]);
@@ -964,6 +975,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       <tr>
                         <th className="p-2 text-left">Site</th>
                         <th className="p-2 text-left">Scope</th>
+                        <th className="p-2 text-left">Category</th>
                         <th className="p-2 text-left">ID</th>
                         <th className="p-2 text-left">Report Label</th>
                         <th className="p-2 text-left">UOM</th>
@@ -977,25 +989,23 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                     </thead>
                     <tbody>
                       {auditDisplayRows.map((item, idx) => {
-                        if (item.kind === "subtotal") {
+                        if (item.kind === "scope-total") {
                           return (
-                            <tr key={`subtotal-${idx}`} className="border-t bg-muted/30 font-semibold">
-                              <td className="p-2" colSpan={7}>
-                                Subtotal: {item.site_name} / {item.scope}
+                            <tr key={`scope-total-${idx}`} className="border-t bg-muted/30 font-semibold">
+                              <td className="p-2" colSpan={11}>
+                                Scope Total: {item.scope}
                               </td>
                               <td className="p-2 text-right">{formatNumber(item.total, 2)}</td>
-                              <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
                         }
-                        if (item.kind === "site-total") {
+                        if (item.kind === "category-total") {
                           return (
-                            <tr key={`site-total-${idx}`} className="border-t bg-muted/50 font-bold">
-                              <td className="p-2" colSpan={7}>
-                                Site Total: {item.site_name}
+                            <tr key={`category-total-${idx}`} className="border-t bg-muted/20 font-semibold">
+                              <td className="p-2" colSpan={11}>
+                                Category Total: {item.scope} / {item.category}
                               </td>
                               <td className="p-2 text-right">{formatNumber(item.total, 2)}</td>
-                              <td className="p-2" colSpan={3}></td>
                             </tr>
                           );
                         }
@@ -1007,6 +1017,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           <tr key={`row-${idx}`} className="border-t hover:bg-muted/20">
                             <td className="p-2">{row.site_name || "-"}</td>
                             <td className="p-2">{row.scope || "-"}</td>
+                            <td className="p-2">{row.category || "-"}</td>
                             <td className="p-2">{row.id || "-"}</td>
                             <td className="p-2">{row.report_label || "-"}</td>
                             <td className="p-2">{row.uom || "-"}</td>
