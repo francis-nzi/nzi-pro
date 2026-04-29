@@ -45,6 +45,20 @@ def _clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _safe_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        if value != value:  # NaN check without importing math
+            return None
+    except Exception:
+        pass
+    txt = str(value).strip()
+    if not txt or txt.lower() in {"nan", "none", "null"}:
+        return None
+    return txt
+
+
 def _calc_emissions_tco2e(
     qty: float | None,
     factor: float | None,
@@ -341,15 +355,15 @@ def get_job_data_output(
                     categories[category]["sites"][site]["total_emissions"] += emission_display
                     categories[category]["sites"][site]["activities"].append({
                         "row_id": int(row['row_id']),
-                        "level_3": row['level_3'],
-                        "level_4": row['level_4'],
-                        "activity_name": row['activity_name'],
+                        "level_3": _safe_text(row.get('level_3')),
+                        "level_4": _safe_text(row.get('level_4')),
+                        "activity_name": _safe_text(row.get('activity_name')),
                         "quantity": qty_val if qty_val > 0 else None,
                         "unit": metrics.get("display_uom"),
                         "emissions": emission_display,
                         "is_custom_entry": bool(row.get("is_custom_entry") or False),
-                        "record_type": row.get("record_type") or "legacy",
-                        "source_family": row.get("source_family") or (
+                        "record_type": _safe_text(row.get("record_type")) or "legacy",
+                        "source_family": _safe_text(row.get("source_family")) or (
                             "Business Travel Register"
                             if str(row.get("source_type") or "").strip().lower() == "business_travel"
                             else (
@@ -358,11 +372,11 @@ def get_job_data_output(
                                 else "Legacy Data Entry"
                             )
                         ),
-                        "source_type": row.get("source_type"),
-                        "group_name": row.get("group_name"),
-                        "source_name": row.get("source_name"),
-                        "asset_identifier": row.get("asset_identifier"),
-                        "employee_name": row.get("employee_name"),
+                        "source_type": _safe_text(row.get("source_type")),
+                        "group_name": _safe_text(row.get("group_name")),
+                        "source_name": _safe_text(row.get("source_name")),
+                        "asset_identifier": _safe_text(row.get("asset_identifier")),
+                        "employee_name": _safe_text(row.get("employee_name")),
                     })
 
                 # Convert to list format
