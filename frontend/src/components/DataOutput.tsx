@@ -10,6 +10,7 @@ import { formatNumber } from "@/lib/format";
 
 type Activity = {
   row_id: number;
+  site_name?: string | null;
   level_3: string | null;
   level_4: string | null;
   activity_name: string | null;
@@ -143,7 +144,6 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   // Expansion state
   const [expandedScopes, setExpandedScopes] = useState<Set<string>>(new Set());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
   
   // Expansion state for sites view
   const [expandedSiteNames, setExpandedSiteNames] = useState<Set<string>>(new Set());
@@ -291,16 +291,6 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       newExpanded.add(categoryKey);
     }
     setExpandedCategories(newExpanded);
-  }
-
-  function toggleSite(siteKey: string) {
-    const newExpanded = new Set(expandedSites);
-    if (newExpanded.has(siteKey)) {
-      newExpanded.delete(siteKey);
-    } else {
-      newExpanded.add(siteKey);
-    }
-    setExpandedSites(newExpanded);
   }
 
   function csvEscape(value: string | number): string {
@@ -1059,6 +1049,12 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               {detailedData.categories.map((category) => {
                 const categoryKey = `detail-${category.category_name}`;
                 const categoryExpanded = expandedCategories.has(categoryKey);
+                const activities = category.sites.flatMap((site) =>
+                  (site.activities || []).map((activity) => ({
+                    ...activity,
+                    site_name: activity.site_name || site.site_name,
+                  }))
+                );
 
                 return (
                   <div key={categoryKey} className="border rounded-md">
@@ -1074,78 +1070,54 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       <span className="font-medium">{formatNumber(category.total_emissions, 2)} tCO₂e</span>
                     </div>
 
-                    {/* Sites with Activities */}
+                    {/* Individual Data Lines */}
                     {categoryExpanded && (
-                      <div className="p-2 space-y-2">
-                        {category.sites.map((site, siteIdx) => {
-                          const siteKey = `${categoryKey}-${site.site_name}`;
-                          const siteExpanded = expandedSites.has(siteKey);
-
-                          return (
-                            <div key={siteIdx} className="border rounded">
-                              {/* Site Header */}
-                              <div
-                                className="flex items-center justify-between p-2 bg-background hover:bg-muted/50 cursor-pointer"
-                                onClick={() => toggleSite(siteKey)}
-                              >
-                                <div className="flex items-center gap-2 pl-4">
-                                  {siteExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                                  <span className="text-sm font-medium">{site.site_name}</span>
-                                </div>
-                                <span className="text-sm">{formatNumber(site.total_emissions, 2)} tCO₂e</span>
-                              </div>
-
-                              {/* Activities */}
-                              {siteExpanded && site.activities && (
-                                <div className="p-2">
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                      <thead className="bg-muted/50">
-                                        <tr>
-                                          <th className="text-left p-2">Activity</th>
-                                          <th className="text-left p-2">Source Family</th>
-                                          <th className="text-left p-2">Level 3</th>
-                                          <th className="text-left p-2">Level 4</th>
-                                          <th className="text-right p-2">Quantity</th>
-                                          <th className="text-left p-2">Unit</th>
-                                          <th className="text-right p-2">Emissions (tCO₂e)</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {site.activities.map((activity, actIdx) => (
-                                          <tr key={actIdx} className="border-t hover:bg-muted/30">
-                                            <td className="p-2">
-                                              <div className="flex items-center gap-2">
-                                                <span>{activity.activity_name || "-"}</span>
-                                                {activity.is_custom_entry ? (
-                                                  <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                                                    CUSTOM
-                                                  </span>
-                                                ) : null}
-                                              </div>
-                                            </td>
-                                            <td className="p-2">
-                                              <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
-                                                {activity.source_family || "-"}
-                                              </span>
-                                            </td>
-                                            <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
-                                            <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
-                                            <td className="p-2 text-right">
-                                              {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
-                                            </td>
-                                            <td className="p-2">{activity.unit || "-"}</td>
-                                            <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                      <div className="p-2">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/50">
+                              <tr>
+                                <th className="text-left p-2">Site</th>
+                                <th className="text-left p-2">Activity</th>
+                                <th className="text-left p-2">Source Family</th>
+                                <th className="text-left p-2">Level 3</th>
+                                <th className="text-left p-2">Level 4</th>
+                                <th className="text-right p-2">Quantity</th>
+                                <th className="text-left p-2">Unit</th>
+                                <th className="text-right p-2">Emissions (tCO₂e)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {activities.map((activity, actIdx) => (
+                                <tr key={actIdx} className="border-t hover:bg-muted/30">
+                                  <td className="p-2 text-muted-foreground">{activity.site_name || "-"}</td>
+                                  <td className="p-2">
+                                    <div className="flex items-center gap-2">
+                                      <span>{activity.activity_name || "-"}</span>
+                                      {activity.is_custom_entry ? (
+                                        <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                                          CUSTOM
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                  <td className="p-2">
+                                    <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
+                                      {activity.source_family || "-"}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
+                                  <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
+                                  <td className="p-2 text-right">
+                                    {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
+                                  </td>
+                                  <td className="p-2">{activity.unit || "-"}</td>
+                                  <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>

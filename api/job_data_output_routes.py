@@ -45,6 +45,16 @@ def _clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
+    return _clean_label(
+        row.get("dataset_category")
+        or row.get("lookup_level_1")
+        or row.get("level_1")
+        or row.get("category"),
+        fallback,
+    )
+
+
 def _safe_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -81,6 +91,7 @@ def _load_data_output_rows(con, job_id: int):
             SELECT
                 jsr.row_id AS row_id,
                 jsr.scope,
+                jsr.level_1,
                 CASE
                     WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
                         OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
@@ -111,6 +122,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(jsr.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
+                fl.level_1 AS lookup_level_1,
                 NULL::text AS source_type,
                 NULL::text AS source_subtype,
                 NULL::text AS group_name,
@@ -128,6 +140,7 @@ def _load_data_output_rows(con, job_id: int):
             FROM job_scope_rows jsr
             LEFT JOIN client_sites s ON jsr.site_id = s.site_id
             LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
+            LEFT JOIN factor_lookup fl ON fl.db_id = jsr.factor_db_id
             WHERE jsr.job_id = %s
               AND jsr.enabled = TRUE
         ),
@@ -135,6 +148,7 @@ def _load_data_output_rows(con, job_id: int):
             SELECT
                 js.source_id AS row_id,
                 js.scope,
+                NULL::text AS level_1,
                 CASE
                     WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
                         OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
@@ -174,6 +188,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(js.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
+                fl.level_1 AS lookup_level_1,
                 js.source_type AS source_type,
                 js.source_subtype AS source_subtype,
                 g.group_name,
@@ -193,6 +208,7 @@ def _load_data_output_rows(con, job_id: int):
             LEFT JOIN job_emission_groups g ON g.group_id = js.group_id
             LEFT JOIN client_sites cs ON cs.site_id = js.site_id
             LEFT JOIN datasets d ON d.dataset_id = COALESCE(g.dataset_id, js.dataset_id)
+            LEFT JOIN factor_lookup fl ON fl.db_id = COALESCE(g.factor_db_id, js.factor_db_id)
             WHERE js.job_id = %s
               AND COALESCE(js.enabled, TRUE) = TRUE
         )
@@ -210,6 +226,7 @@ def _load_data_output_rows(con, job_id: int):
         for col, fallback in (("scope", "Unknown"), ("category", "Uncategorized"), ("site_name", "No Site Assigned")):
             if col in df.columns:
                 df[col] = df[col].apply(lambda value: _clean_label(value, fallback))
+        df["dataset_category"] = df.apply(lambda row: _dataset_category_label(row), axis=1)
     return df
 
 
@@ -218,7 +235,7 @@ def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[
     scopes: dict[str, dict[str, Any]] = {}
     for _, row in data_df.iterrows():
         scope_name = _clean_label(row.get('scope'), 'Unknown')
-        category = _clean_label(row.get('category'), 'Uncategorized')
+        category = _dataset_category_label(row)
         site = _clean_label(row.get('site_name'), 'No Site Assigned')
         metrics = combined_row_metrics(row, resolver)
         emission = round(float(metrics.get("calc_tco2e") or 0.0), 2)
@@ -327,10 +344,10 @@ def get_job_data_output(
 
             if scope:
                 # Detailed breakdown for specific scope
-                # Group by category and site
+                # Group by dataset category and site
                 categories = {}
                 for _, row in data_df.iterrows():
-                    category = _clean_label(row.get('category'), 'Uncategorized')
+                    category = _dataset_category_label(row)
                     site = _clean_label(row.get('site_name'), 'No Site Assigned')
                     metrics = combined_row_metrics(row, resolver)
                     qty_val = float(metrics.get("display_qty") or 0.0)
@@ -377,6 +394,7 @@ def get_job_data_output(
                         "source_name": _safe_text(row.get("source_name")),
                         "asset_identifier": _safe_text(row.get("asset_identifier")),
                         "employee_name": _safe_text(row.get("employee_name")),
+                        "site_name": site,
                     })
 
                 # Convert to list format
@@ -393,7 +411,7 @@ def get_job_data_output(
 
                     category_list.append({
                         "category_name": cat_name,
-                    "total_emissions": round(cat_data["total_emissions"], 2),
+                        "total_emissions": round(cat_data["total_emissions"], 2),
                         "sites": site_list
                     })
 
@@ -451,6 +469,7 @@ def get_job_data_output_audit(
             for _, row in df.iterrows():
                 scope_name = _clean_label(row.get("scope"), "Unknown")
                 site_name = _clean_label(row.get("site_name"), "No Site Assigned")
+                category_name = _dataset_category_label(row)
                 metrics = combined_row_metrics(row, resolver)
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
@@ -460,7 +479,8 @@ def get_job_data_output_audit(
                     {
                         "site_name": site_name,
                         "scope": scope_name,
-                        "category": _clean_label(row.get("category"), "Uncategorized"),
+                        "category": category_name,
+                        "dataset_category": category_name,
                         "id": str(row.get("original_id") or ""),
                         "report_label": str(row.get("report_label") or "-"),
                         "uom": str(metrics.get("display_uom") or ""),

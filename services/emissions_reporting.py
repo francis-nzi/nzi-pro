@@ -101,6 +101,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 'legacy'::text AS record_type,
                 jsr.scope,
+                jsr.level_1,
                 CASE
                     WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
                         OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
@@ -140,6 +141,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 'source_register'::text AS record_type,
                 js.scope,
+                NULL::text AS level_1,
                 CASE
                     WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
                         OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')

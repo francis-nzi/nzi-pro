@@ -21,6 +21,10 @@ def _clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
+    return _clean_label(row.get("level_1") or row.get("category"), fallback)
+
+
 def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
     if crp_only:
         return con.execute(
@@ -150,7 +154,8 @@ def get_client_reporting(
             scope_df['emissions'] = emissions_vals
             scope_df['quantity'] = quantity_vals
             scope_df['scope'] = scope_df['scope'].apply(lambda value: _clean_label(value, 'Unknown'))
-            scope_df['category'] = scope_df['category'].apply(lambda value: _clean_label(value, 'Uncategorized'))
+            scope_df['dataset_category'] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
+            scope_df['category'] = scope_df['dataset_category']
             scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
             
             # Get unique years
