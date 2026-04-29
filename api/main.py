@@ -2891,6 +2891,7 @@ def job_excel_template(
     template_format: str = Query("single", regex="^(single|multi)$"),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    _tmp_template_file = None
     try:
         # Get job/client metadata for filename convention.
         with get_conn() as con:
@@ -2933,10 +2934,28 @@ def job_excel_template(
         paths = _job_template_paths(int(job_id))
         reference_template_path = paths.get("excel_template_path")
 
+        # If the assigned template has DB content (uploaded via Admin), write to a temp
+        # file so the generator uses the correct file instead of a stale disk copy.
+        with get_conn() as con:
+            tpl_row = con.execute(
+                """
+                SELECT jt.file_content
+                FROM jobs j
+                LEFT JOIN job_templates jt ON jt.job_template_id = j.job_template_id
+                WHERE j.job_id = ?
+                """,
+                [int(job_id)],
+            ).fetchone()
+        if tpl_row and tpl_row[0]:
+            import tempfile
+            file_content_bytes = bytes(tpl_row[0]) if not isinstance(tpl_row[0], bytes) else tpl_row[0]
+            _tmp_template_file = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+            _tmp_template_file.write(file_content_bytes)
+            _tmp_template_file.close()
+            reference_template_path = _tmp_template_file.name
+
         if template_format == "single":
             from services.generate_single_sheet_template import generate_single_sheet_template
-
-            print(f"DEBUG: job_number={job_number}, client_name={client_name}, site={site}, reporting_year={reporting_year}")
 
             data, filename = generate_single_sheet_template(
                 job_id=int(job_id),
@@ -2950,8 +2969,6 @@ def job_excel_template(
                 include_prev_year=bool(include_prev_year),
                 reference_template_path=str(reference_template_path) if reference_template_path else None,
             )
-            
-            print(f"DEBUG: Generated filename={filename}")
         else:
             # Legacy multi-sheet template
             os.environ["NZI_EXCEL_TEMPLATE_PATH"] = str(paths.get("excel_template_path") or "")
@@ -2973,6 +2990,12 @@ def job_excel_template(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build template: {e}")
+    finally:
+        if _tmp_template_file is not None:
+            try:
+                os.unlink(_tmp_template_file.name)
+            except Exception:
+                pass
 
     # Simple Content-Disposition header with quoted filename
     safe_filename = filename.replace('"', '\\"')
