@@ -52,11 +52,17 @@ def _ensure_job_files_table(con) -> None:
         )
         """
     )
-    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'")
-    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_item_id VARCHAR")
-    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_web_url TEXT")
-    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_path TEXT")
-    con.execute("ALTER TABLE job_files ADD COLUMN IF NOT EXISTS notes TEXT")
+    for _stmt in [
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_item_id VARCHAR",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_web_url TEXT",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS external_path TEXT",
+        "ALTER TABLE job_files ADD COLUMN IF NOT EXISTS notes TEXT",
+    ]:
+        try:
+            con.execute(_stmt)
+        except Exception:
+            pass
 
 
 def _mime_type_for_filename(filename: str) -> str:
