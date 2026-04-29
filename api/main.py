@@ -1914,7 +1914,9 @@ def list_job_templates(
                 SELECT job_template_id, template_key, template_name,
                        template_type, file_path, excel_template_path, crp_template_path,
                        is_active, COALESCE(archived, FALSE) AS archived, archived_at, archived_by,
-                       created_at, created_by
+                       created_at, created_by,
+                       original_filename,
+                       CASE WHEN file_content IS NOT NULL THEN TRUE ELSE FALSE END AS has_db_content
                 FROM job_templates
                 {where_clause}
                 ORDER BY template_type, template_key
@@ -1928,19 +1930,22 @@ def list_job_templates(
         import numpy as np
         df = df.replace({np.nan: None})
         for _, row in df.iterrows():
-            file_name = None
-            for candidate in (
-                row.get("file_path"),
-                row.get("excel_template_path"),
-                row.get("crp_template_path"),
-            ):
-                if candidate:
-                    try:
-                        file_name = Path(str(candidate)).name
-                    except Exception:
-                        file_name = str(candidate)
-                    if file_name:
-                        break
+            # Prefer original_filename (uploaded name) over path-derived name
+            original_filename = row.get("original_filename")
+            file_name = str(original_filename).strip() if original_filename else None
+            if not file_name:
+                for candidate in (
+                    row.get("file_path"),
+                    row.get("excel_template_path"),
+                    row.get("crp_template_path"),
+                ):
+                    if candidate:
+                        try:
+                            file_name = Path(str(candidate)).name
+                        except Exception:
+                            file_name = str(candidate)
+                        if file_name:
+                            break
             items.append(
                 {
                     "job_template_id": int(row["job_template_id"]),
@@ -1957,6 +1962,7 @@ def list_job_templates(
                     "created_at": row.get("created_at"),
                     "created_by": row.get("created_by"),
                     "file_name": file_name,
+                    "has_db_content": bool(row.get("has_db_content")),
                 }
             )
 
@@ -1966,6 +1972,7 @@ def list_job_templates(
 @app.get("/job-templates/{template_id}/download")
 def download_job_template(template_id: int, _user: dict[str, str] = Depends(_current_user)):
     """Download the template file for a job template."""
+    import io
     from pathlib import Path
 
     try:
@@ -1978,7 +1985,9 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
                     template_type,
                     file_path,
                     excel_template_path,
-                    crp_template_path
+                    crp_template_path,
+                    file_content,
+                    original_filename
                 FROM job_templates
                 WHERE job_template_id = %s
                 """,
@@ -1991,6 +2000,24 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
         template_key = str(row[0] or f"template_{template_id}")
         template_name = str(row[1] or "").strip()
         template_type = str(row[2] or "").strip().lower()
+        file_content = row[6]
+        original_filename = str(row[7] or "").strip() if row[7] else None
+
+        # Serve from DB content if available (survives deploys)
+        if file_content:
+            content_bytes = bytes(file_content) if not isinstance(file_content, bytes) else file_content
+            download_name = original_filename or f"{template_key}.xlsx"
+            suffix = Path(download_name).suffix or (".xlsx" if template_type == "dataset" else ".docx")
+            if not Path(download_name).suffix:
+                download_name += suffix
+            from fastapi.responses import StreamingResponse
+            return StreamingResponse(
+                io.BytesIO(content_bytes),
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+            )
+
+        # Fall back to disk (seeded files committed to repo)
         candidate_paths = [row[3], row[4], row[5], *[str(p) for p in _seeded_job_template_fallbacks(template_key, template_type)]]
         file_path = None
         for candidate in candidate_paths:
@@ -1998,12 +2025,9 @@ def download_job_template(template_id: int, _user: dict[str, str] = Depends(_cur
             if file_path is not None:
                 break
         if file_path is None:
-            raise HTTPException(status_code=404, detail="Template file not found on disk")
+            raise HTTPException(status_code=404, detail="Template file not found")
 
-        suffix = file_path.suffix
-        if not suffix:
-            suffix = ".xlsx" if template_type == "dataset" else ".docx"
-
+        suffix = file_path.suffix or (".xlsx" if template_type == "dataset" else ".docx")
         preferred_name = template_name or template_key
         safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_", " ") else "_" for ch in preferred_name).strip()
         download_name = f"{safe_name or template_key}{suffix}"
@@ -2035,51 +2059,41 @@ async def create_job_template(
     try:
         if not template_key:
             raise HTTPException(status_code=400, detail="template_key is required")
-        
-        # Create templates directory if it doesn't exist
-        templates_dir = Path("uploaded_templates")
-        templates_dir.mkdir(exist_ok=True)
-        
-        # Generate unique filename
-        file_ext = Path(file.filename or "template").suffix
-        safe_key = template_key.replace(" ", "_").replace("/", "_")
-        file_name = f"{safe_key}_{template_type}{file_ext}"
-        file_path = templates_dir / file_name
-        
-        # Save uploaded file
+
         contents = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(contents)
-        
+        original_filename = file.filename or f"{template_key}.xlsx"
+
         with get_conn() as con:
             # Check if template_key already exists
             exists = con.execute(
                 "SELECT 1 FROM job_templates WHERE template_key = %s",
                 [template_key]
             ).fetchone()
-            
+
             if exists:
                 raise HTTPException(status_code=400, detail="Template key already exists")
-            
+
             creator = _user.get("email") or _user.get("name") or "system"
             row = con.execute(
                 """
-                INSERT INTO job_templates 
-                (template_key, template_name, template_type, file_path, is_active, created_by, archived)
-                VALUES (%s, %s, %s, %s, %s, %s, FALSE)
+                INSERT INTO job_templates
+                (template_key, template_name, template_type, file_path, file_content, original_filename, is_active, created_by, archived)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, FALSE)
                 RETURNING job_template_id
                 """,
                 [
                     template_key,
                     template_name or None,
                     template_type,
-                    str(file_path),
+                    original_filename,
+                    contents,
+                    original_filename,
                     is_active.lower() == "true",
                     creator,
                 ]
             ).fetchone()
-            
-            return {"ok": True, "job_template_id": int(row[0]), "file_path": str(file_path)}
+
+            return {"ok": True, "job_template_id": int(row[0]), "file_path": original_filename}
     except HTTPException:
         raise
     except Exception as e:
@@ -2161,37 +2175,14 @@ async def update_job_template(
             
             # Handle file upload if provided
             if file and file.filename:
-                templates_dir = Path("uploaded_templates")
-                templates_dir.mkdir(exist_ok=True)
-                
-                file_ext = Path(file.filename).suffix
-                safe_key = (template_key or f"template_{template_id}").replace(" ", "_").replace("/", "_")
-                file_name = f"{safe_key}_{template_type or 'dataset'}{file_ext}"
-                file_path = templates_dir / file_name
-                
                 contents = await file.read()
-                with open(file_path, "wb") as f:
-                    f.write(contents)
-                
+                original_filename = file.filename
                 updates.append("file_path = %s")
-                params.append(str(file_path))
-            else:
-                current_file_resolved = _resolve_job_template_file_path(current_file_path)
-                current_resolved_path = current_file_resolved
-                if current_resolved_path is None:
-                    fallback_candidates = [
-                        current_excel_path,
-                        current_crp_path,
-                        *[str(p) for p in _seeded_job_template_fallbacks(current_template_key or template_key, current_template_type or template_type)],
-                    ]
-                    for candidate in fallback_candidates:
-                        current_resolved_path = _resolve_job_template_file_path(candidate)
-                        if current_resolved_path is not None:
-                            break
-                if current_resolved_path is not None and current_file_resolved is None:
-                    # Backfill a working file reference so Edit and Download resolve the same workbook.
-                    updates.append("file_path = %s")
-                    params.append(str(current_resolved_path))
+                params.append(original_filename)
+                updates.append("file_content = %s")
+                params.append(contents)
+                updates.append("original_filename = %s")
+                params.append(original_filename)
             
             if not updates:
                 return {"ok": True, "message": "No fields to update"}

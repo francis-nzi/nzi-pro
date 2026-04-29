@@ -2021,3 +2021,9 @@ def run_migrations():
             )
         except Exception:
             pass
+
+        try:
+            con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS file_content BYTEA")
+            con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS original_filename VARCHAR")
+        except Exception:
+            pass
