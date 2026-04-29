@@ -258,7 +258,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     return () => window.removeEventListener("nzi-job-scope-refresh", handleRefresh);
   }, [loadSummary]);
 
-  async function loadScopeDetails(scope: string) {
+  async function loadScopeDetails(scope: string): Promise<DataOutputDetailed | null> {
     setSelectedScope(scope);
     setError("");
     try {
@@ -268,8 +268,10 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       }
       const data = await res.json();
       setDetailedData(data);
+      return data as DataOutputDetailed;
     } catch (e) {
       setError((e as Error).message);
+      return null;
     }
   }
 
@@ -291,6 +293,21 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       newExpanded.add(categoryKey);
     }
     setExpandedCategories(newExpanded);
+  }
+
+  async function handleCategoryToggle(scopeName: string, categoryName: string) {
+    const categoryKey = `${scopeName}-${categoryName}`;
+    const isExpanded = expandedCategories.has(categoryKey);
+    if (isExpanded) {
+      toggleCategory(categoryKey);
+      return;
+    }
+
+    if (selectedScope !== scopeName || detailedData?.scope !== scopeName) {
+      await loadScopeDetails(scopeName);
+    }
+
+    toggleCategory(categoryKey);
   }
 
   function csvEscape(value: string | number): string {
@@ -694,7 +711,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                 {/* Category Header */}
                                 <div
                                   className="flex items-center justify-between p-2 bg-background hover:bg-muted/50 cursor-pointer"
-                                  onClick={() => toggleCategory(categoryKey)}
+                                  onClick={() => void handleCategoryToggle(scope.scope_name, category.category_name)}
                                 >
                                   <div className="flex items-center gap-2 pl-4">
                                     {categoryExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -705,18 +722,82 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
                                 {/* Sites */}
                                 {categoryExpanded && (
-                                  <div className="p-2 pl-8 space-y-1">
-                                    {category.sites.map((site, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-2 text-sm bg-muted/30 rounded">
-                                        <span className="text-muted-foreground">{site.site_name}</span>
-                                        <div className="flex items-center gap-2">
-                                          <span>{formatNumber(site.total_emissions, 2)} tCO₂e</span>
-                                          {site.activity_count && (
-                                            <span className="text-xs text-muted-foreground">({site.activity_count} activities)</span>
-                                          )}
-                                        </div>
+                                  <div className="p-2 pl-8">
+                                    {selectedScope === scope.scope_name && detailedData?.scope === scope.scope_name ? (
+                                      (() => {
+                                        const detailedCategory = detailedData.categories.find(
+                                          (item) => item.category_name === category.category_name
+                                        );
+                                        const activities = detailedCategory
+                                          ? detailedCategory.sites.flatMap((site) =>
+                                              (site.activities || []).map((activity) => ({
+                                                ...activity,
+                                                site_name: activity.site_name || site.site_name,
+                                              }))
+                                            )
+                                          : [];
+
+                                        if (!detailedCategory) {
+                                          return (
+                                            <div className="rounded border bg-muted/20 p-3 text-sm text-muted-foreground">
+                                              No detailed rows available for this category.
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                              <thead className="bg-muted/50">
+                                                <tr>
+                                                  <th className="text-left p-2">Site</th>
+                                                  <th className="text-left p-2">Activity</th>
+                                                  <th className="text-left p-2">Source Family</th>
+                                                  <th className="text-left p-2">Level 3</th>
+                                                  <th className="text-left p-2">Level 4</th>
+                                                  <th className="text-right p-2">Quantity</th>
+                                                  <th className="text-left p-2">Unit</th>
+                                                  <th className="text-right p-2">Emissions (tCO₂e)</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {activities.map((activity, actIdx) => (
+                                                  <tr key={actIdx} className="border-t hover:bg-muted/30">
+                                                    <td className="p-2 text-muted-foreground">{activity.site_name || "-"}</td>
+                                                    <td className="p-2">
+                                                      <div className="flex items-center gap-2">
+                                                        <span>{activity.activity_name || "-"}</span>
+                                                        {activity.is_custom_entry ? (
+                                                          <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                                                            CUSTOM
+                                                          </span>
+                                                        ) : null}
+                                                      </div>
+                                                    </td>
+                                                    <td className="p-2">
+                                                      <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
+                                                        {activity.source_family || "-"}
+                                                      </span>
+                                                    </td>
+                                                    <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
+                                                    <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
+                                                    <td className="p-2 text-right">
+                                                      {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
+                                                    </td>
+                                                    <td className="p-2">{activity.unit || "-"}</td>
+                                                    <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        );
+                                      })()
+                                    ) : (
+                                      <div className="rounded border bg-muted/20 p-3 text-sm text-muted-foreground">
+                                        Loading detailed lines...
                                       </div>
-                                    ))}
+                                    )}
                                   </div>
                                 )}
                               </div>
