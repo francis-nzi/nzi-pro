@@ -1736,18 +1736,26 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                           <div className="truncate text-xs text-muted-foreground" title={rowDisplaySubtitle(row)}>
                             {rowDisplaySubtitle(row)}
                           </div>
-                          {row.ghg_unit ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
                             <div
-                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(row.ghg_unit, row.unit_warning)}`}
-                              title={row.unit_warning || `Factor unit: ${row.ghg_unit}`}
+                              className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800"
+                              title={row.uom || "Unit of measure missing"}
                             >
-                              {`Unit: ${row.ghg_unit}`}
+                              {row.uom ? `UoM: ${row.uom}` : "UoM missing"}
                             </div>
-                          ) : (
-                            <div className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
-                              Unit missing
-                            </div>
-                          )}
+                            {row.ghg_unit ? (
+                              <div
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${unitBadgeClass(row.ghg_unit, row.unit_warning)}`}
+                                title={row.unit_warning || `Factor unit: ${row.ghg_unit}`}
+                              >
+                                {`Unit: ${row.ghg_unit}`}
+                              </div>
+                            ) : (
+                              <div className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                                Unit missing
+                              </div>
+                            )}
+                          </div>
                         </td>
                         {visibleColumns.qty && (
                           <td className="p-2 text-right">
@@ -1861,6 +1869,12 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                               <div className="text-xs">
                                 <div className="text-muted-foreground">Factor</div>
                                 <div className="font-mono break-all">{factorDisplayText(row)}</div>
+                              </div>
+                              <div className="text-xs md:col-span-2 lg:col-span-4">
+                                <div className="text-muted-foreground">UoM</div>
+                                <div className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800">
+                                  {row.uom || "UoM missing"}
+                                </div>
                               </div>
                               {row.ghg_unit ? (
                                 <div className="text-xs md:col-span-2 lg:col-span-4">
