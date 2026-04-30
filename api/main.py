@@ -2841,7 +2841,7 @@ def job_excel_import(
                             int(job_id),
                             int(site_id),
                             str(scope),
-                            (str(level_1).strip() if level_1 is not None else None),  # category = top-level dataset category
+                            (str(level_2).strip() if level_2 is not None else None),  # category = level_2
                             int(dataset_id),
                             int(factor_db_id),
                             str(original_id),
@@ -4953,10 +4953,12 @@ def client_jobs(
             # Calculate overall status
             overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
 
-            try:
-                total_emissions = exact_job_total_emissions(con, job_id)
-            except Exception:
-                total_emissions = _float_or_zero(r.get("total_emissions", 0))
+            total_emissions = _float_or_zero(r.get("total_emissions", 0))
+            if _bool_or_false(r.get("is_crp")):
+                try:
+                    total_emissions = exact_job_total_emissions(con, job_id)
+                except Exception:
+                    total_emissions = _float_or_zero(r.get("total_emissions", 0))
 
             items.append(
                 {

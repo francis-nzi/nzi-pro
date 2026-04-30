@@ -57,25 +57,6 @@ def _extract_job_years(jobs_df) -> list[int]:
     return sorted(set(years))
 
 
-def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
-    values = [
-        row.get("dataset_category"),
-        row.get("lookup_level_1"),
-        row.get("level_1"),
-        row.get("lookup_category"),
-        row.get("category"),
-        row.get("level_2"),
-    ]
-    for value in values:
-        if value is None:
-            continue
-        txt = str(value).strip()
-        if not txt or txt.lower() in {"nan", "none", "null"}:
-            continue
-        return txt
-    return fallback
-
-
 def _dashboard_cache_key(client_db_id: int, year: int | None, org_id: str | None) -> tuple[int, int | None, str | None]:
     return (int(client_db_id), _safe_year_value(year), str(org_id) if org_id else None)
 
@@ -363,8 +344,6 @@ def get_client_dashboard(
             scope_df = scope_df.copy()
             scope_df['dashboard_year_norm'] = scope_df['dashboard_year'].apply(_safe_year_value)
             scope_df = scope_df[scope_df['dashboard_year_norm'].notna()].copy()
-            scope_df['dataset_category'] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
-            scope_df['category'] = scope_df['dataset_category']
             years = sorted(
                 [
                     int(y)
@@ -439,10 +418,10 @@ def get_client_dashboard(
                 year_total = float(next((y['total'] for y in yearly_emissions if int(y['year']) == int(yr)), 0) or 0)
                 year_top_categories = []
                 if not selected_rows.empty:
-                    category_groups = selected_rows.groupby('dataset_category')['emissions'].sum().reset_index()
+                    category_groups = selected_rows.groupby('category')['emissions'].sum().reset_index()
                     category_groups = category_groups.sort_values('emissions', ascending=False).head(10)
                     for _, row in category_groups.iterrows():
-                        category = str(row['dataset_category']).strip()
+                        category = str(row['category']).strip()
                         if not category or category.lower() in ['nan', 'none', 'null']:
                             continue
                         emissions = float(row['emissions'])

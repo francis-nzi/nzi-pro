@@ -302,7 +302,6 @@ def _factor_lookup_select_parts(con) -> dict[str, str]:
     cols = _table_columns(con, "factor_lookup")
     has = lambda c: c in cols
     return {
-        "category_expr": "category" if has("category") else "NULL::text",
         "level_1_expr": "level_1" if has("level_1") else "NULL::text AS level_1",
         "level_2_expr": "level_2" if has("level_2") else "NULL::text AS level_2",
         "level_4_expr": "level_4" if has("level_4") else "NULL::text AS level_4",
@@ -467,7 +466,7 @@ def get_job_scope_data(
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
-                    {fl_parts['category_expr']} AS lookup_category,
+                    fl.category AS lookup_category,
                     fl.level_1 AS lookup_level_1,
                     fl.level_2 AS lookup_level_2,
                     fl.level_3 AS lookup_level_3,
@@ -540,10 +539,10 @@ def get_job_scope_data(
                         "site_id": safe_int(r.get("site_id")),
                         "site_name": r.get("site_name"),
                         "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
-                        "dataset_category": r.get("lookup_category") or r.get("category") or r.get("lookup_level_1") or r.get("level_1"),
+                        "dataset_category": r.get("lookup_category") or r.get("lookup_level_1") or r.get("level_1") or r.get("category"),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
-                        "category": r.get("lookup_category") or r.get("category") or r.get("lookup_level_2") or r.get("lookup_level_1"),
+                        "category": r.get("category") or r.get("lookup_level_2") or r.get("lookup_category") or r.get("lookup_level_1"),
                         "level_1": r.get("level_1") or r.get("lookup_level_1"),
                         "level_2": r.get("level_2") or r.get("lookup_level_2"),
                         "level_3": r.get("level_3") or r.get("lookup_level_3"),
@@ -940,8 +939,8 @@ def get_previous_scope_rows(
                     jsr.dataset_id,
                     jsr.factor_db_id,
                     jsr.original_id,
-                    COALESCE({fl_parts['category_expr']}, jsr.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
-                    COALESCE({fl_parts['category_expr']}, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
+                    COALESCE(jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1) AS category,
+                    COALESCE(fl.category, jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1) AS lookup_category,
                     COALESCE(jsr.level_1, fl.level_1) AS level_1,
                     COALESCE(jsr.level_2, fl.level_2) AS level_2,
                     COALESCE(jsr.level_3, fl.level_3) AS level_3,
@@ -1153,10 +1152,7 @@ def create_scope_data_row(
                     final_dataset_id,
                     final_factor_db_id,
                     original_id,
-                    payload.get("dataset_category")
-                    or payload.get("category")
-                    or payload.get("level_1")
-                    or payload.get("level_2"),
+                    payload.get("category"),
                     payload.get("level_1"),
                     payload.get("level_2"),
                     payload.get("level_3"),
@@ -1281,7 +1277,7 @@ def update_scope_data_row(
             params = []
             
             allowed_fields = [
-                "category", "qty", "apply_pct", "data_source", "data_confidence", "notes", "site_id",
+                "qty", "apply_pct", "data_source", "data_confidence", "notes", "site_id",
                 "month_1", "month_2", "month_3", "month_4", "month_5", "month_6",
                 "month_7", "month_8", "month_9", "month_10", "month_11", "month_12"
             ]
@@ -1725,7 +1721,7 @@ def get_template_factors(
 
                     if remaining_limit > 0:
                         query = f"""
-                            SELECT db_id, dataset_id, scope, {fl_parts['category_expr']} AS category, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
+                            SELECT db_id, dataset_id, scope, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
                                    original_id, {fl_parts['column_text_expr']}, {fl_parts['report_label_expr']}, uom, factor, {fl_parts['ghg_unit_expr']}
                             FROM factor_lookup
                             WHERE {where_sql}
@@ -1741,7 +1737,7 @@ def get_template_factors(
                                 factor_val = _safe_float(row.get('factor'))
                                 dataset_factors.append({
                                     "scope": row.get('scope'),
-                                    "category": row.get('category') or row.get('level_1') or row.get('level_2'),
+                                    "category": row.get('level_2') or row.get('level_1'),
                                     "report_label": row.get('report_label') or row.get('column_text'),
                                     "original_id": row.get('original_id'),
                                     "uom": row.get('uom'),
