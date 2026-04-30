@@ -20,15 +20,20 @@ from api.job_report_routes import (
     ACTIVITY_GROUP_COLORS,
     ACTIVITY_GROUP_ORDER,
     _build_activity_grouping,
+    _ensure_glossary_cards_and_fetch,
     _get_job_assigned_template_selection,
     get_benchmark_emissions,
     get_emissions_by_category,
     get_job_data,
     get_job_target_data,
+    get_site_emissions_breakdowns,
     _get_template_variable_values_for_render,
     get_scope_totals,
 )
-from api.report_template_routes import _get_job_report_metadata
+from api.report_template_routes import (
+    _get_job_report_metadata,
+    _build_report_render_values,
+)
 from services.emissions_reporting import load_combined_emissions_summary_rows
 from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
@@ -169,7 +174,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     target_data = get_job_target_data(int(job_id))
     report_metadata = _get_job_report_metadata(int(job_id))
     with get_conn() as con:
-      yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
+        yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
     template_selection = _get_job_assigned_template_selection(int(job_id))
     template_variables: dict[str, Any] = {}
     if template_selection and template_selection.get("template_id") is not None:
@@ -181,6 +186,34 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
             )
         except Exception:
             template_variables = {}
+
+    # Phase 1 additions — data required by the Advanced Reports renderer
+    site_breakdowns: dict[str, Any] = {}
+    try:
+        site_breakdowns = get_site_emissions_breakdowns(int(job_id))
+    except Exception:
+        pass
+
+    glossary_cards: list[dict[str, Any]] = []
+    try:
+        glossary_cards = _ensure_glossary_cards_and_fetch(
+            int(job_id),
+            job_data,
+            target_data.get("glossary_terms") if target_data else None,
+        )
+    except Exception:
+        pass
+
+    render_values: dict[str, Any] = {}
+    try:
+        render_values = _build_report_render_values(
+            job_data=job_data,
+            scope_totals=scope_totals,
+            report_metadata=report_metadata or {},
+            template_variables=template_variables,
+        )
+    except Exception:
+        pass
 
     current_total = _coerce_float(scope_totals.get("Total"))
     benchmark_total = _coerce_float(benchmark_totals.get("Total"))
@@ -205,6 +238,9 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "target_data": target_data,
         "report_metadata": report_metadata,
         "template_variables": template_variables,
+        "site_breakdowns": site_breakdowns,
+        "glossary_cards": glossary_cards,
+        "render_values": render_values,
         "summary": {
             "current_total": current_total,
             "benchmark_total": benchmark_total,
