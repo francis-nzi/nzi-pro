@@ -297,6 +297,17 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             viewport={"width": 1440, "height": 2200},
             extra_http_headers=extra_headers,
         )
+        # Inject the JWT as the nzi_token cookie so the auth-client.ts global
+        # fetch interceptor (which reads this cookie name) includes Authorization
+        # headers on all in-page API calls — Playwright's browser has no cookie jar.
+        if bearer:
+            hostname = urllib.parse.urlparse(frontend_base).hostname or "localhost"
+            context.add_cookies([{
+                "name": "nzi_token",
+                "value": bearer,
+                "domain": hostname,
+                "path": "/",
+            }])
         try:
             page = context.new_page()
             page.goto(report_url, wait_until="networkidle", timeout=90000)
