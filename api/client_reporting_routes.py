@@ -23,11 +23,11 @@ def _clean_label(value, fallback: str) -> str:
 
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     return _clean_label(
-        row.get("dataset_category")
+        row.get("category")
+        or row.get("dataset_category")
         or row.get("lookup_category")
-        or row.get("category")
-        or row.get("level_1")
-        or row.get("level_2"),
+        or row.get("level_2")
+        or row.get("level_1"),
         fallback,
     )
 
