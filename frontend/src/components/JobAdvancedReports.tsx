@@ -105,6 +105,20 @@ type GlossaryCard = {
   definition: string;
 };
 
+type ReactReportVersion = {
+  report_version_id: number;
+  version_number: number;
+  version_label?: string | null;
+  status?: string | null;
+  report_format?: string | null;
+  generated_at?: string | null;
+  generated_by?: string | null;
+  file_id?: number | null;
+  download_url?: string | null;
+  data_hash?: string | null;
+  notes?: string | null;
+};
+
 type LiveData = {
   job_data: ReportJob;
   scope_totals?: Record<string, number | null | undefined>;
@@ -473,6 +487,9 @@ export default function JobAdvancedReports({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [versions, setVersions] = useState<ReactReportVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [markingFinal, setMarkingFinal] = useState<number | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -487,26 +504,80 @@ export default function JobAdvancedReports({
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]);
 
-  async function downloadPDF() {
+  function loadVersions() {
+    setVersionsLoading(true);
+    fetch(`${baseUrl}/jobs/${jobId}/react-report-versions`, { credentials: "include" })
+      .then(r => r.ok ? r.json() as Promise<{ versions: ReactReportVersion[] }> : Promise.resolve({ versions: [] }))
+      .then(d => setVersions(d.versions ?? []))
+      .catch(() => setVersions([]))
+      .finally(() => setVersionsLoading(false));
+  }
+
+  useEffect(() => { loadVersions(); }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveVersion(status: "draft" | "review") {
     setGenerating(true);
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`, {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/generate-report-react?save_version=true&report_version_status=${status}`,
+        { method: "POST", credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const vNum = res.headers.get("X-Report-Version-Number") ?? "";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `report-${jobId}-advanced${vNum ? `-v${vNum}` : ""}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      loadVersions();
+    } catch (e) {
+      alert(`PDF generation failed: ${String(e)}`);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function downloadVersion(version: ReactReportVersion) {
+    if (!version.download_url) return;
+    try {
+      const res = await fetch(`${baseUrl}${version.download_url}`, { credentials: "include" });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `report-${jobId}-advanced.pdf`;
+      a.download = `report-${jobId}-advanced-v${version.version_number}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(`PDF generation failed: ${String(e)}`);
+      alert(`Download failed: ${String(e)}`);
+    }
+  }
+
+  async function markFinal(version: ReactReportVersion) {
+    setMarkingFinal(version.report_version_id);
+    try {
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/report-versions/${version.report_version_id}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "final" }),
+        },
+      );
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      loadVersions();
+    } catch (e) {
+      alert(`Failed to mark final: ${String(e)}`);
     } finally {
-      setGenerating(false);
+      setMarkingFinal(null);
     }
   }
 
@@ -631,14 +702,14 @@ export default function JobAdvancedReports({
       `}</style>
 
       {/* Control bar */}
-      <div className="advanced-report-controls mb-6 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-5 py-3 shadow-sm">
+      <div className="advanced-report-controls mb-4 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-5 py-3 shadow-sm">
         <div>
           <h2 className="text-sm font-semibold text-gray-700">Advanced Reports</h2>
           <p className="mt-0.5 text-xs text-gray-400">
             React / Playwright renderer · vector charts · A4 print layout
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Badge
             variant="outline"
             className="border-amber-300 bg-amber-50 text-xs text-amber-600"
@@ -647,7 +718,16 @@ export default function JobAdvancedReports({
           </Badge>
           <Button
             size="sm"
-            onClick={downloadPDF}
+            variant="outline"
+            onClick={() => saveVersion("draft")}
+            disabled={generating}
+            className="text-xs"
+          >
+            Save Draft
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => saveVersion("review")}
             disabled={generating}
             className="bg-green-700 text-xs text-white hover:bg-green-800"
           >
@@ -657,10 +737,97 @@ export default function JobAdvancedReports({
                 Generating…
               </span>
             ) : (
-              "⬇ Generate PDF"
+              "⬇ Save for Review"
             )}
           </Button>
         </div>
+      </div>
+
+      {/* Version history */}
+      <div className="advanced-report-controls mb-6 rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <span className="text-xs font-semibold text-gray-600 uppercase tracking-widest">
+            Saved Versions
+          </span>
+          {versionsLoading && (
+            <span className="text-xs text-gray-400">Loading…</span>
+          )}
+        </div>
+        {versions.length === 0 && !versionsLoading ? (
+          <p className="px-5 py-4 text-xs text-gray-400">
+            No saved versions yet — click "Save for Review" to create one.
+          </p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="py-2 pl-5 text-left font-medium text-gray-500">Version</th>
+                <th className="py-2 text-left font-medium text-gray-500">Status</th>
+                <th className="py-2 text-left font-medium text-gray-500">Saved</th>
+                <th className="py-2 text-left font-medium text-gray-500">By</th>
+                <th className="py-2 pr-5 text-right font-medium text-gray-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {versions.map(v => {
+                const isFinal = v.status?.toLowerCase() === "final";
+                const savedAt = v.generated_at
+                  ? new Date(v.generated_at).toLocaleDateString("en-GB", {
+                      day: "2-digit", month: "short", year: "numeric",
+                    })
+                  : "—";
+                return (
+                  <tr key={v.report_version_id} className="border-b border-gray-50 last:border-0">
+                    <td className="py-2.5 pl-5 font-semibold text-gray-700">
+                      {v.version_label ?? `v${v.version_number}`}
+                    </td>
+                    <td className="py-2.5">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          isFinal
+                            ? "bg-green-100 text-green-700"
+                            : v.status === "draft"
+                              ? "bg-gray-100 text-gray-600"
+                              : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {v.status ?? "review"}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-gray-500">{savedAt}</td>
+                    <td className="py-2.5 text-gray-500 max-w-[120px] truncate">
+                      {v.generated_by ?? "—"}
+                    </td>
+                    <td className="py-2.5 pr-5">
+                      <div className="flex items-center justify-end gap-2">
+                        {v.download_url && (
+                          <button
+                            onClick={() => downloadVersion(v)}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Download
+                          </button>
+                        )}
+                        {!isFinal && (
+                          <button
+                            onClick={() => markFinal(v)}
+                            disabled={markingFinal === v.report_version_id}
+                            className="text-xs text-green-700 hover:underline disabled:opacity-50"
+                          >
+                            {markingFinal === v.report_version_id ? "…" : "Mark Final"}
+                          </button>
+                        )}
+                        {isFinal && (
+                          <span className="text-xs text-green-600 font-medium">✓ Final</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Report preview */}

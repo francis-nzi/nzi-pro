@@ -586,6 +586,7 @@ def _store_report_version_artifact(
     snapshot_json: str,
     version_label: str | None = None,
     notes: str | None = None,
+    report_format: str = "pdf",
 ) -> dict[str, Any]:
     _ensure_job_files_table(con)
     _ensure_report_versions_schema(con)
@@ -653,7 +654,7 @@ def _store_report_version_artifact(
           external_item_id, external_web_url, external_path, data_hash, snapshot_json,
           notes, generated_by, reviewed_at, reviewed_by, finalized_at, finalized_by
         )
-        VALUES (%s, %s, %s, %s, %s, %s, 'pdf', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s,
                 CASE WHEN lower(%s) = 'review' THEN NOW() ELSE NULL END,
                 CASE WHEN lower(%s) = 'review' THEN %s ELSE NULL END,
@@ -668,6 +669,7 @@ def _store_report_version_artifact(
             int(version_number),
             version_label_value,
             status,
+            str(report_format or "pdf"),
             template_id,
             template_version_id,
             file_id,

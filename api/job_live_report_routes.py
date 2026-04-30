@@ -7,10 +7,13 @@ browser report page can render directly, including print-friendly charts.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from api.auth import _current_user
@@ -22,6 +25,10 @@ from api.job_report_routes import (
     _build_activity_grouping,
     _ensure_glossary_cards_and_fetch,
     _get_job_assigned_template_selection,
+    _normalize_report_version_status,
+    _safe_int,
+    _serialize_report_version_row,
+    _store_report_version_artifact,
     get_benchmark_emissions,
     get_emissions_by_category,
     get_job_data,
@@ -310,3 +317,202 @@ def get_job_live_report_pdf(
             "Cache-Control": "no-store",
         },
     )
+
+
+# ─── Versioned React report generation ───────────────────────────────────────
+
+
+def _load_latest_final_react_version(con, job_id: int) -> dict[str, Any] | None:
+    """Return the latest finalized React-format report version row, or None."""
+    row = con.execute(
+        """
+        SELECT *
+        FROM job_report_versions
+        WHERE job_id = %s
+          AND lower(COALESCE(report_format, '')) = 'react'
+          AND lower(COALESCE(status, '')) = 'final'
+        ORDER BY COALESCE(finalized_at, generated_at) DESC NULLS LAST,
+                 version_number DESC, report_version_id DESC
+        LIMIT 1
+        """,
+        [int(job_id)],
+    ).fetchone()
+    return dict(row._mapping) if row is not None else None
+
+
+def _build_react_snapshot(live_payload: dict[str, Any]) -> tuple[str, str]:
+    """Serialise a live-report-data payload to deterministic JSON and return (json, sha256)."""
+    snapshot_json = json.dumps(live_payload, ensure_ascii=False, sort_keys=True, default=str)
+    data_hash = hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()
+    return snapshot_json, data_hash
+
+
+def _load_file_bytes_local(file_path: str | None) -> bytes | None:
+    if not file_path:
+        return None
+    try:
+        import pathlib
+        p = pathlib.Path(file_path)
+        return p.read_bytes() if p.exists() else None
+    except Exception:
+        return None
+
+
+@router.post("/jobs/{job_id}/generate-report-react")
+def generate_job_report_react(
+    job_id: int,
+    request: Request,
+    save_version: bool = Query(default=True),
+    report_version_status: str = Query(default="review"),
+    version_label: str | None = Query(default=None),
+    notes: str | None = Query(default=None),
+    _user: dict[str, str] = Depends(_current_user),
+) -> Response:
+    """Render the React/Playwright advanced report and optionally save a version."""
+    job_data = get_job_data(int(job_id))
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_number = str(job_data.get("job_number") or f"job-{job_id}").strip() or f"job-{job_id}"
+
+    # Frozen-final short-circuit — only when not explicitly saving a new version
+    if not save_version:
+        with get_conn() as con:
+            frozen = _load_latest_final_react_version(con, int(job_id))
+            if frozen:
+                file_path = frozen.get("file_path")
+                pdf_bytes = _load_file_bytes_local(file_path)
+                if pdf_bytes:
+                    vnum = frozen.get("version_number", "")
+                    return Response(
+                        content=pdf_bytes,
+                        media_type="application/pdf",
+                        headers={
+                            "Content-Disposition": f'attachment; filename="{job_number}-advanced-v{vnum}.pdf"',
+                            "Cache-Control": "no-store",
+                            "X-Report-Version-Id": str(frozen.get("report_version_id") or ""),
+                            "X-Report-Version-Number": str(vnum),
+                            "X-Report-Status": str(frozen.get("status") or ""),
+                            "X-Report-Frozen": "1",
+                        },
+                    )
+        # Fall through to fresh render if bytes unavailable
+
+    # Render PDF via Playwright
+    try:
+        pdf_bytes = _render_live_report_pdf_bytes(int(job_id), request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render advanced report PDF: {exc}") from exc
+
+    if not save_version:
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{job_number}-advanced.pdf"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    # Build snapshot from live data
+    generated_by = str(_user.get("email") or _user.get("username") or "system")
+    status = _normalize_report_version_status(report_version_status)
+    generation_date = datetime.now(timezone.utc).date().isoformat()
+
+    scope_totals = get_scope_totals(int(job_id))
+    categories = get_emissions_by_category(int(job_id))
+    benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
+    template_selection = _get_job_assigned_template_selection(int(job_id))
+    template_variables: dict[str, Any] = {}
+    if template_selection and template_selection.get("template_id") is not None:
+        try:
+            template_variables = _get_template_variable_values_for_render(
+                int(job_id),
+                int(template_selection["template_id"]),
+                int(template_selection["version_id"]) if template_selection.get("version_id") is not None else None,
+            )
+        except Exception:
+            pass
+
+    site_breakdowns: dict[str, Any] = {}
+    try:
+        site_breakdowns = get_site_emissions_breakdowns(int(job_id))
+    except Exception:
+        pass
+
+    with get_conn() as con:
+        report_metadata = _get_job_report_metadata(int(job_id)) or {}
+
+        snapshot_payload: dict[str, Any] = {
+            "job_data": job_data,
+            "scope_totals": scope_totals,
+            "benchmark_totals": benchmark_totals,
+            "categories": categories,
+            "template_variables": template_variables,
+            "report_metadata": report_metadata,
+            "site_breakdowns": site_breakdowns,
+            "generation_date": generation_date,
+            "renderer": "react",
+        }
+        snapshot_json, data_hash = _build_react_snapshot(snapshot_payload)
+
+        next_v_row = con.execute(
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM job_report_versions WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+        version_number = int(next_v_row[0]) if next_v_row else 1
+
+        artifact = _store_report_version_artifact(
+            con=con,
+            job_data=job_data,
+            version_number=version_number,
+            pdf_bytes=pdf_bytes,
+            generated_by=generated_by,
+            status=status,
+            template_id=int(template_selection["template_id"]) if template_selection and template_selection.get("template_id") is not None else None,
+            template_version_id=int(template_selection["version_id"]) if template_selection and template_selection.get("version_id") is not None else None,
+            data_hash=data_hash,
+            snapshot_json=snapshot_json,
+            version_label=version_label,
+            notes=notes,
+            report_format="react",
+        )
+
+    vnum = artifact.get("version_number", version_number)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{job_number}-advanced-v{vnum}.pdf"',
+            "Cache-Control": "no-store",
+            "X-Report-Version-Id": str(artifact.get("report_version_id") or ""),
+            "X-Report-Version-Number": str(vnum),
+            "X-Report-Data-Hash": data_hash,
+            "X-Report-Status": status,
+            "X-Report-File-Id": str(artifact.get("file_id") or ""),
+        },
+    )
+
+
+@router.get("/jobs/{job_id}/react-report-versions")
+def list_react_report_versions(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+) -> dict[str, Any]:
+    """List all React-format report versions for a job, newest first."""
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT *
+            FROM job_report_versions
+            WHERE job_id = %s
+              AND lower(COALESCE(report_format, '')) = 'react'
+            ORDER BY version_number DESC, report_version_id DESC
+            """,
+            [int(job_id)],
+        ).fetchall()
+
+    versions = [_serialize_report_version_row(dict(r._mapping)) for r in rows]
+    return {"versions": versions, "total": len(versions)}
