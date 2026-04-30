@@ -1180,7 +1180,7 @@ def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
 
 
 def _dataset_category_label(row: dict[str, Any]) -> str:
-    for key in ("dataset_category", "lookup_level_1", "level_1", "lookup_category", "category", "level_2"):
+    for key in ("category", "dataset_category", "lookup_category", "level_2", "level_1"):
         value = row.get(key)
         if value not in (None, ""):
             label = _clean_label(value)
@@ -1284,19 +1284,19 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             COALESCE(s.site_name, 'Unassigned') AS site_name,
             jsr.scope,
             CASE
-                WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                    OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
                 THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                ELSE TRIM(CAST(fl.category AS VARCHAR))
             END AS category,
             CASE
                 WHEN COALESCE(NULLIF(TRIM(CAST(jsr.report_label AS VARCHAR)), ''), '') <> ''
                 THEN TRIM(CAST(jsr.report_label AS VARCHAR))
                 ELSE CASE
-                    WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                    WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
                     THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                    ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                    ELSE TRIM(CAST(fl.category AS VARCHAR))
                 END
             END AS report_label,
             jsr.dataset_id,
@@ -1327,10 +1327,10 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             COALESCE(
                 NULLIF(jsr.report_label, ''),
                 CASE
-                    WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                    WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
                     THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                    ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                    ELSE TRIM(CAST(fl.category AS VARCHAR))
                 END
             ) AS source_name
         FROM job_scope_rows jsr
@@ -1352,10 +1352,10 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
             COALESCE(cs.site_name, 'Unassigned') AS site_name,
             js.scope,
             CASE
-                WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                    OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
                 THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
-                ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                ELSE TRIM(CAST(fl.category AS VARCHAR))
             END AS category,
             CASE
                 WHEN COALESCE(NULLIF(TRIM(CAST(js.source_name AS VARCHAR)), ''), '') <> ''
@@ -1363,10 +1363,10 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
                 ELSE COALESCE(
                     NULLIF(TRIM(CAST(g.group_name AS VARCHAR)), ''),
                     CASE
-                        WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                            OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                        WHEN COALESCE(TRIM(CAST(fl.category AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST(fl.category AS VARCHAR))) IN ('nan', 'none', 'null')
                         THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
-                        ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                        ELSE TRIM(CAST(fl.category AS VARCHAR))
                     END
                 )
             END AS report_label,

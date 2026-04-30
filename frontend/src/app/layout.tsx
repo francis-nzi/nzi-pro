@@ -38,9 +38,9 @@ export default function RootLayout({
               <Suspense fallback={null}>
                 <AuthBootstrap />
               </Suspense>
-              <MainNav />
+              <div className="print:hidden"><MainNav /></div>
               <main className="flex-1">{children}</main>
-              <SiteFooter />
+              <div className="print:hidden"><SiteFooter /></div>
             </ConfirmDialogProvider>
           </ThemeProvider>
         </AuthProvider>

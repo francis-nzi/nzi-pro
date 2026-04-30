@@ -48,11 +48,10 @@ def _clean_label(value, fallback: str) -> str:
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     return _clean_label(
         row.get("dataset_category")
+        or row.get("lookup_category")
         or row.get("lookup_level_1")
         or row.get("level_1")
-        or row.get("lookup_category")
-        or row.get("category")
-        or row.get("level_2"),
+        or row.get("category"),
         fallback,
     )
 
@@ -124,7 +123,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(jsr.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
-                fl.level_1 AS lookup_category,
+                fl.category AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 NULL::text AS source_type,
                 NULL::text AS source_subtype,
@@ -191,7 +190,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(js.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
-                fl.level_1 AS lookup_category,
+                fl.category AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 js.source_type AS source_type,
                 js.source_subtype AS source_subtype,
