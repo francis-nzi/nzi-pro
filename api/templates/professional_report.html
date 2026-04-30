@@ -1,927 +1,1079 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ render_values.get("report_title") or (job_data.client_name ~ " Carbon Report") }}</title>
+  <title>{{ render_values.get("report_title") or (job_data.client_name ~ " Carbon Reduction Plan") }}</title>
   <style>
     @page {
       size: A4;
-      margin: 14mm;
+      margin: 14mm 14mm 18mm;
+      @bottom-left {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 7.8pt;
+        color: #94a3b8;
+        font-family: "Segoe UI", Arial, sans-serif;
+      }
       @bottom-right {
-        content: "Page " counter(page) " / " counter(pages);
-        font-size: 8.5pt;
-        color: #64748b;
+        content: "{{ job_data.client_name or '' }} \2022 {{ job_data.reporting_year or '' }}";
+        font-size: 7.8pt;
+        color: #94a3b8;
+        font-family: "Segoe UI", Arial, sans-serif;
       }
     }
 
     :root {
-      --ink: #0f172a;
-      --muted: #475569;
-      --line: #d9e2ec;
-      --card: #ffffff;
-      --bg: #f4f7fb;
-      --brand: #14532d;
+      --navy:    #1e3a5f;
+      --ink:     #0f172a;
+      --muted:   #475569;
+      --line:    #e2e8f0;
+      --surface: #f8fafc;
+      --brand:   #14532d;
       --brand-2: #0f3f23;
-      --accent: #ea580c;
-      --scope-1: #dc2626;
-      --scope-2: #ea580c;
-      --scope-3: #2563eb;
-      --ok: #059669;
-      --warn: #d97706;
+      --scope1:  #0f766e;
+      --scope2:  #0891b2;
+      --scope3:  #38bdf8;
+      --note-bg: #eff6ff;
+      --note-bd: #93c5fd;
+      --warn-bg: #fefce8;
+      --warn-bd: #fde68a;
+      --ok-bg:   #f0fdf4;
+      --ok-bd:   #86efac;
     }
 
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      margin: 0;
-      font-family: "Aptos", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-size: 9.4pt;
+      line-height: 1.55;
       color: var(--ink);
-      background: var(--bg);
-      font-size: 10.2pt;
-      line-height: 1.5;
+      background: #fff;
     }
 
-    .report {
-      max-width: 1080px;
-      margin: 0 auto;
-      padding: 0 2mm 8mm;
-    }
-
+    .report { max-width: 1080px; margin: 0 auto; }
     .page-break { page-break-after: always; }
 
-    .section {
-      margin-top: 7mm;
-      page-break-inside: avoid;
-    }
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 5mm;
-      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
-      page-break-inside: avoid;
-    }
-
+    /* ── COVER ─────────────────────────────────────────── */
     .cover {
-      min-height: 255mm;
+      min-height: 260mm;
       display: grid;
       grid-template-rows: auto 1fr auto;
-      gap: 10mm;
       background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      overflow: hidden;
+      page-break-after: always;
     }
-
     .cover-hero {
-      padding: 10mm 10mm 9mm;
-      background: linear-gradient(135deg, var(--brand-2) 0%, var(--brand) 62%, #1f7a46 100%);
+      padding: 12mm 12mm 10mm;
+      background: linear-gradient(135deg, var(--brand-2) 0%, var(--brand) 60%, #1f7a46 100%);
       color: #fff;
+      text-align: center;
     }
-
-    .cover-logo {
-      height: 38px;
-      width: auto;
-      margin-bottom: 5mm;
-      display: block;
-      object-fit: contain;
-    }
-
-    .cover-client-logo {
-      height: 28px;
-      width: auto;
-      max-width: 60mm;
-      object-fit: contain;
-      display: block;
-    }
-
-    .cover-brand {
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-size: 8.8pt;
-      opacity: 0.92;
-    }
-
-    .cover-brand-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      margin-bottom: 5mm;
-    }
-
-    .cover-title {
-      font-size: 29pt;
-      line-height: 1.12;
-      font-weight: 760;
-      margin: 7mm 0 2mm;
-      max-width: 170mm;
-    }
-
-    .cover-subtitle {
-      font-size: 12pt;
-      opacity: 0.96;
-      margin: 0;
-    }
-
-    .cover-body {
-      padding: 0 10mm;
-    }
-
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 3mm;
-    }
-
-    .meta-item {
-      background: #f8fafc;
+    .cover-logo { height: 44px; width: auto; margin-bottom: 6mm; display: block; margin-left: auto; margin-right: auto; }
+    .cover-title { font-size: 21pt; font-weight: 700; line-height: 1.15; margin-bottom: 2mm; }
+    .cover-body { padding: 8mm 12mm; }
+    .cover-info {
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 3mm;
-    }
-
-    .meta-label {
-      color: var(--muted);
-      font-size: 8pt;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      margin-bottom: 1mm;
-      font-weight: 700;
-    }
-
-    .meta-value {
-      font-size: 11pt;
-      font-weight: 650;
-      word-break: break-word;
-    }
-
-    .cover-foot {
-      border-top: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 8.8pt;
-      margin: 0 10mm 8mm;
-      padding-top: 4mm;
-    }
-
-    .title-row {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 5mm;
-      margin-bottom: 2mm;
-    }
-
-    .h2 {
-      margin: 0;
-      font-size: 18pt;
-      font-weight: 760;
-      letter-spacing: -0.01em;
-    }
-
-    .eyebrow {
-      margin: 0 0 1mm;
-      font-size: 8.2pt;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 700;
-    }
-
-    .lead {
-      margin: 0 0 4mm;
-      color: var(--muted);
-    }
-
-    .pill {
-      display: inline-block;
-      border: 1px solid var(--line);
-      background: #f8fafc;
-      border-radius: 999px;
-      padding: 1.1mm 2.4mm;
-      font-size: 8pt;
-      color: var(--muted);
-      font-weight: 700;
-      margin-left: 1.5mm;
-    }
-
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 3mm;
-      margin-top: 3mm;
-    }
-
-    .kpi {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #f8fafc;
-      padding: 3mm;
-    }
-
-    .kpi-label {
-      color: var(--muted);
-      font-size: 8.5pt;
-      margin-bottom: 1mm;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-      font-weight: 700;
-    }
-
-    .kpi-value {
-      font-size: 18pt;
-      line-height: 1.05;
-      font-weight: 760;
-    }
-
-    .kpi-sub {
-      color: var(--muted);
-      font-size: 8.4pt;
-      margin-top: 0.8mm;
-    }
-
-    .scope-1 { color: var(--scope-1); }
-    .scope-2 { color: var(--scope-2); }
-    .scope-3 { color: var(--scope-3); }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 4mm;
+      border-radius: 8px;
+      overflow: hidden;
       margin-top: 4mm;
     }
-
-    .chart-box {
-      min-height: 106mm;
+    .cover-row {
       display: grid;
-      grid-template-rows: auto 1fr;
-      gap: 2.5mm;
+      grid-template-columns: 44mm 1fr;
+      border-bottom: 1px solid var(--line);
     }
-
-    .chart-title {
-      margin: 0;
-      font-size: 11pt;
-      font-weight: 700;
-    }
-
-    .chart-sub {
-      margin: 0;
+    .cover-row:last-child { border-bottom: none; }
+    .cover-label { padding: 2.5mm 3mm; font-weight: 700; font-size: 8.5pt; color: var(--muted); background: var(--surface); }
+    .cover-value { padding: 2.5mm 3mm; font-size: 9pt; }
+    .cover-foot {
+      margin: 0 12mm;
+      padding: 3mm 0 8mm;
+      border-top: 1px solid var(--line);
+      font-size: 8pt;
       color: var(--muted);
-      font-size: 8.6pt;
     }
 
-    .chart-wrap {
-      border: 1px dashed #d8e1ec;
-      border-radius: 10px;
-      padding: 2.5mm;
-      display: grid;
-      place-items: center;
-      min-height: 95mm;
+    /* ── SECTION HEADING ──────────────────────────────── */
+    .sec-head {
+      border-bottom: 2px solid var(--navy);
+      padding-bottom: 2mm;
+      margin-bottom: 4mm;
+    }
+    .sec-title {
+      font-size: 12pt;
+      font-weight: 700;
+      color: var(--navy);
+      letter-spacing: -0.01em;
+    }
+    .sub-head {
+      font-size: 9.8pt;
+      font-weight: 700;
+      color: var(--ink);
+      margin: 4mm 0 2mm;
+    }
+    p { margin-bottom: 2.5mm; }
+
+    /* ── LAYOUT ───────────────────────────────────────── */
+    .section { margin-top: 6mm; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-top: 3mm; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin-top: 3mm; }
+
+    /* ── CARD ─────────────────────────────────────────── */
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4mm; page-break-inside: avoid; }
+
+    /* ── TOTAL EMISSIONS BOX ──────────────────────────── */
+    .total-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7mm 10mm;
+      text-align: center;
       background: #fff;
     }
-
-    .chart {
-      width: 100%;
-      max-height: 95mm;
-      object-fit: contain;
+    .total-box-label {
+      font-size: 7.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--navy);
+      margin-bottom: 1mm;
     }
+    .total-box-period { font-size: 9pt; color: var(--muted); margin-bottom: 3mm; }
+    hr.divider { border: none; border-top: 1px solid var(--line); margin: 3mm 0; }
+    .total-big { font-size: 38pt; font-weight: 700; color: var(--ink); line-height: 1; }
+    .total-unit { font-size: 9.5pt; color: var(--muted); margin-top: 1.5mm; }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 9pt;
-      margin-top: 2mm;
-    }
+    /* ── KPI MINI ─────────────────────────────────────── */
+    .kpi-mini { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3mm; text-align: center; }
+    .kpi-label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1mm; }
+    .kpi-value { font-size: 15pt; font-weight: 700; }
+    .kpi-sub   { font-size: 8pt; color: var(--muted); }
+    .c1 { color: var(--scope1); }
+    .c2 { color: var(--scope2); }
+    .c3 { color: var(--scope3); }
 
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 2.2mm 1.8mm;
-      vertical-align: top;
-      text-align: left;
-    }
+    /* ── TERM BOXES ───────────────────────────────────── */
+    .term-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin: 3mm 0 4mm; }
+    .term-box { border: 1px solid var(--line); border-radius: 8px; padding: 3mm; text-align: center; background: var(--surface); }
+    .term-label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1.5mm; }
+    .term-count { font-size: 28pt; font-weight: 700; color: var(--navy); line-height: 1; }
+    .term-sub   { font-size: 8pt; color: var(--muted); margin-top: 1mm; }
 
+    /* ── CHARTS ───────────────────────────────────────── */
+    .chart-wrap { display: flex; align-items: center; justify-content: center; min-height: 76mm; padding: 1.5mm; background: #fff; }
+    .chart { width: 100%; max-height: 90mm; object-fit: contain; }
+    .chart-full { width: 100%; max-height: 78mm; object-fit: contain; }
+
+    /* ── TABLES ───────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin-top: 2mm; }
     th {
-      color: var(--muted);
-      font-size: 7.8pt;
+      background: var(--navy);
+      color: #fff;
+      font-size: 7.6pt;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      font-weight: 700;
-      background: #f8fafc;
+      padding: 2mm 2.2mm;
+      text-align: left;
     }
+    td { padding: 2mm 2.2mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .row-total td { font-weight: 700; background: var(--surface); }
+    .num  { text-align: right; white-space: nowrap; }
+    .ctr  { text-align: center; }
+    .two-col td:first-child { width: 42mm; font-weight: 700; color: var(--muted); }
 
-    .num { text-align: right; white-space: nowrap; }
-
+    /* ── BADGES ───────────────────────────────────────── */
     .badge {
-      display: inline-block;
-      padding: 1mm 2.1mm;
-      border-radius: 999px;
-      font-size: 7.8pt;
-      font-weight: 700;
-      line-height: 1;
-      color: #fff;
+      display: inline-block; padding: 0.7mm 2mm;
+      border-radius: 999px; font-size: 7.5pt; font-weight: 700; color: #fff; white-space: nowrap;
+    }
+    .bs1 { background: var(--scope1); }
+    .bs2 { background: var(--scope2); }
+    .bs3 { background: var(--scope3); }
+    .bh  { background: #059669; }
+    .bm  { background: #d97706; }
+    .bl  { background: #64748b; }
+    .bst { background: #0891b2; }
+    .bmt { background: #d97706; }
+    .blt { background: #94a3b8; }
+
+    /* ── CALLOUT BOXES ────────────────────────────────── */
+    .note-box  { background: var(--note-bg); border-left: 3px solid var(--note-bd); border-radius: 4px; padding: 2.5mm 3mm; font-size: 8.4pt; margin-top: 3mm; color: #1e40af; }
+    .warn-box  { background: var(--warn-bg); border-left: 3px solid var(--warn-bd); border-radius: 4px; padding: 2.5mm 3mm; font-size: 8.4pt; margin-top: 3mm; color: #854d0e; }
+    .ok-box    { background: var(--ok-bg);   border-left: 3px solid var(--ok-bd);   border-radius: 4px; padding: 2.5mm 3mm; font-size: 8.4pt; margin-top: 3mm; color: #166534; }
+    .italic-note { background: var(--surface); border-left: 3px solid var(--line); border-radius: 4px; padding: 2.5mm 3mm; font-size: 8.4pt; margin-top: 3mm; color: var(--muted); font-style: italic; }
+
+    .placeholder-box {
+      border: 1px dashed #cbd5e1; border-radius: 6px; padding: 5mm;
+      text-align: center; color: var(--muted); font-style: italic; font-size: 8.4pt;
+      margin-top: 3mm; background: var(--surface);
     }
 
-    .b1 { background: var(--scope-1); }
-    .b2 { background: var(--scope-2); }
-    .b3 { background: var(--scope-3); }
-    .bh { background: var(--ok); }
-    .bm { background: var(--warn); }
-    .bl { background: #64748b; }
+    /* ── VERIFICATION BOX ─────────────────────────────── */
+    .verify-box { border: 1px solid var(--navy); border-radius: 8px; padding: 5mm; page-break-inside: avoid; }
+    .verify-box h3 { font-size: 12pt; font-weight: 700; color: var(--navy); margin-bottom: 3mm; }
+    .sig-line { border-top: 1px solid var(--ink); margin: 5mm 0 1mm; width: 62mm; }
+    .sig-script { font-family: "Segoe Script", "Brush Script MT", cursive; font-size: 17pt; color: var(--ink); margin: 3mm 0 1mm; }
 
-    .callout {
-      margin-top: 3mm;
-      border-left: 4px solid var(--accent);
-      background: #fff7ed;
-      border-radius: 8px;
-      padding: 2.8mm 3.2mm;
-    }
-
-    .stack > * + * { margin-top: 3mm; }
-
-    .mini-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 3mm;
-      margin-top: 2mm;
-    }
-
-    .mini {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 2.4mm;
-      background: #f8fafc;
-    }
-
-    .mini-label {
-      color: var(--muted);
-      font-size: 8pt;
-      margin-bottom: 0.8mm;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .mini-value {
-      font-size: 10.8pt;
-      font-weight: 700;
-      word-break: break-word;
-    }
-
-    .meta-table td:first-child {
-      width: 42mm;
-      color: var(--muted);
-      font-weight: 700;
-    }
-
-    /* Table of Contents */
-    .toc {
-      margin-top: 8mm;
-    }
-
-    .toc-title {
-      font-size: 18pt;
-      font-weight: 760;
-      margin: 0 0 5mm;
-      color: var(--ink);
-    }
-
-    .toc-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      border-top: 1px solid var(--line);
-    }
-
-    .toc-item {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 3mm;
-      padding: 2.5mm 0;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .toc-section-num {
-      font-size: 8.5pt;
-      color: var(--muted);
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      min-width: 14mm;
-    }
-
-    .toc-section-name {
-      flex: 1;
-      font-size: 11pt;
-      font-weight: 600;
-    }
-
-    .toc-dots {
-      flex: 0 0 auto;
-      color: var(--line);
-      font-size: 9pt;
-      letter-spacing: 2px;
-    }
-
-    @media print {
-      .report { max-width: none; padding: 0; }
-      .card, .cover, .chart-box, table, tr, td, th { break-inside: avoid; }
-    }
+    /* ── PRINT ────────────────────────────────────────── */
+    @media print { .report { max-width: none; } table, tr, td, th { break-inside: avoid; } }
   </style>
 </head>
 <body>
-  {% set tv = template_variables or {} %}
-  {% set rm = report_metadata or {} %}
-  {% set total = scope_totals.Total|default(0)|float %}
-  {% set s1 = scope_totals['Scope 1']|default(0)|float %}
-  {% set s2 = scope_totals['Scope 2']|default(0)|float %}
-  {% set s3 = scope_totals['Scope 3']|default(0)|float %}
 
-  {% set title = render_values.get("report_title") or tv.get("report_title") or rm.get("report_title") or "Annual Carbon Emissions Report" %}
-  {% set intro_raw = tv.get("introduction") %}
-  {% set intro = intro_raw or "This report summarises organisational emissions performance for the reporting period and highlights decision priorities." %}
-  {% if intro|string|trim|lower in ["this is where the intro goes", "tbc", "to be confirmed"] %}
-    {% set intro = "This report summarises organisational emissions performance for the reporting period and highlights decision priorities." %}
-  {% endif %}
-  {% set methodology = tv.get("methodology") or "Calculated using recognised conversion factors and aligned with GHG Protocol principles." %}
-  {% set key_findings_raw = tv.get("key_findings") %}
-  {% set key_findings = key_findings_raw or "Major emissions drivers are presented in the dashboard and ranked activity table." %}
-  {% if key_findings|string|trim|lower in ["this is where the findings goes", "this is where the findings go", "tbc", "to be confirmed"] %}
-    {% set key_findings = "Major emissions drivers are presented in the dashboard and ranked activity table." %}
-  {% endif %}
-  {% set recommendations = tv.get("recommendations") or "Focus reduction actions on highest contributors and lower-confidence sources first." %}
-  {% set conclusion = tv.get("conclusion") or "This report provides a clear baseline for reduction planning and tracking." %}
-  {% set period_label = rm.get("current_reporting_period_label") or ((job_data.period_start or "-") ~ " to " ~ (job_data.period_end or "-")) %}
-  {% set benchmark_label = rm.get("benchmark_period_label") or (job_data.benchmark_year or "-") %}
+{# ── Variable setup ───────────────────────────────── #}
+{% set tv  = template_variables or {} %}
+{% set rm  = report_metadata or {} %}
+{% set ja  = job_actions or {} %}
+{% set total   = scope_totals.Total|default(0)|float %}
+{% set s1      = scope_totals['Scope 1']|default(0)|float %}
+{% set s2      = scope_totals['Scope 2']|default(0)|float %}
+{% set s3      = scope_totals['Scope 3']|default(0)|float %}
+{% set bt      = benchmark_totals or {} %}
+{% set bt_tot  = bt.Total|default(0)|float %}
+{% set bt_s1   = bt['Scope 1']|default(0)|float %}
+{% set bt_s2   = bt['Scope 2']|default(0)|float %}
+{% set bt_s3   = bt['Scope 3']|default(0)|float %}
 
-  {% set has_targets = assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim")) %}
-  {% set has_activity_bar = assets and assets.get("activity_bar") %}
+{% set title        = render_values.get("report_title") or tv.get("report_title") or rm.get("report_title") or (job_data.client_name ~ " Carbon Reduction Plan " ~ (job_data.reporting_year or "")) %}
+{% set period_label = rm.get("current_reporting_period_label") or ((job_data.period_start or "-") ~ " to " ~ (job_data.period_end or "-")) %}
+{% set bm_label     = rm.get("benchmark_period_label") or (job_data.benchmark_year or "N/A") %}
 
-  {% set has_toc = true %}
-  {% set toc_sections = [
-    ("1", "Executive Dashboard"),
-    ("2", "Performance Story"),
-    ("3", "Methodology, Data Quality and Governance"),
-  ] %}
-  {% if has_targets %}{% set toc_sections = toc_sections + [("4", "Target Pathways")] %}{% endif %}
-  {% set toc_sections = toc_sections + [("5", "Recommendations and Sign-off")] %}
+{# AI-drafted narratives stored in template_variables after save #}
+{% set exec_summary   = tv.get("executive_summary")  or "" %}
+{% set fp_summary     = tv.get("footprint_summary")  or "" %}
+{% set red_projects   = tv.get("reduction_projects") or "" %}
+{% set about_org      = tv.get("about_organisation") or rm.get("about_organisation_text") or "" %}
+{% set commitment     = tv.get("commitment_statement") or "" %}
 
-  <div class="report">
-    <section class="cover">
-      <div class="cover-hero">
-        <div class="cover-brand-row">
-          <div>
-            {% if nzi_logo_src %}
-              <img class="cover-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
-            {% else %}
-              <div class="cover-brand">NZI Insights Pro</div>
-            {% endif %}
-          </div>
-          {% if render_values.get("client_logo_src") %}
-          <div>
-            <img class="cover-client-logo" src="{{ render_values.get('client_logo_src') }}" alt="{{ job_data.client_name or 'Client' }} logo">
-          </div>
+{# Targets #}
+{% set baseline_yr    = rm.get("baseline_year") or job_data.reporting_year or "2026" %}
+{% set interim_yr     = rm.get("interim_target_year") or 2035 %}
+{% set nz_yr          = rm.get("net_zero_target_year") or 2050 %}
+{% set interim_pct    = rm.get("interim_pct") or 50 %}
+{% set nz_pct         = rm.get("net_zero_reduction_pct") or rm.get("net_zero_pct") or 50 %}
+
+{% set has_targets = assets and (assets.get("reduction_pathway_2050") or assets.get("reduction_pathway_interim")) %}
+{% set has_intensity = assets and (assets.get("intensity_pathway_per_fte") or assets.get("intensity_pathway_per_revenue")) %}
+
+{# Helper macro: pct change #}
+{% macro pct_change(curr, prev) %}
+  {% if prev and prev > 0 %}{{ "{:+.1f}%".format(((curr - prev) / prev) * 100) }}{% else %}N/A{% endif %}
+{% endmacro %}
+
+{# Helper macro: scope badge #}
+{% macro scope_badge(s) %}
+  {% set ss = s|string|lower %}
+  {% if ss in ['1','scope 1','scope1'] %}<span class="badge bs1">Scope 1</span>
+  {% elif ss in ['2','scope 2','scope2'] %}<span class="badge bs2">Scope 2</span>
+  {% elif ss in ['3','scope 3','scope3'] %}<span class="badge bs3">Scope 3</span>
+  {% else %}<span>{{ s }}</span>{% endif %}
+{% endmacro %}
+
+<div class="report">
+
+  {# ════════════════════════════════════════════════════
+     COVER PAGE
+  ════════════════════════════════════════════════════ #}
+  <section class="cover">
+    <div class="cover-hero">
+      {% if nzi_logo_src %}
+        <img class="cover-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
+      {% else %}
+        <div style="font-size:8.5pt;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;opacity:0.9;margin-bottom:5mm;">Net Zero International</div>
+      {% endif %}
+      <h1 class="cover-title">{{ title }}</h1>
+    </div>
+
+    <div class="cover-body">
+      <div class="cover-info">
+        <div class="cover-row"><div class="cover-label">Client</div><div class="cover-value">{{ job_data.client_name or "-" }}</div></div>
+        <div class="cover-row"><div class="cover-label">Report Title</div><div class="cover-value">{{ title }}</div></div>
+        <div class="cover-row"><div class="cover-label">Reporting Year</div><div class="cover-value">{{ job_data.reporting_year or "-" }}</div></div>
+        <div class="cover-row"><div class="cover-label">Reporting Period</div><div class="cover-value">{{ period_label }}</div></div>
+        <div class="cover-row"><div class="cover-label">Job Number</div><div class="cover-value">{{ job_data.job_number or "-" }}</div></div>
+        <div class="cover-row"><div class="cover-label">Report Generated</div><div class="cover-value">{{ generation_date }}</div></div>
+      </div>
+    </div>
+
+    <div class="cover-foot">
+      Prepared by Net Zero International &mdash; Confidential. For authorised recipients only.
+    </div>
+  </section>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 1 — EXECUTIVE SUMMARY
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">1. Executive Summary</h2></div>
+
+    <div class="grid-2" style="align-items:start;">
+      <div class="card">
+        <div class="chart-wrap">
+          {% if assets and assets.get("total_emissions") %}
+            <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
+          {% else %}
+            <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
           {% endif %}
         </div>
-        <h1 class="cover-title">{{ title }}</h1>
-        <p class="cover-subtitle">{{ job_data.client_name or "Client" }}{% if job_data.reporting_year %} â€¢ Reporting year {{ job_data.reporting_year }}{% endif %}</p>
-      </div>
-      <div class="cover-body">
-        <div class="meta-grid">
-          <div class="meta-item">
-            <div class="meta-label">Job Number</div>
-            <div class="meta-value">{{ job_data.job_number or "-" }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-label">Generated</div>
-            <div class="meta-value">{{ generation_date }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-label">Reporting Period</div>
-            <div class="meta-value">{{ period_label }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-label">Benchmark Period</div>
-            <div class="meta-value">{{ benchmark_label or "-" }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-label">Consultant</div>
-            <div class="meta-value">{{ rm.get("consultant_name") or "-" }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-label">Consultant Position</div>
-            <div class="meta-value">{{ rm.get("consultant_position") or "-" }}</div>
-          </div>
-        </div>
-      </div>
-      <div class="cover-foot">
-        Confidential &mdash; Professional management report for emissions governance and decision support.
-        {% if nzi_logo_src %}<span style="float:right;opacity:0.6;font-size:8pt">Prepared by Net Zero International</span>{% endif %}
-      </div>
-    </section>
-
-    <div class="page-break"></div>
-
-    <!-- Table of Contents -->
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Contents</p>
-          <h2 class="toc-title">Table of Contents</h2>
-        </div>
-      </div>
-      <div class="card toc">
-        <ul class="toc-list">
-          {% for num, name in toc_sections %}
-          <li class="toc-item">
-            <span class="toc-section-num">{{ num }}</span>
-            <span class="toc-section-name">{{ name }}</span>
-            <span class="toc-dots">Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â· Â·</span>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-    </section>
-
-    <div class="page-break"></div>
-
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Section 1</p>
-          <h2 class="h2">Executive Dashboard</h2>
-        </div>
-        <div class="pill">{{ period_label }}</div>
-      </div>
-      <p class="lead">{{ intro }}</p>
-
-      <div class="kpi-grid">
-        <div class="kpi">
-          <div class="kpi-label">Total Emissions</div>
-          <div class="kpi-value">{{ "{:,.2f}".format(total) }}</div>
-          <div class="kpi-sub">tCO₂e</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">Scope 1</div>
-          <div class="kpi-value scope-1">{{ "{:,.2f}".format(s1) }}</div>
-          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %} of total</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">Scope 2</div>
-          <div class="kpi-value scope-2">{{ "{:,.2f}".format(s2) }}</div>
-          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %} of total</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">Scope 3</div>
-          <div class="kpi-value scope-3">{{ "{:,.2f}".format(s3) }}</div>
-          <div class="kpi-sub">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %} of total</div>
-        </div>
       </div>
 
-      <div class="grid-2">
-        <div class="card chart-box">
-          <div>
-            <h3 class="chart-title">Scope Profile</h3>
-            <p class="chart-sub">Distribution across Scope 1, Scope 2 and Scope 3.</p>
-          </div>
-          <div class="chart-wrap">
-            {% if assets and assets.get("total_emissions") %}
-              <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown chart">
-            {% elif assets and assets.get("scope_breakdown") %}
-              <img class="chart" src="data:image/png;base64,{{ assets.get('scope_breakdown') }}" alt="Scope breakdown chart">
-            {% elif scope_chart_base64 %}
-              <img class="chart" src="data:image/png;base64,{{ scope_chart_base64 }}" alt="Scope breakdown chart">
-            {% else %}
-              <p class="lead">No chart available.</p>
-            {% endif %}
-          </div>
-        </div>
-        <div class="card chart-box">
-          <div>
-            <h3 class="chart-title">Activity Profile</h3>
-            <p class="chart-sub">Distribution by activity group across reporting boundary.</p>
-          </div>
-          <div class="chart-wrap">
-            {% if assets and assets.get("activity_breakdown") %}
-              <img class="chart" src="data:image/png;base64,{{ assets.get('activity_breakdown') }}" alt="Activity breakdown chart">
-            {% elif activity_chart_base64 %}
-              <img class="chart" src="data:image/png;base64,{{ activity_chart_base64 }}" alt="Activity breakdown chart">
-            {% else %}
-              <p class="lead">No chart available.</p>
-            {% endif %}
-          </div>
-        </div>
-      </div>
+      <div>
+        {% if exec_summary %}
+          <p>{{ exec_summary }}</p>
+        {% else %}
+          <p>This report presents the greenhouse gas emissions for <strong>{{ job_data.client_name or "the organisation" }}</strong> for the reporting period {{ period_label }}. The total calculated emissions for the period are <strong>{{ "{:,.2f}".format(total) }} tCO₂e</strong>.</p>
+        {% endif %}
 
-      {% if has_activity_bar %}
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Activity Group Comparison</h3>
-        <p class="chart-sub">Relative magnitude across activity groups.</p>
-        <div class="chart-wrap" style="min-height:70mm">
-          <img class="chart" style="max-height:65mm" src="data:image/png;base64,{{ assets.get('activity_bar') }}" alt="Activity bar chart">
-        </div>
-      </div>
-      {% endif %}
-    </section>
-
-    <div class="page-break"></div>
-
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Section 2</p>
-          <h2 class="h2">Performance Story</h2>
-        </div>
-      </div>
-      <p class="lead">{{ key_findings }}</p>
-
-      <div class="card">
-        <h3 class="chart-title">Scope Summary</h3>
+        <div class="sub-head" style="margin-top:4mm;">Emissions Summary by Scope</div>
         <table>
           <thead>
             <tr>
               <th>Scope</th>
-              <th class="num">Emissions (tCO₂e)</th>
-              <th class="num">% of Total</th>
+              <th class="num">Current Year (tCO₂e)</th>
+              <th class="num">Benchmark Year (tCO₂e)</th>
+              <th class="num">Change (%)</th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td><span class="badge b1">Scope 1</span></td>
-              <td class="num">{{ "{:,.2f}".format(s1) }}</td>
-              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %}</td>
-            </tr>
-            <tr>
-              <td><span class="badge b2">Scope 2</span></td>
-              <td class="num">{{ "{:,.2f}".format(s2) }}</td>
-              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %}</td>
-            </tr>
-            <tr>
-              <td><span class="badge b3">Scope 3</span></td>
-              <td class="num">{{ "{:,.2f}".format(s3) }}</td>
-              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %}</td>
-            </tr>
-            <tr>
-              <td><strong>Total</strong></td>
-              <td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td>
-              <td class="num"><strong>100.0%</strong></td>
-            </tr>
+            <tr><td><span class="badge bs1">Scope 1</span></td><td class="num">{{ "{:,.2f}".format(s1) }}</td><td class="num">{{ "{:,.2f}".format(bt_s1) if bt_tot > 0 else "0.00" }}</td><td class="num">{{ pct_change(s1, bt_s1) }}</td></tr>
+            <tr><td><span class="badge bs2">Scope 2</span></td><td class="num">{{ "{:,.2f}".format(s2) }}</td><td class="num">{{ "{:,.2f}".format(bt_s2) if bt_tot > 0 else "0.00" }}</td><td class="num">{{ pct_change(s2, bt_s2) }}</td></tr>
+            <tr><td><span class="badge bs3">Scope 3</span></td><td class="num">{{ "{:,.2f}".format(s3) }}</td><td class="num">{{ "{:,.2f}".format(bt_s3) if bt_tot > 0 else "0.00" }}</td><td class="num">{{ pct_change(s3, bt_s3) }}</td></tr>
+            <tr class="row-total"><td><strong>Total</strong></td><td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td><td class="num"><strong>{{ "{:,.2f}".format(bt_tot) if bt_tot > 0 else "0.00" }}</strong></td><td class="num"><strong>{{ pct_change(total, bt_tot) }}</strong></td></tr>
           </tbody>
         </table>
       </div>
+    </div>
 
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Top Emission Drivers</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Activity Group</th>
-              <th>Emission Type</th>
-              <th class="num">tCO₂e</th>
-              <th>Data Confidence</th>
-              <th>Source Family</th>
-              <th>Group / Asset</th>
-              <th>Factor ID</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in (activity_details[:12] if activity_details else []) %}
-            {% set dc = (row.data_confidence or '-') %}
-            <tr>
-              <td>{{ row.activity_group or "-" }}</td>
-              <td>{{ row.emission_type or row.report_label or "-" }}</td>
-              <td class="num">{{ "{:,.2f}".format(row.emissions|default(0)|float) }}</td>
-              <td>
-                {% if dc|string|lower == "high" %}
-                  <span class="badge bh">High</span>
-                {% elif dc|string|lower == "medium" %}
-                  <span class="badge bm">Medium</span>
-                {% elif dc|string|lower == "low" %}
-                  <span class="badge bl">Low</span>
-                {% else %}
-                  {{ dc }}
-                {% endif %}
-              </td>
-              <td>{{ row.source_family|default('N/A') }}</td>
-              <td>{{ row.reference_label or row.group_name or row.asset_identifier or row.source_name or '-' }}</td>
-              <td>{{ row.factor_id or row.factor_db_id or row.original_id or '-' }}</td>
-            </tr>
-            {% endfor %}
-            {% if not activity_details %}
-            <tr><td colspan="7">No activity details available.</td></tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
+    <div class="italic-note">
+      <strong>Report Validity:</strong> This report is valid for the specified reporting period only. Any changes to the underlying data or emissions factors may result in revised calculations.
+    </div>
 
-      {% if tv.get("activity_analysis_introduction") or tv.get("energy_commentary") or tv.get("business_travel_commentary") or tv.get("employee_commuting_commentary") or tv.get("pgs_commentary") or tv.get("purchased_goods_services_commentary") or tv.get("other_emissions_commentary") %}
-      <div class="card stack" style="margin-top:4mm">
-        <h3 class="chart-title">Activity Commentary</h3>
-        {% if tv.get("activity_analysis_introduction") %}<p><strong>Introduction:</strong> {{ tv.get("activity_analysis_introduction") }}</p>{% endif %}
-        {% if tv.get("energy_commentary") %}<p><strong>Energy:</strong> {{ tv.get("energy_commentary") }}</p>{% endif %}
-        {% if tv.get("business_travel_commentary") %}<p><strong>Business Travel:</strong> {{ tv.get("business_travel_commentary") }}</p>{% endif %}
-        {% if tv.get("employee_commuting_commentary") %}<p><strong>Employee Commuting:</strong> {{ tv.get("employee_commuting_commentary") }}</p>{% endif %}
-        {% if tv.get("pgs_commentary") or tv.get("purchased_goods_services_commentary") %}<p><strong>Purchased Goods &amp; Services:</strong> {{ tv.get("purchased_goods_services_commentary") or tv.get("pgs_commentary") }}</p>{% endif %}
-        {% if tv.get("other_emissions_commentary") %}<p><strong>Other Emissions:</strong> {{ tv.get("other_emissions_commentary") }}</p>{% endif %}
-      </div>
-      {% endif %}
-    </section>
+    {% if exec_summary %}
+      <div class="sub-head">Executive Summary</div>
+      <p>{{ exec_summary }}</p>
+    {% endif %}
+  </section>
 
-    <div class="page-break"></div>
+  <div class="page-break"></div>
 
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Section 3</p>
-          <h2 class="h2">Methodology, Data Quality and Governance</h2>
-        </div>
-      </div>
 
-      <div class="card stack">
-        <h3 class="chart-title">Methodology and Data Quality</h3>
-        <p>{{ methodology }}</p>
-        {% if rm.get("methodologies_used") %}<p><strong>Methodologies used:</strong> {{ rm.get("methodologies_used") }}</p>{% endif %}
-        <p><strong>Datasets used:</strong> {{ rm.get("datasets_names") or "Not specified" }}</p>
-        <p><strong>Data confidence commentary:</strong> {{ rm.get("data_confidence_commentary") or "No specific commentary provided." }}</p>
-      </div>
+  {# ════════════════════════════════════════════════════
+     SECTION 2 — NET ZERO COMMITMENT
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">2. Net Zero Commitment</h2></div>
 
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Boundary and Organisation Profile</h3>
-        <div class="mini-grid">
-          <div class="mini"><div class="mini-label">Employee Number</div><div class="mini-value">{{ rm.get("employee_number") if rm.get("employee_number") is not none else "-" }}</div></div>
-          <div class="mini"><div class="mini-label">Premises Owned</div><div class="mini-value">{{ rm.get("premises_owned") if rm.get("premises_owned") is not none else "-" }}</div></div>
-          <div class="mini"><div class="mini-label">Premises Leased</div><div class="mini-value">{{ rm.get("premises_leased") if rm.get("premises_leased") is not none else "-" }}</div></div>
-          <div class="mini"><div class="mini-label">Vehicles Owned</div><div class="mini-value">{{ rm.get("vehicles_owned") if rm.get("vehicles_owned") is not none else "-" }}</div></div>
-          <div class="mini"><div class="mini-label">Vehicles Leased</div><div class="mini-value">{{ rm.get("vehicles_leased") if rm.get("vehicles_leased") is not none else "-" }}</div></div>
-          <div class="mini"><div class="mini-label">Company Number</div><div class="mini-value">{{ rm.get("company_number") or "-" }}</div></div>
-        </div>
-        <table class="meta-table" style="margin-top:3mm">
-          <tbody>
-            <tr><td>Registered Address</td><td>{{ rm.get("registered_address") or "-" }}</td></tr>
-            <tr><td>Operational Control</td><td>{% if rm.get("operational_control") is none %}-{% else %}{{ "Yes" if rm.get("operational_control") else "No" }}{% endif %}</td></tr>
-            <tr><td>Financial Control</td><td>{% if rm.get("financial_control") is none %}-{% else %}{{ "Yes" if rm.get("financial_control") else "No" }}{% endif %}</td></tr>
-            <tr><td>Equity Share</td><td>{% if rm.get("equity_share") is none %}-{% else %}{{ "Yes" if rm.get("equity_share") else "No" }}{% endif %}</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Energy and Offsets</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th class="num">Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>UK Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("energy_consumption_uk_kwh") or 0)|float) }}</td></tr>
-            <tr><td>Non-UK Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("energy_consumption_non_uk_kwh") or 0)|float) }}</td></tr>
-            <tr><td>Energy Reporting Basis</td><td class="num">{{ rm.get("energy_reporting_basis") or "-" }}</td></tr>
-            <tr><td>Renewable Energy (kWh)</td><td class="num">{{ "{:,.0f}".format((rm.get("renewable_energy_kwh") or 0)|float) }}</td></tr>
-            <tr><td>Renewables %</td><td class="num">{{ "{:,.2f}%".format((rm.get("renewable_energy_pct") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Location-based tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Energy Emissions (Market-based tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("energy_emissions_market_tco2e") or 0)|float) }}</td></tr>
-            <tr><td>Carbon Offsets (tCO₂e)</td><td class="num">{{ "{:,.2f}".format((rm.get("carbon_offsets_tco2e") or 0)|float) }}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    {% if has_targets %}
-    <div class="page-break"></div>
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Section 4</p>
-          <h2 class="h2">Target Pathways</h2>
-        </div>
-      </div>
-
-      <div class="grid-2">
-        {% if assets.get("reduction_pathway_interim") %}
-        <div class="card chart-box">
-          <div>
-            <h3 class="chart-title">Interim Reduction Pathway</h3>
-            <p class="chart-sub">Trajectory to interim target year.</p>
-          </div>
-          <div class="chart-wrap">
-            <img class="chart" src="data:image/png;base64,{{ assets.get('reduction_pathway_interim') }}" alt="Interim reduction pathway">
-          </div>
-        </div>
-        {% endif %}
-        {% if assets.get("reduction_pathway_2050") %}
-        <div class="card chart-box">
-          <div>
-            <h3 class="chart-title">Net Zero Pathway</h3>
-            <p class="chart-sub">Long-range pathway to target year.</p>
-          </div>
-          <div class="chart-wrap">
-            <img class="chart" src="data:image/png;base64,{{ assets.get('reduction_pathway_2050') }}" alt="Net zero reduction pathway">
-          </div>
-        </div>
-        {% endif %}
-      </div>
-    </section>
+    {% if commitment %}
+      <p>{{ commitment }}</p>
+    {% else %}
+      <p><strong>{{ job_data.client_name or "The organisation" }}</strong> is committed to achieving net zero greenhouse gas emissions by <strong>{{ nz_yr }}</strong>. This commitment aligns with the UK Government's Net Zero target and demonstrates our dedication to environmental sustainability.</p>
     {% endif %}
 
-    <div class="page-break"></div>
+    <div class="sub-head">We commit to the following:</div>
+    <ul style="margin-left:5mm;margin-bottom:3mm;">
+      <li>For our company to achieve Net Zero we aim to achieve target reduction in emissions, as set out below.</li>
+      <li>To set realistic short- and long-term targets that are designed to achieve our Net Zero commitments.</li>
+      <li>To report the total Greenhouse Gas emissions of our business, at a minimum, on an annual basis.</li>
+    </ul>
 
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Section 5</p>
-          <h2 class="h2">Recommendations and Sign-off</h2>
+    <div class="sub-head">Reduction Targets</div>
+    <table>
+      <thead>
+        <tr><th>Target Type</th><th>Year</th><th class="num">Reduction</th><th>Scope</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Interim Target</td><td>{{ interim_yr }}</td><td class="num">{{ interim_pct }}%</td><td>Scope 1 &amp; 2</td></tr>
+        <tr><td>Net Zero Target</td><td>{{ nz_yr }}</td><td class="num">{{ nz_pct }}%</td><td>Scope 1, 2 &amp; 3</td></tr>
+      </tbody>
+    </table>
+
+    {% if has_targets and assets.get("reduction_pathway_2050") %}
+    <div class="sub-head" style="margin-top:5mm;">Emissions Reduction Pathway to {{ nz_yr }}</div>
+    <div class="card">
+      <div class="chart-wrap" style="min-height:72mm;">
+        <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_2050') }}" alt="Reduction pathway to {{ nz_yr }}">
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 3 — BACKGROUND INFORMATION
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">3. Background Information</h2></div>
+
+    <div class="sub-head">Organisation Details</div>
+    <table>
+      <tbody>
+        <tr><td style="width:42mm;font-weight:700;color:var(--muted)">Organisation Name</td><td>{{ job_data.client_name or rm.get("organisation_name") or "-" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">Industry</td><td>{{ job_data.industry or rm.get("industry") or "-" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">Location</td><td>{{ rm.get("registered_address") or rm.get("location") or job_data.country or "-" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">Reporting Period</td><td>{{ period_label }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">Baseline Year</td><td>{{ baseline_yr }}</td></tr>
+      </tbody>
+    </table>
+
+    {% if about_org %}
+    <div class="sub-head">About the Organisation</div>
+    <p>{{ about_org }}</p>
+    {% endif %}
+
+    <div class="sub-head">Reporting Elements</div>
+    <table>
+      <tbody>
+        <tr><td style="width:54mm;font-weight:700;color:var(--muted)">No. of Staff</td><td>{{ rm.get("employee_number") if rm.get("employee_number") is not none else "N/A" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">No. of Premises Owned</td><td>{{ rm.get("premises_owned") if rm.get("premises_owned") is not none else "N/A" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">No. of Premises Leased</td><td>{{ rm.get("premises_leased") if rm.get("premises_leased") is not none else "N/A" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">No. of Vehicles Owned</td><td>{{ rm.get("vehicles_owned") if rm.get("vehicles_owned") is not none else "N/A" }}</td></tr>
+        <tr><td style="font-weight:700;color:var(--muted)">No. of Vehicles Leased</td><td>{{ rm.get("vehicles_leased") if rm.get("vehicles_leased") is not none else "N/A" }}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-head">Organisational Boundary</div>
+    <p>The organisational boundary defines the operations over which the organisation has control or financial responsibility for GHG emissions.</p>
+    <table>
+      <thead>
+        <tr><th>Approach</th><th>Description</th><th class="ctr">Approach Taken</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Operational Control</strong></td>
+          <td>The organisation has operational control over an operation if it or one of its subsidiaries has the full authority to introduce and implement its operating policies at the operation.</td>
+          <td class="ctr">{% if rm.get("operational_control") is none %}-{% else %}{{ "Yes" if rm.get("operational_control") else "No" }}{% endif %}</td>
+        </tr>
+        <tr>
+          <td><strong>Financial Control</strong></td>
+          <td>The organisation has financial control over the operation if it has the ability to direct the financial and operating policies of the organisation with a view to gaining economic benefits from its activities.</td>
+          <td class="ctr">{% if rm.get("financial_control") is none %}-{% else %}{{ "Yes" if rm.get("financial_control") else "No" }}{% endif %}</td>
+        </tr>
+        <tr>
+          <td><strong>Equity Share</strong></td>
+          <td>The organisation accounts for GHG emissions from operations according to its share of equity in the operation.</td>
+          <td class="ctr">{% if rm.get("equity_share") is none %}-{% else %}{{ "Yes" if rm.get("equity_share") else "No" }}{% endif %}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="sub-head">Benchmark Year</div>
+    <p>The organisation's benchmark year is {{ period_label }}.</p>
+
+    <div class="sub-head">Methodologies Used</div>
+    <p>Throughout this report all methodologies used are explained within the relevant sections.</p>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 4 — CARBON EMISSIONS OVERVIEW
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">4. Carbon Emissions Overview</h2></div>
+
+    <div class="total-box" style="max-width:340px;margin:4mm auto;">
+      <div class="total-box-label">Reporting Period</div>
+      <div class="total-box-period">{{ period_label }}</div>
+      <hr class="divider">
+      <div class="total-box-label">Total Carbon Emissions</div>
+      <div class="total-big">{{ "{:,.2f}".format(total) }}</div>
+      <div class="total-unit">tCO₂e</div>
+    </div>
+
+    <p style="margin-top:4mm;">The calculated emissions are based on the most up to date emissions factors at the time of the publication of this report. It should be noted that emissions factors are updated regularly and will be retrospectively applied. As such, emissions values may change when calculated in future years.</p>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 5 — ANALYSIS BY SCOPE
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">5. Analysis by Scope</h2></div>
+
+    <div class="sub-head">Emissions by Scope</div>
+    <div class="card" style="max-width:380px;margin:0 auto 4mm;">
+      <div class="chart-wrap">
+        {% if assets and assets.get("total_emissions") %}
+          <img class="chart" src="data:image/png;base64,{{ assets.get('total_emissions') }}" alt="Scope breakdown">
+        {% else %}
+          <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="sub-head">Scope Descriptions</div>
+    <table>
+      <thead>
+        <tr><th>Scope</th><th>Description</th><th class="num">tCO₂e</th><th class="num">%</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ctr">1</td>
+          <td>Scope 1 emissions includes fuels used at company premises and company vehicles.</td>
+          <td class="num">{{ "{:,.2f}".format(s1) }}</td>
+          <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %}</td>
+        </tr>
+        <tr>
+          <td class="ctr">2</td>
+          <td>Emissions in scope 2 includes electricity used at the company's premises.</td>
+          <td class="num">{{ "{:,.2f}".format(s2) }}</td>
+          <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %}</td>
+        </tr>
+        <tr>
+          <td class="ctr">3</td>
+          <td>Scope 3 emissions include Business Travel, Employee Commuting, Transmission and Distribution of Electricity, and Waste/Water.</td>
+          <td class="num">{{ "{:,.2f}".format(s3) }}</td>
+          <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %}</td>
+        </tr>
+        <tr class="row-total">
+          <td colspan="2"><strong>Total</strong></td>
+          <td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td>
+          <td class="num"><strong>100.0%</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="italic-note">
+      Reported Scope 3 emissions may increase in future years as more detailed data and information become available.
+    </div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 6 — EMISSIONS BY ACTIVITY
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">6. Emissions by Activity</h2></div>
+
+    <div class="grid-2" style="align-items:start;">
+      <div class="card">
+        <div class="chart-wrap">
+          {% if assets and assets.get("activity_breakdown") %}
+            <img class="chart" src="data:image/png;base64,{{ assets.get('activity_breakdown') }}" alt="Activity breakdown">
+          {% else %}
+            <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
+          {% endif %}
         </div>
       </div>
-
-      <div class="card stack">
-        <h3 class="chart-title">Recommendations</h3>
-        <p>{{ recommendations }}</p>
-        {% if rm.get("emissions_reduction_targets_commentary") %}
-        <p><strong>Targets Commentary:</strong> {{ rm.get("emissions_reduction_targets_commentary") }}</p>
-        {% endif %}
-        {% if rm.get("commitment_commentary") %}
-        <p><strong>Commitment Commentary:</strong> {{ rm.get("commitment_commentary") }}</p>
-        {% endif %}
-        {% if rm.get("activity_commentary") %}
-        <p><strong>Activity Commentary:</strong> {{ rm.get("activity_commentary") }}</p>
-        {% endif %}
-        {% if rm.get("intensity_commentary") %}
-        <p><strong>Intensity Commentary:</strong> {{ rm.get("intensity_commentary") }}</p>
-        {% endif %}
-        <div class="callout">Prioritise near-term action on top contributors, and track confidence improvements in parallel with emissions reductions.</div>
-      </div>
-
-      <div class="card stack" style="margin-top:4mm">
-        <h3 class="chart-title">Conclusion</h3>
-        <p>{{ conclusion }}</p>
-      </div>
-
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Sign-off</h3>
-        <table class="meta-table">
-          <tbody>
-            <tr><td>Consultant Name</td><td>{{ rm.get("consultant_name") or "-" }}</td></tr>
-            <tr><td>Consultant Position</td><td>{{ rm.get("consultant_position") or "-" }}</td></tr>
-            <tr><td>Consultant Signature Date</td><td>{{ rm.get("consultant_signature_date") or "-" }}</td></tr>
-            <tr><td>Client Signee</td><td>{{ rm.get("client_signee_name") or "-" }}</td></tr>
-            <tr><td>Client Signee Position</td><td>{{ rm.get("client_signee_position") or "-" }}</td></tr>
-            <tr><td>Client Signature Date</td><td>{{ rm.get("client_signature_date") or "-" }}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <div class="page-break"></div>
-
-    <section class="section">
-      <div class="title-row">
-        <div>
-          <p class="eyebrow">Appendix</p>
-          <h2 class="h2">Report Information</h2>
+      <div class="card">
+        <div class="chart-wrap">
+          {% if assets and assets.get("activity_bar") %}
+            <img class="chart" src="data:image/png;base64,{{ assets.get('activity_bar') }}" alt="Activity bar chart">
+          {% else %}
+            <p style="color:var(--muted);font-style:italic;">Chart not available.</p>
+          {% endif %}
         </div>
       </div>
+    </div>
 
-      <div class="card stack">
-        <h3 class="chart-title">About This Report</h3>
-        <p>This report was prepared by Net Zero International using the NZI Insights Pro platform. Emissions have been calculated in accordance with recognised greenhouse gas accounting principles and published conversion factors.</p>
-        <table class="meta-table">
-          <tbody>
-            <tr><td>Job Reference</td><td>{{ job_data.job_number or "-" }}</td></tr>
-            <tr><td>Client</td><td>{{ job_data.client_name or "-" }}</td></tr>
-            <tr><td>Reporting Year</td><td>{{ job_data.reporting_year or "-" }}</td></tr>
-            <tr><td>Reporting Period</td><td>{{ period_label }}</td></tr>
-            <tr><td>Generation Date</td><td>{{ generation_date }}</td></tr>
-            <tr><td>Datasets</td><td>{{ rm.get("datasets_names") or "See Methodology section" }}</td></tr>
-            <tr><td>Consultant</td><td>{{ rm.get("consultant_name") or "-" }}</td></tr>
-          </tbody>
-        </table>
-      </div>
+    {% if fp_summary %}
+    <div class="sub-head">Emissions Analysis</div>
+    <p>{{ fp_summary }}</p>
+    {% endif %}
 
-      {% set ns = namespace(non_empty_count=0) %}
-      {% for k, v in tv.items() %}{% if v is not none and (v|string)|trim != "" %}{% set ns.non_empty_count = ns.non_empty_count + 1 %}{% endif %}{% endfor %}
-      {% if ns.non_empty_count > 0 %}
-      <div class="card" style="margin-top:4mm">
-        <h3 class="chart-title">Narrative Content Coverage</h3>
-        <table>
-          <thead><tr><th>Section</th><th>Status</th></tr></thead>
-          <tbody>
-            {% for k, v in tv.items() %}
-            {% if v is not none and (v|string)|trim != "" %}
+    <div class="sub-head">Emissions by Scope and Category</div>
+  </section>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 7 — EMISSIONS BY SCOPE AND CATEGORY (DETAIL)
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    {% if activity_details %}
+    <table>
+      <thead>
+        <tr>
+          <th>Scope</th>
+          <th>Category</th>
+          <th class="num">tCO₂e</th>
+          <th class="num">%</th>
+          <th>Data Source</th>
+          <th>Source Family</th>
+          <th class="ctr">Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(s1_printed=false, s2_printed=false, s3_printed=false, s1_sum=0, s2_sum=0, s3_sum=0) %}
+        {# Scope 1 rows #}
+        {% for row in activity_details %}
+          {% if row.scope|string in ['1','Scope 1'] %}
+            {% set ns.s1_sum = ns.s1_sum + row.emissions %}
             <tr>
-              <td>{{ k | replace("_", " ") | title }}</td>
-              <td><span class="badge bh">Provided</span></td>
+              <td>{% if not ns.s1_printed %}<span class="badge bs1">Scope 1</span>{% set ns.s1_printed = true %}{% endif %}</td>
+              <td>{{ row.emission_type or row.category or "-" }}</td>
+              <td class="num">{{ "{:,.2f}".format(row.emissions|float) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((row.emissions|float/total)*100) }}{% else %}0.0%{% endif %}</td>
+              <td>{{ row.data_source or "Company Data" }}</td>
+              <td>{{ row.source_family or "Legacy Data Entry" }}</td>
+              <td class="ctr">
+                {% set dc = (row.data_confidence or 'M')|string %}
+                {% if dc|lower in ['high','h'] %}<span class="badge bh">H</span>
+                {% elif dc|lower in ['medium','m'] %}<span class="badge bm">M</span>
+                {% else %}<span class="badge bl">L</span>{% endif %}
+              </td>
             </tr>
-            {% endif %}
-            {% endfor %}
-          </tbody>
-        </table>
+          {% endif %}
+        {% endfor %}
+        <tr class="row-total"><td colspan="2"><strong>Scope 1 Total</strong></td><td class="num"><strong>{{ "{:,.2f}".format(s1) }}</strong></td><td class="num"><strong>{% if total > 0 %}{{ "{:.1f}%".format((s1/total)*100) }}{% else %}0.0%{% endif %}</strong></td><td colspan="3"></td></tr>
+        {# Scope 2 rows #}
+        {% for row in activity_details %}
+          {% if row.scope|string in ['2','Scope 2'] %}
+            {% set ns.s2_sum = ns.s2_sum + row.emissions %}
+            <tr>
+              <td>{% if not ns.s2_printed %}<span class="badge bs2">Scope 2</span>{% set ns.s2_printed = true %}{% endif %}</td>
+              <td>{{ row.emission_type or row.category or "-" }}</td>
+              <td class="num">{{ "{:,.2f}".format(row.emissions|float) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((row.emissions|float/total)*100) }}{% else %}0.0%{% endif %}</td>
+              <td>{{ row.data_source or "Company Data" }}</td>
+              <td>{{ row.source_family or "Legacy Data Entry" }}</td>
+              <td class="ctr">
+                {% set dc = (row.data_confidence or 'M')|string %}
+                {% if dc|lower in ['high','h'] %}<span class="badge bh">H</span>
+                {% elif dc|lower in ['medium','m'] %}<span class="badge bm">M</span>
+                {% else %}<span class="badge bl">L</span>{% endif %}
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+        <tr class="row-total"><td colspan="2"><strong>Scope 2 Total</strong></td><td class="num"><strong>{{ "{:,.2f}".format(s2) }}</strong></td><td class="num"><strong>{% if total > 0 %}{{ "{:.1f}%".format((s2/total)*100) }}{% else %}0.0%{% endif %}</strong></td><td colspan="3"></td></tr>
+        {# Scope 3 rows #}
+        {% for row in activity_details %}
+          {% if row.scope|string not in ['1','2','Scope 1','Scope 2'] %}
+            <tr>
+              <td>{% if not ns.s3_printed %}<span class="badge bs3">Scope 3</span>{% set ns.s3_printed = true %}{% endif %}</td>
+              <td>{{ row.emission_type or row.category or "-" }}</td>
+              <td class="num">{{ "{:,.2f}".format(row.emissions|float) }}</td>
+              <td class="num">{% if total > 0 %}{{ "{:.1f}%".format((row.emissions|float/total)*100) }}{% else %}0.0%{% endif %}</td>
+              <td>{{ row.data_source or "Company Data" }}</td>
+              <td>{{ row.source_family or "Legacy Data Entry" }}</td>
+              <td class="ctr">
+                {% set dc = (row.data_confidence or 'M')|string %}
+                {% if dc|lower in ['high','h'] %}<span class="badge bh">H</span>
+                {% elif dc|lower in ['medium','m'] %}<span class="badge bm">M</span>
+                {% else %}<span class="badge bl">L</span>{% endif %}
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+        <tr class="row-total"><td colspan="2"><strong>Scope 3 Total</strong></td><td class="num"><strong>{{ "{:,.2f}".format(s3) }}</strong></td><td class="num"><strong>{% if total > 0 %}{{ "{:.1f}%".format((s3/total)*100) }}{% else %}0.0%{% endif %}</strong></td><td colspan="3"></td></tr>
+        <tr class="row-total"><td colspan="2"><strong>Total Emissions</strong></td><td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td><td class="num"><strong>100.0%</strong></td><td colspan="3"></td></tr>
+      </tbody>
+    </table>
+    {% else %}
+    <div class="placeholder-box">Emissions by Scope and Category data will be available once emission sources have been configured for this job.</div>
+    {% endif %}
+
+    <div class="warn-box"><strong>Note:</strong> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.</div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 8 — INTENSITY METRIC ANALYSIS
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">7. Intensity Metric Analysis</h2></div>
+
+    <p>Intensity metrics provide context for emissions data by normalising against business activity. This helps track efficiency improvements over time regardless of business growth or contraction.</p>
+
+    {% if has_intensity %}
+      <div class="grid-2" style="margin-top:4mm;">
+        {% if assets.get("intensity_pathway_per_fte") %}
+        <div class="card">
+          <div class="sub-head" style="margin-top:0;">Carbon Intensity per Employee</div>
+          <div class="chart-wrap"><img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_fte') }}" alt="Intensity per employee"></div>
+        </div>
+        {% endif %}
+        {% if assets.get("intensity_pathway_per_revenue") %}
+        <div class="card">
+          <div class="sub-head" style="margin-top:0;">Carbon Intensity per £1,000 Revenue</div>
+          <div class="chart-wrap"><img class="chart-full" src="data:image/png;base64,{{ assets.get('intensity_pathway_per_revenue') }}" alt="Intensity per revenue"></div>
+        </div>
+        {% endif %}
       </div>
+    {% else %}
+      <div class="italic-note">No intensity metrics data available for this reporting period. Intensity metrics can be added through the job configuration.</div>
+    {% endif %}
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 9 — EMISSIONS REDUCTION TARGETS
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">8. Emissions Reduction Targets</h2></div>
+
+    <div class="sub-head">Target Summary</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Scope</th>
+          <th class="num">Baseline Year</th>
+          <th class="num">Interim Target Year</th>
+          <th class="num">Interim Reduction</th>
+          <th class="num">Net Zero Year</th>
+          <th class="num">Net Zero Reduction</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="badge bs1">Scope 1</span></td><td class="num">{{ baseline_yr }}</td><td class="num">{{ interim_yr }}</td><td class="num">{{ interim_pct }}%</td><td class="num">{{ nz_yr }}</td><td class="num">{{ nz_pct }}%</td></tr>
+        <tr><td><span class="badge bs2">Scope 2</span></td><td class="num">{{ baseline_yr }}</td><td class="num">{{ interim_yr }}</td><td class="num">{{ interim_pct }}%</td><td class="num">{{ nz_yr }}</td><td class="num">{{ nz_pct }}%</td></tr>
+        <tr><td><span class="badge bs3">Scope 3</span></td><td class="num">{{ baseline_yr }}</td><td class="num">{{ interim_yr }}</td><td class="num">{{ interim_pct }}%</td><td class="num">{{ nz_yr }}</td><td class="num">{{ nz_pct }}%</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note-box"><strong>Note:</strong> Scope 3 emissions represent the largest category for most organisations. Reduction in Scope 3 requires engagement with suppliers, customers, and supply chain partners.</div>
+
+    {% if has_targets and assets.get("reduction_pathway_interim") %}
+    <div class="sub-head" style="margin-top:5mm;">Pathway to Interim Target ({{ interim_yr }})</div>
+    <div class="card">
+      <div class="chart-wrap" style="min-height:72mm;">
+        <img class="chart-full" src="data:image/png;base64,{{ assets.get('reduction_pathway_interim') }}" alt="Pathway to interim target">
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 10 — CARBON REDUCTION ACTIONS
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">9. Carbon Reduction Actions</h2></div>
+
+    <p>To achieve our net zero commitment, <strong>{{ job_data.client_name or "the organisation" }}</strong> has identified the following key areas for emissions reduction. These actions will be implemented in phases over the coming years.</p>
+
+    {# Action Plan Summary boxes #}
+    {% set tc = ja.get("term_counts", {}) %}
+    {% set n_short  = tc.get("short", tc.get("Short-term", tc.get("Short", 0))) %}
+    {% set n_medium = tc.get("medium", tc.get("Medium-term", tc.get("Medium", 0))) %}
+    {% set n_long   = tc.get("long", tc.get("Long-term", tc.get("Long", 0))) %}
+
+    <div class="italic-note" style="margin-bottom:3mm;">
+      <strong>Action Plan Summary:</strong> The current action plan includes
+      <strong>{{ n_short }}</strong> short-term{% if n_medium > 0 %} and <strong>{{ n_medium }}</strong> medium-term{% endif %}{% if n_long > 0 %} and <strong>{{ n_long }}</strong> long-term{% endif %} action{% if (n_short + n_medium + n_long) != 1 %}s{% endif %}.
+    </div>
+
+    <div class="term-grid">
+      <div class="term-box">
+        <div class="term-label">Short Term</div>
+        <div class="term-count">{{ n_short }}</div>
+        <div class="term-sub">0–12 months</div>
+      </div>
+      <div class="term-box">
+        <div class="term-label">Medium Term</div>
+        <div class="term-count">{{ n_medium }}</div>
+        <div class="term-sub">1–3 years</div>
+      </div>
+      <div class="term-box">
+        <div class="term-label">Long Term</div>
+        <div class="term-count">{{ n_long }}</div>
+        <div class="term-sub">3+ years</div>
+      </div>
+    </div>
+
+    <div class="sub-head">Carbon Reduction Projects</div>
+    {% if red_projects %}
+      <p>{{ red_projects }}</p>
+    {% else %}
+      <p>The carbon reduction plan comprises targeted actions spanning short- and medium-term horizons. Prioritising areas where behavioural and procurement changes can deliver meaningful reductions, actions have been selected to address the most significant emission categories.</p>
+    {% endif %}
+
+    <div class="sub-head">Planned Initiatives</div>
+
+    {% set action_items = ja.get("items", []) %}
+    {% if action_items %}
+    <table>
+      <thead>
+        <tr><th>Term</th><th>Action</th><th>Category</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        {% for item in action_items %}
+        <tr>
+          <td>
+            {% set t = (item.action_term or '')|lower %}
+            {% if 'short' in t %}<span class="badge bst">Short term</span>
+            {% elif 'medium' in t %}<span class="badge bmt">Medium term</span>
+            {% else %}<span class="badge blt">Long term</span>{% endif %}
+          </td>
+          <td><strong>{{ item.action_name or item.get("name", "-") }}</strong><br><small style="color:var(--muted);">{{ item.get("scope_focus", "All Scopes") }}</small></td>
+          <td>{{ item.get("category") or item.get("action_category") or "-" }}</td>
+          <td style="font-size:8.2pt;">{{ item.get("description") or item.get("action_description") or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="sub-head" style="margin-top:5mm;">Approved by:</div>
+    <table style="max-width:200px;">
+      <tbody>
+        <tr><td style="padding:1.5mm 0;">{{ rm.get("client_signee_name") or "N/A" }}</td></tr>
+        <tr><td style="padding:1.5mm 0;">{{ rm.get("client_signee_position") or "N/A" }}</td></tr>
+        <tr><td style="padding:1.5mm 0;">Date: {{ rm.get("client_signature_date") or generation_date }}</td></tr>
+      </tbody>
+    </table>
+    {% else %}
+    <div class="placeholder-box">No planned initiatives have been added to this job yet. Initiatives can be added in the Carbon Reduction Actions section.</div>
+    {% endif %}
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 11 — SECR EMISSIONS DATA
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">10. SECR Emissions Data</h2></div>
+
+    <p>This section provides the emissions data required for the UK's Streamlined Energy and Carbon Reporting (SECR) framework.</p>
+
+    <div class="sub-head">SECR Summary</div>
+    <table>
+      <thead>
+        <tr><th>Energy &amp; Emissions</th><th class="num">Value</th><th>Unit</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Total GHG Emissions (Scope 1 &amp; 2)</td><td class="num">{{ "{:,.2f}".format(s1 + s2) }}</td><td>tCO₂e</td></tr>
+        <tr><td>Scope 1 Emissions</td><td class="num">{{ "{:,.2f}".format(s1) }}</td><td>tCO₂e</td></tr>
+        <tr><td>Scope 2 Emissions</td><td class="num">{{ "{:,.2f}".format(s2) }}</td><td>tCO₂e</td></tr>
+        <tr><td>Scope 3 Emissions</td><td class="num">{{ "{:,.2f}".format(s3) }}</td><td>tCO₂e</td></tr>
+        <tr class="row-total"><td><strong>Total Emissions</strong></td><td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td><td><strong>tCO₂e</strong></td></tr>
+      </tbody>
+    </table>
+
+    {% if rm.get("energy_consumption_uk_kwh") %}
+    <table style="margin-top:3mm;">
+      <tbody>
+        <tr><td style="width:60mm;color:var(--muted);font-weight:700;">UK Energy Consumption</td><td>{{ "{:,.0f}".format((rm.get("energy_consumption_uk_kwh") or 0)|float) }} kWh</td></tr>
+        {% if rm.get("renewable_energy_kwh") %}<tr><td style="color:var(--muted);font-weight:700;">Renewable Energy</td><td>{{ "{:,.0f}".format((rm.get("renewable_energy_kwh") or 0)|float) }} kWh</td></tr>{% endif %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <div class="ok-box"><strong>SECR Compliance:</strong> This report meets the requirements of the UK Government's Streamlined Energy and Carbon Reporting (SECR) regulations.</div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 12 — STANDARDS AND METHODOLOGY
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">11. Standards and Methodology Used</h2></div>
+
+    <p>This report has been prepared in accordance with internationally recognised greenhouse gas accounting and reporting standards.</p>
+
+    <div class="sub-head">Reporting Standards</div>
+    <table>
+      <thead>
+        <tr><th>Standard</th><th>Description</th><th class="ctr">Applied</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>GHG Protocol</strong></td><td>Corporate Accounting and Reporting Standard</td><td class="ctr">&#10003;</td></tr>
+        <tr><td><strong>ISO 14064-1</strong></td><td>Quantification and reporting of GHG emissions</td><td class="ctr">&#10003;</td></tr>
+        <tr><td><strong>ISO 14064-3</strong></td><td>Verification of GHG assertions</td><td class="ctr">&#10003;</td></tr>
+        <tr><td><strong>SECR</strong></td><td>Streamlined Energy and Carbon Reporting (UK)</td><td class="ctr">&#10003;</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sub-head">Emission Factors</div>
+    <p>Emission factors are sourced from:</p>
+    <ul style="margin-left:5mm;margin-bottom:2mm;">
+      <li>BEIS/DEFRA UK Government GHG Conversion Factors</li>
+      <li>IPCC Fifth Assessment Report (AR5)</li>
+      <li>Industry-specific factors where applicable</li>
+    </ul>
+
+    <div class="sub-head">Methodology Notes</div>
+    <ul style="margin-left:5mm;margin-bottom:2mm;">
+      <li><strong>Scope 1:</strong> Direct emissions from owned or controlled sources</li>
+      <li><strong>Scope 2:</strong> Indirect emissions from purchased electricity, steam, heating &amp; cooling</li>
+      <li><strong>Scope 3:</strong> All other indirect emissions in the value chain</li>
+    </ul>
+
+    <div class="ok-box"><strong>Methodologies Used:</strong> {{ rm.get("methodologies_used") or "GHG Protocol Corporate Standard" }}</div>
+    <div class="ok-box" style="margin-top:2mm;"><strong>Datasets Used:</strong> {{ rm.get("datasets_names") or "UK Activity &amp; Spend " ~ (job_data.reporting_year or "") ~ " (" ~ period_label ~ ")" }}</div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 13 — DATA QUALITY / CONFIDENCE
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">12. Data Quality / Confidence</h2></div>
+
+    <p>The quality and confidence of emissions data varies across different sources. This section provides transparency on data reliability.</p>
+    <p>To ensure readability, greenhouse gas (GHG) emission levels are rounded to 2 decimal places. Small differences in the sums of individual rows or columns may occur due to this rounding and are not indicative of calculation errors.</p>
+
+    <div class="sub-head">Data Sources and Confidence Levels</div>
+    <table>
+      <thead>
+        <tr><th>Data Category</th><th>Primary Source</th><th>Confidence Level</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Fuel Consumption</td><td>Invoices, meter readings</td><td><span class="badge bh">High</span></td></tr>
+        <tr><td>Electricity Usage</td><td>Utility bills, smart meters</td><td><span class="badge bh">High</span></td></tr>
+        <tr><td>Business Travel</td><td>Booking systems, expense claims</td><td><span class="badge bm">Medium</span></td></tr>
+        <tr><td>Employee Commuting</td><td>Survey estimates</td><td><span class="badge bl">Low</span></td></tr>
+        <tr><td>Supply Chain</td><td>Supplier data, spend-based</td><td><span class="badge bm">Low-Medium</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="note-box"><strong>Data Improvement Actions:</strong> {{ rm.get("data_confidence_commentary") or "Continuous improvement of data quality is an ongoing process. We are working with suppliers to improve Scope 3 data accuracy." }}</div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 14 — DECLARATION AND SIGN OFF
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">13. Declaration and Sign Off</h2></div>
+
+    <div class="verify-box">
+      <h3>Independent Verification Statement</h3>
+      <p>This greenhouse gas emissions report has been prepared in accordance with the GHG Protocol Corporate Accounting and Reporting Standard. The data and calculations have been independently verified by Net Zero International.</p>
+      <p style="margin-top:2mm;"><strong>Verification Scope:</strong> All Scope 1, 2, and 3 emissions for the reporting period {{ period_label }}.</p>
+      <p style="margin-top:1mm;"><strong>Verification Standard:</strong> ISO 14064-3:2019</p>
+      <p style="margin-top:1mm;"><strong>Assurance Level:</strong> Limited Assurance</p>
+
+      {% if rm.get("client_signee_name") %}
+      <div class="sig-script">{{ rm.get("client_signee_name") }}</div>
+      {% else %}
+      <div class="sig-line"></div>
       {% endif %}
-    </section>
-  </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6mm;margin-top:2mm;">
+        <div>
+          <div style="color:var(--muted);font-size:8pt;margin-bottom:1mm;">{{ rm.get("client_signee_position") or "Authorised Signatory" }}</div>
+          <div>{{ rm.get("client_signee_name") or "-" }}</div>
+        </div>
+        <div>
+          <div style="color:var(--muted);font-size:8pt;margin-bottom:1mm;">Date</div>
+          <div>{{ rm.get("client_signature_date") or generation_date }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ok-box" style="margin-top:4mm;"><strong>Declaration:</strong> This Carbon Reduction Plan has been completed in accordance with PPN 06/21 and associated guidance and reporting standard for Carbon Reduction Plans.</div>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     SECTION 15 — GLOSSARY
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">14. Glossary</h2></div>
+
+    <table>
+      <thead>
+        <tr><th>Term</th><th>Definition</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Absolute Emissions</strong></td><td>The total amount of greenhouse gasses calculated, measured in tonnes of CO₂e.</td></tr>
+        <tr><td><strong>Baseline Year</strong></td><td>The historical reference year against which emissions reductions are measured.</td></tr>
+        <tr><td><strong>Benchmark Data</strong></td><td>The chosen 12-month period that sets the calculated emissions that need to be mitigated and/or offset.</td></tr>
+        <tr><td><strong>Carbon Emissions (Gross)</strong></td><td>CO₂e emissions from Company activities.</td></tr>
+        <tr><td><strong>Carbon Reduction</strong></td><td>Reduction in measured CO₂e emissions.</td></tr>
+        <tr><td><strong>Carbon Reduction Plan</strong></td><td>Plan to reduce CO₂e emissions over a period of time, updated annually.</td></tr>
+        <tr><td><strong>Emission Factor</strong></td><td>A coefficient that converts activity data into GHG emissions.</td></tr>
+        <tr><td><strong>GHG Protocol</strong></td><td>The globally recognized framework for measuring and managing greenhouse gas emissions.</td></tr>
+        <tr><td><strong>Intensity Metric</strong></td><td>Emissions normalised by business activity (e.g., per employee, per GBP revenue).</td></tr>
+        <tr><td><strong>Net Zero</strong></td><td>Achieving a balance between greenhouse gas emissions produced and emissions removed from the atmosphere.</td></tr>
+        <tr><td><strong>Scope 1</strong></td><td>Direct GHG emissions from sources owned or controlled by the organisation.</td></tr>
+        <tr><td><strong>Scope 2</strong></td><td>Indirect GHG emissions from purchased electricity, steam, heating and cooling.</td></tr>
+        <tr><td><strong>Scope 3</strong></td><td>All other indirect emissions in the value chain.</td></tr>
+        <tr><td><strong>SECR</strong></td><td>Streamlined Energy and Carbon Reporting – UK reporting requirement.</td></tr>
+        <tr><td><strong>tCO₂e</strong></td><td>Tonnes of carbon dioxide equivalent – a standard unit for measuring carbon footprints.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="page-break"></div>
+
+
+  {# ════════════════════════════════════════════════════
+     APPENDIX — DETAILED EMISSIONS DATA
+  ════════════════════════════════════════════════════ #}
+  <section class="section">
+    <div class="sec-head"><h2 class="sec-title">15. Appendix</h2></div>
+
+    <div class="sub-head">Detailed Emissions Data</div>
+    <p>This appendix contains the complete breakdown of emissions by source, including the asset and travel register detail together with the rows used in the calculations.</p>
+
+    <div class="sub-head">Detailed Emissions by Site and Source Register</div>
+
+    {% if activity_details %}
+    <table>
+      <thead>
+        <tr>
+          <th>Site</th>
+          <th>Scope</th>
+          <th>Activity Group</th>
+          <th>Emission Type</th>
+          <th>Source Family</th>
+          <th>Group / Asset</th>
+          <th>Factor ID</th>
+          <th class="num">Qty</th>
+          <th>UOM</th>
+          <th class="num">tCO₂e</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in activity_details %}
+        <tr>
+          <td>{{ row.get("site_name") or "Registered Office" }}</td>
+          <td>{{ scope_badge(row.scope) }}</td>
+          <td>{{ row.activity_group or "-" }}</td>
+          <td style="font-size:8pt;">{{ row.emission_type or row.category or "-" }}</td>
+          <td>{{ row.source_family or "Legacy Data Entry" }}</td>
+          <td style="font-size:7.8pt;">{{ row.reference_label or row.group_name or row.asset_identifier or row.source_name or "-" }}</td>
+          <td style="font-size:7.5pt;">{{ row.factor_id or row.factor_db_id or row.original_id or "-" }}</td>
+          <td class="num">{% if row.qty %}{{ "{:,.2f}".format(row.qty|float) }}{% else %}-{% endif %}</td>
+          <td>{{ row.uom or "-" }}</td>
+          <td class="num">{{ "{:,.3f}".format(row.emissions|float) }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="row-total">
+          <td colspan="9"><strong>Total Emissions</strong></td>
+          <td class="num"><strong>{{ "{:,.2f}".format(total) }}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    {% else %}
+    <div class="placeholder-box">Detailed emissions register will be available once emission sources have been configured for this job.</div>
+    {% endif %}
+
+    <div class="italic-note">
+      <strong>Report Validity:</strong> This report is valid for the specified reporting period only. Any changes to the underlying data or emissions factors may result in revised calculations.
+    </div>
+
+    <p style="margin-top:6mm;text-align:right;font-size:8pt;color:var(--muted);">
+      Generated {{ generation_date }} &bull; Carbon Reduction Plan &ndash; Standard (v1)
+    </p>
+  </section>
+
+</div>
 </body>
 </html>

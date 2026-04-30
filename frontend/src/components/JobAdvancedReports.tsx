@@ -536,6 +536,23 @@ export default function JobAdvancedReports({
 
   useEffect(() => { loadVersions(); }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Must be declared here (before early returns) to satisfy Rules of Hooks.
+  // Synthesises a single-year row when the API returns no yearly_emissions.
+  const effectiveYearlyEmissions: YearlyEmission[] = useMemo(() => {
+    const ye = data?.yearly_emissions;
+    if ((ye?.length ?? 0) > 0) return ye!;
+    const te = toNum(data?.summary?.current_total ?? data?.scope_totals?.Total);
+    if (te <= 0) return [];
+    const by = toNum(data?.target_data?.baseline_year) || new Date().getFullYear() - 1;
+    return [{
+      year: by,
+      scope1: toNum(data?.scope_totals?.["Scope 1"]),
+      scope2: toNum(data?.scope_totals?.["Scope 2"]),
+      scope3: toNum(data?.scope_totals?.["Scope 3"]),
+      total: te,
+    }];
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function saveVersion(status: "draft" | "review") {
     setGenerating(true);
     setGenerateError(null);
@@ -688,14 +705,6 @@ export default function JobAdvancedReports({
   const appendixRows = site_breakdowns?.appendix_rows ?? [];
   const hasAppendix = appendixRows.length > 0;
   const hasGlossary = (glossary_cards?.length ?? 0) > 0;
-
-  // If the API returned no yearly rows, synthesise one from the current totals so
-  // the Trend chart always renders (even for clients with a single reporting year).
-  const effectiveYearlyEmissions: YearlyEmission[] = useMemo(() => {
-    if ((yearly_emissions?.length ?? 0) > 0) return yearly_emissions!;
-    if (totalEmissions <= 0) return [];
-    return [{ year: baselineYear, scope1, scope2, scope3, total: totalEmissions }];
-  }, [yearly_emissions, totalEmissions, baselineYear, scope1, scope2, scope3]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SECR energy fields
   const energyUkKwh = toNum(report_metadata?.energy_consumption_uk_kwh);

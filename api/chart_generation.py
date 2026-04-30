@@ -139,8 +139,8 @@ def create_total_emissions_donut(
     values = [scope_totals.get(scope, 0) for scope in scope_labels]
     total = sum(values)
     
-    # Professional color palette - distinct, vibrant colors
-    colors = ['#4472C4', '#ED7D31', '#70AD47']  # Blue, Orange, Green
+    # Match client dashboard scope colors (teal, cyan, sky)
+    colors = ['#0f766e', '#0891b2', '#38bdf8']  # Scope 1, 2, 3
     
     if total == 0:
         # Handle empty data case
@@ -149,8 +149,8 @@ def create_total_emissions_donut(
         colors = ['#E0E0E0']
         total = 1
     
-    # Donut width reduced by 25% (from 0.35 to ~0.2625)
-    donut_width = 0.2625
+    # Thin ring matching client dashboard (innerRadius 77%, outerRadius 96%)
+    donut_width = 0.19
     
     # Create the pie chart with thinner donut
     wedges, texts, autotexts = ax.pie(
@@ -559,9 +559,9 @@ def create_reduction_pathway_chart(
     
     # Calculate reduction trajectory for each scope
     scope_colors = {
-        'Scope 1': '#4472C4',
-        'Scope 2': '#ED7D31', 
-        'Scope 3': '#70AD47'
+        'Scope 1': '#0f766e',
+        'Scope 2': '#0891b2',
+        'Scope 3': '#38bdf8'
     }
     
     # Build tick positions: always show baseline, every 5th year, and the net-zero year
@@ -892,9 +892,9 @@ def generate_report_assets(
         'Scope 3': scope_totals.get('Scope 3', 0)
     }
     scope_colors = {
-        'Scope 1': '#4472C4',
-        'Scope 2': '#ED7D31',
-        'Scope 3': '#70AD47'
+        'Scope 1': '#0f766e',
+        'Scope 2': '#0891b2',
+        'Scope 3': '#38bdf8'
     }
     # Professional total emissions donut chart (for Executive Summary)
     # Format period dates for the chart
