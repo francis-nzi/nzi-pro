@@ -172,11 +172,11 @@ function PathwayChart({
             }}
           />
           <Tooltip
-            formatter={(value: number | undefined, name: string) => [
+            formatter={(value: number | undefined, name: string | undefined) => [
               value != null ? `${fmt(value)} tCO₂e` : "—",
-              name,
+              name ?? "",
             ]}
-            labelFormatter={(label: number) => `Year ${label}`}
+            labelFormatter={(label: unknown) => `Year ${label}`}
           />
           <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
 
@@ -634,7 +634,7 @@ export default function JobAdvancedReports({
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(v: number | undefined, n: string) => [v != null ? `${fmt(v)} tCO₂e` : "—", n]}
+                      formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]}
                     />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
@@ -716,7 +716,7 @@ export default function JobAdvancedReports({
                       tick={{ fontSize: 9 }}
                     />
                     <Tooltip
-                      formatter={(v: number | undefined, _: string, props: { payload?: { fullName?: string } }) => [
+                      formatter={(v: number | undefined, _: string | undefined, props: { payload?: { fullName?: string } }) => [
                         v != null ? `${fmt(v)} tCO₂e` : "—",
                         props.payload?.fullName ?? "",
                       ]}
