@@ -63,7 +63,18 @@ def _frontend_base_url(request: Request) -> str:
     explicit = str(os.getenv("FRONTEND_BASE_URL") or "").strip()
     if explicit:
         return explicit.rstrip("/")
-    return str(request.base_url).rstrip("/")
+    # Fall back to the API's own base URL only in local development.
+    # In production (Render) the API and frontend are separate services, so
+    # FRONTEND_BASE_URL *must* be set or the Playwright PDF will try to load
+    # the API server instead of the Next.js app and produce a blank page.
+    base = str(request.base_url).rstrip("/")
+    if "render.com" in base or "onrender.com" in base:
+        raise RuntimeError(
+            "FRONTEND_BASE_URL environment variable is not set. "
+            "Configure it to the Next.js app URL (e.g. https://your-app.onrender.com) "
+            "so the live-report PDF can load the correct page."
+        )
+    return base
 
 
 def _playwright_headers(request: Request) -> dict[str, str]:

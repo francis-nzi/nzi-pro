@@ -564,120 +564,133 @@ def create_reduction_pathway_chart(
         'Scope 3': '#70AD47'
     }
     
+    # Build tick positions: always show baseline, every 5th year, and the net-zero year
+    tick_years = sorted({
+        y for y in years
+        if y == baseline_year or y == net_zero_year or y % 5 == 0
+    })
+
     # Create figure
     fig = go.Figure()
-    
+
     for scope in ['Scope 1', 'Scope 2', 'Scope 3']:
         if scope not in baseline_emissions:
             continue
-            
+
         scope_baseline = baseline_emissions.get(scope, 0)
         if scope_baseline <= 0:
             continue
-        
+
         # Linear reduction to target
+        total_years = net_zero_year - baseline_year
         emissions_values = []
         for year in years:
             years_elapsed = year - baseline_year
-            total_years = net_zero_year - baseline_year
-            
             if total_years > 0:
-                # Linear reduction
                 reduction_factor = (years_elapsed / total_years) * (target_percent_reduction / 100)
                 reduced = scope_baseline * (1 - reduction_factor)
             else:
                 reduced = scope_baseline
-            
-            # Don't go below zero
             emissions_values.append(max(0, reduced))
-        
+
         color = scope_colors.get(scope, '#999999')
-        
-        # Add line with markers
+
         fig.add_trace(go.Scatter(
             x=years,
             y=emissions_values,
             mode='lines+markers',
             name=scope,
-            line=dict(color=color, width=3),
-            marker=dict(size=8, symbol='circle')
+            line=dict(color=color, width=2.5),
+            marker=dict(size=6, symbol='circle', color=color,
+                        line=dict(color='white', width=1))
         ))
-    
-    # Add vertical lines for baseline and target
-    fig.add_vline(x=baseline_year, line_dash="dot", line_color="#333333", 
-                  annotation_text=f"Baseline {baseline_year}", annotation_position="top left")
-    fig.add_vline(x=net_zero_year, line_dash="dash", line_color="#70AD47",
-                  annotation_text=f"Net Zero {net_zero_year}", annotation_position="bottom right")
-    
-    # Update layout for professional look
+
+    # Vertical reference lines
+    fig.add_vline(x=baseline_year, line_dash="dot", line_color="#555555", line_width=1.5,
+                  annotation_text=f"Baseline {baseline_year}",
+                  annotation_position="top left",
+                  annotation_font=dict(size=10, color='#555555'))
+    fig.add_vline(x=net_zero_year, line_dash="dash", line_color="#70AD47", line_width=1.5,
+                  annotation_text=f"Net Zero {net_zero_year}",
+                  annotation_position="bottom right",
+                  annotation_font=dict(size=10, color='#70AD47'))
+
     fig.update_layout(
         title=dict(
             text=title,
-            font=dict(size=16, color='#333333', family='Arial, sans-serif'),
+            font=dict(size=14, color='#333333', family='Arial, sans-serif'),
             x=0.5,
             xanchor='center'
         ),
         xaxis=dict(
-            title=dict(text='Year', font=dict(size=12, family='Arial, sans-serif')),
+            title=dict(text='Year', font=dict(size=11, family='Arial, sans-serif')),
             tickmode='array',
-            tickvals=years,
-            ticktext=[str(y) for y in years],
+            tickvals=tick_years,
+            ticktext=[str(y) for y in tick_years],
             tickangle=-45,
-            showgrid=False,
+            showgrid=True,
+            gridcolor='#F0F0F0',
+            gridwidth=1,
             zeroline=False,
             showline=True,
-            linecolor='#333333',
-            ticks='outside'
+            linecolor='#CCCCCC',
+            ticks='outside',
+            tickfont=dict(size=10)
         ),
         yaxis=dict(
-            title=dict(text='Emissions (tCO₂e)', font=dict(size=12, family='Arial, sans-serif')),
-            showgrid=False,
+            title=dict(text='Emissions (tCO₂e)', font=dict(size=11, family='Arial, sans-serif')),
+            showgrid=True,
+            gridcolor='#F0F0F0',
+            gridwidth=1,
             zeroline=False,
             showline=True,
-            linecolor='#333333',
+            linecolor='#CCCCCC',
             tickformat=',.0f',
-            ticks='outside'
+            ticks='outside',
+            tickfont=dict(size=10)
         ),
         legend=dict(
             orientation='h',
             yanchor='bottom',
             y=1.02,
-            xanchor='right',
-            x=1,
-            font=dict(size=11)
+            xanchor='center',
+            x=0.5,
+            font=dict(size=11, family='Arial, sans-serif'),
+            bgcolor='rgba(0,0,0,0)'
         ),
         plot_bgcolor='white',
         paper_bgcolor='white',
-        margin=dict(l=60, r=30, t=80, b=80),
-        height=int(figsize[1] * 100),  # Convert to pixels approximately
-        width=int(figsize[0] * 100),
+        margin=dict(l=65, r=30, t=70, b=70),
+        height=420,
+        width=820,
         font=dict(family='Arial, sans-serif', size=11)
     )
-    
-    # Add annotations for milestones if provided
+
+    # Milestone annotations
     if milestones:
         for ms in milestones:
             ms_year = ms.get('year')
             ms_pct = ms.get('pct', 0)
             if ms_year and baseline_year <= ms_year <= net_zero_year:
-                # Find approximate y position
+                max_baseline = max((v for v in baseline_emissions.values() if v > 0), default=100)
                 fig.add_annotation(
                     x=ms_year,
-                    y=max(baseline_emissions.values()) * 0.95,
+                    y=max_baseline * 0.92,
                     text=f"{ms_pct}%",
                     showarrow=True,
                     arrowhead=2,
                     arrowsize=1,
-                    arrowwidth=1,
+                    arrowwidth=1.5,
+                    arrowcolor='#666666',
                     ax=0,
-                    ay=-20,
-                    font=dict(size=10, color='#666666')
+                    ay=-25,
+                    font=dict(size=10, color='#444444')
                 )
-    
-    # Export to PNG
+
+    # Export to PNG at print quality
     ensure_kaleido_browser()
     img_buffer = io.BytesIO()
-    fig.write_image(img_buffer, format='png', scale=2, width=900, height=500,
+    fig.write_image(img_buffer, format='png', scale=2, width=820, height=420,
                     engine='kaleido')
     img_buffer.seek(0)
     
@@ -695,15 +708,15 @@ def create_interim_pathway_chart(
     title: str = "Pathway to Interim Target"
 ) -> str:
     """
-    Create a line chart showing pathway to interim target.
-    Simplified version focusing on the period up to interim target.
+    Create a line chart scoped to the interim target period (baseline → interim year).
+    Distinct from the full 2050 pathway chart — shows the near-term commitment clearly.
     """
     return create_reduction_pathway_chart(
         baseline_year=baseline_year,
         baseline_emissions=baseline_emissions,
         target_year=interim_year,
         target_percent_reduction=interim_percent_reduction,
-        net_zero_year=target_year,
+        net_zero_year=interim_year,
         milestones=[
             {'year': interim_year, 'pct': interim_percent_reduction}
         ],
@@ -717,7 +730,7 @@ def create_intensity_pathway_chart(
     baseline_metric_value: float,
     target_year: int,
     target_percent_reduction: int,
-    metric_name: str = "per Â£1000 revenue",
+    metric_name: str = "per £1000 revenue",
     title: str = "Intensity Reduction Pathway"
 ) -> str:
     """
@@ -752,79 +765,90 @@ def create_intensity_pathway_chart(
             intensity = baseline_intensity
         intensity_values.append(max(0, intensity))
     
-    final_intensity = baseline_intensity * (1 - target_percent_reduction/100)
-    
+    tick_years = sorted({
+        y for y in years
+        if y == baseline_year or y == target_year or y % 5 == 0
+    })
+
     # Create figure
     fig = go.Figure()
-    
-    # Add line with markers
+
     fig.add_trace(go.Scatter(
         x=years,
         y=intensity_values,
         mode='lines+markers',
         name=f'Intensity {metric_name}',
-        line=dict(color='#4472C4', width=3),
-        marker=dict(size=10, symbol='circle')
+        line=dict(color='#4472C4', width=2.5),
+        marker=dict(size=6, symbol='circle', color='#4472C4',
+                    line=dict(color='white', width=1))
     ))
-    
-    # Add vertical lines for baseline and target
-    fig.add_vline(x=baseline_year, line_dash="dot", line_color="#333333", 
-                  annotation_text=f"Baseline {baseline_year}", annotation_position="top left")
-    fig.add_vline(x=target_year, line_dash="dash", line_color="#70AD47",
-                  annotation_text=f"Target {target_year}", annotation_position="bottom right")
-    
-    # Update layout for professional look
+
+    fig.add_vline(x=baseline_year, line_dash="dot", line_color="#555555", line_width=1.5,
+                  annotation_text=f"Baseline {baseline_year}",
+                  annotation_position="top left",
+                  annotation_font=dict(size=10, color='#555555'))
+    fig.add_vline(x=target_year, line_dash="dash", line_color="#70AD47", line_width=1.5,
+                  annotation_text=f"Target {target_year}",
+                  annotation_position="bottom right",
+                  annotation_font=dict(size=10, color='#70AD47'))
+
     fig.update_layout(
         title=dict(
             text=title,
-            font=dict(size=16, color='#333333', family='Arial, sans-serif'),
+            font=dict(size=14, color='#333333', family='Arial, sans-serif'),
             x=0.5,
             xanchor='center'
         ),
         xaxis=dict(
-            title=dict(text='Year', font=dict(size=12, family='Arial, sans-serif')),
+            title=dict(text='Year', font=dict(size=11, family='Arial, sans-serif')),
             tickmode='array',
-            tickvals=years,
-            ticktext=[str(y) for y in years],
+            tickvals=tick_years,
+            ticktext=[str(y) for y in tick_years],
             tickangle=-45,
-            showgrid=False,
+            showgrid=True,
+            gridcolor='#F0F0F0',
+            gridwidth=1,
             zeroline=False,
             showline=True,
-            linecolor='#333333',
-            ticks='outside'
+            linecolor='#CCCCCC',
+            ticks='outside',
+            tickfont=dict(size=10)
         ),
         yaxis=dict(
-            title=dict(text=f'Intensity (tCO₂e {metric_name})', font=dict(size=12, family='Arial, sans-serif')),
-            showgrid=False,
+            title=dict(text=f'Intensity (tCO₂e {metric_name})', font=dict(size=11, family='Arial, sans-serif')),
+            showgrid=True,
+            gridcolor='#F0F0F0',
+            gridwidth=1,
             zeroline=False,
             showline=True,
-            linecolor='#333333',
+            linecolor='#CCCCCC',
             tickformat='.2f',
-            ticks='outside'
+            ticks='outside',
+            tickfont=dict(size=10)
         ),
         legend=dict(
             orientation='h',
             yanchor='bottom',
             y=1.02,
-            xanchor='right',
-            x=1,
-            font=dict(size=11)
+            xanchor='center',
+            x=0.5,
+            font=dict(size=11, family='Arial, sans-serif'),
+            bgcolor='rgba(0,0,0,0)'
         ),
         plot_bgcolor='white',
         paper_bgcolor='white',
-        margin=dict(l=60, r=30, t=80, b=80),
-        height=500,
-        width=800,
+        margin=dict(l=65, r=30, t=70, b=70),
+        height=420,
+        width=820,
         font=dict(family='Arial, sans-serif', size=11)
     )
     
-    # Export to PNG
     ensure_kaleido_browser()
     img_buffer = io.BytesIO()
-    fig.write_image(img_buffer, format='png', scale=2, width=800, height=500,
+    fig.write_image(img_buffer, format='png', scale=2, width=820, height=420,
                     engine='kaleido')
     img_buffer.seek(0)
-    
+
     img_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
     return img_base64
 
@@ -994,12 +1018,12 @@ def generate_report_assets(
                             # Assume value is in thousands for revenue
                             assets['intensity_pathway_per_revenue'] = create_intensity_pathway_chart(
                                 baseline_year=baseline_year,
-                                baseline_intensity=intensity * 1000,  # Convert to per Â£1000
+                                baseline_intensity=intensity * 1000,  # Convert to per £1000
                                 baseline_metric_value=metric_value * 1000,
                                 target_year=interim_year,
                                 target_percent_reduction=interim_pct,
-                                metric_name='per Â£1000 revenue',
-                                title='Carbon Intensity per Â£1000 Revenue'
+                                metric_name='per £1000 revenue',
+                                title='Carbon Intensity per £1000 Revenue'
                             )
     
     return assets
