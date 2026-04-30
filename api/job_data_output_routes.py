@@ -61,10 +61,6 @@ def _factor_category_expr(con) -> str:
     return "fl.category" if _column_exists(con, "factor_lookup", "category") else "NULL::text"
 
 
-def _factor_category_expr(con) -> str:
-    return "fl.category" if _column_exists(con, "factor_lookup", "category") else "NULL::text"
-
-
 def _safe_text(value: Any) -> str | None:
     if value is None:
         return None
