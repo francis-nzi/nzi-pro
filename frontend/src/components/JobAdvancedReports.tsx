@@ -36,6 +36,73 @@ type ReportJob = {
   client_name?: string | null;
   crm_owner?: string | null;
   logo_url?: string | null;
+  description?: string | null;
+  industry?: string | null;
+  no_of_staff?: number | null;
+  city?: string | null;
+  country?: string | null;
+};
+
+type ReportMetadata = {
+  report_title?: string | null;
+  benchmark_period_label?: string | null;
+  current_reporting_period_label?: string | null;
+  company_number?: string | null;
+  registered_address?: string | null;
+  employee_number?: number | null;
+  premises_owned?: number | null;
+  premises_leased?: number | null;
+  vehicles_owned?: number | null;
+  vehicles_leased?: number | null;
+  operational_control?: boolean | null;
+  financial_control?: boolean | null;
+  equity_share?: boolean | null;
+  commitment_commentary?: string | null;
+  activity_commentary?: string | null;
+  intensity_commentary?: string | null;
+  emissions_reduction_targets_commentary?: string | null;
+  data_confidence_commentary?: string | null;
+  methodologies_used?: string | null;
+  datasets_names?: string | null;
+  energy_consumption_uk_kwh?: number | null;
+  energy_consumption_non_uk_kwh?: number | null;
+  energy_reporting_basis?: string | null;
+  renewable_energy_kwh?: number | null;
+  renewable_energy_pct?: number | null;
+  energy_emissions_tco2e?: number | null;
+  energy_emissions_market_tco2e?: number | null;
+  carbon_offsets_tco2e?: number | null;
+  consultant_name?: string | null;
+  consultant_position?: string | null;
+  consultant_signature_date?: string | null;
+  client_signee_name?: string | null;
+  client_signee_position?: string | null;
+  client_signature_date?: string | null;
+};
+
+type AppendixRow = {
+  site_name?: string | null;
+  scope?: string | null;
+  activity_group?: string | null;
+  emission_type?: string | null;
+  category?: string | null;
+  data_source?: string | null;
+  data_confidence?: string | null;
+  qty?: number | null;
+  uom?: string | null;
+  emissions?: number | null;
+};
+
+type SiteBreakdowns = {
+  show_site_tables?: boolean;
+  show_appendix?: boolean;
+  site_count?: number;
+  appendix_rows?: AppendixRow[];
+};
+
+type GlossaryCard = {
+  term: string;
+  definition: string;
 };
 
 type LiveData = {
@@ -56,7 +123,7 @@ type LiveData = {
     summary_sentence?: string | null;
   };
   target_data?: Record<string, unknown>;
-  report_metadata?: Record<string, unknown>;
+  report_metadata?: ReportMetadata;
   template_variables?: Record<string, unknown>;
   summary?: {
     current_total?: number | null;
@@ -69,6 +136,8 @@ type LiveData = {
       report_label?: string | null;
     } | null;
   };
+  site_breakdowns?: SiteBreakdowns;
+  glossary_cards?: GlossaryCard[];
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -95,6 +164,17 @@ function fmt(v: number, dp = 1): string {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   });
+}
+
+function fmtEnergy(kwh: number): string {
+  if (kwh >= 1_000_000) return `${fmt(kwh / 1_000_000, 2)} GWh`;
+  if (kwh >= 1_000) return `${fmt(kwh / 1_000, 1)} MWh`;
+  return `${fmt(kwh, 0)} kWh`;
+}
+
+function boolLabel(v: boolean | null | undefined): string {
+  if (v == null) return "—";
+  return v ? "Yes" : "No";
 }
 
 function buildPathwayPoints(
@@ -358,6 +438,28 @@ function CoverPage({ data }: { data: LiveData }) {
   );
 }
 
+// ─── SectionHeader helper ─────────────────────────────────────────────────────
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
+      {title}
+    </CardTitle>
+  );
+}
+
+// ─── MetaRow helper ───────────────────────────────────────────────────────────
+
+function MetaRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  if (value == null || String(value).trim() === "") return null;
+  return (
+    <div className="flex gap-3 py-1.5 border-b border-gray-50 last:border-0">
+      <span className="w-44 shrink-0 text-xs text-gray-400">{label}</span>
+      <span className="text-xs text-gray-700 font-medium">{String(value)}</span>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function JobAdvancedReports({
@@ -441,6 +543,9 @@ export default function JobAdvancedReports({
     job_actions,
     target_data,
     summary,
+    report_metadata,
+    site_breakdowns,
+    glossary_cards,
   } = data;
 
   const totalEmissions = toNum(summary?.current_total ?? scope_totals?.Total);
@@ -483,6 +588,18 @@ export default function JobAdvancedReports({
   const activityChartHeight = Math.max(200, activityBarData.length * 52 + 40);
 
   const hasPathway = baselineYear > 2000 && netZeroYear > baselineYear;
+
+  const appendixRows = site_breakdowns?.appendix_rows ?? [];
+  const hasAppendix = appendixRows.length > 0;
+  const hasGlossary = (glossary_cards?.length ?? 0) > 0;
+
+  // SECR energy fields
+  const energyUkKwh = toNum(report_metadata?.energy_consumption_uk_kwh);
+  const energyNonUkKwh = toNum(report_metadata?.energy_consumption_non_uk_kwh);
+  const energyEmissionsTco2e = toNum(report_metadata?.energy_emissions_tco2e);
+  const renewableKwh = toNum(report_metadata?.renewable_energy_kwh);
+  const renewablePct = toNum(report_metadata?.renewable_energy_pct);
+  const hasSecrEnergy = energyUkKwh > 0 || energyNonUkKwh > 0;
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -553,11 +670,9 @@ export default function JobAdvancedReports({
         <CoverPage data={data} />
 
         {/* ── 2. Executive summary ───────────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section print:break-after-page">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-              Executive Summary
-            </CardTitle>
+            <SectionHeader title="Executive Summary" />
           </CardHeader>
           <CardContent>
             <div className="mb-4 grid grid-cols-3 gap-3">
@@ -605,13 +720,72 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 3. Scope breakdown donut ───────────────────────────────────── */}
+        {/* ── 3. Background & Organisation ───────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Background & Organisation" />
+          </CardHeader>
+          <CardContent className="space-y-5">
+
+            {/* Narrative description */}
+            {data.job_data.description && (
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {data.job_data.description}
+              </p>
+            )}
+
+            {/* Organisation details */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                Organisation Details
+              </p>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
+                <MetaRow label="Organisation" value={data.job_data.client_name} />
+                <MetaRow label="Industry" value={data.job_data.industry} />
+                <MetaRow label="Location" value={[data.job_data.city, data.job_data.country].filter(Boolean).join(", ")} />
+                <MetaRow label="Employees (job)" value={data.job_data.no_of_staff} />
+                <MetaRow label="Company Number" value={report_metadata?.company_number} />
+                <MetaRow label="Registered Address" value={report_metadata?.registered_address} />
+                <MetaRow label="Employees (reported)" value={report_metadata?.employee_number} />
+                <MetaRow label="Premises Owned" value={report_metadata?.premises_owned} />
+                <MetaRow label="Premises Leased" value={report_metadata?.premises_leased} />
+                <MetaRow label="Vehicles Owned" value={report_metadata?.vehicles_owned} />
+                <MetaRow label="Vehicles Leased" value={report_metadata?.vehicles_leased} />
+              </div>
+            </div>
+
+            {/* Organisational boundary */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                Organisational Boundary
+              </p>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
+                <MetaRow label="Operational Control" value={boolLabel(report_metadata?.operational_control)} />
+                <MetaRow label="Financial Control" value={boolLabel(report_metadata?.financial_control)} />
+                <MetaRow label="Equity Share" value={boolLabel(report_metadata?.equity_share)} />
+              </div>
+            </div>
+
+            {/* Commitment commentary */}
+            {report_metadata?.commitment_commentary && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">
+                  Commitment
+                </p>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  {report_metadata.commitment_commentary}
+                </p>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+
+        {/* ── 4. Emissions by Scope donut ────────────────────────────────── */}
         {scopeDonutData.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Emissions by Scope
-              </CardTitle>
+              <SectionHeader title="Emissions by Scope" />
             </CardHeader>
             <CardContent>
               <div className="h-[220px]">
@@ -644,13 +818,11 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 4. Emissions Reduction Pathway to net-zero ─────────────────── */}
+        {/* ── 5. Emissions Reduction Pathway to net-zero ─────────────────── */}
         {hasPathway && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Emissions Reduction Pathway to {netZeroYear}
-              </CardTitle>
+              <SectionHeader title={`Emissions Reduction Pathway to ${netZeroYear}`} />
             </CardHeader>
             <CardContent>
               <PathwayChart
@@ -659,17 +831,20 @@ export default function JobAdvancedReports({
                 endYear={netZeroYear}
                 interimYear={interimYear}
               />
+              {report_metadata?.emissions_reduction_targets_commentary && (
+                <p className="mt-4 text-sm text-gray-600 leading-relaxed">
+                  {report_metadata.emissions_reduction_targets_commentary}
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* ── 5. Pathway to interim target ───────────────────────────────── */}
+        {/* ── 6. Pathway to interim target ───────────────────────────────── */}
         {pathwayInterim && interimYear && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Pathway to Interim Target ({interimYear})
-              </CardTitle>
+              <SectionHeader title={`Pathway to Interim Target (${interimYear})`} />
             </CardHeader>
             <CardContent>
               <PathwayChart
@@ -681,13 +856,11 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 6. Emissions by activity ───────────────────────────────────── */}
+        {/* ── 7. Emissions by activity ───────────────────────────────────── */}
         {activityBarData.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Emissions by Activity
-              </CardTitle>
+              <SectionHeader title="Emissions by Activity" />
             </CardHeader>
             <CardContent>
               <div style={{ height: activityChartHeight }}>
@@ -729,17 +902,119 @@ export default function JobAdvancedReports({
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+              {report_metadata?.activity_commentary && (
+                <p className="mt-4 text-sm text-gray-600 leading-relaxed">
+                  {report_metadata.activity_commentary}
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* ── 7. Carbon intensity metrics ────────────────────────────────── */}
+        {/* ── 8. SECR Summary ────────────────────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="SECR Summary" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Scope totals table */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                GHG Emissions
+              </p>
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="py-2 pr-4 text-left text-xs font-semibold text-gray-500 w-1/2">Scope</th>
+                    <th className="py-2 text-right text-xs font-semibold text-gray-500">tCO₂e</th>
+                    <th className="py-2 pl-4 text-right text-xs font-semibold text-gray-500">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {SCOPE_LABELS.map(s => {
+                    const v = toNum(scope_totals?.[s]);
+                    const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
+                    return (
+                      <tr key={s} className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-700 flex items-center gap-2">
+                          <span
+                            className="inline-block h-2.5 w-2.5 rounded-full"
+                            style={{ backgroundColor: SCOPE_COLORS[s] }}
+                          />
+                          {s}
+                        </td>
+                        <td className="py-2 text-right text-xs font-semibold text-gray-800">
+                          {fmt(v)}
+                        </td>
+                        <td className="py-2 pl-4 text-right text-xs text-gray-500">
+                          {pct.toFixed(1)}%
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t-2 border-gray-200">
+                    <td className="py-2 pr-4 text-xs font-bold text-gray-800">Total</td>
+                    <td className="py-2 text-right text-xs font-bold text-gray-800">
+                      {fmt(totalEmissions)}
+                    </td>
+                    <td className="py-2 pl-4 text-right text-xs font-bold text-gray-800">100%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Energy consumption (shown only if data is populated) */}
+            {hasSecrEnergy && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                  Energy Consumption
+                </p>
+                <table className="w-full text-sm border-collapse">
+                  <tbody>
+                    {energyUkKwh > 0 && (
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-600 w-2/3">UK Energy Consumption</td>
+                        <td className="py-2 text-right text-xs font-semibold text-gray-800">{fmtEnergy(energyUkKwh)}</td>
+                      </tr>
+                    )}
+                    {energyNonUkKwh > 0 && (
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-600">Non-UK Energy Consumption</td>
+                        <td className="py-2 text-right text-xs font-semibold text-gray-800">{fmtEnergy(energyNonUkKwh)}</td>
+                      </tr>
+                    )}
+                    {renewableKwh > 0 && (
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-600">Renewable Energy</td>
+                        <td className="py-2 text-right text-xs font-semibold text-gray-800">
+                          {fmtEnergy(renewableKwh)}{renewablePct > 0 ? ` (${fmt(renewablePct, 1)}%)` : ""}
+                        </td>
+                      </tr>
+                    )}
+                    {energyEmissionsTco2e > 0 && (
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-600">Energy-related Emissions</td>
+                        <td className="py-2 text-right text-xs font-semibold text-gray-800">{fmt(energyEmissionsTco2e)} tCO₂e</td>
+                      </tr>
+                    )}
+                    {report_metadata?.energy_reporting_basis && (
+                      <tr className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-xs text-gray-600">Reporting Basis</td>
+                        <td className="py-2 text-right text-xs text-gray-700">{report_metadata.energy_reporting_basis}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── 9. Carbon intensity metrics ────────────────────────────────── */}
         {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Carbon Intensity Metrics
-              </CardTitle>
+              <SectionHeader title="Carbon Intensity Metrics" />
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3">
@@ -761,17 +1036,20 @@ export default function JobAdvancedReports({
                   );
                 })}
               </div>
+              {report_metadata?.intensity_commentary && (
+                <p className="mt-4 text-sm text-gray-600 leading-relaxed">
+                  {report_metadata.intensity_commentary}
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* ── 8. Carbon reduction actions ────────────────────────────────── */}
+        {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
         {(job_actions?.grouped?.length ?? 0) > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold" style={{ color: BRAND }}>
-                Carbon Reduction Actions
-              </CardTitle>
+              <SectionHeader title="Carbon Reduction Actions" />
             </CardHeader>
             <CardContent className="space-y-5">
               {job_actions?.grouped?.map((group, gi) => (
@@ -799,21 +1077,208 @@ export default function JobAdvancedReports({
                   </ul>
                 </div>
               ))}
+              {report_metadata?.data_confidence_commentary && (
+                <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">
+                    Data Confidence
+                  </p>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {report_metadata.data_confidence_commentary}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* Coming soon — placeholder for Phase 2 sections */}
-        <Card className="live-report-section border-dashed border-gray-200 bg-gray-50/60">
-          <CardContent className="py-6 text-center">
-            <p className="text-sm font-medium text-gray-500">
-              More sections in progress
-            </p>
-            <p className="mt-1 text-xs text-gray-400">
-              Background & Methodology · SECR Table · Full Glossary · Appendix · Declaration
-            </p>
+        {/* ── 11. Standards & Methodology ────────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Standards & Methodology" />
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm text-gray-700">
+            <table className="w-full border-collapse text-xs">
+              <tbody>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 w-1/3 align-top">Framework</td>
+                  <td className="py-2 font-medium">
+                    {report_metadata?.methodologies_used ?? "GHG Protocol Corporate Standard"}
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 align-top">Emission Factors</td>
+                  <td className="py-2 font-medium">
+                    {report_metadata?.datasets_names ?? "DESNZ Greenhouse Gas Conversion Factors"}
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 align-top">Reporting Standard</td>
+                  <td className="py-2 font-medium">ISO 14064-1 / GHG Protocol</td>
+                </tr>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 align-top">Scope Coverage</td>
+                  <td className="py-2 font-medium">Scope 1, 2 and 3 (material categories)</td>
+                </tr>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 pr-4 text-gray-500 align-top">Net-Zero Standard</td>
+                  <td className="py-2 font-medium">SBTi Net-Zero Standard / Science Based Targets</td>
+                </tr>
+                <tr>
+                  <td className="py-2 pr-4 text-gray-500 align-top">Prepared by</td>
+                  <td className="py-2 font-medium">Net Zero International Limited</td>
+                </tr>
+              </tbody>
+            </table>
           </CardContent>
         </Card>
+
+        {/* ── 12. Declaration / Sign-off ──────────────────────────────────── */}
+        {(report_metadata?.consultant_name || report_metadata?.client_signee_name) && (
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Declaration" />
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                We confirm that the information contained in this report is accurate and prepared
+                in accordance with the GHG Protocol Corporate Standard and the relevant emission
+                factor datasets. This report has been reviewed and approved by the signatories below.
+              </p>
+              <div className="grid grid-cols-2 gap-6">
+                {/* Consultant sign-off */}
+                {report_metadata?.consultant_name && (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
+                      Prepared by
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {report_metadata.consultant_name}
+                    </p>
+                    {report_metadata.consultant_position && (
+                      <p className="text-xs text-gray-500">{report_metadata.consultant_position}</p>
+                    )}
+                    {report_metadata.consultant_signature_date && (
+                      <p className="mt-2 text-xs text-gray-400">
+                        Date: {String(report_metadata.consultant_signature_date)}
+                      </p>
+                    )}
+                    <div className="mt-4 h-10 border-b border-dashed border-gray-300" />
+                  </div>
+                )}
+
+                {/* Client sign-off */}
+                {report_metadata?.client_signee_name && (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
+                      Approved by
+                    </p>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {report_metadata.client_signee_name}
+                    </p>
+                    {report_metadata.client_signee_position && (
+                      <p className="text-xs text-gray-500">{report_metadata.client_signee_position}</p>
+                    )}
+                    {report_metadata.client_signature_date && (
+                      <p className="mt-2 text-xs text-gray-400">
+                        Date: {String(report_metadata.client_signature_date)}
+                      </p>
+                    )}
+                    <div className="mt-4 h-10 border-b border-dashed border-gray-300" />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── 13. Glossary ───────────────────────────────────────────────── */}
+        {hasGlossary && (
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Glossary" />
+            </CardHeader>
+            <CardContent>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="py-2 pr-4 text-left text-xs font-semibold text-gray-500 w-1/4">Term</th>
+                    <th className="py-2 text-left text-xs font-semibold text-gray-500">Definition</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(glossary_cards ?? []).map((card, i) => (
+                    <tr key={i} className="border-b border-gray-50 align-top">
+                      <td className="py-2.5 pr-4 text-xs font-semibold text-gray-700 align-top">
+                        {card.term}
+                      </td>
+                      <td className="py-2.5 text-xs text-gray-600 leading-relaxed">
+                        {card.definition}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── 14. Appendix — Full Emissions Audit ────────────────────────── */}
+        {hasAppendix && (
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Appendix — Full Emissions Audit" />
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b-2 border-gray-200">
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Site</th>
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Scope</th>
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Activity Group</th>
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Category</th>
+                      <th className="py-2 pr-3 text-right font-semibold text-gray-500">Qty</th>
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Unit</th>
+                      <th className="py-2 text-right font-semibold text-gray-500">tCO₂e</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appendixRows.map((row, i) => (
+                      <tr
+                        key={i}
+                        className="border-b border-gray-50 hover:bg-gray-50/60"
+                      >
+                        <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.activity_group ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600 max-w-[180px] truncate">
+                          {row.category ?? row.emission_type ?? "—"}
+                        </td>
+                        <td className="py-1.5 pr-3 text-right text-gray-700">
+                          {row.qty != null ? fmt(toNum(row.qty), 2) : "—"}
+                        </td>
+                        <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "—"}</td>
+                        <td className="py-1.5 text-right font-semibold text-gray-800">
+                          {row.emissions != null ? fmt(toNum(row.emissions)) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-300">
+                      <td colSpan={6} className="py-2 pr-3 text-xs font-bold text-gray-700">
+                        Total
+                      </td>
+                      <td className="py-2 text-right text-xs font-bold text-gray-800">
+                        {fmt(appendixRows.reduce((s, r) => s + toNum(r.emissions), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
       </div>
     </>
