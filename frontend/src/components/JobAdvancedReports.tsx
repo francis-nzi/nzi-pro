@@ -479,9 +479,11 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
 export default function JobAdvancedReports({
   jobId,
   baseUrl,
+  pdfToken,
 }: {
   jobId: number;
   baseUrl: string;
+  pdfToken?: string;
 }) {
   const [data, setData] = useState<LiveData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -492,10 +494,18 @@ export default function JobAdvancedReports({
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
 
+  function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const headers: Record<string, string> = {
+      ...(init.headers as Record<string, string> ?? {}),
+      ...(pdfToken ? { authorization: `Bearer ${pdfToken}` } : {}),
+    };
+    return fetch(url, { credentials: "include", ...init, headers });
+  }
+
   useEffect(() => {
     setLoading(true);
     setFetchError(null);
-    fetch(`${baseUrl}/jobs/${jobId}/live-report-data`, { credentials: "include" })
+    authFetch(`${baseUrl}/jobs/${jobId}/live-report-data`)
       .then(r => {
         if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
         return r.json() as Promise<LiveData>;
@@ -503,11 +513,11 @@ export default function JobAdvancedReports({
       .then(d => setData(d))
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
-  }, [jobId, baseUrl]);
+  }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function loadVersions() {
     setVersionsLoading(true);
-    fetch(`${baseUrl}/jobs/${jobId}/react-report-versions`, { credentials: "include" })
+    authFetch(`${baseUrl}/jobs/${jobId}/react-report-versions`)
       .then(r => r.ok ? r.json() as Promise<{ versions: ReactReportVersion[] }> : Promise.resolve({ versions: [] }))
       .then(d => setVersions(d.versions ?? []))
       .catch(() => setVersions([]))
@@ -520,9 +530,9 @@ export default function JobAdvancedReports({
     setGenerating(true);
     setGenerateError(null);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${baseUrl}/jobs/${jobId}/generate-report-react?save_version=true&report_version_status=${status}`,
-        { method: "POST", credentials: "include" },
+        { method: "POST" },
       );
       if (!res.ok) {
         let detail = `Server returned ${res.status}`;
@@ -553,7 +563,7 @@ export default function JobAdvancedReports({
   async function downloadVersion(version: ReactReportVersion) {
     if (!version.download_url) return;
     try {
-      const res = await fetch(`${baseUrl}${version.download_url}`, { credentials: "include" });
+      const res = await authFetch(`${baseUrl}${version.download_url}`);
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -572,14 +582,9 @@ export default function JobAdvancedReports({
   async function markFinal(version: ReactReportVersion) {
     setMarkingFinal(version.report_version_id);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${baseUrl}/jobs/${jobId}/report-versions/${version.report_version_id}`,
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "final" }),
-        },
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "final" }) },
       );
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       loadVersions();

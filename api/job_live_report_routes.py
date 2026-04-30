@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
 
@@ -258,23 +259,49 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     }
 
 
+def _extract_bearer_token(request: Request) -> str:
+    """Return the raw JWT from the Authorization header, or empty string."""
+    auth = str(request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
 def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     from playwright.sync_api import sync_playwright
 
     frontend_base = _frontend_base_url(request)
-    report_url = f"{frontend_base}/jobs/{int(job_id)}/report-live?print=1"
+    bearer = _extract_bearer_token(request)
+
+    # Target the Advanced Reports page directly so the PDF matches the UI.
+    # Pass the bearer token as a query param so the in-page fetch calls
+    # can include it — the /api/backend proxy forwards Authorization to the API.
+    report_url = (
+        f"{frontend_base}/jobs/{int(job_id)}/advanced-reports"
+        f"?print=1&pdf_token={urllib.parse.quote(bearer)}"
+        if bearer
+        else f"{frontend_base}/jobs/{int(job_id)}/advanced-reports?print=1"
+    )
+
+    # Non-cookie headers to pass to all requests Playwright makes itself.
+    extra_headers: dict[str, str] = {}
+    for name in ("x-user", "x-user-email"):
+        val = str(request.headers.get(name) or "").strip()
+        if val:
+            extra_headers[name] = val
+
     ensure_playwright_browser()
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(
             viewport={"width": 1440, "height": 2200},
-            extra_http_headers=_playwright_headers(request),
+            extra_http_headers=extra_headers,
         )
         try:
             page = context.new_page()
-            page.goto(report_url, wait_until="networkidle")
+            page.goto(report_url, wait_until="networkidle", timeout=90000)
             page.locator(".live-report-section").first.wait_for(state="visible", timeout=60000)
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1500)
             page.emulate_media(media="print")
             return page.pdf(
                 format="A4",

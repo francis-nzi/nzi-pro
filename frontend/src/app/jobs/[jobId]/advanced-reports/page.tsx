@@ -1,6 +1,7 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 
 import JobAdvancedReports from "@/components/JobAdvancedReports";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
@@ -9,9 +10,22 @@ function apiBaseUrl(): string {
   return "/api/backend";
 }
 
-export default function AdvancedReportsPage() {
+function AdvancedReportsInner() {
   const params = useParams<{ jobId: string }>();
+  const searchParams = useSearchParams();
   const jobId = Number(params?.jobId);
+  const pdfToken = searchParams.get("pdf_token") ?? undefined;
+  const printMode = searchParams.get("print") === "1";
+
+  // When rendered by Playwright for PDF generation, skip the shell entirely
+  // so that only report sections appear in the output.
+  if (printMode && pdfToken) {
+    return (
+      <div className="bg-white p-6">
+        <JobAdvancedReports jobId={jobId} baseUrl={apiBaseUrl()} pdfToken={pdfToken} />
+      </div>
+    );
+  }
 
   return (
     <JobSectionShell
@@ -24,5 +38,13 @@ export default function AdvancedReportsPage() {
     >
       <JobAdvancedReports jobId={jobId} baseUrl={apiBaseUrl()} />
     </JobSectionShell>
+  );
+}
+
+export default function AdvancedReportsPage() {
+  return (
+    <Suspense>
+      <AdvancedReportsInner />
+    </Suspense>
   );
 }
