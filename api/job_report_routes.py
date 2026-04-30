@@ -753,20 +753,48 @@ def _build_report_version_snapshot(
     return payload, data_hash
 
 
+def _safe_int(v) -> int | None:
+    """Convert v to int, returning None for NULL/NaN (pandas represents NULL integers as NaN)."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    import math
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return int(f)
+
+
+def _safe_str(v) -> str | None:
+    """Convert v to str, returning None for NULL/NaT."""
+    if v is None:
+        return None
+    try:
+        import pandas as pd
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return str(v)
+
+
 def _serialize_report_version_row(row: dict[str, Any]) -> dict[str, Any]:
-    file_id = row.get("file_id")
-    job_id = row.get("job_id")
+    file_id = _safe_int(row.get("file_id"))
+    job_id = _safe_int(row.get("job_id"))
+    report_version_id = _safe_int(row.get("report_version_id"))
     return {
-        "report_version_id": int(row.get("report_version_id")) if row.get("report_version_id") is not None else None,
-        "job_id": int(job_id) if job_id is not None else None,
-        "client_db_id": int(row.get("client_db_id")) if row.get("client_db_id") is not None else None,
-        "version_number": int(row.get("version_number")) if row.get("version_number") is not None else None,
+        "report_version_id": report_version_id,
+        "job_id": job_id,
+        "client_db_id": _safe_int(row.get("client_db_id")),
+        "version_number": _safe_int(row.get("version_number")),
         "version_label": row.get("version_label"),
         "status": row.get("status"),
         "report_format": row.get("report_format"),
-        "template_id": int(row.get("template_id")) if row.get("template_id") is not None else None,
-        "version_id": int(row.get("version_id")) if row.get("version_id") is not None else None,
-        "file_id": int(file_id) if file_id is not None else None,
+        "template_id": _safe_int(row.get("template_id")),
+        "version_id": _safe_int(row.get("version_id")),
+        "file_id": file_id,
         "file_name": row.get("file_name"),
         "file_path": row.get("file_path"),
         "storage_provider": row.get("storage_provider"),
@@ -775,17 +803,17 @@ def _serialize_report_version_row(row: dict[str, Any]) -> dict[str, Any]:
         "external_path": row.get("external_path"),
         "data_hash": row.get("data_hash"),
         "notes": row.get("notes"),
-        "generated_at": str(row.get("generated_at")) if row.get("generated_at") else None,
+        "generated_at": _safe_str(row.get("generated_at")),
         "generated_by": row.get("generated_by"),
-        "reviewed_at": str(row.get("reviewed_at")) if row.get("reviewed_at") else None,
+        "reviewed_at": _safe_str(row.get("reviewed_at")),
         "reviewed_by": row.get("reviewed_by"),
-        "finalized_at": str(row.get("finalized_at")) if row.get("finalized_at") else None,
+        "finalized_at": _safe_str(row.get("finalized_at")),
         "finalized_by": row.get("finalized_by"),
-        "superseded_at": str(row.get("superseded_at")) if row.get("superseded_at") else None,
+        "superseded_at": _safe_str(row.get("superseded_at")),
         "superseded_by": row.get("superseded_by"),
-        "download_url": f"/jobs/{int(job_id)}/files/{int(file_id)}/download" if job_id is not None and file_id is not None else None,
-        "snapshot_url": f"/jobs/{int(job_id)}/report-versions/{int(row.get('report_version_id'))}/snapshot-html"
-        if job_id is not None and row.get("report_version_id") is not None
+        "download_url": f"/jobs/{job_id}/files/{file_id}/download" if job_id is not None and file_id is not None else None,
+        "snapshot_url": f"/jobs/{job_id}/report-versions/{report_version_id}/snapshot-html"
+        if job_id is not None and report_version_id is not None
         else None,
     }
 
@@ -4259,15 +4287,17 @@ def list_report_versions(
                 """,
                 [int(job_id)],
             ).df()
+        versions: list[dict[str, Any]] = []
+        if rows is not None and not rows.empty:
+            for _, row in rows.iterrows():
+                versions.append(_serialize_report_version_row(dict(row)))
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        print(f"ERROR list_report_versions job_id={job_id}: {e!r}", flush=True)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to list report versions: {e}")
-
-    versions: list[dict[str, Any]] = []
-    if rows is not None and not rows.empty:
-        for _, row in rows.iterrows():
-            versions.append(_serialize_report_version_row(dict(row)))
     return {"job_id": int(job_id), "versions": versions}
 
 
