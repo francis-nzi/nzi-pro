@@ -169,9 +169,9 @@ type LiveData = {
 const SCOPE_LABELS = ["Scope 1", "Scope 2", "Scope 3"] as const;
 
 const SCOPE_COLORS: Record<string, string> = {
-  "Scope 1": "#4472C4",
-  "Scope 2": "#ED7D31",
-  "Scope 3": "#70AD47",
+  "Scope 1": "#0f766e",
+  "Scope 2": "#0891b2",
+  "Scope 3": "#38bdf8",
 };
 
 const BRAND = "#1c3a2c";

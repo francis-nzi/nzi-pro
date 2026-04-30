@@ -2,9 +2,14 @@
 
 import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 
-import JobAdvancedReports from "@/components/JobAdvancedReports";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
+
+const JobAdvancedReports = dynamic(() => import("@/components/JobAdvancedReports"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-muted-foreground">Loading report…</div>,
+});
 
 function apiBaseUrl(): string {
   return "/api/backend";
