@@ -540,17 +540,33 @@ def list_react_report_versions(
     _user: dict[str, str] = Depends(_current_user),
 ) -> dict[str, Any]:
     """List all React-format report versions for a job, newest first."""
-    with get_conn() as con:
-        rows = con.execute(
-            """
-            SELECT *
-            FROM job_report_versions
-            WHERE job_id = %s
-              AND lower(COALESCE(report_format, '')) = 'react'
-            ORDER BY version_number DESC, report_version_id DESC
-            """,
-            [int(job_id)],
-        ).fetchall()
-
-    versions = [_serialize_report_version_row(dict(r._mapping)) for r in rows]
-    return {"versions": versions, "total": len(versions)}
+    import traceback
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                """
+                SELECT
+                    report_version_id, job_id, client_db_id, version_number,
+                    version_label, status, report_format, template_id, version_id,
+                    file_id, file_name, file_path, storage_provider,
+                    external_item_id, external_web_url, external_path,
+                    data_hash, notes, generated_at, generated_by,
+                    reviewed_at, reviewed_by, finalized_at, finalized_by,
+                    superseded_at, superseded_by
+                FROM job_report_versions
+                WHERE job_id = %s
+                  AND lower(COALESCE(report_format, '')) = 'react'
+                ORDER BY version_number DESC, report_version_id DESC
+                """,
+                [int(job_id)],
+            ).df()
+        versions: list[dict[str, Any]] = []
+        if rows is not None and not rows.empty:
+            for _, row in rows.iterrows():
+                versions.append(_serialize_report_version_row(dict(row)))
+        return {"versions": versions, "total": len(versions)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to list react report versions: {exc}") from exc
