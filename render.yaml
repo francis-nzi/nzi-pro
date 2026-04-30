@@ -30,6 +30,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
 
   - type: web
     name: nzi-pro-web-prod

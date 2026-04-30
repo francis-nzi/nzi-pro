@@ -487,6 +487,7 @@ export default function JobAdvancedReports({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [versions, setVersions] = useState<ReactReportVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
@@ -517,12 +518,20 @@ export default function JobAdvancedReports({
 
   async function saveVersion(status: "draft" | "review") {
     setGenerating(true);
+    setGenerateError(null);
     try {
       const res = await fetch(
         `${baseUrl}/jobs/${jobId}/generate-report-react?save_version=true&report_version_status=${status}`,
         { method: "POST", credentials: "include" },
       );
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      if (!res.ok) {
+        let detail = `Server returned ${res.status}`;
+        try {
+          const body = await res.json() as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+      }
       const blob = await res.blob();
       const vNum = res.headers.get("X-Report-Version-Number") ?? "";
       const url = URL.createObjectURL(blob);
@@ -535,7 +544,7 @@ export default function JobAdvancedReports({
       URL.revokeObjectURL(url);
       loadVersions();
     } catch (e) {
-      alert(`PDF generation failed: ${String(e)}`);
+      setGenerateError(String(e));
     } finally {
       setGenerating(false);
     }
@@ -702,46 +711,68 @@ export default function JobAdvancedReports({
       `}</style>
 
       {/* Control bar */}
-      <div className="advanced-report-controls mb-4 flex items-center justify-between rounded-lg border border-gray-200 bg-white px-5 py-3 shadow-sm">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-700">Advanced Reports</h2>
-          <p className="mt-0.5 text-xs text-gray-400">
-            React / Playwright renderer · vector charts · A4 print layout
-          </p>
+      <div className="advanced-report-controls mb-1 rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-5 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">Advanced Reports</h2>
+            <p className="mt-0.5 text-xs text-gray-400">
+              React / Playwright renderer · vector charts · A4 print layout
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className="border-amber-300 bg-amber-50 text-xs text-amber-600"
+            >
+              Beta
+            </Badge>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => window.print()}
+              className="text-xs"
+            >
+              Print
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => saveVersion("draft")}
+              disabled={generating}
+              className="text-xs"
+            >
+              Save Draft
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => saveVersion("review")}
+              disabled={generating}
+              className="bg-green-700 text-xs text-white hover:bg-green-800"
+            >
+              {generating ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                  Generating…
+                </span>
+              ) : (
+                "⬇ Save for Review"
+              )}
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className="border-amber-300 bg-amber-50 text-xs text-amber-600"
-          >
-            Beta
-          </Badge>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => saveVersion("draft")}
-            disabled={generating}
-            className="text-xs"
-          >
-            Save Draft
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => saveVersion("review")}
-            disabled={generating}
-            className="bg-green-700 text-xs text-white hover:bg-green-800"
-          >
-            {generating ? (
-              <span className="flex items-center gap-2">
-                <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                Generating…
+        {generateError && (
+          <div className="border-t border-red-100 bg-red-50 px-5 py-2 text-xs text-red-700">
+            <span className="font-medium">PDF generation failed: </span>
+            {generateError}
+            {generateError.toLowerCase().includes("frontend_base_url") && (
+              <span className="ml-1 text-red-500">
+                — set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
-            ) : (
-              "⬇ Save for Review"
             )}
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
+      <div className="advanced-report-controls mb-4" />
 
       {/* Version history */}
       <div className="advanced-report-controls mb-6 rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
