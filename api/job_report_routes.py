@@ -78,6 +78,26 @@ ACTIVITY_GROUP_COLORS = {
     'Other Emissions': '#70AD47',
 }
 
+
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+            """,
+            [table_name],
+        ).fetchall()
+    except Exception:
+        return set()
+    return {str(row[0]).strip().lower() for row in rows if row and row[0] is not None}
+
+
+def _factor_category_expr(con) -> str:
+    return "fl.category" if "category" in _table_columns(con, "factor_lookup") else "NULL::text"
+
 DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
     {"term": "Absolute Emissions", "definition": "The total amount of greenhouse gasses calculated, measured in tonnes of CO2e."},
     {"term": "Benchmark Data", "definition": "The chosen 12-month period that sets the calculated emissions that need to be mitigated and/or offset."},
@@ -1277,26 +1297,27 @@ def _records_from_df(df):
 
 
 def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
+    factor_category_expr = _factor_category_expr(con)
     df = con.execute(
-        """
+        f"""
         SELECT
             'legacy' AS record_type,
             COALESCE(s.site_name, 'Unassigned') AS site_name,
             jsr.scope,
             CASE
-                WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                    OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
                 THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
             END AS category,
             CASE
                 WHEN COALESCE(NULLIF(TRIM(CAST(jsr.report_label AS VARCHAR)), ''), '') <> ''
                 THEN TRIM(CAST(jsr.report_label AS VARCHAR))
                 ELSE CASE
-                    WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                    WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
                     THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                    ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                    ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END
             END AS report_label,
             jsr.dataset_id,
@@ -1327,10 +1348,10 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
             COALESCE(
                 NULLIF(jsr.report_label, ''),
                 CASE
-                    WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                    WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
                     THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'))
-                    ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                    ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END
             ) AS source_name
         FROM job_scope_rows jsr
@@ -1345,17 +1366,18 @@ def _load_legacy_reporting_rows(con, job_id: int) -> list[dict[str, Any]]:
 
 
 def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
+    factor_category_expr = _factor_category_expr(con)
     df = con.execute(
-        """
+        f"""
         SELECT
             'source_register' AS record_type,
             COALESCE(cs.site_name, 'Unassigned') AS site_name,
             js.scope,
             CASE
-                WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                    OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                    OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
                 THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
-                ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
             END AS category,
             CASE
                 WHEN COALESCE(NULLIF(TRIM(CAST(js.source_name AS VARCHAR)), ''), '') <> ''
@@ -1363,10 +1385,10 @@ def _load_source_register_rows(con, job_id: int) -> list[dict[str, Any]]:
                 ELSE COALESCE(
                     NULLIF(TRIM(CAST(g.group_name AS VARCHAR)), ''),
                     CASE
-                        WHEN COALESCE(TRIM(CAST(fl.level_1 AS VARCHAR)), '') = ''
-                            OR LOWER(TRIM(CAST(fl.level_1 AS VARCHAR))) IN ('nan', 'none', 'null')
+                        WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
                         THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
-                        ELSE TRIM(CAST(fl.level_1 AS VARCHAR))
+                        ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 )
             END AS report_label,

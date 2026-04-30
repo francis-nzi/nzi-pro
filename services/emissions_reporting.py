@@ -3,6 +3,26 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 
+def _table_columns(con, table_name: str) -> set[str]:
+    try:
+        rows = con.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+            """,
+            [table_name],
+        ).fetchall()
+    except Exception:
+        return set()
+    return {str(row[0]).strip().lower() for row in rows if row and row[0] is not None}
+
+
+def _factor_lookup_category_expr(con) -> str:
+    return "fl.category" if "category" in _table_columns(con, "factor_lookup") else "NULL::text"
+
+
 def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
     txt = str(value or "").strip()
     if not txt:
@@ -80,6 +100,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
         return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
 
     placeholders = ",".join(["%s"] * len(job_ids))
+    factor_category_expr = _factor_lookup_category_expr(con)
     df = con.execute(
         f"""
         WITH job_context AS (
@@ -103,15 +124,15 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jsr.scope,
                 jsr.level_1,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_1 AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''),
                     'Uncategorized'
                 ) AS dataset_category,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_1 AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''),
                     'Uncategorized'
@@ -121,7 +142,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 jsr.factor_db_id,
                 jsr.original_id,
                 'Legacy Data Entry'::text AS source_family,
-                fl.level_1 AS lookup_category,
+                NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 fl.level_2 AS lookup_level_2,
                 NULL::numeric AS source_qty,
@@ -155,14 +176,14 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 js.scope,
                 NULL::text AS level_1,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
                     'Uncategorized'
                 ) AS dataset_category,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
                     'Uncategorized'
                 ) AS category,
@@ -174,7 +195,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     WHEN js.source_type = 'business_travel' THEN 'Business Travel Register'
                     ELSE 'Asset Register'
                 END AS source_family,
-                fl.level_1 AS lookup_category,
+                NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 fl.level_2 AS lookup_level_2,
                 NULL::numeric AS source_qty,
@@ -272,6 +293,7 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
         return con.execute("SELECT NULL::INTEGER AS job_id WHERE FALSE").df()
 
     placeholders = ",".join(["%s"] * len(job_ids))
+    factor_category_expr = _factor_lookup_category_expr(con)
     return con.execute(
         f"""
         WITH job_context AS (
@@ -297,8 +319,8 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 jsr.scope,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_1 AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''),
                     'Uncategorized'
@@ -362,8 +384,8 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 js.scope,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
                     'Uncategorized'
                 ) AS category,

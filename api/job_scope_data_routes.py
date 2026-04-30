@@ -302,6 +302,7 @@ def _factor_lookup_select_parts(con) -> dict[str, str]:
     cols = _table_columns(con, "factor_lookup")
     has = lambda c: c in cols
     return {
+        "category_expr": "category" if has("category") else "NULL::text",
         "level_1_expr": "level_1" if has("level_1") else "NULL::text AS level_1",
         "level_2_expr": "level_2" if has("level_2") else "NULL::text AS level_2",
         "level_4_expr": "level_4" if has("level_4") else "NULL::text AS level_4",
@@ -939,8 +940,8 @@ def get_previous_scope_rows(
                     jsr.dataset_id,
                     jsr.factor_db_id,
                     jsr.original_id,
-                    COALESCE(jsr.level_1, fl.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
-                    COALESCE(fl.level_1, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
+                    COALESCE({fl_parts['category_expr']}, jsr.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
+                    COALESCE({fl_parts['category_expr']}, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
                     COALESCE(jsr.level_1, fl.level_1) AS level_1,
                     COALESCE(jsr.level_2, fl.level_2) AS level_2,
                     COALESCE(jsr.level_3, fl.level_3) AS level_3,
@@ -1724,7 +1725,7 @@ def get_template_factors(
 
                     if remaining_limit > 0:
                         query = f"""
-                            SELECT db_id, dataset_id, scope, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
+                            SELECT db_id, dataset_id, scope, {fl_parts['category_expr']} AS category, {fl_parts['level_1_expr']}, {fl_parts['level_2_expr']}, level_3, {fl_parts['level_4_expr']},
                                    original_id, {fl_parts['column_text_expr']}, {fl_parts['report_label_expr']}, uom, factor, {fl_parts['ghg_unit_expr']}
                             FROM factor_lookup
                             WHERE {where_sql}
@@ -1740,7 +1741,7 @@ def get_template_factors(
                                 factor_val = _safe_float(row.get('factor'))
                                 dataset_factors.append({
                                     "scope": row.get('scope'),
-                                    "category": row.get('level_2') or row.get('level_1'),
+                                    "category": row.get('category') or row.get('level_1') or row.get('level_2'),
                                     "report_label": row.get('report_label') or row.get('column_text'),
                                     "original_id": row.get('original_id'),
                                     "uom": row.get('uom'),

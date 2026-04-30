@@ -57,6 +57,14 @@ def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     )
 
 
+def _factor_category_expr(con) -> str:
+    return "fl.category" if _column_exists(con, "factor_lookup", "category") else "NULL::text"
+
+
+def _factor_category_expr(con) -> str:
+    return "fl.category" if _column_exists(con, "factor_lookup", "category") else "NULL::text"
+
+
 def _safe_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -87,18 +95,19 @@ def _calc_emissions_tco2e(
 
 
 def _load_data_output_rows(con, job_id: int):
+    factor_category_expr = _factor_category_expr(con)
     df = con.execute(
-        """
+        f"""
         WITH legacy_rows AS (
             SELECT
                 jsr.row_id AS row_id,
                 jsr.scope,
                 jsr.level_1,
                 CASE
-                    WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
-                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'::text)
-                    ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                    WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized'::text)
+                    ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END AS category,
                 COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
                 jsr.level_3,
@@ -124,7 +133,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(jsr.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
-                fl.level_1 AS lookup_category,
+                NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 NULL::text AS source_type,
                 NULL::text AS source_subtype,
@@ -134,10 +143,10 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(
                     NULLIF(jsr.report_label, ''),
                     CASE
-                        WHEN COALESCE(TRIM(CAST(jsr.category AS VARCHAR)), '') = ''
-                            OR LOWER(TRIM(CAST(jsr.category AS VARCHAR))) IN ('nan', 'none', 'null')
-                        THEN COALESCE(NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
-                        ELSE TRIM(CAST(jsr.category AS VARCHAR))
+                        WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN COALESCE(NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''), NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''), 'Uncategorized')
+                        ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 ) AS report_label
             FROM job_scope_rows jsr
@@ -153,10 +162,10 @@ def _load_data_output_rows(con, job_id: int):
                 js.scope,
                 NULL::text AS level_1,
                 CASE
-                    WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
-                        OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
-                    THEN 'Uncategorized'::text
-                    ELSE TRIM(CAST(js.category AS VARCHAR))
+                    WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                        OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
+                    THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized'::text)
+                    ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END AS category,
                 COALESCE(cs.site_name, 'No Site Assigned'::text) AS site_name,
                 NULL::text AS level_3,
@@ -165,10 +174,10 @@ def _load_data_output_rows(con, job_id: int):
                     NULLIF(js.source_name, ''),
                     NULLIF(g.group_name, ''),
                     CASE
-                        WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
-                            OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
-                        THEN 'Uncategorized'
-                        ELSE TRIM(CAST(js.category AS VARCHAR))
+                        WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
+                        ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 ) AS activity_name,
                 COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
@@ -191,7 +200,7 @@ def _load_data_output_rows(con, job_id: int):
                 COALESCE(js.data_confidence, 'M') AS data_confidence,
                 d.name AS dataset_name,
                 d.version AS dataset_version,
-                fl.level_1 AS lookup_category,
+                NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') AS lookup_category,
                 fl.level_1 AS lookup_level_1,
                 js.source_type AS source_type,
                 js.source_subtype AS source_subtype,
@@ -202,10 +211,10 @@ def _load_data_output_rows(con, job_id: int):
                     NULLIF(js.source_name, ''),
                     NULLIF(g.group_name, ''),
                     CASE
-                        WHEN COALESCE(TRIM(CAST(js.category AS VARCHAR)), '') = ''
-                            OR LOWER(TRIM(CAST(js.category AS VARCHAR))) IN ('nan', 'none', 'null')
-                        THEN 'Uncategorized'
-                        ELSE TRIM(CAST(js.category AS VARCHAR))
+                        WHEN COALESCE(TRIM(CAST({factor_category_expr} AS VARCHAR)), '') = ''
+                            OR LOWER(TRIM(CAST({factor_category_expr} AS VARCHAR))) IN ('nan', 'none', 'null')
+                        THEN COALESCE(NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''), 'Uncategorized')
+                        ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                     END
                 ) AS report_label
             FROM job_emission_sources js
