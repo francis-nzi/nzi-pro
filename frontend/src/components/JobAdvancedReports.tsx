@@ -16,6 +16,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  LabelList,
 } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +106,14 @@ type GlossaryCard = {
   definition: string;
 };
 
+type YearlyEmission = {
+  year: number;
+  scope1: number;
+  scope2: number;
+  scope3: number;
+  total: number;
+};
+
 type ReactReportVersion = {
   report_version_id: number;
   version_number: number;
@@ -152,6 +161,7 @@ type LiveData = {
   };
   site_breakdowns?: SiteBreakdowns;
   glossary_cards?: GlossaryCard[];
+  yearly_emissions?: YearlyEmission[];
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -631,6 +641,7 @@ export default function JobAdvancedReports({
     report_metadata,
     site_breakdowns,
     glossary_cards,
+    yearly_emissions,
   } = data;
 
   const totalEmissions = toNum(summary?.current_total ?? scope_totals?.Total);
@@ -919,6 +930,28 @@ export default function JobAdvancedReports({
                 {fmt(totalEmissions)}{" "}
                 <span className="text-base font-normal text-gray-500">tCO₂e</span>
               </p>
+              {(() => {
+                const bTotal = toNum(summary?.benchmark_total);
+                const delta = toNum(summary?.delta_total);
+                if (bTotal <= 0) return null;
+                const pct = Math.abs((delta / bTotal) * 100);
+                const down = delta < 0;
+                return (
+                  <div className="mt-3 flex items-center gap-3 pt-3 border-t border-gray-200/50">
+                    <div>
+                      <p className="text-xs text-gray-400">Benchmark year</p>
+                      <p className="text-sm font-semibold text-gray-600">{fmt(bTotal)} tCO₂e</p>
+                    </div>
+                    <div
+                      className={`ml-auto rounded-full px-3 py-1 text-xs font-semibold ${
+                        down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -1114,7 +1147,59 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 8. SECR Summary ────────────────────────────────────────────── */}
+        {/* ── 8. Historical emissions trend ──────────────────────────────── */}
+        {(yearly_emissions?.length ?? 0) > 1 && (
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Historical Emissions Trend" />
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={yearly_emissions}
+                    margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                    barCategoryGap="35%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
+                    <XAxis
+                      dataKey="year"
+                      tick={{ fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tickFormatter={(v: number) =>
+                        v.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                      }
+                      tick={{ fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={52}
+                    />
+                    <Tooltip
+                      formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]}
+                      labelFormatter={(l: unknown) => `Year: ${l}`}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="scope1" name="Scope 1" stackId="a" fill={SCOPE_COLORS["Scope 1"]} />
+                    <Bar dataKey="scope2" name="Scope 2" stackId="a" fill={SCOPE_COLORS["Scope 2"]} />
+                    <Bar dataKey="scope3" name="Scope 3" stackId="a" fill={SCOPE_COLORS["Scope 3"]} radius={[3, 3, 0, 0]}>
+                      <LabelList
+                        dataKey="total"
+                        position="top"
+                        formatter={(v: unknown) => typeof v === "number" ? fmt(v, 0) : ""}
+                        style={{ fontSize: 9, fill: "#6b7280" }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── 9. SECR Summary ────────────────────────────────────────────── */}
         <Card className="live-report-section">
           <CardHeader className="pb-3">
             <SectionHeader title="SECR Summary" />
@@ -1213,7 +1298,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 9. Carbon intensity metrics ────────────────────────────────── */}
+        {/* ── 10. Carbon intensity metrics ───────────────────────────────── */}
         {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
@@ -1248,7 +1333,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
+        {/* ── 11. Carbon reduction actions ───────────────────────────────── */}
         {(job_actions?.grouped?.length ?? 0) > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
@@ -1294,7 +1379,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 11. Standards & Methodology ────────────────────────────────── */}
+        {/* ── 12. Standards & Methodology ────────────────────────────────── */}
         <Card className="live-report-section">
           <CardHeader className="pb-3">
             <SectionHeader title="Standards & Methodology" />
@@ -1335,7 +1420,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 12. Declaration / Sign-off ──────────────────────────────────── */}
+        {/* ── 13. Declaration / Sign-off ──────────────────────────────────── */}
         {(report_metadata?.consultant_name || report_metadata?.client_signee_name) && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
@@ -1394,7 +1479,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 13. Glossary ───────────────────────────────────────────────── */}
+        {/* ── 14. Glossary ───────────────────────────────────────────────── */}
         {hasGlossary && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
@@ -1425,7 +1510,7 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 14. Appendix — Full Emissions Audit ────────────────────────── */}
+        {/* ── 15. Appendix — Full Emissions Audit ────────────────────────── */}
         {hasAppendix && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
