@@ -76,6 +76,7 @@ type Client = {
   benchmark_scope_3_tco2e?: number | null;
   benchmark_total_tco2e?: number | null;
   currency: string | null;
+  logo_url?: string | null;
 };
 
 type ClientJobsResponse = {
@@ -327,6 +328,21 @@ function ClientDetailPageContent() {
     }
     return { label: "Xero: Not synced", variant: "outline" as const };
   }, [invoices]);
+
+  const clientLogoSrc = useMemo(() => {
+    const raw = String(client?.logo_url || "").trim();
+    if (!raw) return "";
+    if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("data:")) {
+      return raw;
+    }
+    if (raw.startsWith("/uploads/")) {
+      return `${baseUrl}${raw}`;
+    }
+    if (raw.startsWith("/api/backend/")) {
+      return raw;
+    }
+    return raw;
+  }, [baseUrl, client?.logo_url]);
 
   const reloadContacts = useCallback(async () => {
     try {
@@ -1689,20 +1705,42 @@ function ClientDetailPageContent() {
         <div className={clientNotFound ? "grid gap-6" : "grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]"}>
           {clientNotFound ? null : (
             <Card className="h-fit lg:sticky lg:top-24">
-              <CardHeader>
+              <CardHeader className="pb-3">
                 <CardTitle className="text-base">Client Sections</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {SECTIONS.map((section) => (
-                  <Button
-                    key={section.id}
-                    variant={activeSection === section.id ? "default" : "outline"}
-                    className="w-full justify-start"
-                    onClick={() => setSection(section.id)}
-                  >
-                    {section.label}
-                  </Button>
-                ))}
+              <CardContent className="flex flex-col gap-2">
+                <div className="space-y-2">
+                  {SECTIONS.map((section) => (
+                    <Button
+                      key={section.id}
+                      variant={activeSection === section.id ? "default" : "outline"}
+                      className="w-full justify-start"
+                      onClick={() => setSection(section.id)}
+                    >
+                      {section.label}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="mt-4 border-t pt-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Client logo
+                  </div>
+                  {clientLogoSrc ? (
+                    <div className="flex min-h-[92px] items-center justify-center rounded-lg border bg-white p-3">
+                      <img
+                        src={clientLogoSrc}
+                        alt={`${client?.client_name || "Client"} logo`}
+                        className="max-h-20 max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-4 text-center">
+                      <div className="text-sm font-semibold text-amber-800">No client logo set</div>
+                      <div className="mt-1 text-xs text-amber-700">Add one in Client setup/edit to show it here.</div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
