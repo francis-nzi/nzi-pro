@@ -955,6 +955,7 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
         report_metadata=snapshot_payload.get("report_metadata") or {},
         job_actions=snapshot_payload.get("job_actions") or {},
         nzi_logo_src=_get_nzi_logo_src(),
+        client_logo_src=_get_client_logo_src((snapshot_payload.get("job_data") or {}).get("logo_url")),
         render_values=snapshot_payload.get("render_values") or {},
         render_template=template_selection if isinstance(template_selection, dict) else {},
         glossary_terms=snapshot_payload.get("glossary_terms") or [],
@@ -1179,7 +1180,7 @@ def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
 
 
 def _dataset_category_label(row: dict[str, Any]) -> str:
-    for key in ("dataset_category", "lookup_category", "category", "level_1", "level_2"):
+    for key in ("category", "dataset_category", "lookup_category", "level_2", "level_1"):
         value = row.get(key)
         if value not in (None, ""):
             label = _clean_label(value)
@@ -3545,6 +3546,7 @@ def generate_report_with_assets(
             report_metadata=report_metadata,
             job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
+            client_logo_src=_get_client_logo_src(job_data.get("logo_url")),
             render_values=render_values,
             render_template=render_meta,
             glossary_terms=glossary_terms,
@@ -3924,6 +3926,7 @@ def generate_job_report(
             report_metadata=report_metadata,
             job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
+            client_logo_src=_get_client_logo_src(job_data.get("logo_url")),
             render_values=render_values,
             render_template=render_meta,
             glossary_terms=glossary_terms,
@@ -4859,6 +4862,7 @@ def generate_professional_pdf(
             report_metadata=report_metadata,
             job_actions=job_actions,
             nzi_logo_src=_get_nzi_logo_src(),
+            client_logo_src=_get_client_logo_src(job_data.get("logo_url")),
             render_values=render_values,
             render_template=render_meta,
             glossary_terms=glossary_terms,

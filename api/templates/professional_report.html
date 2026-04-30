@@ -57,25 +57,51 @@
     /* ── COVER ─────────────────────────────────────────── */
     .cover {
       min-height: 260mm;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
       background: #fff;
       page-break-after: always;
-    }
-    .cover-hero {
-      padding: 12mm 12mm 10mm;
-      background: linear-gradient(135deg, var(--brand-2) 0%, var(--brand) 60%, #1f7a46 100%);
-      color: #fff;
+      padding: 18mm 24mm 12mm;
       text-align: center;
     }
-    .cover-logo { height: 44px; width: auto; margin-bottom: 6mm; display: block; margin-left: auto; margin-right: auto; }
-    .cover-title { font-size: 21pt; font-weight: 700; line-height: 1.15; margin-bottom: 2mm; }
-    .cover-body { padding: 8mm 12mm; }
+    .cover-nzi-logo { height: 80px; width: auto; display: block; margin: 0 auto; }
+    .cover-title {
+      font-size: 20pt;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.2;
+      margin-top: 10mm;
+    }
+    .cover-for {
+      font-size: 11pt;
+      color: var(--muted);
+      margin-top: 6mm;
+      font-style: italic;
+    }
+    .cover-client-name {
+      font-size: 17pt;
+      font-weight: 700;
+      color: var(--ink);
+      margin-top: 4mm;
+    }
+    .cover-client-logo {
+      max-height: 64px;
+      max-width: 160px;
+      width: auto;
+      display: block;
+      margin: 6mm auto 0;
+    }
     .cover-info {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-left: 4px solid var(--navy);
+      border-radius: 6px;
       overflow: hidden;
-      margin-top: 4mm;
+      margin-top: 10mm;
+      width: 100%;
+      max-width: 140mm;
+      text-align: left;
     }
     .cover-row {
       display: grid;
@@ -83,14 +109,14 @@
       border-bottom: 1px solid var(--line);
     }
     .cover-row:last-child { border-bottom: none; }
-    .cover-label { padding: 2.5mm 3mm; font-weight: 700; font-size: 8.5pt; color: var(--muted); background: var(--surface); }
+    .cover-label { padding: 2.5mm 3mm; font-weight: 700; font-size: 8.5pt; color: var(--navy); background: var(--surface); }
     .cover-value { padding: 2.5mm 3mm; font-size: 9pt; }
     .cover-foot {
-      margin: 0 12mm;
-      padding: 3mm 0 8mm;
-      border-top: 1px solid var(--line);
+      margin-top: auto;
+      padding-top: 8mm;
       font-size: 8pt;
       color: var(--muted);
+      text-align: center;
     }
 
     /* ── SECTION HEADING ──────────────────────────────── */
@@ -276,29 +302,36 @@
      COVER PAGE
   ════════════════════════════════════════════════════ #}
   <section class="cover">
-    <div class="cover-hero">
-      {% if nzi_logo_src %}
-        <img class="cover-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
-      {% else %}
-        <div style="font-size:8.5pt;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;opacity:0.9;margin-bottom:5mm;">Net Zero International</div>
-      {% endif %}
-      <h1 class="cover-title">{{ title }}</h1>
-    </div>
 
-    <div class="cover-body">
-      <div class="cover-info">
-        <div class="cover-row"><div class="cover-label">Client</div><div class="cover-value">{{ job_data.client_name or "-" }}</div></div>
-        <div class="cover-row"><div class="cover-label">Report Title</div><div class="cover-value">{{ title }}</div></div>
-        <div class="cover-row"><div class="cover-label">Reporting Year</div><div class="cover-value">{{ job_data.reporting_year or "-" }}</div></div>
-        <div class="cover-row"><div class="cover-label">Reporting Period</div><div class="cover-value">{{ period_label }}</div></div>
-        <div class="cover-row"><div class="cover-label">Job Number</div><div class="cover-value">{{ job_data.job_number or "-" }}</div></div>
-        <div class="cover-row"><div class="cover-label">Report Generated</div><div class="cover-value">{{ generation_date }}</div></div>
-      </div>
+    {% if nzi_logo_src %}
+      <img class="cover-nzi-logo" src="{{ nzi_logo_src }}" alt="Net Zero International">
+    {% else %}
+      <div style="font-size:9pt;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:var(--navy);">Net Zero International</div>
+    {% endif %}
+
+    <h1 class="cover-title">{{ title }}</h1>
+
+    <p class="cover-for">for</p>
+
+    <div class="cover-client-name">{{ job_data.client_name or "" }}</div>
+
+    {% if client_logo_src %}
+      <img class="cover-client-logo" src="{{ client_logo_src }}" alt="{{ job_data.client_name or 'Client' }}">
+    {% endif %}
+
+    <div class="cover-info">
+      <div class="cover-row"><div class="cover-label">Client</div><div class="cover-value">{{ job_data.client_name or "-" }}</div></div>
+      <div class="cover-row"><div class="cover-label">Report Title</div><div class="cover-value">{{ title }}</div></div>
+      <div class="cover-row"><div class="cover-label">Reporting Year</div><div class="cover-value">{{ job_data.reporting_year or "-" }}</div></div>
+      <div class="cover-row"><div class="cover-label">Reporting Period</div><div class="cover-value">{{ period_label }}</div></div>
+      <div class="cover-row"><div class="cover-label">Job Number</div><div class="cover-value">{{ job_data.job_number or "-" }}</div></div>
+      <div class="cover-row"><div class="cover-label">Report Generated</div><div class="cover-value">{{ generation_date }}</div></div>
     </div>
 
     <div class="cover-foot">
       Prepared by Net Zero International &mdash; Confidential. For authorised recipients only.
     </div>
+
   </section>
 
 
