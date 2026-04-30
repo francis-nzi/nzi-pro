@@ -1169,6 +1169,13 @@ def _source_family_label(row: dict[str, Any]) -> str:
     return "Legacy Data Entry"
 
 
+def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
+    txt = str(value or "").strip()
+    if not txt or txt.lower() in {"nan", "none", "null"}:
+        return fallback
+    return txt
+
+
 def _dataset_category_label(row: dict[str, Any]) -> str:
     for key in ("dataset_category", "lookup_category", "category", "level_1", "level_2"):
         value = row.get(key)
