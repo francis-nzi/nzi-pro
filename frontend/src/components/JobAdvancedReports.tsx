@@ -33,6 +33,7 @@ type ReportJob = {
   title?: string | null;
   reporting_period_start?: string | null;
   reporting_period_end?: string | null;
+  reporting_year?: number | string | null;
   status?: string | null;
   client_name?: string | null;
   crm_owner?: string | null;
@@ -162,6 +163,7 @@ type LiveData = {
   site_breakdowns?: SiteBreakdowns;
   glossary_cards?: GlossaryCard[];
   yearly_emissions?: YearlyEmission[];
+  nzi_logo_src?: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -359,105 +361,80 @@ function PathwayChart({
 // ─── CoverPage ────────────────────────────────────────────────────────────────
 
 function CoverPage({ data }: { data: LiveData }) {
-  const { job_data, scope_totals, report_metadata, template_variables, summary } = data;
-  const total = toNum(summary?.current_total ?? scope_totals?.Total);
-
-  const consultantName = String(
-    template_variables?.consultant_name ??
-      report_metadata?.consultant_name ??
-      job_data.crm_owner ??
-      "Net Zero International",
-  ).trim() || "Net Zero International";
+  const { job_data, report_metadata, template_variables, nzi_logo_src } = data;
 
   const reportTitle = String(job_data.title || "Carbon Report").trim();
-  const generatedMonth = new Date().toLocaleDateString("en-GB", {
+
+  const periodLabel = (() => {
+    if (job_data.reporting_period_start && job_data.reporting_period_end) {
+      return `${formatDate(job_data.reporting_period_start)} to ${formatDate(job_data.reporting_period_end)}`;
+    }
+    return null;
+  })();
+
+  const generatedDate = new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
     month: "long",
     year: "numeric",
   });
 
+  const params: [string, string | null | undefined][] = [
+    ["Client", job_data.client_name],
+    ["Report Title", reportTitle],
+    ["Reporting Year", job_data.reporting_year != null ? String(job_data.reporting_year) : null],
+    ["Reporting Period", periodLabel],
+    ["Job Number", job_data.job_number],
+    ["Report Generated", generatedDate],
+  ];
+
   return (
-    <section className="live-report-section print:break-after-page flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden mb-6 min-h-[200px]">
-      {/* Dark header */}
-      <div
-        className="px-8 py-5 flex items-center justify-between"
-        style={{ backgroundColor: BRAND }}
-      >
-        {job_data.logo_url ? (
-          <img
-            src={job_data.logo_url}
-            alt="Logo"
-            className="h-9 object-contain brightness-0 invert"
-          />
-        ) : (
-          <span className="text-white font-bold text-base tracking-wide">
-            Net Zero International
-          </span>
-        )}
-        <span className="text-green-200 text-xs font-semibold uppercase tracking-widest">
-          Advanced Report · Beta
+    <section className="live-report-section print:break-after-page flex flex-col items-center bg-white rounded-lg border border-gray-200 overflow-hidden mb-6 py-12 px-10 text-center">
+
+      {/* NZI logo */}
+      {nzi_logo_src ? (
+        <img src={nzi_logo_src} alt="Net Zero International" className="h-20 w-auto object-contain" />
+      ) : (
+        <span className="text-sm font-bold uppercase tracking-widest" style={{ color: BRAND }}>
+          Net Zero International
         </span>
-      </div>
+      )}
 
-      {/* Body */}
-      <div className="flex-1 px-10 py-8 flex flex-col gap-5">
-        <div>
-          <p
-            className="text-xs font-semibold uppercase tracking-widest mb-1"
-            style={{ color: BRAND }}
-          >
-            Carbon Reduction Plan
-          </p>
-          <h1 className="text-3xl font-bold text-gray-900 leading-snug">{reportTitle}</h1>
-          {job_data.reporting_period_start && job_data.reporting_period_end && (
-            <p className="text-base text-gray-500 mt-1">
-              {formatDate(job_data.reporting_period_start)}
-              {" – "}
-              {formatDate(job_data.reporting_period_end)}
-            </p>
-          )}
-        </div>
+      {/* Report title */}
+      <h1 className="mt-8 text-2xl font-bold leading-snug" style={{ color: "#1e3a5f" }}>
+        {reportTitle}
+      </h1>
 
-        <div className="border-t border-gray-100 pt-5">
-          <h2 className="text-xl font-semibold text-gray-800">{job_data.client_name}</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Client Organisation</p>
-        </div>
+      {/* "for" */}
+      <p className="mt-5 text-sm italic text-gray-400">for</p>
 
-        {total > 0 && (
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-5">
-            <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-2">
-              Total Emissions
-            </p>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-4xl font-bold" style={{ color: BRAND }}>
-                {fmt(total)}
-              </span>
-              <span className="text-base text-gray-400">tCO₂e</span>
-            </div>
-            <div className="flex gap-5">
-              {SCOPE_LABELS.map(s => {
-                const v = toNum(scope_totals?.[s]);
-                return v > 0 ? (
-                  <div key={s}>
-                    <p className="text-xs text-gray-400">{s}</p>
-                    <p
-                      className="text-sm font-semibold"
-                      style={{ color: SCOPE_COLORS[s] }}
-                    >
-                      {fmt(v)} tCO₂e
-                    </p>
-                  </div>
-                ) : null;
-              })}
-            </div>
+      {/* Client name */}
+      <p className="mt-3 text-xl font-bold text-gray-800">{job_data.client_name}</p>
+
+      {/* Client logo */}
+      {job_data.logo_url && (
+        <img
+          src={job_data.logo_url}
+          alt={job_data.client_name ?? "Client"}
+          className="mt-5 max-h-16 max-w-[160px] w-auto object-contain"
+        />
+      )}
+
+      {/* Parameters table */}
+      <div className="mt-8 w-full max-w-md text-left border border-l-4 border-gray-200 rounded-md overflow-hidden"
+           style={{ borderLeftColor: "#1e3a5f" }}>
+        {params.map(([label, value]) => value ? (
+          <div key={label} className="grid grid-cols-[44mm_1fr] border-b border-gray-100 last:border-b-0">
+            <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50">{label}</div>
+            <div className="px-3 py-2 text-xs text-gray-800">{value}</div>
           </div>
-        )}
+        ) : null)}
       </div>
 
-      {/* Footer */}
-      <div className="px-10 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
-        <span>Prepared by {consultantName}</span>
-        <span>Generated {generatedMonth}</span>
-      </div>
+      {/* Footer note */}
+      <p className="mt-8 text-xs text-gray-400">
+        Prepared by Net Zero International &mdash; Confidential. For authorised recipients only.
+      </p>
+
     </section>
   );
 }

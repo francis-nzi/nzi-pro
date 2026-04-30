@@ -26,6 +26,7 @@ from api.job_report_routes import (
     _build_activity_grouping,
     _ensure_glossary_cards_and_fetch,
     _get_job_assigned_template_selection,
+    _get_nzi_logo_src,
     _normalize_report_version_status,
     _safe_int,
     _serialize_report_version_row,
@@ -249,6 +250,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "site_breakdowns": site_breakdowns,
         "glossary_cards": glossary_cards,
         "render_values": render_values,
+        "nzi_logo_src": _get_nzi_logo_src(),
         "summary": {
             "current_total": current_total,
             "benchmark_total": benchmark_total,

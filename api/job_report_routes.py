@@ -1180,7 +1180,7 @@ def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
 
 
 def _dataset_category_label(row: dict[str, Any]) -> str:
-    for key in ("lookup_category", "dataset_category", "category", "level_2", "level_1"):
+    for key in ("category", "dataset_category", "lookup_category", "level_2", "level_1"):
         value = row.get(key)
         if value not in (None, ""):
             label = _clean_label(value)
