@@ -1376,7 +1376,7 @@ export default function JobAdvancedReports({
                         className="flex items-start gap-2 text-sm text-gray-700"
                       >
                         <span className="mt-0.5 text-green-600">•</span>
-                        <span>{String(item.title ?? item.action ?? "")}</span>
+                        <span>{String(item.action_name ?? item.title ?? item.action ?? "")}</span>
                       </li>
                     ))}
                   </ul>
