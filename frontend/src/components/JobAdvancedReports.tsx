@@ -689,6 +689,14 @@ export default function JobAdvancedReports({
   const hasAppendix = appendixRows.length > 0;
   const hasGlossary = (glossary_cards?.length ?? 0) > 0;
 
+  // If the API returned no yearly rows, synthesise one from the current totals so
+  // the Trend chart always renders (even for clients with a single reporting year).
+  const effectiveYearlyEmissions: YearlyEmission[] = useMemo(() => {
+    if ((yearly_emissions?.length ?? 0) > 0) return yearly_emissions!;
+    if (totalEmissions <= 0) return [];
+    return [{ year: baselineYear, scope1, scope2, scope3, total: totalEmissions }];
+  }, [yearly_emissions, totalEmissions, baselineYear, scope1, scope2, scope3]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // SECR energy fields
   const energyUkKwh = toNum(report_metadata?.energy_consumption_uk_kwh);
   const energyNonUkKwh = toNum(report_metadata?.energy_consumption_non_uk_kwh);
@@ -1148,7 +1156,7 @@ export default function JobAdvancedReports({
         )}
 
         {/* ── 8. Historical emissions trend ──────────────────────────────── */}
-        {(yearly_emissions?.length ?? 0) > 1 && (
+        {effectiveYearlyEmissions.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
               <SectionHeader title="Historical Emissions Trend" />
@@ -1157,7 +1165,7 @@ export default function JobAdvancedReports({
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={yearly_emissions}
+                    data={effectiveYearlyEmissions}
                     margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
                     barCategoryGap="35%"
                   >
