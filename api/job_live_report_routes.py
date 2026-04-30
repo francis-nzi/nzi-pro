@@ -26,7 +26,6 @@ from api.job_report_routes import (
     _build_activity_grouping,
     _ensure_glossary_cards_and_fetch,
     _get_job_assigned_template_selection,
-    _get_nzi_logo_src,
     _normalize_report_version_status,
     _safe_int,
     _serialize_report_version_row,
@@ -48,6 +47,15 @@ from services.playwright_browser import ensure_playwright_browser
 from services.report_actions import get_job_report_actions_payload
 
 router = APIRouter()
+
+
+def _safe_nzi_logo_src() -> str:
+    """Return NZI logo data-URI without ever raising."""
+    try:
+        from api.job_report_routes import _get_nzi_logo_src
+        return _get_nzi_logo_src()
+    except Exception:
+        return ""
 
 
 def _coerce_float(value: Any) -> float:
@@ -250,7 +258,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "site_breakdowns": site_breakdowns,
         "glossary_cards": glossary_cards,
         "render_values": render_values,
-        "nzi_logo_src": _get_nzi_logo_src(),
+        "nzi_logo_src": _safe_nzi_logo_src(),
         "summary": {
             "current_total": current_total,
             "benchmark_total": benchmark_total,
