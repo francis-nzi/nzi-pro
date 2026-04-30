@@ -2841,7 +2841,7 @@ def job_excel_import(
                             int(job_id),
                             int(site_id),
                             str(scope),
-                            (str(level_2).strip() if level_2 is not None else None),  # category = level_2
+                            (str(level_1).strip() if level_1 is not None else None),  # category = top-level dataset category
                             int(dataset_id),
                             int(factor_db_id),
                             str(original_id),

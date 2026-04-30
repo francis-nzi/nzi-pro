@@ -466,7 +466,7 @@ def get_job_scope_data(
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
-                    fl.category AS lookup_category,
+                    fl.level_1 AS lookup_category,
                     fl.level_1 AS lookup_level_1,
                     fl.level_2 AS lookup_level_2,
                     fl.level_3 AS lookup_level_3,
@@ -539,7 +539,7 @@ def get_job_scope_data(
                         "site_id": safe_int(r.get("site_id")),
                         "site_name": r.get("site_name"),
                         "dataset_id": safe_int(metrics.get("display_dataset_id")) or safe_int(r.get("dataset_id")),
-                        "dataset_category": r.get("lookup_category") or r.get("lookup_level_1") or r.get("level_1") or r.get("category"),
+                        "dataset_category": r.get("lookup_level_1") or r.get("level_1") or r.get("lookup_category") or r.get("category"),
                         "factor_db_id": safe_int(r.get("factor_db_id")),
                         "original_id": r.get("original_id"),
                         "category": r.get("category") or r.get("lookup_level_2") or r.get("lookup_category") or r.get("lookup_level_1"),
@@ -939,8 +939,8 @@ def get_previous_scope_rows(
                     jsr.dataset_id,
                     jsr.factor_db_id,
                     jsr.original_id,
-                    COALESCE(jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1) AS category,
-                    COALESCE(fl.category, jsr.category, jsr.level_2, fl.level_2, jsr.level_1, fl.level_1) AS lookup_category,
+                    COALESCE(jsr.level_1, fl.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
+                    COALESCE(fl.level_1, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
                     COALESCE(jsr.level_1, fl.level_1) AS level_1,
                     COALESCE(jsr.level_2, fl.level_2) AS level_2,
                     COALESCE(jsr.level_3, fl.level_3) AS level_3,
@@ -1152,7 +1152,10 @@ def create_scope_data_row(
                     final_dataset_id,
                     final_factor_db_id,
                     original_id,
-                    payload.get("category"),
+                    payload.get("dataset_category")
+                    or payload.get("category")
+                    or payload.get("level_1")
+                    or payload.get("level_2"),
                     payload.get("level_1"),
                     payload.get("level_2"),
                     payload.get("level_3"),
@@ -1277,7 +1280,7 @@ def update_scope_data_row(
             params = []
             
             allowed_fields = [
-                "qty", "apply_pct", "data_source", "data_confidence", "notes", "site_id",
+                "category", "qty", "apply_pct", "data_source", "data_confidence", "notes", "site_id",
                 "month_1", "month_2", "month_3", "month_4", "month_5", "month_6",
                 "month_7", "month_8", "month_9", "month_10", "month_11", "month_12"
             ]
