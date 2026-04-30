@@ -1199,13 +1199,19 @@ def _clean_label(value: Any, fallback: str = "Uncategorized") -> str:
     return txt
 
 
+def _is_placeholder_category(value: Any) -> bool:
+    txt = str(value or "").strip().lower()
+    return not txt or txt in {"nan", "none", "null", "uncategorized", "uncategorised"}
+
+
 def _dataset_category_label(row: dict[str, Any]) -> str:
     for key in ("dataset_category", "lookup_level_1", "level_1", "lookup_category", "category", "level_2"):
         value = row.get(key)
-        if value not in (None, ""):
-            label = _clean_label(value)
-            if label:
-                return label
+        if _is_placeholder_category(value):
+            continue
+        label = _clean_label(value)
+        if label:
+            return label
     return "Uncategorized"
 
 

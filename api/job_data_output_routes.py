@@ -45,16 +45,24 @@ def _clean_label(value, fallback: str) -> str:
     return txt
 
 
+def _is_placeholder_category(value) -> bool:
+    txt = str(value or "").strip().lower()
+    return not txt or txt in {"nan", "none", "null", "uncategorized", "uncategorised"}
+
+
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
-    return _clean_label(
-        row.get("dataset_category")
-        or row.get("lookup_level_1")
-        or row.get("level_1")
-        or row.get("lookup_category")
-        or row.get("category")
-        or row.get("level_2"),
-        fallback,
-    )
+    for value in (
+        row.get("dataset_category"),
+        row.get("lookup_level_1"),
+        row.get("level_1"),
+        row.get("lookup_category"),
+        row.get("category"),
+        row.get("level_2"),
+    ):
+        if _is_placeholder_category(value):
+            continue
+        return _clean_label(value, fallback)
+    return fallback
 
 
 def _factor_category_expr(con) -> str:
