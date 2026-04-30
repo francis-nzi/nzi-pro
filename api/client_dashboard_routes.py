@@ -59,11 +59,12 @@ def _extract_job_years(jobs_df) -> list[int]:
 
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     values = [
-        row.get("category"),
         row.get("dataset_category"),
-        row.get("lookup_category"),
-        row.get("level_2"),
+        row.get("lookup_level_1"),
         row.get("level_1"),
+        row.get("lookup_category"),
+        row.get("category"),
+        row.get("level_2"),
     ]
     for value in values:
         if value is None:
