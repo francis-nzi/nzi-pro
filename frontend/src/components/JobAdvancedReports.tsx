@@ -633,10 +633,14 @@ export default function JobAdvancedReports({
     target_data,
     summary,
     report_metadata,
+    template_variables,
     site_breakdowns,
     glossary_cards,
     yearly_emissions,
   } = data;
+
+  const execSummaryText = String(template_variables?.executive_summary ?? "").trim();
+  const footprintSummaryText = String(template_variables?.footprint_summary ?? "").trim();
 
   const totalEmissions = toNum(summary?.current_total ?? scope_totals?.Total);
   const scope1 = toNum(scope_totals?.["Scope 1"]);
@@ -877,76 +881,99 @@ export default function JobAdvancedReports({
         {/* ── 1. Cover page ──────────────────────────────────────────────── */}
         <CoverPage data={data} />
 
-        {/* ── 2. Executive summary ───────────────────────────────────────── */}
-        <Card className="live-report-section print:break-after-page">
+        {/* ── 2. Executive Summary ───────────────────────────────────────── */}
+        <Card className="live-report-section">
           <CardHeader className="pb-3">
             <SectionHeader title="Executive Summary" />
           </CardHeader>
-          <CardContent>
-            <div className="mb-4 grid grid-cols-3 gap-3">
-              {SCOPE_LABELS.map(s => {
-                const v = toNum(scope_totals?.[s]);
-                const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
-                return (
-                  <div
-                    key={s}
-                    className="rounded-lg border border-gray-100 bg-gray-50 p-4"
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <div
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: SCOPE_COLORS[s] }}
-                      />
-                      <span className="text-xs font-medium text-gray-500">{s}</span>
-                    </div>
-                    <p className="text-2xl font-bold text-gray-800">{fmt(v)}</p>
-                    <p className="mt-0.5 text-xs text-gray-400">
-                      tCO₂e · {pct.toFixed(1)}%
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-            <div
-              className="rounded-lg border p-4"
-              style={{
-                backgroundColor: `${BRAND}0d`,
-                borderColor: `${BRAND}20`,
-              }}
-            >
-              <p
-                className="mb-1 text-xs font-semibold uppercase tracking-widest"
-                style={{ color: BRAND }}
-              >
-                Total Footprint
+          <CardContent className="space-y-5">
+
+            {/* AI narrative or placeholder */}
+            {execSummaryText ? (
+              <p className="text-sm text-gray-700 leading-relaxed">{execSummaryText}</p>
+            ) : (
+              <p className="text-sm text-gray-400 italic">
+                Executive summary not yet drafted. Generate AI content in Reporting → AI Drafts.
               </p>
-              <p className="text-3xl font-bold" style={{ color: BRAND }}>
-                {fmt(totalEmissions)}{" "}
-                <span className="text-base font-normal text-gray-500">tCO₂e</span>
-              </p>
-              {(() => {
-                const bTotal = toNum(summary?.benchmark_total);
-                const delta = toNum(summary?.delta_total);
-                if (bTotal <= 0) return null;
-                const pct = Math.abs((delta / bTotal) * 100);
-                const down = delta < 0;
-                return (
-                  <div className="mt-3 flex items-center gap-3 pt-3 border-t border-gray-200/50">
-                    <div>
-                      <p className="text-xs text-gray-400">Benchmark year</p>
-                      <p className="text-sm font-semibold text-gray-600">{fmt(bTotal)} tCO₂e</p>
-                    </div>
-                    <div
-                      className={`ml-auto rounded-full px-3 py-1 text-xs font-semibold ${
-                        down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark
-                    </div>
+            )}
+
+            {/* Donut + scope tiles side by side */}
+            <div className="grid grid-cols-2 gap-4 items-center">
+
+              {/* Donut chart */}
+              {scopeDonutData.length > 0 && (
+                <div className="relative h-[200px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={scopeDonutData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="62%"
+                        outerRadius="82%"
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {scopeDonutData.map(entry => (
+                          <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Total in centre */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ paddingBottom: "28px" }}>
+                    <span className="text-xl font-bold text-gray-800">{fmt(totalEmissions)}</span>
+                    <span className="text-xs text-gray-400">tCO₂e</span>
                   </div>
-                );
-              })()}
+                </div>
+              )}
+
+              {/* Scope tiles + total */}
+              <div className="space-y-2">
+                {SCOPE_LABELS.map(s => {
+                  const v = toNum(scope_totals?.[s]);
+                  if (v <= 0) return null;
+                  const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
+                  return (
+                    <div key={s} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
+                        <span className="text-xs text-gray-500">{s}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-semibold text-gray-800">{fmt(v)}</span>
+                        <span className="ml-1 text-xs text-gray-400">tCO₂e</span>
+                        <span className="ml-2 text-xs text-gray-400">({pct.toFixed(1)}%)</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Total row */}
+                <div className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ backgroundColor: `${BRAND}0d`, borderColor: `${BRAND}30` }}>
+                  <span className="text-xs font-semibold text-gray-600">Total</span>
+                  <div className="text-right">
+                    <span className="text-sm font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</span>
+                    <span className="ml-1 text-xs text-gray-400">tCO₂e</span>
+                  </div>
+                </div>
+                {/* Benchmark comparison */}
+                {(() => {
+                  const bTotal = toNum(summary?.benchmark_total);
+                  const delta = toNum(summary?.delta_total);
+                  if (bTotal <= 0) return null;
+                  const pct = Math.abs((delta / bTotal) * 100);
+                  const down = delta < 0;
+                  return (
+                    <div className={`rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark ({fmt(bTotal)} tCO₂e)
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
+
           </CardContent>
         </Card>
 
@@ -1011,42 +1038,6 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 4. Emissions by Scope donut ────────────────────────────────── */}
-        {scopeDonutData.length > 0 && (
-          <Card className="live-report-section">
-            <CardHeader className="pb-3">
-              <SectionHeader title="Emissions by Scope" />
-            </CardHeader>
-            <CardContent>
-              <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={scopeDonutData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius="62%"
-                      outerRadius="82%"
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {scopeDonutData.map(entry => (
-                        <Cell
-                          key={entry.name}
-                          fill={SCOPE_COLORS[entry.name] ?? "#999"}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]}
-                    />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* ── 5. Emissions Reduction Pathway to net-zero ─────────────────── */}
         {hasPathway && (
