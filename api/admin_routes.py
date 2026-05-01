@@ -762,6 +762,326 @@ def _organisation_usage_info(con, org_id: str) -> dict[str, int | bool | str]:
     }
 
 
+def _table_exists(con, table_name: str) -> bool:
+    try:
+        row = con.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = %s
+            LIMIT 1
+            """,
+            [str(table_name).strip()],
+        ).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _column_exists(con, table_name: str, column_name: str) -> bool:
+    try:
+        row = con.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = %s
+              AND column_name = %s
+            LIMIT 1
+            """,
+            [str(table_name).strip(), str(column_name).strip()],
+        ).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _rows_to_csv_bytes(df: pd.DataFrame) -> bytes:
+    output = io.StringIO()
+    if df is None or df.empty:
+        output.write("")
+    else:
+        safe_df = df.copy()
+        for col in safe_df.columns:
+            safe_df[col] = safe_df[col].apply(lambda value: value.isoformat() if hasattr(value, "isoformat") else value)
+        safe_df.to_csv(output, index=False)
+    return output.getvalue().encode("utf-8")
+
+
+def _org_export_frames(con, org_id: str) -> list[tuple[str, pd.DataFrame]]:
+    org = str(org_id).strip()
+    frames: list[tuple[str, pd.DataFrame]] = []
+    has_memberships = _table_exists(con, "organisation_memberships")
+
+    export_queries: list[tuple[str, str, list[object]]] = [
+        ("organisations.csv", "SELECT * FROM organisations WHERE org_id = %s", [org]),
+        ("organisation_entitlements.csv", "SELECT * FROM organisation_entitlements WHERE org_id = %s", [org]),
+        ("organisation_memberships.csv", "SELECT * FROM organisation_memberships WHERE org_id = %s", [org]),
+        ("organisation_invitations.csv", "SELECT * FROM organisation_invitations WHERE org_id = %s", [org]),
+        (
+            "users.csv",
+            """
+            SELECT *
+            FROM users
+            WHERE org_id = %s
+            {membership_clause}
+            ORDER BY user_id
+            """,
+            [org],
+        ),
+        ("clients.csv", "SELECT * FROM clients WHERE org_id = %s ORDER BY db_id", [org]),
+        ("client_sites.csv", "SELECT * FROM client_sites WHERE org_id = %s ORDER BY client_db_id, site_id", [org]),
+        ("client_contacts.csv", "SELECT * FROM client_contacts WHERE org_id = %s ORDER BY client_db_id, contact_id", [org]),
+        ("client_notes.csv", "SELECT * FROM client_notes WHERE org_id = %s ORDER BY client_db_id, note_id", [org]),
+        ("jobs.csv", "SELECT * FROM jobs WHERE org_id = %s ORDER BY job_id", [org]),
+        ("job_scope_config.csv", "SELECT * FROM job_scope_config WHERE org_id = %s ORDER BY job_id, scope", [org]),
+        ("job_scope_rows.csv", "SELECT * FROM job_scope_rows WHERE org_id = %s ORDER BY job_id, source_type, row_id", [org]),
+        (
+            "job_additional_datasets.csv",
+            "SELECT * FROM job_additional_datasets WHERE org_id = %s ORDER BY job_id, dataset_id",
+            [org],
+        ),
+        (
+            "job_custom_field_values.csv",
+            "SELECT * FROM job_custom_field_values WHERE org_id = %s ORDER BY job_id, custom_field_id",
+            [org],
+        ),
+        (
+            "client_custom_field_values.csv",
+            "SELECT * FROM client_custom_field_values WHERE org_id = %s ORDER BY client_db_id, custom_field_id",
+            [org],
+        ),
+        ("job_milestones.csv", "SELECT * FROM job_milestones WHERE org_id = %s ORDER BY job_id, milestone_id", [org]),
+        (
+            "time_logs.csv",
+            """
+            SELECT *
+            FROM time_logs
+            WHERE org_id = %s
+               OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)
+            ORDER BY work_date DESC, created_at DESC
+            """,
+            [org, org],
+        ),
+        (
+            "quotes.csv",
+            """
+            SELECT *
+            FROM quotes
+            WHERE org_id = %s
+               OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)
+            ORDER BY quote_id
+            """,
+            [org, org],
+        ),
+        (
+            "invoices.csv",
+            """
+            SELECT *
+            FROM invoices
+            WHERE org_id = %s
+               OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)
+            ORDER BY invoice_id
+            """,
+            [org, org],
+        ),
+        (
+            "invoice_items.csv",
+            """
+            SELECT *
+            FROM invoice_items
+            WHERE org_id = %s
+               OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)
+            ORDER BY invoice_id, line_id
+            """,
+            [org, org],
+        ),
+        (
+            "organisation_billing_invoices.csv",
+            "SELECT * FROM organisation_billing_invoices WHERE org_id = %s ORDER BY created_at DESC, billing_invoice_id",
+            [org],
+        ),
+        (
+            "organisation_billing_events.csv",
+            "SELECT * FROM organisation_billing_events WHERE org_id = %s ORDER BY created_at DESC, billing_event_id",
+            [org],
+        ),
+        (
+            "outbound_email_log.csv",
+            """
+            SELECT *
+            FROM outbound_email_log
+            WHERE client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)
+               OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)
+            ORDER BY created_at DESC, email_id DESC
+            """,
+            [org, org],
+        ),
+        ("feedback_items.csv", "SELECT * FROM feedback_items WHERE org_id = %s ORDER BY created_at DESC, feedback_id", [org]),
+    ]
+
+    if has_memberships:
+        export_queries[4] = (
+            "users.csv",
+            """
+            SELECT *
+            FROM users
+            WHERE org_id = %s
+               OR user_id IN (
+                    SELECT user_id
+                    FROM organisation_memberships
+                    WHERE org_id = %s
+               )
+            ORDER BY user_id
+            """,
+            [org, org],
+        )
+    else:
+        export_queries[4] = (
+            "users.csv",
+            """
+            SELECT *
+            FROM users
+            WHERE org_id = %s
+            ORDER BY user_id
+            """,
+            [org],
+        )
+
+    for filename, sql, params in export_queries:
+        try:
+            table_name = filename.replace(".csv", "")
+            if not _table_exists(con, table_name):
+                continue
+            df = con.execute(sql, params).df()
+            frames.append((filename, df if df is not None else pd.DataFrame()))
+        except Exception as exc:
+            logger.warning("Org export table skipped org_id=%s file=%s error=%s", org, filename, exc)
+    return frames
+
+
+def _build_org_export_zip(con, org_id: str, *, actor: str | None = None) -> tuple[io.BytesIO, str, dict[str, object]]:
+    org = str(org_id).strip()
+    org_row = con.execute(
+        """
+        SELECT org_id, name, slug, plan, plan_status, trial_ends_at, stripe_customer_id, stripe_subscription_id,
+               max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at
+        FROM organisations
+        WHERE org_id = %s
+        LIMIT 1
+        """,
+        [org],
+    ).fetchone()
+    if not org_row:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+
+    membership_rows = con.execute(
+        """
+        SELECT role, is_active, is_owner
+        FROM organisation_memberships
+        WHERE org_id = %s
+        ORDER BY created_at ASC
+        """,
+        [org],
+    ).fetchall()
+    entitlement = _organisation_entitlement_info(con, org)
+
+    manifest: dict[str, object] = {
+        "exported_at_utc": datetime.now(timezone.utc).isoformat(),
+        "exported_by": actor,
+        "org_id": str(org_row[0] or org),
+        "org_name": str(org_row[1] or ""),
+        "org_slug": str(org_row[2] or ""),
+        "plan": str(org_row[3] or "trial"),
+        "plan_status": str(org_row[4] or "active"),
+        "trial_ends_at": str(org_row[5]) if org_row[5] else None,
+        "membership_count": len(membership_rows or []),
+        "entitlement": entitlement,
+        "files": [],
+    }
+
+    payload = io.BytesIO()
+    safe_slug = _slugify_org_name(str(org_row[1] or org))
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_name = f"gdpr_export_{safe_slug}_{timestamp}.zip"
+
+    with zipfile.ZipFile(payload, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for filename, df in _org_export_frames(con, org):
+            csv_bytes = _rows_to_csv_bytes(df)
+            zf.writestr(filename, csv_bytes)
+            manifest["files"].append({"name": filename, "rows": int(len(df.index) if df is not None else 0)})
+        zf.writestr("manifest.json", json.dumps(manifest, default=str, indent=2))
+    payload.seek(0)
+    return payload, archive_name, manifest
+
+
+def _delete_org_data(con, org_id: str) -> dict[str, object]:
+    org = str(org_id).strip()
+    counts: list[dict[str, object]] = []
+
+    job_rows = con.execute("SELECT job_id FROM jobs WHERE org_id = %s", [org]).fetchall() if _table_exists(con, "jobs") else []
+    client_rows = con.execute("SELECT db_id FROM clients WHERE org_id = %s", [org]).fetchall() if _table_exists(con, "clients") else []
+    member_user_ids = [
+        str(row[0]).strip()
+        for row in (con.execute("SELECT user_id FROM organisation_memberships WHERE org_id = %s", [org]).fetchall() if _table_exists(con, "organisation_memberships") else [])
+        if row and row[0] is not None and str(row[0]).strip()
+    ]
+
+    delete_specs: list[tuple[str, str, list[object]]] = [
+        ("registration_verification_tokens", "DELETE FROM registration_verification_tokens WHERE org_id = %s", [org]),
+        ("outbound_email_log", "DELETE FROM outbound_email_log WHERE client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s) OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("invoice_items", "DELETE FROM invoice_items WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("invoices", "DELETE FROM invoices WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("quotes", "DELETE FROM quotes WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("time_logs", "DELETE FROM time_logs WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("job_scope_rows", "DELETE FROM job_scope_rows WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("job_scope_config", "DELETE FROM job_scope_config WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("job_additional_datasets", "DELETE FROM job_additional_datasets WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("job_custom_field_values", "DELETE FROM job_custom_field_values WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("job_milestones", "DELETE FROM job_milestones WHERE org_id = %s OR job_id IN (SELECT job_id FROM jobs WHERE org_id = %s)", [org, org]),
+        ("client_custom_field_values", "DELETE FROM client_custom_field_values WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("client_notes", "DELETE FROM client_notes WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("client_contacts", "DELETE FROM client_contacts WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("client_sites", "DELETE FROM client_sites WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("jobs", "DELETE FROM jobs WHERE org_id = %s OR client_db_id IN (SELECT db_id FROM clients WHERE org_id = %s)", [org, org]),
+        ("clients", "DELETE FROM clients WHERE org_id = %s", [org]),
+        ("organisation_billing_events", "DELETE FROM organisation_billing_events WHERE org_id = %s", [org]),
+        ("organisation_billing_invoices", "DELETE FROM organisation_billing_invoices WHERE org_id = %s", [org]),
+        ("organisation_invitations", "DELETE FROM organisation_invitations WHERE org_id = %s", [org]),
+        ("organisation_memberships", "DELETE FROM organisation_memberships WHERE org_id = %s", [org]),
+        ("organisation_entitlements", "DELETE FROM organisation_entitlements WHERE org_id = %s", [org]),
+        ("users", "DELETE FROM users WHERE org_id = %s", [org]),
+        ("organisations", "DELETE FROM organisations WHERE org_id = %s", [org]),
+    ]
+
+    for table_name, sql, params in delete_specs:
+        if not _table_exists(con, table_name):
+            continue
+        try:
+            if table_name == "users":
+                user_ids = tuple(member_user_ids)
+                if user_ids:
+                    placeholders = ", ".join(["%s"] * len(user_ids))
+                    sql = f"DELETE FROM users WHERE org_id = %s OR user_id IN ({placeholders})"
+                    params = [org, *user_ids]
+                else:
+                    sql = "DELETE FROM users WHERE org_id = %s"
+                    params = [org]
+            deleted_rows = con.execute(f"{sql} RETURNING 1", params).fetchall()
+            counts.append({"table": table_name, "deleted": len(deleted_rows or [])})
+        except Exception as exc:
+            logger.warning("Org delete table skipped org_id=%s table=%s error=%s", org, table_name, exc)
+            counts.append({"table": table_name, "deleted": 0, "skipped": True, "error": str(exc)})
+
+    return {
+        "org_id": org,
+        "jobs_scanned": len(job_rows or []),
+        "clients_scanned": len(client_rows or []),
+        "tables": counts,
+    }
+
+
 def _require_org_capacity(
     con,
     org_id: str,
@@ -7205,6 +7525,74 @@ def purge_archived_data(body: dict = Body(default={}), _user: dict = Depends(_cu
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to purge archived data: {e}")
+
+
+@router.get("/org/export")
+def export_current_organisation_data(_user: dict = Depends(_current_user)):
+    try:
+        org_id = require_org(_user)
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _require_org_management_role(con, _user, org_id)
+            payload, archive_name, _manifest = _build_org_export_zip(
+                con,
+                org_id,
+                actor=_actor_identifier(_user),
+            )
+        return StreamingResponse(
+            payload,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{archive_name}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export organisation data: {e}")
+
+
+@router.post("/org/delete")
+def delete_current_organisation_data(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    try:
+        org_id = require_org(_user)
+        confirm_text = str(body.get("confirm_text") or body.get("confirm") or "").strip()
+        if confirm_text != "DELETE":
+            raise HTTPException(
+                status_code=400,
+                detail="Type DELETE in confirm_text to permanently delete the organisation",
+            )
+
+        with get_conn() as con:
+            _ensure_org_lifecycle_schema(con)
+            _ensure_org_entitlement_schema(con)
+            _require_org_owner_role(con, _user, org_id)
+            organisation = con.execute(
+                "SELECT org_id, name, slug FROM organisations WHERE org_id = %s LIMIT 1",
+                [org_id],
+            ).fetchone()
+            if not organisation:
+                raise HTTPException(status_code=404, detail="Organisation not found")
+            deletion_summary = _delete_org_data(con, org_id)
+        logger.warning(
+            "Organisation deleted org_id=%s org_name=%s actor=%s",
+            org_id,
+            str(organisation[1] or ""),
+            _actor_identifier(_user),
+        )
+        return {
+            "ok": True,
+            "message": "Organisation and associated data deleted",
+            "organisation": {
+                "org_id": str(organisation[0] or org_id),
+                "name": str(organisation[1] or ""),
+                "slug": str(organisation[2] or ""),
+            },
+            "deletion_summary": deletion_summary,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete organisation data: {e}")
 
 
 @router.post("/datasets/{dataset_id}/upload-factors")

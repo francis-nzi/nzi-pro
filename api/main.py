@@ -130,6 +130,44 @@ from api.auth_routes import _current_org_summary
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from services.tenancy import require_org
 
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+except Exception:  # pragma: no cover - optional dependency
+    sentry_sdk = None
+    FastApiIntegration = None
+    LoggingIntegration = None
+
+
+def _init_sentry() -> None:
+    if sentry_sdk is None:
+        return
+    dsn = str(os.getenv("SENTRY_DSN") or "").strip()
+    if not dsn:
+        return
+    try:
+        traces_sample_rate = float(str(os.getenv("SENTRY_TRACES_SAMPLE_RATE") or "0.0").strip())
+    except Exception:
+        traces_sample_rate = 0.0
+    traces_sample_rate = max(0.0, min(traces_sample_rate, 1.0))
+    environment = str(os.getenv("SENTRY_ENVIRONMENT") or os.getenv("APP_ENV") or "production").strip()
+    integrations = []
+    if FastApiIntegration is not None:
+        integrations.append(FastApiIntegration(transaction_style="endpoint"))
+    if LoggingIntegration is not None:
+        integrations.append(LoggingIntegration(level=None, event_level=None))
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=environment or "production",
+        traces_sample_rate=traces_sample_rate,
+        send_default_pii=False,
+        integrations=integrations,
+    )
+
+
+_init_sentry()
+
 
 def _client_audit_snapshot(con, client_db_id: int, org_id: str | None = None) -> dict | None:
     if org_id is not None and str(org_id).strip():

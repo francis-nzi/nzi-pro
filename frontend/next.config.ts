@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 import { execSync } from "node:child_process";
 
 function getBuildSha(): string {
@@ -37,4 +38,12 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(
+  nextConfig,
+  {
+    silent: true,
+    sourcemaps: {
+      disable: true,
+    },
+  },
+);
