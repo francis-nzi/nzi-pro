@@ -62,6 +62,21 @@ DEFAULT_EMAIL_TEMPLATES: list[dict[str, str]] = [
         ),
     },
     {
+        "template_key": "registration_verification",
+        "template_name": "Registration Verification",
+        "subject_template": "Verify your NZI Pro account",
+        "body_template": (
+            "<p>Hi {{full_name}},</p>"
+            "<p>Thanks for registering {{org_name}} with NZI Pro.</p>"
+            "<p>Your 14-day trial starts today. Please verify your email address to activate your account:</p>"
+            "<p><a href=\"{{verification_url}}\">Verify your NZI Pro account</a></p>"
+            "<p>This verification link expires at <strong>{{verification_expires_at}}</strong>.</p>"
+            "<p>If the button does not work, copy and paste this link into your browser:</p>"
+            "<p>{{verification_url}}</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
         "template_key": "quote_send",
         "template_name": "Quote Email",
         "subject_template": "Quote {{quote_number}} from Net Zero International",

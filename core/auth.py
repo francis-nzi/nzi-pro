@@ -17,7 +17,15 @@ def _ensure_auth_columns(con) -> None:
     except Exception:
         pass
     try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id UUID")
+    except Exception:
+        pass
+    try:
         con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP")
     except Exception:
         pass
     try:
@@ -51,22 +59,54 @@ def _verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def create_user(user_id: str, full_name: str, email: str, password: str, role: str = "client") -> Dict[str, str]:
+def create_user(
+    user_id: str,
+    full_name: str,
+    email: str,
+    password: str,
+    role: str = "client",
+    *,
+    status: str = "Active",
+    org_id: str | None = None,
+    must_change_password: bool = True,
+    con=None,
+) -> Dict[str, str]:
     """Create or update a user row with hashed password. Returns user dict."""
     ph = _hash_password(password)
-    with get_conn() as con:
-        _ensure_auth_columns(con)
+    def _write(conn) -> None:
+        _ensure_auth_columns(conn)
         try:
-            con.execute(
-                "INSERT INTO users (user_id, full_name, role, email, password_hash, must_change_password, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')",
-                [user_id, full_name, role, email, ph, True],
+            conn.execute(
+                """
+                INSERT INTO users (
+                  user_id, full_name, role, email, password_hash, must_change_password, status, org_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [user_id, full_name, role, email, ph, bool(must_change_password), status, org_id],
             )
         except Exception:
             # Idempotent fallback for existing users.
-            con.execute(
-                "UPDATE users SET full_name=?, role=?, email=?, password_hash=?, must_change_password=?, status='Active' WHERE user_id=?",
-                [full_name, role, email, ph, True, user_id],
+            conn.execute(
+                """
+                UPDATE users
+                SET full_name=?,
+                    role=?,
+                    email=?,
+                    password_hash=?,
+                    must_change_password=?,
+                    status=?,
+                    org_id=?
+                WHERE user_id=?
+                """,
+                [full_name, role, email, ph, bool(must_change_password), status, org_id, user_id],
             )
+
+    if con is not None:
+        _write(con)
+    else:
+        with get_conn() as con_handle:
+            _write(con_handle)
     return {"user_id": user_id, "full_name": full_name, "email": email, "role": role}
 
 
@@ -109,6 +149,7 @@ def authenticate_user(identifier: str, password: str) -> Optional[Dict[str, str]
                 """
                 SELECT user_id, full_name, role, email, password_hash, status,
                        COALESCE(must_change_password, FALSE),
+                       email_verified_at,
                        accepted_portal_terms_at,
                        accepted_portal_terms_version
                 FROM users
@@ -123,7 +164,7 @@ def authenticate_user(identifier: str, password: str) -> Optional[Dict[str, str]
     if not row:
         return None
 
-    user_id, full_name, role, email, password_hash, status, must_change_password, accepted_portal_terms_at, accepted_portal_terms_version = row
+    user_id, full_name, role, email, password_hash, status, must_change_password, email_verified_at, accepted_portal_terms_at, accepted_portal_terms_version = row
     if not password_hash or str(status or "").lower() != "active":
         return None
     if not _verify_password(password, password_hash):
@@ -135,6 +176,7 @@ def authenticate_user(identifier: str, password: str) -> Optional[Dict[str, str]
         "role": role,
         "email": email,
         "must_change_password": bool(must_change_password),
+        "email_verified_at": email_verified_at.isoformat() if email_verified_at else None,
         "accepted_portal_terms_at": accepted_portal_terms_at.isoformat() if accepted_portal_terms_at else None,
         "accepted_portal_terms_version": accepted_portal_terms_version,
     }
@@ -148,6 +190,7 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, str]]:
                 """
                 SELECT user_id, full_name, role, email, status,
                        COALESCE(must_change_password, FALSE),
+                       email_verified_at,
                        accepted_portal_terms_at,
                        accepted_portal_terms_version
                 FROM users
@@ -169,8 +212,9 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, str]]:
         "email": row[3],
         "status": row[4],
         "must_change_password": bool(row[5]),
-        "accepted_portal_terms_at": row[6].isoformat() if row[6] else None,
-        "accepted_portal_terms_version": row[7],
+        "email_verified_at": row[6].isoformat() if row[6] else None,
+        "accepted_portal_terms_at": row[7].isoformat() if row[7] else None,
+        "accepted_portal_terms_version": row[8],
     }
 
 

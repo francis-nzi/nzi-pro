@@ -9,7 +9,8 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.auth import authenticate_user, get_user_by_id, set_user_password
+from api.admin_routes import _ensure_org_entitlement_schema, _ensure_org_lifecycle_schema, _slugify_org_name
+from core.auth import authenticate_user, create_user, get_user_by_id, set_user_password
 from core.database import get_conn
 from api.auth import _current_user, _mfa_required_for_all_users
 from services.messaging_templates import build_email_content
@@ -242,6 +243,242 @@ def _send_forgot_password_email(
             raise_on_error=False,
         )
     return result
+
+
+def _registration_trial_days() -> int:
+    raw = str(os.getenv("REGISTRATION_TRIAL_DAYS") or os.getenv("STRIPE_TRIAL_DAYS") or "14").strip()
+    try:
+        days = int(raw)
+    except Exception:
+        days = 14
+    return max(1, min(days, 365))
+
+
+def _registration_verification_token_hours() -> int:
+    raw = str(os.getenv("REGISTRATION_VERIFICATION_TOKEN_HOURS") or "72").strip()
+    try:
+        hours = int(raw)
+    except Exception:
+        hours = 72
+    return max(1, min(hours, 24 * 30))
+
+
+def _frontend_base_url() -> str:
+    return str(os.getenv("FRONTEND_BASE_URL") or "http://localhost:3000").rstrip("/")
+
+
+def _registration_verification_url(token: str) -> str:
+    return f"{_frontend_base_url()}/register/verify?token={token}"
+
+
+def _hash_registration_token(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _ensure_registration_schema(con) -> None:
+    _ensure_org_lifecycle_schema(con)
+    _ensure_org_entitlement_schema(con)
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_sent_at TIMESTAMP")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS registration_status VARCHAR")
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS registration_verification_tokens (
+              verification_id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+              org_id UUID REFERENCES organisations(org_id) NOT NULL,
+              user_id VARCHAR NOT NULL,
+              email VARCHAR NOT NULL,
+              token_hash VARCHAR NOT NULL UNIQUE,
+              expires_at TIMESTAMP NOT NULL,
+              consumed_at TIMESTAMP,
+              created_at TIMESTAMP DEFAULT NOW(),
+              updated_at TIMESTAMP DEFAULT NOW()
+            )
+            """
+        )
+    except Exception:
+        pass
+    for ddl in (
+        "ALTER TABLE registration_verification_tokens ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMP",
+        "ALTER TABLE registration_verification_tokens ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ):
+        try:
+            con.execute(ddl)
+        except Exception:
+            pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_registration_verification_tokens_email
+            ON registration_verification_tokens (lower(email), created_at DESC)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_registration_verification_tokens_user
+            ON registration_verification_tokens (lower(user_id), created_at DESC)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS ix_registration_verification_tokens_expiry
+            ON registration_verification_tokens (expires_at, consumed_at)
+            """
+        )
+    except Exception:
+        pass
+
+
+def _unique_org_slug(con, org_name: str) -> str:
+    base_slug = _slugify_org_name(org_name)
+    slug = base_slug
+    suffix = 2
+    while True:
+        row = con.execute(
+            "SELECT 1 FROM organisations WHERE lower(slug) = lower(?) LIMIT 1",
+            [slug],
+        ).fetchone()
+        if not row:
+            return slug
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+
+
+def _registration_email_content(
+    *,
+    con,
+    full_name: str,
+    email: str,
+    org_name: str,
+    verification_url: str,
+    verification_expires_at: datetime,
+) -> dict[str, str]:
+    sender_identifier = "self-service-registration"
+    context = {
+        "full_name": str(full_name or "").strip() or str(email or "").strip(),
+        "email": str(email or "").strip(),
+        "org_name": str(org_name or "").strip() or "NZI Pro",
+        "verification_url": str(verification_url or "").strip(),
+        "verification_expires_at": verification_expires_at.isoformat(),
+        "sender_name": "NZI Pro",
+    }
+    fallback_subject = "Verify your NZI Pro account"
+    fallback_body = (
+        f"<p>Hi {context['full_name']},</p>"
+        f"<p>Thanks for registering {context['org_name']} with NZI Pro.</p>"
+        "<p>Your 14-day trial starts today. Please verify your email address to activate your account:</p>"
+        f"<p><a href=\"{context['verification_url']}\">Verify your NZI Pro account</a></p>"
+        f"<p>This verification link expires at <strong>{context['verification_expires_at']}</strong>.</p>"
+        f"<p>If the button does not work, copy and paste this link into your browser:</p>"
+        f"<p>{context['verification_url']}</p>"
+        "<p>Kind regards,<br/>NZI Pro</p>"
+    )
+    return build_email_content(
+        con=con,
+        template_key="registration_verification",
+        context=context,
+        fallback_subject=fallback_subject,
+        fallback_body=fallback_body,
+        sender_identifier=sender_identifier,
+    )
+
+
+def _send_registration_verification_email(
+    *,
+    con,
+    full_name: str,
+    email: str,
+    org_name: str,
+    verification_url: str,
+    verification_expires_at: datetime,
+) -> dict:
+    rendered = _registration_email_content(
+        con=con,
+        full_name=full_name,
+        email=email,
+        org_name=org_name,
+        verification_url=verification_url,
+        verification_expires_at=verification_expires_at,
+    )
+    return send_tracked_email(
+        con,
+        to_email=str(email or "").strip(),
+        subject=rendered["subject"],
+        body_text=rendered["body_text"],
+        body_html=rendered["body_html"],
+        created_by="self-service-registration",
+        template_key="registration_verification",
+        entity_type="organisation",
+        entity_id=None,
+        client_db_id=None,
+        metadata={"flow": "registration_verification", "org_name": str(org_name or "").strip()},
+        raise_on_error=False,
+    )
+
+
+def _issue_registration_token(
+    con,
+    *,
+    org_id: str,
+    user_id: str,
+    email: str,
+    expires_at: datetime,
+) -> str:
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash_registration_token(token)
+    con.execute(
+        """
+        INSERT INTO registration_verification_tokens (
+          org_id, user_id, email, token_hash, expires_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+        """,
+        [str(org_id).strip(), str(user_id).strip(), str(email).strip(), token_hash, expires_at],
+    )
+    return token
+
+
+def _registration_user_row(con, identifier: str):
+    ident = str(identifier or "").strip()
+    if not ident:
+        return None
+    return con.execute(
+        """
+        SELECT user_id, full_name, role, email, status, COALESCE(must_change_password, FALSE), org_id
+        FROM users
+        WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+        LIMIT 1
+        """,
+        [ident, ident],
+    ).fetchone()
+
+
+def _registration_token_row(con, token: str):
+    return con.execute(
+        """
+        SELECT verification_id, org_id, user_id, email, token_hash, expires_at, consumed_at
+        FROM registration_verification_tokens
+        WHERE token_hash = ?
+        LIMIT 1
+        """,
+        [_hash_registration_token(token)],
+    ).fetchone()
 
 
 def _mfa_fernet() -> "Fernet":
@@ -764,24 +1001,284 @@ def mfa_regenerate_recovery_codes(body: Dict, user: Dict[str, str] = Depends(_cu
 
 @router.post("/register")
 def register(body: Dict):
-    if _strict_auth_required():
-        raise HTTPException(status_code=403, detail="Open registration is disabled in strict auth mode")
-    # Lightweight registration endpoint for bootstrapping users.
-    # This endpoint is intentionally permissive; you should protect it in production.
-    user_id = (body.get("user_id") or "").strip()
-    full_name = (body.get("full_name") or "").strip()
-    email = (body.get("email") or "").strip()
-    password = body.get("password") or ""
-    role = body.get("role") or "client"
+    full_name = str(body.get("full_name") or body.get("name") or "").strip()
+    org_name = str(body.get("org_name") or body.get("organisation_name") or body.get("company_name") or "").strip()
+    email = str(body.get("email") or "").strip()
+    password = str(body.get("password") or "")
 
-    if not user_id or not email or not password:
-        raise HTTPException(status_code=400, detail="user_id, email and password required")
+    if not full_name or not org_name or not email or not password:
+        raise HTTPException(status_code=400, detail="full_name, org_name, email and password required")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    # Lazy import to avoid circulars
-    from core.auth import create_user
+    email_norm = email.strip().lower()
+    now = datetime.now(timezone.utc)
+    verification_expires_at = now + timedelta(hours=_registration_verification_token_hours())
+    trial_ends_at = now + timedelta(days=_registration_trial_days())
+    created: dict[str, str | datetime] = {}
 
-    create_user(user_id, full_name or user_id, email, password, role=role)
-    return {"ok": True, "user_id": user_id}
+    with get_conn(autocommit=False) as con:
+        _ensure_registration_schema(con)
+        existing = _registration_user_row(con, email_norm)
+        if existing:
+            existing_status = str(existing[4] or "").strip().lower()
+            if existing_status == "active":
+                raise HTTPException(status_code=409, detail="An account with that email already exists")
+            raise HTTPException(status_code=409, detail="A registration is already pending for that email")
+
+        slug = _unique_org_slug(con, org_name)
+        org_row = con.execute(
+            """
+            INSERT INTO organisations (
+              name, slug, plan, plan_status, trial_ends_at, max_users, max_clients
+            )
+            VALUES (?, ?, 'trial', 'trial', ?, 3, 10)
+            RETURNING org_id
+            """,
+            [org_name, slug, trial_ends_at],
+        ).fetchone()
+        if not org_row or not org_row[0]:
+            raise HTTPException(status_code=500, detail="Failed to create organisation")
+        org_id = str(org_row[0])
+
+        con.execute(
+            """
+            INSERT INTO organisation_entitlements (
+              org_id, plan, plan_status, max_users, max_clients, trial_ends_at,
+              stripe_customer_id, stripe_subscription_id, subscription_status,
+              current_period_start, current_period_end, auto_renew, created_at, updated_at
+            )
+            VALUES (?, 'trial', 'trial', 3, 10, ?, NULL, NULL, 'trial', NULL, NULL, TRUE, NOW(), NOW())
+            ON CONFLICT (org_id) DO UPDATE SET
+              plan = EXCLUDED.plan,
+              plan_status = EXCLUDED.plan_status,
+              max_users = EXCLUDED.max_users,
+              max_clients = EXCLUDED.max_clients,
+              trial_ends_at = EXCLUDED.trial_ends_at,
+              subscription_status = EXCLUDED.subscription_status,
+              updated_at = NOW()
+            """,
+            [org_id, trial_ends_at],
+        )
+
+        create_user(
+            email_norm,
+            full_name,
+            email_norm,
+            password,
+            role="Admin",
+            status="Pending",
+            org_id=org_id,
+            must_change_password=False,
+            con=con,
+        )
+        con.execute(
+            """
+            UPDATE users
+            SET email_verified_at = NULL,
+                email_verification_sent_at = ?,
+                registration_status = 'pending'
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            """,
+            [now, email_norm, email_norm],
+        )
+        con.execute(
+            """
+            INSERT INTO organisation_memberships (org_id, user_id, role, is_active, is_owner)
+            VALUES (?, ?, 'Owner', TRUE, TRUE)
+            ON CONFLICT (org_id, user_id) DO UPDATE SET
+              role = EXCLUDED.role,
+              is_active = TRUE,
+              is_owner = TRUE,
+              updated_at = NOW()
+            """,
+            [org_id, email_norm],
+        )
+        token = _issue_registration_token(
+            con,
+            org_id=org_id,
+            user_id=email_norm,
+            email=email_norm,
+            expires_at=verification_expires_at,
+        )
+        created = {
+            "org_id": org_id,
+            "org_name": org_name,
+            "user_id": email_norm,
+            "email": email_norm,
+            "verification_token": token,
+            "verification_expires_at": verification_expires_at,
+            "trial_ends_at": trial_ends_at,
+        }
+
+    with get_conn() as email_con:
+        email_result = _send_registration_verification_email(
+            con=email_con,
+            full_name=full_name,
+            email=email_norm,
+            org_name=org_name,
+            verification_url=_registration_verification_url(str(created["verification_token"])),
+            verification_expires_at=verification_expires_at,
+        )
+
+    return {
+        "ok": True,
+        "verification_required": True,
+        "message": "Registration created. Check your email to verify your account.",
+        "org_id": created["org_id"],
+        "org_name": created["org_name"],
+        "user_id": created["user_id"],
+        "email": created["email"],
+        "trial_ends_at": created["trial_ends_at"].isoformat() if created.get("trial_ends_at") else None,
+        "verification_expires_at": created["verification_expires_at"].isoformat() if created.get("verification_expires_at") else None,
+        "email_status": str(email_result.get("status") or ""),
+        "email_error": str(email_result.get("error") or "") if email_result.get("error") else None,
+    }
+
+
+@router.post("/register/resend-verification")
+def resend_registration_verification(body: Dict):
+    identifier = str(body.get("identifier") or body.get("email") or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="identifier is required")
+
+    now = datetime.now(timezone.utc)
+    with get_conn(autocommit=False) as con:
+        _ensure_registration_schema(con)
+        user_row = _registration_user_row(con, identifier)
+        if not user_row:
+            return {"ok": True, "message": "If the account exists, a verification email has been sent."}
+
+        status = str(user_row[4] or "").strip().lower()
+        if status == "active":
+            return {"ok": True, "verified": True, "message": "Account already verified."}
+
+        org_id = str(user_row[6] or "").strip()
+        if not org_id:
+            raise HTTPException(status_code=500, detail="Pending registration is missing an organisation")
+
+        con.execute(
+            """
+            UPDATE registration_verification_tokens
+            SET consumed_at = COALESCE(consumed_at, ?),
+                updated_at = NOW()
+            WHERE (lower(email) = lower(?) OR lower(user_id) = lower(?))
+              AND consumed_at IS NULL
+            """,
+            [now, identifier, identifier],
+        )
+
+        expires_at = now + timedelta(hours=_registration_verification_token_hours())
+        token = _issue_registration_token(
+            con,
+            org_id=org_id,
+            user_id=str(user_row[0] or "").strip(),
+            email=str(user_row[3] or identifier).strip(),
+            expires_at=expires_at,
+        )
+        con.execute(
+            """
+            UPDATE users
+            SET email_verification_sent_at = ?,
+                registration_status = 'pending'
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            """,
+            [now, identifier, identifier],
+        )
+        full_name = str(user_row[1] or identifier).strip()
+        email = str(user_row[3] or identifier).strip()
+        org_row = con.execute(
+            "SELECT name FROM organisations WHERE org_id = ? LIMIT 1",
+            [org_id],
+        ).fetchone()
+        org_name = str(org_row[0] or "NZI Pro") if org_row else "NZI Pro"
+
+    with get_conn() as email_con:
+        email_result = _send_registration_verification_email(
+            con=email_con,
+            full_name=full_name,
+            email=email,
+            org_name=org_name,
+            verification_url=_registration_verification_url(token),
+            verification_expires_at=expires_at,
+        )
+
+    return {
+        "ok": True,
+        "verification_required": True,
+        "message": "If the account exists, a verification email has been sent.",
+        "email_status": str(email_result.get("status") or ""),
+        "email_error": str(email_result.get("error") or "") if email_result.get("error") else None,
+    }
+
+
+@router.post("/register/verify")
+def verify_registration(body: Dict):
+    token = str(body.get("token") or body.get("verification_token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+
+    now = datetime.now(timezone.utc)
+    with get_conn(autocommit=False) as con:
+        _ensure_registration_schema(con)
+        token_row = _registration_token_row(con, token)
+        if not token_row:
+            raise HTTPException(status_code=400, detail="Invalid verification token")
+
+        if token_row[6] is not None:
+            raise HTTPException(status_code=409, detail="Verification token has already been used")
+
+        expires_at = token_row[5]
+        if expires_at and now > expires_at:
+            raise HTTPException(status_code=410, detail="Verification token has expired")
+
+        org_id = str(token_row[1] or "").strip()
+        user_id = str(token_row[2] or "").strip()
+        email = str(token_row[3] or "").strip()
+        if not org_id or not user_id:
+            raise HTTPException(status_code=500, detail="Verification token is missing account data")
+
+        con.execute(
+            """
+            UPDATE registration_verification_tokens
+            SET consumed_at = COALESCE(consumed_at, ?),
+                updated_at = NOW()
+            WHERE lower(user_id) = lower(?) OR lower(email) = lower(?)
+            """,
+            [now, user_id, email],
+        )
+        con.execute(
+            """
+            UPDATE users
+            SET status = 'Active',
+                email_verified_at = ?,
+                registration_status = 'verified',
+                must_change_password = FALSE,
+                org_id = COALESCE(org_id, ?)
+            WHERE lower(email) = lower(?) OR lower(user_id) = lower(?)
+            """,
+            [now, org_id, email, user_id],
+        )
+        con.execute(
+            """
+            UPDATE organisation_memberships
+            SET is_active = TRUE,
+                is_owner = TRUE,
+                updated_at = NOW()
+            WHERE lower(user_id) = lower(?) AND org_id = ?
+            """,
+            [user_id, org_id],
+        )
+
+    return {
+        "ok": True,
+        "verified": True,
+        "message": "Email verified successfully. You can now sign in.",
+        "user_id": user_id,
+        "email": email,
+        "org_id": org_id,
+        "verified_at": now.isoformat(),
+    }
 
 
 @router.get("/me")

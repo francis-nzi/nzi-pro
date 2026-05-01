@@ -56,6 +56,7 @@ function buildPostLoginRoute(
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const verified = searchParams?.get("verified") === "1";
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -216,6 +217,11 @@ function LoginPageContent() {
         <div className="w-full rounded-xl border bg-card p-6 shadow-sm">
           <h1 className="mb-1 text-2xl font-semibold">Sign In</h1>
           <p className="mb-6 text-sm text-muted-foreground">NZ Insights Pro team access</p>
+          {verified ? (
+            <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              Email verified successfully. You can sign in now.
+            </div>
+          ) : null}
 
           {!mfaRequired ? (
             <form className="space-y-4" onSubmit={onSubmit}>
@@ -254,6 +260,12 @@ function LoginPageContent() {
                 >
                   Forgot password?
                 </button>
+              </div>
+              <div className="text-center text-sm text-muted-foreground">
+                Need an account?{" "}
+                <Link href="/register" className="font-medium underline underline-offset-2 hover:text-foreground">
+                  Start a 14-day trial
+                </Link>
               </div>
 
               {error ? <div className="text-sm text-destructive">{error}</div> : null}
