@@ -493,8 +493,15 @@ export default function JobAdvancedReports({
     setLoading(true);
     setFetchError(null);
     authFetch(`${baseUrl}/jobs/${jobId}/live-report-data`)
-      .then(r => {
-        if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      .then(async r => {
+        if (!r.ok) {
+          let detail = `${r.status} ${r.statusText}`;
+          try {
+            const body = await r.json() as { detail?: string };
+            if (body.detail) detail = `${r.status}: ${body.detail}`;
+          } catch { /* ignore */ }
+          throw new Error(detail);
+        }
         return r.json() as Promise<LiveData>;
       })
       .then(d => setData(d))

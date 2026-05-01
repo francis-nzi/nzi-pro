@@ -178,21 +178,66 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
 @router.get("/jobs/{job_id}/live-report-data")
 def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_current_user)) -> dict[str, Any]:
     """Return the live report payload for the browser report page."""
-    job_data = get_job_data(int(job_id))
+    import traceback
+
+    try:
+        job_data = get_job_data(int(job_id))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"get_job_data failed: {exc}") from exc
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    scope_totals = get_scope_totals(int(job_id))
-    categories = get_emissions_by_category(int(job_id))
-    benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
-    activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
-    intensity_metrics = _load_job_intensity_metrics(int(job_id))
-    job_actions = get_job_report_actions_payload(int(job_id))
-    target_data = get_job_target_data(int(job_id))
-    report_metadata = _get_job_report_metadata(int(job_id))
-    with get_conn() as con:
-        yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
-    template_selection = _get_job_assigned_template_selection(int(job_id))
+    try:
+        scope_totals = get_scope_totals(int(job_id))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"get_scope_totals failed: {exc}") from exc
+
+    try:
+        categories = get_emissions_by_category(int(job_id))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"get_emissions_by_category failed: {exc}") from exc
+
+    try:
+        benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
+    except Exception as exc:
+        benchmark_totals = {"Scope 1": 0, "Scope 2": 0, "Scope 3": 0, "Total": 0}
+
+    try:
+        activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
+    except Exception as exc:
+        activity_groups, activity_totals, activity_details = {}, {}, {}
+
+    try:
+        intensity_metrics = _load_job_intensity_metrics(int(job_id))
+    except Exception:
+        intensity_metrics = {}
+
+    try:
+        job_actions = get_job_report_actions_payload(int(job_id))
+    except Exception:
+        job_actions = {}
+
+    try:
+        target_data = get_job_target_data(int(job_id))
+    except Exception:
+        target_data = {}
+
+    try:
+        report_metadata = _get_job_report_metadata(int(job_id))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"get_job_report_metadata failed: {exc}") from exc
+
+    try:
+        with get_conn() as con:
+            yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
+    except Exception:
+        yearly_emissions = []
+
+    try:
+        template_selection = _get_job_assigned_template_selection(int(job_id))
+    except Exception:
+        template_selection = None
+
     template_variables: dict[str, Any] = {}
     if template_selection and template_selection.get("template_id") is not None:
         try:
@@ -204,7 +249,6 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         except Exception:
             template_variables = {}
 
-    # Phase 1 additions — data required by the Advanced Reports renderer
     site_breakdowns: dict[str, Any] = {}
     try:
         site_breakdowns = get_site_emissions_breakdowns(int(job_id))
