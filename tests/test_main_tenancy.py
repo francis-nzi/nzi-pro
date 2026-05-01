@@ -82,14 +82,14 @@ class _ClientJobsConn(_FakeConn):
         return self
 
     def fetchone(self):
-        if "COUNT(*)" in self._last_sql and "j.org_id IS NULL" in self._last_sql:
+        if "COUNT(*)" in self._last_sql and "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in self._last_sql:
             return (1,)
         if "COUNT(*)" in self._last_sql:
             return (0,)
         return None
 
     def df(self):
-        if "FROM jobs j" in self._last_sql and "j.org_id IS NULL" in self._last_sql:
+        if "FROM jobs j" in self._last_sql and "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in self._last_sql:
             return pd.DataFrame(
                 [
                     {
@@ -143,14 +143,16 @@ class _ClientJobsExactConn(_ClientJobsConn):
 
 class _ClientJobsMismatchConn(_ClientJobsConn):
     def fetchone(self):
-        if "COUNT(*)" in self._last_sql and "j.org_id = ?" in self._last_sql:
+        if "COUNT(*)" in self._last_sql and "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in self._last_sql:
             return (0,)
         if "COUNT(*)" in self._last_sql:
             return (1,)
         return None
 
     def df(self):
-        if "FROM jobs j" in self._last_sql and "j.org_id = ?" not in self._last_sql:
+        if "FROM jobs j" in self._last_sql and "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in self._last_sql:
+            return pd.DataFrame([])
+        if "FROM jobs j" in self._last_sql and "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" not in self._last_sql:
             return pd.DataFrame(
                 [
                     {
@@ -366,7 +368,7 @@ def test_get_job_does_not_fail_open_on_legacy_org_gap(monkeypatch: pytest.Monkey
     assert exc_info.value.detail == "Organisation context required"
 
 
-def test_client_jobs_exclude_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_jobs_include_rows_when_job_org_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _ClientJobsConn()
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
@@ -379,9 +381,11 @@ def test_client_jobs_exclude_legacy_null_org_rows(monkeypatch: pytest.MonkeyPatc
         _user={"user_id": "u1", "org_id": "org-a"},
     )
 
-    assert result["total"] == 0
-    assert result["items"] == []
-    assert all("j.org_id IS NULL" not in sql for sql, _ in conn.queries)
+    assert result["total"] == 1
+    assert result["items"][0]["job_id"] == 640
+    assert result["items"][0]["job_number"] == "J000640"
+    assert result["items"][0]["total_emissions"] == 0
+    assert any("COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in sql for sql, _ in conn.queries)
 
 
 def test_client_jobs_use_exact_emissions_totals(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -257,4 +257,4 @@ def test_tenant_smoke_flow_across_two_orgs(monkeypatch: pytest.MonkeyPatch) -> N
     assert jobs_b["items"][0]["job_number"] == "J000728"
     assert jobs_a["items"][0]["total_emissions"] == 39.0
     assert jobs_b["items"][0]["total_emissions"] == 18.25
-    assert any("AND j.org_id = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
+    assert any("COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)

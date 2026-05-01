@@ -18,7 +18,7 @@ type ClientJobsSectionProps = {
     job_type?: string | null;
     is_crp?: boolean;
     milestone_status?: string | null;
-    total_emissions?: number;
+    total_emissions?: number | null;
   }>;
 };
 
@@ -55,12 +55,12 @@ export default function ClientJobsSection({ clientId, jobs }: ClientJobsSectionP
             <div className="space-y-2">
               {typeJobs.map((j) => {
                 const statusColor = milestoneDotClass(j.milestone_status);
-                const emissionsFormatted =
-                  j.is_crp && j.total_emissions != null && j.total_emissions > 0
-                    ? j.total_emissions.toLocaleString("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-                    : j.is_crp
-                      ? "-"
-                      : "N/A";
+                const emissionsValue = Number(j.total_emissions ?? 0);
+                const emissionsFormatted = emissionsValue.toLocaleString("en-GB", {
+                  minimumFractionDigits: 1,
+                  maximumFractionDigits: 1,
+                });
+
                 return (
                   <div key={j.job_id} className="rounded-md border px-3 py-2 text-sm">
                     <div className="flex items-start justify-between gap-3">
@@ -69,9 +69,11 @@ export default function ClientJobsSection({ clientId, jobs }: ClientJobsSectionP
                           <div className={`h-3 w-3 rounded-full ${statusColor}`} />
                         </div>
                         <Link href={`/jobs/${j.job_id}`} className="min-w-0 flex-1">
-                          <div className="font-medium">{(j.job_number ?? `Job ${j.job_id}`) + (j.reporting_year ? ` (${j.reporting_year})` : "")}</div>
+                          <div className="font-medium">
+                            {(j.job_number ?? `Job ${j.job_id}`) + (j.reporting_year ? ` (${j.reporting_year})` : "")}
+                          </div>
                           <div className="text-muted-foreground">{j.title ?? ""}</div>
-                          <div className="text-muted-foreground flex items-center gap-2">
+                          <div className="flex items-center gap-2 text-muted-foreground">
                             <span>Status:</span>
                             <StatusBadge status={j.status} />
                           </div>
@@ -79,12 +81,10 @@ export default function ClientJobsSection({ clientId, jobs }: ClientJobsSectionP
                       </div>
                       <div className="flex items-center gap-3">
                         <MilestoneBadge status={j.milestone_status} className="hidden sm:inline-flex" />
-                        {j.is_crp ? (
-                          <div className="min-w-[120px] text-right">
-                            <div className="text-base font-semibold">{emissionsFormatted}</div>
-                            <div className="text-xs text-muted-foreground">tCO₂e</div>
-                          </div>
-                        ) : null}
+                        <div className="min-w-[120px] text-right">
+                          <div className="text-base font-semibold">{emissionsFormatted}</div>
+                          <div className="text-xs text-muted-foreground">tCO2e</div>
+                        </div>
                         <Button variant="secondary" asChild>
                           <Link href={`/jobs/${j.job_id}`}>Go to Job</Link>
                         </Button>

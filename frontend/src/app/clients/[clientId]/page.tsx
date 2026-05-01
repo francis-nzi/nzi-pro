@@ -90,7 +90,7 @@ type ClientJobsResponse = {
     job_type?: string | null;
     is_crp?: boolean;
     milestone_status?: string | null;
-    total_emissions?: number;
+    total_emissions?: number | null;
   }>;
 };
 

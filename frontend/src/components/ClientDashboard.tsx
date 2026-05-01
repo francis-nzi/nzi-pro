@@ -97,6 +97,37 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const pickDefaultYear = useCallback((json: DashboardData): number | null => {
+    const rows = (json.yearly_emissions || [])
+      .filter((row) => row.year !== null)
+      .map((row) => ({
+        year: Number(row.year),
+        total: Number(row.total || 0),
+      }))
+      .filter((row) => Number.isFinite(row.year));
+
+    if (rows.length === 0) {
+      return json.selected_year ?? json.current_metrics?.year ?? null;
+    }
+
+    const selectedYear = json.selected_year ?? json.current_metrics?.year ?? null;
+    if (selectedYear !== null) {
+      const selectedRow = rows.find((row) => row.year === Number(selectedYear));
+      if (selectedRow && selectedRow.total > 0) {
+        return selectedYear;
+      }
+    }
+
+    const latestEmittingYear = [...rows]
+      .filter((row) => row.total > 0)
+      .sort((a, b) => b.year - a.year)[0];
+    if (latestEmittingYear) {
+      return latestEmittingYear.year;
+    }
+
+    return rows.sort((a, b) => b.year - a.year)[0]?.year ?? selectedYear;
+  }, []);
+
   const loadDashboard = useCallback(async (year: number | null = null) => {
     try {
       setLoading(true);
@@ -114,14 +145,14 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
       if (!res.ok) throw new Error("Failed to load dashboard data");
       const json = (await res.json()) as DashboardData;
       setData(json);
-      const responseYear = json.selected_year ?? json.current_metrics?.year ?? null;
-      if (responseYear !== null) setSelectedYear(Number(responseYear));
+      const defaultYear = pickDefaultYear(json);
+      if (defaultYear !== null) setSelectedYear(Number(defaultYear));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, clientId]);
+  }, [baseUrl, clientId, pickDefaultYear]);
 
   useEffect(() => {
     void loadDashboard(null);
@@ -333,49 +364,49 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">
                 Benchmark Emissions{benchmarkPoint?.year ? ` (${benchmarkPoint.year})` : ""}
               </div>
-              <div className="text-3xl font-semibold tabular-nums">
+              <div className="text-3xl font-semibold leading-none tabular-nums">
                 {benchmarkPoint ? formatEmissions(benchmarkPoint.total) : "-"}
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">
                 Current Year Emissions{displayYear ? ` (${displayYear})` : ""}
               </div>
-              <div className="text-3xl font-semibold tabular-nums">{formatEmissions(total)}</div>
+              <div className="text-3xl font-semibold leading-none tabular-nums">{formatEmissions(total)}</div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Intensity Metric</div>
-              <div className="text-3xl font-semibold tabular-nums">
+              <div className="text-3xl font-semibold leading-none tabular-nums">
                 {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(2) : "-"}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityMetric?.label || "No intensity data"}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityUnit || "Intensity not available"}
               </div>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-6 text-right">
-            <div className="space-y-1">
+          <CardContent className="pt-5 text-right">
+            <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Net Zero Target</div>
-              <div className="text-3xl font-semibold tabular-nums">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-3xl font-semibold leading-none tabular-nums">{data.net_zero_progress?.net_zero_year ?? "-"}</div>
+              <div className="text-xs leading-tight text-muted-foreground">
                 {data.net_zero_progress ? `${data.net_zero_progress.years_to_target} years to target` : "Target not set"}
               </div>
             </div>

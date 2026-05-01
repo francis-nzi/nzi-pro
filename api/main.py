@@ -4688,6 +4688,7 @@ def client_jobs(
         assert_client_access(_user, int(client_db_id))
         org_id = require_org(_user)
         org_text = str(org_id or "").strip()
+        org_filter = "COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?"
         with get_conn() as con:
             try:
                 if org_id:
@@ -4695,8 +4696,9 @@ def client_jobs(
                         """
                         SELECT COUNT(*)
                         FROM jobs j
+                        LEFT JOIN clients c ON c.db_id = j.client_db_id
                         WHERE j.client_db_id = ?
-                          AND j.org_id = ?
+                          AND """ + org_filter + """
                         """,
                         [int(client_db_id), org_text],
                     ).fetchone()
@@ -4732,8 +4734,9 @@ def client_jobs(
                         FROM jobs j
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
+                        LEFT JOIN clients c ON c.db_id = j.client_db_id
                         WHERE j.client_db_id = ?
-                          AND j.org_id = ?
+                          AND """ + org_filter + """
                         GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                                  j.job_type, j.is_crp, j.reporting_period_end,
                                  jp.data_collection_due, jp.data_collection_completed_at,
