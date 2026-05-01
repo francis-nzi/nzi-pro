@@ -77,6 +77,8 @@ from services.emissions_reporting import exact_job_total_emissions
 from api.admin_routes import router as admin_router
 from api.admin_routes import _require_org_capacity
 from api.admin_routes import _require_org_plan_active
+from api.stripe_billing_routes import router as stripe_billing_router
+from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.job_emission_register_routes import router as job_emission_register_router
 from api.job_custom_factors_routes import router as job_custom_factors_router
@@ -463,6 +465,10 @@ def _seeded_job_template_fallbacks(template_key: str | None, template_type: str 
 
 # Include admin routes
 app.include_router(admin_router)
+
+# Include Stripe billing routes
+app.include_router(stripe_billing_router)
+app.include_router(stripe_billing_webhook_router)
 
 # Include job scope data routes
 app.include_router(job_scope_data_router)

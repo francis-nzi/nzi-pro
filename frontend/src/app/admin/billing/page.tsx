@@ -238,6 +238,7 @@ export default function BillingPage() {
   const [billingLoading, setBillingLoading] = useState(false);
   const [billing, setBilling] = useState<OrganisationBillingResponse["billing"] | null>(null);
   const [billingSaving, setBillingSaving] = useState<string | null>(null);
+  const [billingActionLoading, setBillingActionLoading] = useState<string | null>(null);
   const [billingInvoiceForm, setBillingInvoiceForm] = useState<BillingInvoiceForm>(DEFAULT_BILLING_INVOICE_FORM);
   const [billingEventForm, setBillingEventForm] = useState<BillingEventForm>(DEFAULT_BILLING_EVENT_FORM);
   const [capacityError, setCapacityError] = useState<OrgCapacityErrorInfo | null>(null);
@@ -416,6 +417,70 @@ export default function BillingPage() {
     }
   }
 
+  async function openStripeCheckout() {
+    if (!selectedOrg?.org_id) {
+      setError("Select an organisation first.");
+      return;
+    }
+    setBillingActionLoading("checkout");
+    setError("");
+    setStatus("Opening Stripe checkout...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/stripe/checkout-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ plan: selectedOrg?.entitlement?.plan || selectedOrg?.plan || "growth" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(setApiError(detail, "Unable to open Stripe checkout"));
+      }
+      const url = String((body as { url?: string }).url || "").trim();
+      if (!url) throw new Error("Stripe checkout did not return a redirect URL");
+      window.open(url, "_blank", "noopener,noreferrer");
+      setStatus("Stripe checkout opened.");
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBillingActionLoading(null);
+    }
+  }
+
+  async function openStripePortal() {
+    if (!selectedOrg?.org_id) {
+      setError("Select an organisation first.");
+      return;
+    }
+    setBillingActionLoading("portal");
+    setError("");
+    setStatus("Opening Stripe customer portal...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/organisations/${encodeURIComponent(selectedOrg.org_id)}/stripe/customer-portal`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = (body as { detail?: unknown }).detail;
+        throw new Error(setApiError(detail, "Unable to open Stripe customer portal"));
+      }
+      const url = String((body as { url?: string }).url || "").trim();
+      if (!url) throw new Error("Stripe portal did not return a redirect URL");
+      window.open(url, "_blank", "noopener,noreferrer");
+      setStatus("Stripe customer portal opened.");
+      setTimeout(() => setStatus(""), 2500);
+    } catch (e) {
+      setError((e as Error).message);
+      setStatus("");
+    } finally {
+      setBillingActionLoading(null);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -439,6 +504,22 @@ export default function BillingPage() {
               <Link href="/admin">Back to Admin</Link>
             </Button>
           </div>
+        </div>
+
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Button onClick={() => void openStripeCheckout()} disabled={!canManageBilling || billingActionLoading === "checkout"}>
+            {billingActionLoading === "checkout" ? "Opening checkout..." : "Open Stripe checkout"}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void openStripePortal()}
+            disabled={!canManageBilling || billingActionLoading === "portal" || !selectedOrg?.entitlement?.stripe_customer_id}
+          >
+            {billingActionLoading === "portal" ? "Opening portal..." : "Open Stripe portal"}
+          </Button>
+          {!selectedOrg?.entitlement?.stripe_customer_id ? (
+            <div className="self-center text-xs text-muted-foreground">Stripe portal becomes available after the first successful subscription.</div>
+          ) : null}
         </div>
 
         {error ? (
