@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import { parseApiError, type OrgCapacityErrorInfo } from "@/lib/org-capacity-errors";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -825,30 +826,25 @@ export default function OrganisationsPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>
-                Organisation Management
-              </h1>
-              {activeOrgId ? <Badge variant="outline">Active: {activeOrgId}</Badge> : null}
-            </div>
-            <p className="text-muted-foreground">
-              Create organisations, update plan details, issue invitations, and switch your active org context.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" asChild>
-              <Link href="/admin/billing">Billing &amp; Entitlements</Link>
-            </Button>
-            <Button variant="secondary" onClick={resetNewOrganisationForm}>
-              New Organisation
-            </Button>
-            <Button variant="secondary" asChild>
-              <Link href="/admin">Back to Admin</Link>
-            </Button>
-          </div>
-        </div>
+        <AdminPageHeader
+          kicker="People & Access"
+          title="Organisation Management"
+          description="Create organisations, update plan details, issue invitations, and switch your active org context."
+          badges={activeOrgId ? [<>Active org: {activeOrgId}</>] : []}
+          actions={
+            <>
+              <Button variant="secondary" asChild className="rounded-full">
+                <Link href="/admin/billing">Billing &amp; Entitlements</Link>
+              </Button>
+              <Button onClick={resetNewOrganisationForm} className="rounded-full bg-[#1c5026] text-white hover:bg-[#153f1e]">
+                New Organisation
+              </Button>
+              <Button variant="outline" asChild className="rounded-full">
+                <Link href="/admin">Back to Admin</Link>
+              </Button>
+            </>
+          }
+        />
 
         {error ? (
           <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">

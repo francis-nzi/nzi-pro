@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -715,22 +716,21 @@ export default function TeamManagementPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold" style={{ color: "#F26624" }}>
-              Team Management
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Invite team members, assign roles, and manage access lifecycle
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={openInviteDialog}>Invite Team Member</Button>
-            <Button variant="secondary" asChild>
-              <Link href="/admin">Back to Admin</Link>
-            </Button>
-          </div>
-        </div>
+        <AdminPageHeader
+          kicker="People & Access"
+          title="Team Management"
+          description="Invite team members, assign roles, and manage access lifecycle."
+          actions={
+            <>
+              <Button onClick={openInviteDialog} className="rounded-full bg-[#1c5026] text-white hover:bg-[#153f1e]">
+                Invite Team Member
+              </Button>
+              <Button variant="outline" asChild className="rounded-full">
+                <Link href="/admin">Back to Admin</Link>
+              </Button>
+            </>
+          }
+        />
 
         {error && (
           <div className="mb-4 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>

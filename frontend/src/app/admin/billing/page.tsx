@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { parseApiError, type OrgCapacityErrorInfo } from "@/lib/org-capacity-errors";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -484,27 +485,22 @@ export default function BillingPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>
-                Billing & Entitlements
-              </h1>
-              {activeOrgId ? <Badge variant="outline">Active: {activeOrgId}</Badge> : null}
-            </div>
-            <p className="text-muted-foreground">
-              Review plan status, usage limits, invoices, and billing events for the selected organisation.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" asChild>
-              <Link href="/admin/organisations">Organisations</Link>
-            </Button>
-            <Button variant="secondary" asChild>
-              <Link href="/admin">Back to Admin</Link>
-            </Button>
-          </div>
-        </div>
+        <AdminPageHeader
+          kicker="People & Access"
+          title="Billing & Entitlements"
+          description="Review plan status, usage limits, invoices, and billing events for the selected organisation."
+          badges={activeOrgId ? [<>Active org: {activeOrgId}</>] : []}
+          actions={
+            <>
+              <Button variant="secondary" asChild className="rounded-full">
+                <Link href="/admin/organisations">Organisations</Link>
+              </Button>
+              <Button variant="outline" asChild className="rounded-full">
+                <Link href="/admin">Back to Admin</Link>
+              </Button>
+            </>
+          }
+        />
 
         <div className="mb-6 flex flex-wrap gap-2">
           <Button onClick={() => void openStripeCheckout()} disabled={!canManageBilling || billingActionLoading === "checkout"}>

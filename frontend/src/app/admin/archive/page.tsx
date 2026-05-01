@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -375,17 +376,16 @@ export default function ArchivePage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Archive Management</h1>
-            <p className="text-sm text-muted-foreground">
-              Admin-only: Restore or permanently delete archived items
-            </p>
-          </div>
-          <Button variant="secondary" asChild>
-            <Link href="/admin">Back to Admin</Link>
-          </Button>
-        </div>
+        <AdminPageHeader
+          kicker="System & Governance"
+          title="Archive Management"
+          description="Admin-only: Restore or permanently delete archived items."
+          actions={
+            <Button variant="outline" asChild className="rounded-full">
+              <Link href="/admin">Back to Admin</Link>
+            </Button>
+          }
+        />
 
         {status && (
           <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>

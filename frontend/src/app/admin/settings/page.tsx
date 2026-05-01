@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -446,20 +447,19 @@ export default function SystemSettingsPage() {
   const logoUrl = nziLogoFile ? `${baseUrl}/system-settings/logo/file?v=${logoVersion}` : null;
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-bold text-[#F26624]">System Settings</h1>
-              <Badge variant={xeroHeaderBadge.variant}>{xeroHeaderBadge.label}</Badge>
-            </div>
-            <p className="mt-1 text-muted-foreground">Configure global company identity and document settings.</p>
-          </div>
-          <Button variant="secondary" asChild>
-            <Link href="/admin">Back to Admin</Link>
-          </Button>
-        </div>
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto w-full max-w-7xl px-6 py-10">
+        <AdminPageHeader
+          kicker="System & Governance"
+          title="System Settings"
+          description="Configure global company identity and document settings."
+          badges={[xeroHeaderBadge.label]}
+          actions={
+            <Button variant="outline" asChild className="rounded-full">
+              <Link href="/admin">Back to Admin</Link>
+            </Button>
+          }
+        />
 
         {error ? (
           <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">

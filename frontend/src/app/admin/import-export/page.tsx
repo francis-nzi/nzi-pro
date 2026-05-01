@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
+import { AdminPageHeader } from "@/components/admin/AdminPageHeader";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -1343,15 +1344,16 @@ export default function AdminImportExportPage() {
           </CardContent>
         </Card>
 
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold" style={{ color: "#F26624" }}>Import / Export</h1>
-            <p className="text-muted-foreground">WorkflowMax migration control panel (trial + production runs).</p>
-          </div>
-          <Button variant="secondary" asChild>
-            <Link href="/admin">{"<-"} Back to Admin</Link>
-          </Button>
-        </div>
+        <AdminPageHeader
+          kicker="System & Governance"
+          title="Import / Export"
+          description="WorkflowMax migration control panel for trial and production runs."
+          actions={
+            <Button variant="outline" asChild className="rounded-full">
+              <Link href="/admin">Back to Admin</Link>
+            </Button>
+          }
+        />
 
         <Card>
           <CardHeader><CardTitle>WorkflowMax Source Summary</CardTitle></CardHeader>
