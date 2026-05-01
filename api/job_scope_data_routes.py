@@ -437,6 +437,7 @@ def get_job_scope_data(
             has_source_uom = "source_uom" in cols
             source_qty_select = "source_qty" if has_source_qty else "NULL::numeric AS source_qty"
             source_uom_select = "source_uom" if has_source_uom else "NULL::text AS source_uom"
+            fl_parts = _factor_lookup_select_parts(con)
             # Verify job exists
             print(f"DEBUG: About to convert job_id to int")
             job_id_int = int(job_id)
