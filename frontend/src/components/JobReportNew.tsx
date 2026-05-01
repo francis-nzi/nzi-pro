@@ -437,7 +437,15 @@ export default function JobReportNew({
       }
       if (!versionsRes.ok) {
         let d = String(versionsRes.status);
-        try { const b = await versionsRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
+        try {
+          const raw = await versionsRes.text();
+          try {
+            const b = JSON.parse(raw) as { detail?: unknown };
+            d = b.detail ? String(b.detail).slice(0, 400) : `${versionsRes.status}: ${raw.slice(0, 400)}`;
+          } catch {
+            d = `${versionsRes.status}: ${raw.slice(0, 400)}`;
+          }
+        } catch { /* ignore */ }
         throw new Error(`Failed to load report versions: ${d}`);
       }
 

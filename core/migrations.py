@@ -1769,6 +1769,8 @@ def run_migrations():
         )
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS org_id TEXT")
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS file_name TEXT")
+        con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS file_path TEXT")
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'")
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_item_id VARCHAR")
         con.execute("ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_web_url TEXT")
