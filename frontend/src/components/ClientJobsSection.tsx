@@ -81,10 +81,12 @@ export default function ClientJobsSection({ clientId, jobs }: ClientJobsSectionP
                       </div>
                       <div className="flex items-center gap-3">
                         <MilestoneBadge status={j.milestone_status} className="hidden sm:inline-flex" />
-                        <div className="min-w-[120px] text-right">
-                          <div className="text-base font-semibold">{emissionsFormatted}</div>
-                          <div className="text-xs text-muted-foreground">tCO2e</div>
-                        </div>
+                        {emissionsValue > 0 && (
+                          <div className="min-w-[120px] text-right">
+                            <div className="text-base font-semibold">{emissionsFormatted}</div>
+                            <div className="text-xs text-muted-foreground">tCO2e</div>
+                          </div>
+                        )}
                         <Button variant="secondary" asChild>
                           <Link href={`/jobs/${j.job_id}`}>Go to Job</Link>
                         </Button>
