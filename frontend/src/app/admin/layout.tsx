@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { PropsWithChildren, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { apiUrl } from "@/lib/auth-client";
 import { useAuthSession } from "@/components/AuthContext";
+import { AdminSectionShell } from "@/components/admin/AdminSectionShell";
 
 type AccessState = "loading" | "allowed" | "denied";
 
@@ -32,6 +34,7 @@ function hasAdminAccess(user: Record<string, unknown> | null | undefined): boole
 
 export default function AdminLayout({ children }: PropsWithChildren) {
   const authSession = useAuthSession();
+  const pathname = usePathname();
   const [accessState, setAccessState] = useState<AccessState>("loading");
 
   useEffect(() => {
@@ -103,5 +106,5 @@ export default function AdminLayout({ children }: PropsWithChildren) {
     );
   }
 
-  return <>{children}</>;
+  return <AdminSectionShell pathname={pathname || "/admin"}>{children}</AdminSectionShell>;
 }
