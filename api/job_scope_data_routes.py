@@ -909,6 +909,7 @@ def get_previous_scope_rows(
                 "COALESCE(jsr.original_id, '') <> ''",
             ]
             params: list[Any] = list(prior_job_ids)
+            fl_parts = _factor_lookup_select_parts(con)
 
             if scope and scope.strip():
                 where_clauses.append("jsr.scope = %s")
