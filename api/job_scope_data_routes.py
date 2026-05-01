@@ -311,6 +311,9 @@ def _factor_lookup_select_parts(con) -> dict[str, str]:
     has = lambda c: c in cols
     return {
         "category_expr": "category" if has("category") else "NULL::text",
+        # fl_category_expr is table-alias-qualified for use inside JOIN queries
+        # where an unqualified "category" would be ambiguous with jsr.category.
+        "fl_category_expr": "fl.category" if has("category") else "NULL::text",
         "level_1_expr": "level_1" if has("level_1") else "NULL::text AS level_1",
         "level_2_expr": "level_2" if has("level_2") else "NULL::text AS level_2",
         "level_4_expr": "level_4" if has("level_4") else "NULL::text AS level_4",
@@ -538,7 +541,7 @@ def get_job_scope_data(
                     jsr.data_source, jsr.data_confidence, jsr.notes, jsr.is_custom_entry, jsr.enabled, jsr.created_at, jsr.updated_at,
                     fl.factor AS lookup_factor,
                     fl.ghg_unit AS lookup_ghg_unit,
-                    {fl_parts['category_expr']} AS lookup_category,
+                    {fl_parts['fl_category_expr']} AS lookup_category,
                     fl.level_1 AS lookup_level_1,
                     fl.level_2 AS lookup_level_2,
                     fl.level_3 AS lookup_level_3,
@@ -1016,8 +1019,8 @@ def get_previous_scope_rows(
                     jsr.dataset_id,
                     jsr.factor_db_id,
                     jsr.original_id,
-                    COALESCE({fl_parts['category_expr']}, jsr.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
-                    COALESCE({fl_parts['category_expr']}, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
+                    COALESCE({fl_parts['fl_category_expr']}, jsr.level_1, jsr.category, jsr.level_2, fl.level_2) AS category,
+                    COALESCE({fl_parts['fl_category_expr']}, jsr.category, jsr.level_2, fl.level_2, jsr.level_1) AS lookup_category,
                     COALESCE(jsr.level_1, fl.level_1) AS level_1,
                     COALESCE(jsr.level_2, fl.level_2) AS level_2,
                     COALESCE(jsr.level_3, fl.level_3) AS level_3,
