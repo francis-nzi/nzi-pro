@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface AIInsightsProps {
   clientId: number;
@@ -52,6 +52,19 @@ type InsightResponse = {
   citations?: Array<{ label?: string; value?: string; source?: string }>;
 };
 
+type SavedInsight = {
+  saved_client_insight_id: number;
+  client_db_id?: number | null;
+  user_id?: string | null;
+  org_id?: string | null;
+  provider?: string | null;
+  insights?: string | null;
+  structured?: StructuredInsights | null;
+  citations?: Array<{ label?: string; value?: string; source?: string }>;
+  preview?: string | null;
+  created_at?: string | null;
+};
+
 type InsightState = {
   insights: string | null;
   structured: StructuredInsights | null;
@@ -59,6 +72,7 @@ type InsightState = {
   loading: boolean;
   error: string | null;
 };
+
 type SetInsightState = (value: InsightState | ((prev: InsightState) => InsightState)) => void;
 
 const EMPTY_STATE: InsightState = {
@@ -69,18 +83,39 @@ const EMPTY_STATE: InsightState = {
   error: null,
 };
 
+function providerLabel(provider?: string | null): string {
+  const value = String(provider || "").trim().toLowerCase();
+  if (value === "anthropic") return "Anthropic";
+  if (value === "openai") return "OpenAI";
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "Insight";
+}
+
+function previewText(insights?: string | null, structured?: StructuredInsights | null): string {
+  const text = String(structured?.summary || insights || "").trim();
+  if (!text) return "Saved insight";
+  if (text.length <= 240) return text;
+  return `${text.slice(0, 237).trimEnd()}...`;
+}
+
 function InsightPanel({
   title,
   subtitle,
   state,
   onGenerate,
+  onSave,
+  canSave,
+  saving,
 }: {
   title: string;
   subtitle: string;
   state: InsightState;
   onGenerate: () => void;
+  onSave: () => void;
+  canSave: boolean;
+  saving: boolean;
 }) {
   const structured = state.structured;
+
   return (
     <Card>
       <CardHeader>
@@ -162,10 +197,15 @@ function InsightPanel({
           ) : null}
 
           {state.error ? <p className="text-sm text-red-600">Error: {state.error}</p> : null}
-          <div>
+
+          <div className="flex flex-wrap gap-2">
             <Button onClick={onGenerate} disabled={state.loading} variant="outline">
               {state.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {state.insights ? "Refresh insights" : "Generate insights"}
+            </Button>
+            <Button onClick={onSave} disabled={!canSave || saving} variant="secondary">
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save insight
             </Button>
           </div>
         </div>
@@ -177,6 +217,31 @@ function InsightPanel({
 export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
   const [anthropic, setAnthropic] = useState<InsightState>(EMPTY_STATE);
   const [alternative, setAlternative] = useState<InsightState>(EMPTY_STATE);
+  const [savedInsights, setSavedInsights] = useState<SavedInsight[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedError, setSavedError] = useState("");
+  const [savingProvider, setSavingProvider] = useState<string | null>(null);
+
+  async function loadSavedInsights() {
+    setSavedLoading(true);
+    setSavedError("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/saved-insights`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || `Unable to load saved insights (${res.status}).`);
+      }
+      const json = (await res.json()) as { saved_insights?: SavedInsight[] };
+      setSavedInsights(Array.isArray(json.saved_insights) ? json.saved_insights : []);
+    } catch (e) {
+      setSavedError((e as Error).message);
+      setSavedInsights([]);
+    } finally {
+      setSavedLoading(false);
+    }
+  }
 
   async function fetchFor(endpoint: string, setState: SetInsightState) {
     try {
@@ -209,20 +274,129 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
     }
   }
 
+  async function saveInsight(provider: string, state: InsightState) {
+    if (!state.insights) return;
+    setSavingProvider(provider);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/saved-insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          provider,
+          insights: state.insights,
+          structured: state.structured,
+          citations: state.citations,
+        }),
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const payload = (await res.json()) as { detail?: string };
+          detail = payload?.detail || "";
+        } catch {
+          detail = await res.text().catch(() => "");
+        }
+        throw new Error(detail || `Unable to save insight (${res.status}).`);
+      }
+      await loadSavedInsights();
+    } catch (e) {
+      const message = (e as Error).message;
+      if (provider === "anthropic") {
+        setAnthropic((prev) => ({ ...prev, error: message }));
+      } else {
+        setAlternative((prev) => ({ ...prev, error: message }));
+      }
+    } finally {
+      setSavingProvider(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadSavedInsights();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, baseUrl]);
+
+  const latestSaved = useMemo(() => {
+    const map = new Map<string, SavedInsight>();
+    for (const item of savedInsights) {
+      const key = String(item.provider || "").trim().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, item);
+      }
+    }
+    return map;
+  }, [savedInsights]);
+
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <InsightPanel
-        title="AI Insights (Anthropic)"
-        subtitle="Provider: Anthropic"
-        state={anthropic}
-        onGenerate={() => void fetchFor("insights", setAnthropic)}
-      />
-      <InsightPanel
-        title="AI Insights (Alternative)"
-        subtitle="Provider: OpenAI (with rule-based fallback)"
-        state={alternative}
-        onGenerate={() => void fetchFor("insights-openai", setAlternative)}
-      />
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <InsightPanel
+          title="Insights"
+          subtitle="Provider: Anthropic"
+          state={anthropic}
+          onGenerate={() => void fetchFor("insights", setAnthropic)}
+          onSave={() => void saveInsight("anthropic", anthropic)}
+          canSave={Boolean(anthropic.insights)}
+          saving={savingProvider === "anthropic"}
+        />
+        <InsightPanel
+          title="Insights"
+          subtitle="Provider: OpenAI (with rule-based fallback)"
+          state={alternative}
+          onGenerate={() => void fetchFor("insights-openai", setAlternative)}
+          onSave={() => void saveInsight("openai", alternative)}
+          canSave={Boolean(alternative.insights)}
+          saving={savingProvider === "openai"}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved Insights</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {savedLoading ? (
+            <p className="text-sm text-muted-foreground">Loading saved insights...</p>
+          ) : savedError ? (
+            <p className="text-sm text-red-600">Error: {savedError}</p>
+          ) : savedInsights.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No saved insights yet. Generate one and save it to keep it here.</p>
+          ) : (
+            <div className="space-y-3">
+              {savedInsights.map((item) => (
+                <div key={item.saved_client_insight_id} className="rounded-md border p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold">{providerLabel(item.provider)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {item.created_at ? new Date(item.created_at).toLocaleString() : "Timestamp unavailable"}
+                      </div>
+                    </div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {item.citations?.length ? `${item.citations.length} citation${item.citations.length === 1 ? "" : "s"}` : "Saved"}
+                    </div>
+                  </div>
+                  <p className="mt-3 whitespace-pre-wrap text-sm text-foreground">
+                    {item.preview || previewText(item.insights, item.structured)}
+                  </p>
+                  {item.structured?.summary ? (
+                    <p className="mt-2 text-xs text-muted-foreground">Summary: {item.structured.summary}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          {latestSaved.size > 0 ? (
+            <div className="mt-4 text-xs text-muted-foreground">
+              Latest saved by provider:{" "}
+              {Array.from(latestSaved.entries())
+                .map(([provider, item]) => `${providerLabel(provider)} ${item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}`)
+                .join(" · ")}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }

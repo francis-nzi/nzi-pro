@@ -5,10 +5,12 @@ Provides aggregated emissions data and metrics for client dashboards
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from copy import deepcopy
+import json
 import logging
 import os
 import threading
 import time
+from typing import Any
 from core.database import get_conn
 from api.auth import _current_user
 from api.permissions import assert_client_access
@@ -96,6 +98,102 @@ def _set_cached_dashboard(client_db_id: int, year: int | None, org_id: str | Non
     key = _dashboard_cache_key(client_db_id, year, org_id)
     with _dashboard_cache_lock:
         _dashboard_cache[key] = (time.monotonic(), deepcopy(payload))
+
+
+def _ensure_saved_client_insights_schema(con) -> None:
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS saved_client_insights (
+                saved_client_insight_id BIGSERIAL PRIMARY KEY,
+                user_id VARCHAR NOT NULL,
+                org_id VARCHAR NOT NULL,
+                client_db_id INTEGER NOT NULL,
+                provider VARCHAR(32) NOT NULL,
+                insights_text TEXT NOT NULL,
+                structured_json TEXT,
+                citations_json TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+    except Exception:
+        pass
+    try:
+        con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_saved_client_insights_user_client_created
+            ON saved_client_insights (user_id, org_id, client_db_id, created_at DESC, saved_client_insight_id DESC)
+            """
+        )
+    except Exception:
+        pass
+
+
+def _saved_client_insights_enabled(con) -> bool:
+    try:
+        row = con.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = CURRENT_SCHEMA()
+              AND table_name = %s
+            LIMIT 1
+            """,
+            ["saved_client_insights"],
+        ).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _safe_saved_insight_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _parse_saved_insight_json(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+def _serialize_saved_client_insight_row(row) -> dict[str, Any]:
+    if not row:
+        return {}
+    saved_at = row[8] if len(row) > 8 else None
+    return {
+        "saved_client_insight_id": int(row[0]),
+        "client_db_id": int(row[1]) if row[1] is not None else None,
+        "user_id": str(row[2]) if row[2] is not None else None,
+        "org_id": str(row[3]) if row[3] is not None else None,
+        "provider": str(row[4]) if row[4] is not None else None,
+        "insights": str(row[5]) if row[5] is not None else "",
+        "structured": _parse_saved_insight_json(row[6]),
+        "citations": _parse_saved_insight_json(row[7]) or [],
+        "created_at": str(saved_at) if saved_at is not None else None,
+    }
+
+
+def _saved_insight_user_id(user: dict[str, Any]) -> str:
+    return str(user.get("user_id") or "").strip()
+
+
+def _saved_insight_preview(insights_text: str, structured: Any) -> str:
+    summary = None
+    if isinstance(structured, dict):
+        summary = structured.get("summary")
+    text = str(summary or insights_text or "").strip()
+    if len(text) <= 220:
+        return text
+    return text[:217].rstrip() + "..."
 
 
 def _load_client_jobs(con, client_db_id: int, org_id: str | None, crp_only: bool = True):
@@ -787,3 +885,117 @@ def get_client_insights_openai(client_db_id: int, _user: dict[str, str] = Depend
                 detail="OPENAI_API_KEY is not configured. Set it in the backend environment and restart.",
             )
         raise HTTPException(status_code=500, detail=f"OpenAI insight generation failed: {message}")
+
+
+@router.get("/clients/{client_db_id}/saved-insights")
+def list_client_saved_insights(client_db_id: int, _user: dict[str, str] = Depends(_current_user)):
+    try:
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
+        user_id = _saved_insight_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+        with get_conn() as con:
+            _ensure_saved_client_insights_schema(con)
+            if not _saved_client_insights_enabled(con):
+                return {"saved_insights": []}
+            rows = con.execute(
+                """
+                SELECT
+                    saved_client_insight_id,
+                    client_db_id,
+                    user_id,
+                    org_id,
+                    provider,
+                    insights_text,
+                    structured_json,
+                    citations_json,
+                    created_at
+                FROM saved_client_insights
+                WHERE client_db_id = %s
+                  AND user_id = %s
+                  AND org_id = %s
+                ORDER BY created_at DESC, saved_client_insight_id DESC
+                """,
+                [int(client_db_id), user_id, org_id],
+            ).fetchall()
+        return {
+            "saved_insights": [
+                {
+                    **_serialize_saved_client_insight_row(row),
+                    "preview": _saved_insight_preview(str(row[5]) if len(row) > 5 and row[5] is not None else "", _parse_saved_insight_json(row[6]) if len(row) > 6 else None),
+                }
+                for row in rows
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load saved insights: {e}")
+
+
+@router.post("/clients/{client_db_id}/saved-insights")
+def save_client_insight(
+    client_db_id: int,
+    payload: dict[str, Any],
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
+        user_id = _saved_insight_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+
+        provider = str(payload.get("provider") or "").strip().lower()
+        if not provider:
+            raise HTTPException(status_code=400, detail="provider is required")
+
+        insights_text = _safe_saved_insight_text(payload.get("insights"))
+        if not insights_text:
+            raise HTTPException(status_code=400, detail="insights is required")
+
+        structured = payload.get("structured")
+        citations = payload.get("citations")
+
+        with get_conn() as con:
+            _ensure_saved_client_insights_schema(con)
+            row = con.execute(
+                """
+                INSERT INTO saved_client_insights (
+                    user_id,
+                    org_id,
+                    client_db_id,
+                    provider,
+                    insights_text,
+                    structured_json,
+                    citations_json
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING
+                    saved_client_insight_id,
+                    client_db_id,
+                    user_id,
+                    org_id,
+                    provider,
+                    insights_text,
+                    structured_json,
+                    citations_json,
+                    created_at
+                """,
+                [
+                    user_id,
+                    org_id,
+                    int(client_db_id),
+                    provider,
+                    insights_text,
+                    json.dumps(structured) if structured is not None else None,
+                    json.dumps(citations) if citations is not None else None,
+                ],
+            ).fetchone()
+
+        return {"saved_insight": _serialize_saved_client_insight_row(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save insight: {e}")
