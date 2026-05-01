@@ -326,7 +326,7 @@ def _issue_login_result(user: Dict, *, setup_required: bool = False) -> Dict:
         "sub": user["user_id"],
         "kind": "mfa_setup" if setup_required else "session",
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=4)).timestamp()),
+        "exp": int((now + timedelta(hours=24)).timestamp()),
     }
     token = jwt.encode(payload, secret, algorithm="HS256")
     return {

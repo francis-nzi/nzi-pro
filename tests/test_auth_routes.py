@@ -100,3 +100,18 @@ def test_me_includes_current_org_summary(monkeypatch):
     assert result["current_org"]["slug"] == "acme-org"
     assert result["current_org"]["role"] == "Admin"
     assert any("FROM organisations" in sql for sql, _ in fake.executed)
+
+
+def test_issue_login_result_uses_24_hour_expiry(monkeypatch):
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(auth_routes, "_jwt_secret", lambda: "secret")
+    monkeypatch.setattr(auth_routes, "_must_accept_portal_terms", lambda _user: False)
+    monkeypatch.setattr(auth_routes.jwt, "encode", lambda payload, secret, algorithm: captured.update({"payload": payload, "secret": secret, "algorithm": algorithm}) or "token")
+
+    result = auth_routes._issue_login_result({"user_id": "u1", "full_name": "User", "email": "user@example.com"})
+
+    assert result["access_token"] == "token"
+    assert captured["secret"] == "secret"
+    assert captured["algorithm"] == "HS256"
+    assert int(captured["payload"]["exp"]) - int(captured["payload"]["iat"]) == 24 * 60 * 60

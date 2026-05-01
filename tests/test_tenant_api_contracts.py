@@ -47,7 +47,7 @@ class _ContractConn:
         if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at FROM organisations WHERE org_id = %s" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23")
         if "SELECT invitation_id, org_id, email, role, accepted_at, expires_at" in sql:
-            return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-01T00:00:00+00:00")
+            return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-08T00:00:00+00:00")
         if "SELECT 1 FROM jobs WHERE job_id = ?" in sql:
             return _FakeRow(1) if len(params) > 1 and params[1] == "org-a" else None
         if "SELECT 1 FROM jobs WHERE job_id = %s" in sql:
@@ -158,6 +158,9 @@ def test_create_job_contract(monkeypatch):
     assert result["job_number"].startswith("J")
     assert {"reporting_period_start", "reporting_period_end", "is_benchmark"}.issubset(result)
     assert any("INSERT INTO jobs" in sql for sql, _ in fake.executed)
+    insert_sql, insert_params = next((sql, params) for sql, params in fake.executed if "INSERT INTO jobs" in sql)
+    assert "org_id" in insert_sql
+    assert insert_params is not None and insert_params[1] == "org-a"
 
 
 def test_create_time_log_contract(monkeypatch):

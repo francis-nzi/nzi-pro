@@ -53,7 +53,7 @@ def _strict_auth_required() -> bool:
 
 
 if _strict_auth_required() and not str(os.getenv("NZI_JWT_SECRET") or "").strip():
-    _safe_startup_log("WARN", "Strict auth mode is enabled but NZI_JWT_SECRET is missing.")
+    raise RuntimeError("FATAL: NZI_JWT_SECRET missing in strict auth mode")
 
 import pandas as pd
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -705,7 +705,7 @@ def _ensure_job_original_portfolio_column(con) -> None:
 def _ensure_client_billing_columns(con) -> None:
     """Ensure client billing-address columns exist for older deployments."""
     statements = [
-        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id UUID",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS create_site_from_address BOOLEAN",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_company VARCHAR",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_same_as_main BOOLEAN DEFAULT TRUE",
@@ -723,9 +723,9 @@ def _ensure_client_billing_columns(con) -> None:
 def _ensure_client_org_columns(con) -> None:
     """Ensure client/org tenancy columns exist."""
     statements = [
-        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id VARCHAR",
-        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS org_id VARCHAR",
-        "ALTER TABLE client_contacts ADD COLUMN IF NOT EXISTS org_id VARCHAR",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS org_id UUID",
+        "ALTER TABLE client_sites ADD COLUMN IF NOT EXISTS org_id UUID",
+        "ALTER TABLE client_contacts ADD COLUMN IF NOT EXISTS org_id UUID",
     ]
     for statement in statements:
         try:
@@ -777,9 +777,19 @@ app.add_middleware(
 # ... existing code ...
 @app.get("/health")
 def health():
+    try:
+        with get_conn() as con:
+            row = con.execute("SELECT 1").fetchone()
+        if not row or row[0] != 1:
+            raise HTTPException(status_code=503, detail="Database health check failed")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Database health check failed: {exc}")
     return {
         "ok": True,
         "service": "NZI Pro API",
+        "database": "ok",
     }
 # ... existing code ...
 
@@ -1039,15 +1049,16 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             row = con.execute(
                 """
                 INSERT INTO jobs (
-                    client_db_id, job_type_id, job_type, original_portfolio, job_number, title, reporting_year,
+                    client_db_id, org_id, job_type_id, job_type, original_portfolio, job_number, title, reporting_year,
                     reporting_period_start, reporting_period_end, is_benchmark, is_crp,
                     status, start_date, due_date, legacy_job_no
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING job_id
                 """,
                 [
                     int(client_db_id),
+                    org_id,
                     job_type_id,
                     job_type_name,
                     "NZI",
