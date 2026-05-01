@@ -999,3 +999,123 @@ def save_client_insight(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save insight: {e}")
+
+
+@router.put("/clients/{client_db_id}/saved-insights/{saved_client_insight_id}")
+def update_client_saved_insight(
+    client_db_id: int,
+    saved_client_insight_id: int,
+    payload: dict[str, Any],
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
+        user_id = _saved_insight_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+
+        provider = str(payload.get("provider") or "").strip().lower()
+        if not provider:
+            raise HTTPException(status_code=400, detail="provider is required")
+
+        insights_text = _safe_saved_insight_text(payload.get("insights"))
+        if not insights_text:
+            raise HTTPException(status_code=400, detail="insights is required")
+
+        structured = payload.get("structured")
+        citations = payload.get("citations")
+
+        with get_conn() as con:
+            _ensure_saved_client_insights_schema(con)
+            existing = con.execute(
+                """
+                SELECT 1
+                FROM saved_client_insights
+                WHERE saved_client_insight_id = %s
+                  AND client_db_id = %s
+                  AND user_id = %s
+                  AND org_id = %s
+                LIMIT 1
+                """,
+                [int(saved_client_insight_id), int(client_db_id), user_id, org_id],
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Saved insight not found")
+
+            row = con.execute(
+                """
+                UPDATE saved_client_insights
+                SET
+                    provider = %s,
+                    insights_text = %s,
+                    structured_json = %s,
+                    citations_json = %s
+                WHERE saved_client_insight_id = %s
+                  AND client_db_id = %s
+                  AND user_id = %s
+                  AND org_id = %s
+                RETURNING
+                    saved_client_insight_id,
+                    client_db_id,
+                    user_id,
+                    org_id,
+                    provider,
+                    insights_text,
+                    structured_json,
+                    citations_json,
+                    created_at
+                """,
+                [
+                    provider,
+                    insights_text,
+                    json.dumps(structured) if structured is not None else None,
+                    json.dumps(citations) if citations is not None else None,
+                    int(saved_client_insight_id),
+                    int(client_db_id),
+                    user_id,
+                    org_id,
+                ],
+            ).fetchone()
+
+        return {"saved_insight": _serialize_saved_client_insight_row(row)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update saved insight: {e}")
+
+
+@router.delete("/clients/{client_db_id}/saved-insights/{saved_client_insight_id}")
+def delete_client_saved_insight(
+    client_db_id: int,
+    saved_client_insight_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    try:
+        assert_client_access(_user, int(client_db_id))
+        org_id = require_org(_user)
+        user_id = _saved_insight_user_id(_user)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Authenticated user is missing a user_id")
+
+        with get_conn() as con:
+            _ensure_saved_client_insights_schema(con)
+            deleted = con.execute(
+                """
+                DELETE FROM saved_client_insights
+                WHERE saved_client_insight_id = %s
+                  AND client_db_id = %s
+                  AND user_id = %s
+                  AND org_id = %s
+                RETURNING saved_client_insight_id
+                """,
+                [int(saved_client_insight_id), int(client_db_id), user_id, org_id],
+            ).fetchone()
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Saved insight not found")
+
+        return {"ok": True, "saved_client_insight_id": int(saved_client_insight_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete saved insight: {e}")

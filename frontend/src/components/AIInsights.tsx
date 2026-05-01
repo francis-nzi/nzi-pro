@@ -5,6 +5,9 @@ import { Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 interface AIInsightsProps {
   clientId: number;
@@ -65,6 +68,14 @@ type SavedInsight = {
   created_at?: string | null;
 };
 
+type SavedInsightDraft = {
+  saved_client_insight_id: number;
+  provider: string;
+  insights: string;
+  structured: StructuredInsights | null;
+  citations: Array<{ label?: string; value?: string; source?: string }>;
+};
+
 type InsightState = {
   insights: string | null;
   structured: StructuredInsights | null;
@@ -88,6 +99,10 @@ function providerLabel(provider?: string | null): string {
   if (value === "anthropic") return "Anthropic";
   if (value === "openai") return "OpenAI";
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : "Insight";
+}
+
+function normalizeProvider(value: string): string {
+  return String(value || "").trim().toLowerCase();
 }
 
 function previewText(insights?: string | null, structured?: StructuredInsights | null): string {
@@ -221,6 +236,8 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
   const [savedLoading, setSavedLoading] = useState(false);
   const [savedError, setSavedError] = useState("");
   const [savingProvider, setSavingProvider] = useState<string | null>(null);
+  const [editingInsight, setEditingInsight] = useState<SavedInsightDraft | null>(null);
+  const [editingSaving, setEditingSaving] = useState(false);
 
   async function loadSavedInsights() {
     setSavedLoading(true);
@@ -312,6 +329,77 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
     }
   }
 
+  function startEditing(item: SavedInsight) {
+    setEditingInsight({
+      saved_client_insight_id: item.saved_client_insight_id,
+      provider: String(item.provider || "anthropic"),
+      insights: String(item.insights || item.structured?.summary || item.preview || "").trim(),
+      structured: item.structured || null,
+      citations: Array.isArray(item.citations) ? item.citations : [],
+    });
+  }
+
+  async function updateSavedInsight() {
+    if (!editingInsight) return;
+    setEditingSaving(true);
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/saved-insights/${editingInsight.saved_client_insight_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          provider: editingInsight.provider,
+          insights: editingInsight.insights,
+          structured: editingInsight.structured,
+          citations: editingInsight.citations,
+        }),
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const payload = (await res.json()) as { detail?: string };
+          detail = payload?.detail || "";
+        } catch {
+          detail = await res.text().catch(() => "");
+        }
+        throw new Error(detail || `Unable to update insight (${res.status}).`);
+      }
+      setEditingInsight(null);
+      await loadSavedInsights();
+    } catch (e) {
+      setSavedError((e as Error).message);
+    } finally {
+      setEditingSaving(false);
+    }
+  }
+
+  async function deleteSavedInsight(item: SavedInsight) {
+    const confirmed = window.confirm("Delete this saved insight?");
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/saved-insights/${item.saved_client_insight_id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          const payload = (await res.json()) as { detail?: string };
+          detail = payload?.detail || "";
+        } catch {
+          detail = await res.text().catch(() => "");
+        }
+        throw new Error(detail || `Unable to delete insight (${res.status}).`);
+      }
+      if (editingInsight?.saved_client_insight_id === item.saved_client_insight_id) {
+        setEditingInsight(null);
+      }
+      await loadSavedInsights();
+    } catch (e) {
+      setSavedError((e as Error).message);
+    }
+  }
+
   useEffect(() => {
     void loadSavedInsights();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -373,8 +461,16 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
                         {item.created_at ? new Date(item.created_at).toLocaleString() : "Timestamp unavailable"}
                       </div>
                     </div>
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                      {item.citations?.length ? `${item.citations.length} citation${item.citations.length === 1 ? "" : "s"}` : "Saved"}
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {item.citations?.length ? `${item.citations.length} citation${item.citations.length === 1 ? "" : "s"}` : "Saved"}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => startEditing(item)}>
+                        Edit
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => void deleteSavedInsight(item)}>
+                        Delete
+                      </Button>
                     </div>
                   </div>
                   <p className="mt-3 whitespace-pre-wrap text-sm text-foreground">
@@ -391,12 +487,54 @@ export default function AIInsights({ clientId, baseUrl }: AIInsightsProps) {
             <div className="mt-4 text-xs text-muted-foreground">
               Latest saved by provider:{" "}
               {Array.from(latestSaved.entries())
-                .map(([provider, item]) => `${providerLabel(provider)} ${item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}`)
-                .join(" · ")}
+                .map(([provider, item]) => `${providerLabel(provider)} ${item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}`.trim())
+                .join(" | ")}
             </div>
           ) : null}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(editingInsight)} onOpenChange={(open) => !open && setEditingInsight(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Saved Insight</DialogTitle>
+            <DialogDescription>Update the stored insight text, then save the revised version.</DialogDescription>
+          </DialogHeader>
+          {editingInsight ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Provider</label>
+                <Input
+                  value={editingInsight.provider}
+                  onChange={(e) =>
+                    setEditingInsight((prev) => (prev ? { ...prev, provider: normalizeProvider(e.target.value) } : prev))
+                  }
+                  placeholder="anthropic"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Insight text</label>
+                <Textarea
+                  rows={14}
+                  value={editingInsight.insights}
+                  onChange={(e) =>
+                    setEditingInsight((prev) => (prev ? { ...prev, insights: e.target.value } : prev))
+                  }
+                />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingInsight(null)} disabled={editingSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void updateSavedInsight()} disabled={!editingInsight?.insights?.trim() || editingSaving}>
+              {editingSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
