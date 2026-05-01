@@ -396,11 +396,12 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
     }
     """
     # collect client info
+    org_id_text = str(org_id or "").strip() or None
     with get_conn() as con:
-        if org_id is not None and str(org_id).strip():
+        if org_id_text is not None:
             row = con.execute(
                 "SELECT client_name, industry, website, addr_country FROM clients WHERE db_id = %s AND org_id = %s",
-                [int(client_db_id), str(org_id).strip()],
+                [int(client_db_id), org_id_text],
             ).fetchone()
         else:
             row = con.execute(
@@ -429,6 +430,12 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
             }
 
         # Emissions summary: totals by year.
+        org_filter_sql = ""
+        org_filter_params: list[Any] = []
+        if org_id_text is not None:
+            org_filter_sql = " AND c.org_id = %s::text"
+            org_filter_params.append(org_id_text)
+
         emissions_df = con.execute(
             """
             SELECT j.reporting_year,
@@ -457,11 +464,11 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
             LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.client_db_id = %s AND j.is_crp = TRUE
-              AND (%s IS NULL OR c.org_id = %s)
+              {org_filter}
             GROUP BY j.reporting_year
             ORDER BY j.reporting_year
-            """,
-            [int(client_db_id), org_id, org_id],
+            """.format(org_filter=org_filter_sql),
+            [int(client_db_id), *org_filter_params],
         ).df()
 
         categories_df = con.execute(
@@ -494,7 +501,7 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
             JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.client_db_id = %s
               AND j.is_crp = TRUE
-              AND (%s IS NULL OR c.org_id = %s)
+              {org_filter}
               AND jsr.enabled = TRUE
               AND jsr.level_2 IS NOT NULL
               AND TRIM(jsr.level_2) != ''
@@ -502,8 +509,8 @@ def generate_client_insights(client_db_id: int, provider: str = "anthropic", org
             GROUP BY jsr.level_2
             ORDER BY total_emissions DESC
             LIMIT 5
-            """,
-            [int(client_db_id), org_id, org_id],
+            """.format(org_filter=org_filter_sql),
+            [int(client_db_id), *org_filter_params],
         ).df()
 
         # Optional Data Bank context to enrich prompt grounding.
