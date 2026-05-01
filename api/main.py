@@ -58,7 +58,7 @@ if _strict_auth_required() and not str(os.getenv("NZI_JWT_SECRET") or "").strip(
 import pandas as pd
 from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from openpyxl import load_workbook
@@ -74,6 +74,7 @@ from services.client_benchmark import ensure_client_benchmark_columns
 from services.kaleido_browser import ensure_kaleido_browser
 from services.playwright_browser import ensure_playwright_browser
 from services.emissions_reporting import exact_job_total_emissions
+from services.rate_limiter import build_default_rate_limiter
 from api.admin_routes import router as admin_router
 from api.admin_routes import _require_org_capacity
 from api.admin_routes import _require_org_plan_active
@@ -289,6 +290,7 @@ def _job_scope_config_audit_snapshot(con, job_id: int) -> dict:
     }
 
 app = FastAPI(title="NZI Pro API", version="0.1.0")
+_rate_limiter = build_default_rate_limiter()
 
 
 def _json_null_if_na(value):
@@ -778,6 +780,28 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    result = _rate_limiter.check(request)
+    if not result.allowed:
+        headers = {}
+        if result.retry_after_seconds is not None:
+            headers["Retry-After"] = str(result.retry_after_seconds)
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "Too many requests",
+                "reason": "rate_limited",
+                "rule": result.rule_name,
+                "limit": result.limit,
+                "retry_after_seconds": result.retry_after_seconds,
+            },
+            headers=headers,
+        )
+
+    return await call_next(request)
 
 
 # ... existing code ...
