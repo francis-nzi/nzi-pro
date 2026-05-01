@@ -416,6 +416,64 @@ def _load_custom_factor_year_values(con, factor_ids: list[int]) -> dict[int, dic
     return out
 
 
+def _scope_data_fallback_metrics(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a minimal, safe emissions payload when the resolver cannot run.
+
+    The data-entry screen should still render stored rows even if dataset
+    resolution or factor lookups fail for a specific job. We keep the fallback
+    intentionally simple so a broken lookup path does not take down the page.
+    """
+
+    storage_qty = _safe_float(row.get("qty"))
+    storage_uom = str(row.get("uom")).strip() if row.get("uom") is not None else None
+    storage_factor = _safe_float(row.get("factor"))
+    apply_pct = _safe_float(row.get("apply_pct")) or 100.0
+    ghg_unit = str(row.get("ghg_unit")).strip() if row.get("ghg_unit") is not None else None
+
+    monthly_total = 0.0
+    for idx in range(1, 13):
+        monthly_total += _safe_float(row.get(f"month_{idx}")) or 0.0
+
+    annual_qty = storage_qty if storage_qty is not None else monthly_total
+    factor_value = storage_factor
+    emissions = float(annual_qty or 0.0) * float(factor_value or 0.0) * (apply_pct / 100.0)
+    if "kg" in str(ghg_unit or "kgCO2e").lower():
+        emissions /= 1000.0
+
+    notes = row.get("notes")
+    factor_reference = _extract_note_token(notes, _FACTOR_ORIGINAL_ID_RE)
+    storage_reason = _extract_note_token(notes, _STORAGE_REASON_RE)
+
+    return {
+        "display_qty": annual_qty,
+        "display_uom": storage_uom,
+        "calc_tco2e": emissions,
+        "tco2e_before_apply": emissions if apply_pct == 100.0 else (
+            float(annual_qty or 0.0) * float(factor_value or 0.0)
+            / 1000.0 if "kg" in str(ghg_unit or "kgCO2e").lower()
+            else float(annual_qty or 0.0) * float(factor_value or 0.0)
+        ),
+        "display_factor": factor_value,
+        "factor_label": factor_reference,
+        "dataset_label": None,
+        "monthly_factor_details": [],
+        "uses_monthly_factors": False,
+        "source_qty": _safe_float(row.get("source_qty")),
+        "source_uom": str(row.get("source_uom")).strip() if row.get("source_uom") is not None else None,
+        "storage_qty": annual_qty,
+        "storage_uom": storage_uom,
+        "storage_factor": storage_factor,
+        "reference_factor": None,
+        "reference_ghg_unit": ghg_unit,
+        "factor_reference": factor_reference,
+        "storage_reason": storage_reason,
+        "unit_warning": None,
+        "uses_emissions_fallback": False,
+        "source_volume_available": bool(row.get("source_qty") is not None and row.get("source_uom")),
+        "display_dataset_id": _safe_int(row.get("dataset_id")),
+    }
+
+
 @router.get("/jobs/{job_id}/scope-data")
 def get_job_scope_data(
     job_id,
@@ -445,7 +503,11 @@ def get_job_scope_data(
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [job_id_int]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
-            resolver = JobMonthlyEmissionsResolver(con, job_id_int)
+            try:
+                resolver = JobMonthlyEmissionsResolver(con, job_id_int)
+            except Exception as resolver_error:
+                print(f"WARNING: falling back to minimal scope-data metrics for job {job_id_int}: {resolver_error}")
+                resolver = None
             
             # Build query
             where_clause = "WHERE jsr.job_id=%s"
@@ -526,7 +588,11 @@ def get_job_scope_data(
                         except (ValueError, TypeError):
                             return False
                     
-                    metrics = resolver.row_metrics(r)
+                    try:
+                        metrics = resolver.row_metrics(r) if resolver is not None else _scope_data_fallback_metrics(r)
+                    except Exception as metrics_error:
+                        print(f"WARNING: resolver failed for row {r.get('row_id')}: {metrics_error}")
+                        metrics = _scope_data_fallback_metrics(r)
                     source_qty_val = safe_float(metrics.get("source_qty"))
                     source_uom_val = metrics.get("source_uom")
                     storage_qty_val = safe_float(metrics.get("storage_qty"))
