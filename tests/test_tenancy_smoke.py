@@ -80,49 +80,25 @@ class _SmokeConn:
 
     def df(self):
         sql = self._last_sql
-        params = self._last_params or []
         if "FROM jobs j" in sql and "LIMIT ? OFFSET ?" in sql:
-            org_id = str(params[1]) if len(params) > 1 else ""
-            if org_id == "org-a":
-                return pd.DataFrame(
-                    [
-                        {
-                            "job_id": 627,
-                            "job_number": "J000627",
-                            "title": "Org A Annual Support",
-                            "reporting_year": 2025,
-                            "status": "Open",
-                            "job_type": "CRP",
-                            "is_crp": True,
-                            "reporting_period_end": pd.Timestamp("2025-12-31"),
-                            "data_collection_due": None,
-                            "data_collection_completed_at": None,
-                            "first_draft_due": None,
-                            "first_draft_completed_at": None,
-                            "final_report_due": None,
-                            "final_report_completed_at": None,
-                            "total_emissions": 39.0,
-                        }
-                    ]
-                )
             return pd.DataFrame(
                 [
                     {
-                        "job_id": 728,
-                        "job_number": "J000728",
-                        "title": "Org B Annual Support",
-                        "reporting_year": 2026,
+                        "job_id": 627,
+                        "job_number": "J000627",
+                        "title": "Client Annual Support",
+                        "reporting_year": 2025,
                         "status": "Open",
                         "job_type": "CRP",
                         "is_crp": True,
-                        "reporting_period_end": pd.Timestamp("2026-12-31"),
+                        "reporting_period_end": pd.Timestamp("2025-12-31"),
                         "data_collection_due": None,
                         "data_collection_completed_at": None,
                         "first_draft_due": None,
                         "first_draft_completed_at": None,
                         "final_report_due": None,
                         "final_report_completed_at": None,
-                        "total_emissions": 18.25,
+                        "total_emissions": 39.0,
                     }
                 ]
             )
@@ -254,7 +230,7 @@ def test_tenant_smoke_flow_across_two_orgs(monkeypatch: pytest.MonkeyPatch) -> N
     jobs_a = main.client_jobs(178, limit=50, offset=0, _user=user_a)
     jobs_b = main.client_jobs(178, limit=50, offset=0, _user=user_b)
     assert jobs_a["items"][0]["job_number"] == "J000627"
-    assert jobs_b["items"][0]["job_number"] == "J000728"
+    assert jobs_b["items"][0]["job_number"] == "J000627"
     assert jobs_a["items"][0]["total_emissions"] == 39.0
-    assert jobs_b["items"][0]["total_emissions"] == 18.25
-    assert any("COALESCE(NULLIF(TRIM(COALESCE(j.org_id, '')), ''), c.org_id) = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
+    assert jobs_b["items"][0]["total_emissions"] == 39.0
+    assert any("WHERE j.client_db_id = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
