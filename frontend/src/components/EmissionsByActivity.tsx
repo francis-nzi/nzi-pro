@@ -73,7 +73,7 @@ export default function EmissionsByActivity({ activityData, reportingPeriod, tot
         </h3>
         <div className="flex items-center justify-center gap-8">
           <div style={{ width: '400px', height: '350px', position: 'relative' }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={350}>
               <PieChart>
                 <Pie
                   data={donutData}

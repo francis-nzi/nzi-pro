@@ -1251,7 +1251,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {cumulativeChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[240px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={240}>
                         <ComposedChart data={cumulativeChartData} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
                           <XAxis dataKey="year" tick={{ fontSize: 11 }} />
@@ -1275,7 +1275,7 @@ export default function InsightsPageClient() {
                   {clientStatusDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
                       <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
                             <Pie data={clientStatusDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {clientStatusDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1308,7 +1308,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {industryChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[240px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={240}>
                         <BarChart data={industryChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
@@ -1368,7 +1368,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {emissionsChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[220px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={220}>
                         <AreaChart data={emissionsChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                           <defs><linearGradient id="gEm" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
                           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
@@ -1390,7 +1390,7 @@ export default function InsightsPageClient() {
                   {scopeDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
                       <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
                             <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {scopeDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1420,7 +1420,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {topClientsEmissionsData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[260px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={260}>
                         <BarChart data={topClientsEmissionsData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => tco2e(+v)} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
@@ -1461,7 +1461,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {countryChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[260px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={260}>
                         <BarChart data={countryChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => tco2e(+v)} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
@@ -1516,7 +1516,7 @@ export default function InsightsPageClient() {
               <CardContent className="pt-0">
                 {monthlyChartData.length === 0 ? <InsightsEmpty /> : (
                   <div className="h-[240px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height={240}>
                       <AreaChart data={monthlyChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                         <defs>
                           <linearGradient id="gFI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient>
@@ -1543,7 +1543,7 @@ export default function InsightsPageClient() {
                   {quoteDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
                       <div className="h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
                             <Pie data={quoteDonutData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
                               {quoteDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1571,7 +1571,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {topClientsChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[200px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={200}>
                         <BarChart data={topClientsChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => gbp(+v)} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
@@ -1635,7 +1635,7 @@ export default function InsightsPageClient() {
                   {opsMilestoneDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
                       <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height={180}>
                           <PieChart>
                             <Pie data={opsMilestoneDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {opsMilestoneDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1666,7 +1666,7 @@ export default function InsightsPageClient() {
                 <CardContent className="pt-0">
                   {timeSubjectChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[200px]">
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height={200}>
                         <BarChart data={timeSubjectChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${v}h`} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
@@ -1979,7 +1979,7 @@ export default function InsightsPageClient() {
                         {reportBreakdownData.length > 0 ? (
                           <>
                             <div className="h-[260px]">
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height={260}>
                                 <PieChart>
                                   <Pie
                                     data={reportBreakdownData}
@@ -2056,7 +2056,7 @@ export default function InsightsPageClient() {
                         {reportTopData.length > 0 ? (
                           <>
                             <div className="h-[260px]">
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height={260}>
                                 <BarChart data={reportTopData} margin={{ top: 8, right: 12, bottom: 28, left: 12 }}>
                                   <CartesianGrid vertical={false} strokeDasharray="3 3" />
                                   <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={60} />

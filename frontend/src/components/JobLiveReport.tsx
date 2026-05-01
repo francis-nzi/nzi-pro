@@ -700,7 +700,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                 </p>
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
                   <div className="relative mx-auto aspect-square w-full max-w-[480px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" aspect={1}>
                       <PieChart>
                         <Pie data={scopeChartData} dataKey="value" nameKey="name" innerRadius="77%" outerRadius="96%" paddingAngle={2}>
                           {scopeChartData.map((_, index) => (
@@ -777,7 +777,7 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                   {activityNarrativeIntro || "The chart below shows which operational categories are driving emissions across the reporting period."}
                 </p>
                 <div className="h-[320px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={320}>
                     <BarChart data={topCategoryData} layout="vertical" margin={{ top: 4, right: 20, left: 24, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" />

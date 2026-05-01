@@ -131,7 +131,7 @@ export default function ClientDashboardCharts({
                 minHeight="min-h-[320px]"
               />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={topCategoryData} layout="vertical" margin={{ top: 4, right: 10, left: 24, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
@@ -152,7 +152,7 @@ export default function ClientDashboardCharts({
               minHeight="min-h-[320px]"
             />
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={320}>
               <LineChart data={trendData} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" />

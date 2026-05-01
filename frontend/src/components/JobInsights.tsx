@@ -480,7 +480,7 @@ export default function JobInsights({
           <CardContent>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
               <div className="relative mx-auto aspect-square w-full max-w-[480px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
                     <Pie data={scopeCards} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                       {scopeCards.map((_, index) => (
@@ -583,7 +583,7 @@ export default function JobInsights({
             ) : (
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
                 <div className="relative mx-auto aspect-square w-full max-w-[420px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
                       <Pie data={normalizedSiteData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                         {normalizedSiteData.map((_, index) => (
@@ -636,7 +636,7 @@ export default function JobInsights({
           </CardHeader>
           <CardContent>
             <div className="h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={320}>
                 <LineChart data={targetPath} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="year" />
@@ -665,7 +665,7 @@ export default function JobInsights({
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={intensityTrend} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="year" />
@@ -699,7 +699,7 @@ export default function JobInsights({
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={300}>
               <LineChart data={monthlyTrend} margin={{ top: 5, right: 20, left: 6, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" />

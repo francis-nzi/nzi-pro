@@ -157,7 +157,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
               <EmptyChart title="No monthly revenue data" description="There are no invoice or quote values available for the selected view." minHeight="min-h-[240px]" />
             ) : (
               <div className="h-[240px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={240}>
                   <AreaChart data={monthlyData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                     <defs>
                       <linearGradient id="gI" x1="0" y1="0" x2="0" y2="1">
@@ -193,7 +193,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="h-[180px] w-[180px] flex-shrink-0">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height={180}>
                       <PieChart>
                         <Pie data={quoteDonut} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
                           {quoteDonut.map((d, i) => (
@@ -229,7 +229,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
                 <EmptyChart title="No top client data" description="Invoices have not been recorded for any clients yet." minHeight="min-h-[200px]" />
               ) : (
                 <div className="h-[200px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={topClients} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                       <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => gbp(+v)} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
@@ -316,7 +316,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
               ) : (
                 <div className="flex items-center gap-4">
                   <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height={180}>
                       <PieChart>
                         <Pie data={milestoneDonut} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                           {milestoneDonut.map((d, i) => (
@@ -356,7 +356,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
                 <EmptyChart title="No time-by-subject data" description="No logged hours are available for the selected CRM/view." minHeight="min-h-[200px]" />
               ) : (
                 <div className="h-[200px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={timeSubject} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                       <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}h`} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
@@ -451,7 +451,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
             <EmptyChart title="No emissions trend data" description="This dashboard does not have any year-over-year emissions points yet." minHeight="min-h-[220px]" />
           ) : (
             <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={emissionsTrend} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                   <defs>
                     <linearGradient id="gE" x1="0" y1="0" x2="0" y2="1">
@@ -479,7 +479,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
               <EmptyChart title="No industry data" description="Client industries are not available for this selection." minHeight="min-h-[220px]" />
             ) : (
               <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={industryData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                     <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
@@ -503,7 +503,7 @@ export default function MainDashboardCharts({ section, overview, financial, oper
               <EmptyChart title={`No emissions data for ${overview.selected_year}`} description="There are no emitting clients to chart for this year." minHeight="min-h-[220px]" />
             ) : (
               <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={topEmittingClients} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                     <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${n(+v)} t`} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />

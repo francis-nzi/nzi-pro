@@ -252,7 +252,7 @@ function PathwayChart({
 
   return (
     <div className="h-[300px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height={300}>
         <LineChart data={points} margin={{ top: 8, right: 48, left: 16, bottom: 36 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
           <XAxis
@@ -910,7 +910,7 @@ export default function JobAdvancedReports({
               {/* Donut chart */}
               {scopeDonutData.length > 0 && (
                 <div className="relative h-[200px]">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
                       <Pie
                         data={scopeDonutData}
@@ -1092,7 +1092,7 @@ export default function JobAdvancedReports({
             </CardHeader>
             <CardContent>
               <div style={{ height: activityChartHeight }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={activityChartHeight}>
                   <BarChart
                     layout="vertical"
                     data={activityBarData}
@@ -1147,7 +1147,7 @@ export default function JobAdvancedReports({
             </CardHeader>
             <CardContent>
               <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height={300}>
                   <BarChart
                     data={effectiveYearlyEmissions}
                     margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
