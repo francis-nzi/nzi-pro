@@ -630,7 +630,7 @@ def get_dashboard_overview(
                     recent_activity.append({
                         "job_id": int(row['job_id']),
                         "title": row['title'],
-                        "reporting_year": int(row['reporting_year']) if row['reporting_year'] is not None else None,
+                        "reporting_year": _normalize_int_value(row['reporting_year']),
                         "status": row['status'],
                         "client_name": row['client_name'],
                         "start_date": row['start_date'],
