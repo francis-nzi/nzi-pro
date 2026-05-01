@@ -61,11 +61,19 @@ def _ensure_job_scope_rows_schema(con) -> None:
     except Exception:
         pass
     try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE")
+    except Exception:
+        pass
+    try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_qty NUMERIC")
     except Exception:
         pass
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_uom VARCHAR")
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
     except Exception:
         pass
     try:
@@ -513,7 +521,7 @@ def get_job_scope_data(
             where_clause = "WHERE jsr.job_id=%s"
             params = [int(job_id)]
             if not include_disabled:
-                where_clause += " AND jsr.enabled=TRUE"
+                where_clause += " AND COALESCE(jsr.enabled, TRUE)=TRUE"
             
             if scope:
                 where_clause += " AND jsr.scope=%s"
@@ -971,7 +979,7 @@ def get_previous_scope_rows(
             prior_job_map = {int(item["job_id"]): item for item in prior_jobs if item.get("job_id") is not None}
             where_clauses = [
                 f"jsr.job_id IN ({','.join(['%s'] * len(prior_job_ids))})",
-                "jsr.enabled = TRUE",
+                "COALESCE(jsr.enabled, TRUE) = TRUE",
                 "COALESCE(jsr.is_custom_entry, FALSE) = FALSE",
                 "COALESCE(jsr.original_id, '') <> ''",
             ]
