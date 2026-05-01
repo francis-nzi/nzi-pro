@@ -2067,6 +2067,30 @@ def _ensure_report_metadata_table(con) -> None:
         ADD COLUMN IF NOT EXISTS energy_emissions_market_tco2e NUMERIC
         """
     )
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS premises_owned INTEGER
+        """
+    )
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS premises_leased INTEGER
+        """
+    )
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS vehicles_owned INTEGER
+        """
+    )
+    con.execute(
+        """
+        ALTER TABLE job_report_metadata
+        ADD COLUMN IF NOT EXISTS vehicles_leased INTEGER
+        """
+    )
 
 
 def _build_default_report_meta(con, job_id: int, actor_email: str | None = None) -> dict[str, Any]:
