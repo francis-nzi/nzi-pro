@@ -369,8 +369,8 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 jsr.scope,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_1 AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''),
                     'Uncategorized'
@@ -422,8 +422,8 @@ def load_combined_emissions_summary_rows(con, job_ids: list[int]):
                 jc.dashboard_year,
                 js.scope,
                 COALESCE(
+                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(fl.level_1 AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
                     'Uncategorized'
                 )

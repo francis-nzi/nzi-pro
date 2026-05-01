@@ -144,7 +144,16 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
         const d = (await r1.value.json()) as OverviewData;
         setOv(d);
         setYear(d.selected_year);
-      } else setError("Could not load dashboard data.");
+      } else {
+        let detail = "Could not load dashboard data.";
+        if (r1.status === "fulfilled") {
+          try {
+            const body = await r1.value.json() as { detail?: string };
+            if (body.detail) detail = body.detail;
+          } catch { /* ignore */ }
+        }
+        setError(detail);
+      }
       if (r2.status === "fulfilled" && r2.value.ok) setFin((await r2.value.json()) as FinancialData);
       if (r3.status === "fulfilled" && r3.value.ok) setOps((await r3.value.json()) as OperationsData);
       if (r4.status === "fulfilled" && r4.value.ok) setMil((await r4.value.json()) as MilestoneStatus);

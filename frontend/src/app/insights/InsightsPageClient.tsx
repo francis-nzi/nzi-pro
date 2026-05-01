@@ -729,7 +729,12 @@ export default function InsightsPageClient() {
       );
 
       if (!overviewRes.ok) {
-        throw new Error(`Insights overview failed (${overviewRes.status})`);
+        let detail = String(overviewRes.status);
+        try {
+          const body = await overviewRes.json() as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch { /* ignore */ }
+        throw new Error(`Insights overview failed: ${detail}`);
       }
 
       const overviewJson = (await overviewRes.json()) as DashboardOverview;
