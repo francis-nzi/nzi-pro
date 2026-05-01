@@ -426,13 +426,19 @@ export default function JobReportNew({
       ]);
 
       if (!assignmentRes.ok) {
-        throw new Error(`Failed to load report template assignment (${assignmentRes.status})`);
+        let d = String(assignmentRes.status);
+        try { const b = await assignmentRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
+        throw new Error(`Failed to load report template assignment: ${d}`);
       }
       if (!actionsRes.ok) {
-        throw new Error(`Failed to load report actions (${actionsRes.status})`);
+        let d = String(actionsRes.status);
+        try { const b = await actionsRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
+        throw new Error(`Failed to load report actions: ${d}`);
       }
       if (!versionsRes.ok) {
-        throw new Error(`Failed to load report versions (${versionsRes.status})`);
+        let d = String(versionsRes.status);
+        try { const b = await versionsRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
+        throw new Error(`Failed to load report versions: ${d}`);
       }
 
       const assignmentPayload = await assignmentRes.json();

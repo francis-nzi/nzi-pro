@@ -416,6 +416,8 @@ def _ensure_report_versions_schema(con) -> None:
     _ddl_alters = [
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS org_id TEXT",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS version_label VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS file_name TEXT",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS file_path TEXT",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS storage_provider VARCHAR DEFAULT 'local'",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_item_id VARCHAR",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS external_web_url TEXT",
