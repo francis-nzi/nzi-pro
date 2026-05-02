@@ -719,8 +719,6 @@ def get_dashboard(
         touchpoints = _load_touchpoints(con, org_id, client_ids)
         invoice_stats = _load_invoice_stats(con, org_id, client_ids)
         jobs_by_client = _load_jobs(con, org_id, client_ids)
-        all_job_ids = sorted({job["job_id"] for jobs in jobs_by_client.values() for job in jobs})
-        emissions_by_job = _aggregate_emissions(con, all_job_ids)
 
         records: list[dict[str, Any]] = []
         for client in clients:
@@ -730,13 +728,11 @@ def get_dashboard(
                 jobs=client_jobs,
                 touchpoints=touchpoints.get(client["client_db_id"], []),
                 invoice_stats=invoice_stats.get(client["client_db_id"], {}),
-                emissions_by_job=emissions_by_job,
+                emissions_by_job={},
             )
             record["active_job"] = _pick_active_job(client_jobs)
             record["touchpoints"] = touchpoints.get(client["client_db_id"], [])
             records.append(record)
-
-        _refresh_snapshots(con, org_id, records)
 
         action_queue: list[dict[str, Any]] = []
         upcoming_touchpoints: list[dict[str, Any]] = []
