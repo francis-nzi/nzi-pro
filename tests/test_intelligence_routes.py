@@ -226,3 +226,44 @@ def test_call_prep_returns_fallback_when_snapshot_lookup_fails(monkeypatch):
     assert result["client_name"] == "Call Prep"
     assert result["health_score"] == 0
     assert result["detail"] == "Call prep data is temporarily unavailable."
+
+
+def test_create_touchpoint_syncs_to_client_timeline(monkeypatch):
+    class _TouchpointConn(_FakeConn):
+        def __init__(self):
+            super().__init__()
+            self.rows = [
+                (77, 205, "Francis Doherty", "call", "Discussed renewal scope", "neutral", "Send proposal", None, "2026-05-02T10:30:00+00:00", "2026-05-02T10:30:00+00:00", "francis@example.com"),
+                (9001,),
+            ]
+
+        def fetchone(self):
+            return self.rows.pop(0) if self.rows else None
+
+    conn = _TouchpointConn()
+
+    monkeypatch.setattr(intelligence_routes, "get_conn", lambda **_kwargs: conn)
+    monkeypatch.setattr(intelligence_routes, "_ensure_schema", lambda _con: None)
+    monkeypatch.setattr(intelligence_routes, "_ensure_crm_timeline_tables", lambda *_args, **_kwargs: None)
+
+    result = intelligence_routes.create_touchpoint(
+        {
+            "client_db_id": 205,
+            "touchpoint_type": "call",
+            "summary": "Discussed renewal scope",
+            "outcome": "neutral",
+            "next_action": "Send proposal",
+            "next_action_due": "2026-05-10",
+            "occurred_at": "2026-05-02T10:30:00+00:00",
+        },
+        _user={"user_id": "u1", "full_name": "Jane Smith", "email": "francis@example.com", "org_id": "org-a"},
+    )
+
+    sql_texts = [sql for sql, _params in conn.queries]
+    assert any("INSERT INTO client_touchpoints" in sql for sql in sql_texts)
+    assert any("INSERT INTO crm_events" in sql for sql in sql_texts)
+    crm_event_params = next(params for sql, params in conn.queries if "INSERT INTO crm_events" in sql)
+    assert crm_event_params is not None
+    assert crm_event_params[3] == "call"
+    assert crm_event_params[5] == "Touchpoint: Call"
+    assert result["touchpoint_id"] == 77

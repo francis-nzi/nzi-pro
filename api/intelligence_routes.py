@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import _current_user
+from api.crm_timeline_routes import _ensure_tables as _ensure_crm_timeline_tables
 from core.database import get_conn
 from services.client_benchmark import get_client_benchmark_metrics
 from services.emissions_reporting import load_combined_emissions_summary_rows
@@ -1049,8 +1050,16 @@ def create_touchpoint(body: dict[str, Any], _user: dict[str, str] = Depends(_cur
     occurred_at = _safe_datetime(body.get("occurred_at")) or datetime.now(timezone.utc)
     crm_owner = _default_crm_owner(_user)
     created_by = _normalize_text(_user.get("email") or _user.get("user_id"), "")
+    timeline_subject = f"Touchpoint: {touchpoint_type.replace('_', ' ').title()}"
+    body_lines = [summary]
+    body_lines.append(f"Outcome: {outcome.replace('_', ' ').title()}")
+    if next_action:
+        body_lines.append(f"Next action: {next_action}")
+    if next_action_due:
+        body_lines.append(f"Due: {next_action_due.isoformat()}")
+    timeline_body = "\n".join(line for line in body_lines if line)
 
-    with get_conn() as con:
+    with get_conn(autocommit=False) as con:
         _ensure_schema(con)
         row = con.execute(
             """
@@ -1079,8 +1088,46 @@ def create_touchpoint(body: dict[str, Any], _user: dict[str, str] = Depends(_cur
         ).fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to save touchpoint")
+        touchpoint_id = int(row[0])
+        _ensure_crm_timeline_tables(con)
+        con.execute(
+            """
+            INSERT INTO crm_events (
+              client_db_id, job_id, event_type, channel, direction, subject,
+              body_text, body_html, status, owner_user_id, due_at, source, source_ref,
+              payload_json, is_private, created_by, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            RETURNING event_id
+            """,
+            [
+                int(client_db_id),
+                None,
+                "note",
+                touchpoint_type,
+                "internal",
+                timeline_subject,
+                timeline_body,
+                None,
+                "logged",
+                created_by or None,
+                next_action_due,
+                "intelligence",
+                f"touchpoint:{touchpoint_id}",
+                {
+                    "touchpoint_id": touchpoint_id,
+                    "touchpoint_type": touchpoint_type,
+                    "outcome": outcome,
+                    "next_action": next_action or None,
+                    "next_action_due": next_action_due.isoformat() if next_action_due else None,
+                    "occurred_at": occurred_at.isoformat() if occurred_at else None,
+                },
+                False,
+                created_by or None,
+            ],
+        ).fetchone()
         return {
-            "touchpoint_id": int(row[0]),
+            "touchpoint_id": touchpoint_id,
             "client_db_id": int(row[1]),
             "crm_owner": _normalize_text(row[2], "Unassigned"),
             "touchpoint_type": _normalize_text(row[3], "call"),
