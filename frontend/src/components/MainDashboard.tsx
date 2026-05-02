@@ -111,6 +111,7 @@ function norm(url: string) { return String(url || "").trim().replace(/\/+$/, "")
 
 export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const api = useMemo(() => norm(baseUrl), [baseUrl]);
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
 
   const [ov,  setOv]  = useState<OverviewData | null>(null);
   const [fin, setFin] = useState<FinancialData | null>(null);
@@ -120,7 +121,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
 
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | null>(currentYear);
   const [ind,  setInd]  = useState<string | null>(null);
   const [crm,  setCrm]  = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(true);
@@ -172,7 +173,6 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       if (r1.status === "fulfilled" && r1.value.ok) {
         const d = (await r1.value.json()) as OverviewData;
         setOv(d);
-        setYear(d.selected_year);
       } else {
         let detail = "Could not load dashboard data.";
         if (r1.status === "fulfilled") {
@@ -235,7 +235,14 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 
   // â”€â”€â”€ Filter options â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  const yearOpts = useMemo(() => (ov?.available_years ?? []).map(Number).filter(Number.isFinite).sort((a, b) => b - a), [ov]);
+  const yearOpts = useMemo(() => {
+    const years = (ov?.available_years ?? [])
+      .map(Number)
+      .filter(Number.isFinite)
+      .sort((a, b) => b - a);
+    if (!years.includes(currentYear)) years.unshift(currentYear);
+    return years;
+  }, [ov, currentYear]);
   const crmOpts  = useMemo(() => ov?.available_crm ?? [], [ov]);
   const indOpts  = useMemo(() => ov?.available_industries ?? [], [ov]);
   const isSuperuser = crm === null;
