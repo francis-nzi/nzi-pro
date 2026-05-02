@@ -62,7 +62,7 @@ def test_client_access_denies_missing_org_even_with_id_match(monkeypatch):
     fake = _FakeConn([_FakeRow("org-a")])
     monkeypatch.setattr(permissions, "get_conn", lambda: fake)
 
-    assert permissions.user_can_access_client({"user_id": "u1", "linked_client_ids": [123]}, 123) is False
+    assert permissions.user_can_access_client({"user_id": "u1", "access_scope": "linked_clients", "linked_client_ids": [123]}, 123) is False
 
 
 def test_client_access_allows_matching_job_org(monkeypatch):

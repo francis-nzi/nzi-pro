@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from pydantic import BaseModel, Field
 from core.database import get_conn
 from api.auth import _current_user
+from services.tenancy import require_org
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
@@ -1220,6 +1221,7 @@ def get_dashboard_operations_overview(
 ):
     """Portfolio-level delivery and workload intelligence for Insights."""
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             if not _table_exists(con, "jobs"):
                 return {
@@ -1551,6 +1553,49 @@ def get_dashboard_operations_overview(
                     "estimated_hours": round(est, 2),
                     "utilisation_pct": round((logged / est) * 100.0, 1) if est > 0 else None,
                 })
+
+            avg_health_by_crm: dict[str, float | None] = {}
+            last_contact_by_crm: dict[str, str | None] = {}
+            if _table_exists(con, "client_health_snapshots"):
+                health_rows = con.execute(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_name,
+                        AVG(s.health_score) AS avg_health_score
+                    FROM clients c
+                    LEFT JOIN client_health_snapshots s
+                      ON s.client_db_id = c.db_id
+                     AND s.org_id = c.org_id
+                    WHERE c.org_id = ?
+                    GROUP BY COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned')
+                    """,
+                    [org_id],
+                ).fetchall()
+                for row in health_rows or []:
+                    avg_health_by_crm[str(row[0] or "Unassigned")] = round(float(row[1]), 1) if row[1] is not None else None
+            if _table_exists(con, "client_touchpoints"):
+                touch_rows = con.execute(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_name,
+                        MAX(ct.occurred_at) AS last_contact_at
+                    FROM clients c
+                    LEFT JOIN client_touchpoints ct
+                      ON ct.client_db_id = c.db_id
+                     AND ct.org_id = c.org_id
+                    WHERE c.org_id = ?
+                    GROUP BY COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned')
+                    """,
+                    [org_id],
+                ).fetchall()
+                for row in touch_rows or []:
+                    last_contact_by_crm[str(row[0] or "Unassigned")] = row[1].isoformat() if row[1] is not None else None
+
+            for item in crm_workload:
+                crm_name = str(item["crm_name"] or "Unassigned")
+                item["avg_health_score"] = avg_health_by_crm.get(crm_name)
+                item["last_contact_date"] = last_contact_by_crm.get(crm_name)
+
             crm_workload.sort(
                 key=lambda item: (
                     -int(item["red_jobs"]),

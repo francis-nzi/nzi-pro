@@ -471,9 +471,11 @@ def user_can_access_client(user: dict[str, Any] | None, client_db_id: int) -> bo
         return True
     client_id = int(client_db_id)
     linked_client_ids = {int(x) for x in (user.get("linked_client_ids") or []) if x is not None}
+    user_org_id = str(user.get("org_id") or "").strip()
+    if not user_org_id:
+        return False
     if client_id in linked_client_ids:
         return True
-    user_org_id = str(user.get("org_id") or "").strip()
     if user_org_id:
         try:
             with get_conn() as con:
@@ -498,7 +500,7 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
         return True
     linked_client_ids = {int(x) for x in (user.get("linked_client_ids") or []) if x is not None}
     user_org_id = str(user.get("org_id") or "").strip()
-    if not linked_client_ids and not user_org_id:
+    if not user_org_id:
         return False
     try:
         with get_conn() as con:
@@ -517,13 +519,12 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
         client_db_id = int(row[0]) if row[0] is not None else None
         if client_db_id is not None and client_db_id in linked_client_ids:
             return True
-        if user_org_id:
-            job_org_id = str(row[1] or "").strip()
-            client_org_id = str(row[2] or "").strip()
-            if job_org_id:
-                return job_org_id == user_org_id
-            if client_org_id:
-                return client_org_id == user_org_id
+        job_org_id = str(row[1] or "").strip()
+        client_org_id = str(row[2] or "").strip()
+        if job_org_id:
+            return job_org_id == user_org_id
+        if client_org_id:
+            return client_org_id == user_org_id
     except Exception:
         pass
     return False

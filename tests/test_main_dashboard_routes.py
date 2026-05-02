@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -28,6 +29,14 @@ class _FakeConn:
             return (1,)
         return (0,)
 
+    def fetchall(self):
+        sql = self._last_sql
+        if "AVG(s.health_score) AS avg_health_score" in sql:
+            return [("Unassigned", 88.4)]
+        if "MAX(ct.occurred_at) AS last_contact_at" in sql:
+            return [("Unassigned", datetime(2025, 4, 10, 9, 30, tzinfo=timezone.utc))]
+        return []
+
     def df(self):
         sql = self._last_sql
         if "SELECT DISTINCT reporting_year" in sql:
@@ -42,10 +51,33 @@ class _FakeConn:
             return pd.DataFrame([{"crm_name": "Unassigned", "status": "Open", "count": 1}])
         if "COALESCE(j.status, 'Unknown') as status" in sql:
             return pd.DataFrame([{"status": "Open", "count": 1}])
-        if "FROM jobs j" in sql and "LIMIT 5" in sql:
+        if "SELECT" in sql and "COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status" in sql and "FROM jobs j" in sql:
             return pd.DataFrame(
                 [
                     {
+                        "job_id": 664,
+                        "job_number": "J000664",
+                        "title": "Shredit ME Carbon Reduction Plan 2023",
+                        "status": "Open",
+                        "client_name": "Shredit ME",
+                        "crm_name": "Unassigned",
+                        "estimated_hours": 12.0,
+                        "start_date": pd.Timestamp("2023-01-01"),
+                        "due_date": pd.Timestamp("2025-05-10"),
+                        "data_collection_due": pd.Timestamp("2025-04-15"),
+                        "data_collection_completed_at": None,
+                        "first_draft_due": None,
+                        "first_draft_completed_at": None,
+                        "final_report_due": None,
+                        "final_report_completed_at": None,
+                        "created_at": pd.Timestamp("2023-01-15"),
+                    }
+                ]
+            )
+        if "FROM jobs j" in sql and "LIMIT 5" in sql:
+            return pd.DataFrame(
+                [
+                {
                         "job_id": 664,
                         "title": "Shredit ME Carbon Reduction Plan 2023",
                         "reporting_year": pd.NA,
@@ -102,3 +134,18 @@ def test_dashboard_overview_handles_null_reporting_year(monkeypatch):
     assert result["selected_year"] == 2025
     assert result["recent_activity"][0]["job_id"] == 664
     assert result["recent_activity"][0]["reporting_year"] is None
+
+
+def test_dashboard_operations_overview_includes_crm_health_fields(monkeypatch):
+    conn = _FakeConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: table != "time_logs")
+    monkeypatch.setattr(main_dashboard_routes, "_column_exists", lambda *_args, **_kwargs: True)
+
+    result = main_dashboard_routes.get_dashboard_operations_overview(year=2025, industry=None, crm_owner=None, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["crm_workload"], "expected at least one CRM workload row"
+    row = result["crm_workload"][0]
+    assert row["crm_name"] == "Unassigned"
+    assert row["avg_health_score"] == 88.4
+    assert row["last_contact_date"] == "2025-04-10T09:30:00+00:00"

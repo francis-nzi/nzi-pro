@@ -6,6 +6,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientDashboard from "@/components/ClientDashboard";
+import CallPrepPanel from "@/components/CallPrepPanel";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -255,6 +256,7 @@ function ClientDetailPageContent() {
   const [clientNotFound, setClientNotFound] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<ClientSection>("dashboard");
   const [financialView, setFinancialView] = useState<FinancialView>("quotes");
+  const [callPrepOpen, setCallPrepOpen] = useState<boolean>(false);
 
   const [showAddContact, setShowAddContact] = useState<boolean>(false);
   const [editingContact, setEditingContact] = useState<number | null>(null);
@@ -1629,6 +1631,9 @@ function ClientDetailPageContent() {
       <Button asChild>
         <Link href={`/jobs/new?clientId=${clientId}`}>+ Add Job</Link>
       </Button>
+      <Button variant="secondary" onClick={() => setCallPrepOpen(true)}>
+        Call Prep
+      </Button>
       <Button variant="secondary" asChild>
         <Link href={`/clients/${clientId}/edit`}>Edit Client</Link>
       </Button>
@@ -1747,6 +1752,14 @@ function ClientDetailPageContent() {
 
           <div>{clientNotFound ? null : renderActiveSection()}</div>
         </div>
+
+        <CallPrepPanel
+          open={callPrepOpen}
+          onOpenChange={setCallPrepOpen}
+          baseUrl={baseUrl}
+          clientDbId={Number.isFinite(clientId) ? clientId : null}
+          clientName={client?.client_name ?? undefined}
+        />
       </div>
     </div>
   );

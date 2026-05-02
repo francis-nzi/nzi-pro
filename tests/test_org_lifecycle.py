@@ -48,7 +48,7 @@ class _OrgConn:
         if "SELECT org_id, name, slug, plan, plan_status, max_users, max_clients, archived, archived_at, archived_by, created_at, updated_at" in sql and "FROM organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", 3, 10, False, None, None, "2026-04-23", "2026-04-23", "growth", "active")
         if "SELECT invitation_id, org_id, email, role, accepted_at, expires_at" in sql:
-            return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-01T00:00:00+00:00")
+            return _FakeRow("inv-1", "org-123", "user@example.com", "Consultant", None, "2026-05-05T00:00:00+00:00")
         if "SELECT membership_id, org_id, user_id, role, is_active, is_owner" in sql:
             return _FakeRow("mem-1", "org-123", "u2", "Consultant", True, False)
         if "FROM organisation_memberships" in sql and "SELECT 1" in sql:

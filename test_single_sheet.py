@@ -13,7 +13,7 @@ load_dotenv()
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from nzi_pages.generate_single_sheet_template import generate_single_sheet_template
+from services.generate_single_sheet_template import generate_single_sheet_template
 from api.parse_single_sheet_upload import parse_single_sheet_upload
 from core.database import get_conn
 
@@ -104,7 +104,7 @@ def test_custom_factors_table():
             print("  → Run migrations first")
 
 
-def test_upload_parsing(excel_bytes):
+def run_upload_parsing(excel_bytes):
     """Test parsing uploaded single-sheet template"""
     print("\n=== Testing Single-Sheet Upload Parsing ===")
     
@@ -177,7 +177,7 @@ def main():
     excel_bytes = test_template_generation()
     
     # Test 4: Parse template (simulating upload)
-    test_upload_parsing(excel_bytes)
+    run_upload_parsing(excel_bytes)
     
     print("\n" + "=" * 60)
     print("Test Complete")

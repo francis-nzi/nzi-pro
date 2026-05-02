@@ -159,7 +159,10 @@ def run_ddl():
           benchmark_scope_1_tco2e DOUBLE,
           benchmark_scope_2_tco2e DOUBLE,
           benchmark_scope_3_tco2e DOUBLE,
-          benchmark_total_tco2e DOUBLE
+          benchmark_total_tco2e DOUBLE,
+          engagement_start_date DATE,
+          engagement_end_date DATE,
+          touchpoint_cadence VARCHAR DEFAULT 'monthly'
         );
 
         CREATE TABLE IF NOT EXISTS client_contacts (
@@ -240,6 +243,33 @@ def run_ddl():
 
         CREATE TABLE IF NOT EXISTS client_notes (
           note_id INTEGER PRIMARY KEY, client_db_id INTEGER, author VARCHAR, note_text TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS client_touchpoints (
+          touchpoint_id INTEGER PRIMARY KEY,
+          org_id UUID NOT NULL,
+          client_db_id INTEGER NOT NULL,
+          crm_owner VARCHAR NOT NULL,
+          touchpoint_type VARCHAR NOT NULL DEFAULT 'call',
+          summary TEXT,
+          outcome VARCHAR,
+          next_action TEXT,
+          next_action_due DATE,
+          occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          created_by VARCHAR
+        );
+        CREATE TABLE IF NOT EXISTS client_health_snapshots (
+          snapshot_id INTEGER PRIMARY KEY,
+          org_id UUID NOT NULL,
+          client_db_id INTEGER NOT NULL,
+          health_score INTEGER NOT NULL DEFAULT 0,
+          score_emissions INTEGER,
+          score_milestones INTEGER,
+          score_engagement INTEGER,
+          score_payments INTEGER,
+          risk_flags TEXT,
+          computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (org_id, client_db_id)
         );
 
         CREATE TABLE IF NOT EXISTS currencies_lookup (

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import IntelligenceDashboard from "@/components/IntelligenceDashboard";
 import TaskCalendar from "@/components/TaskCalendar";
 import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_DATA_COLORS } from "@/lib/chart-colors";
@@ -73,7 +74,7 @@ export type OperationsData = {
   crm_workload: Array<{
     crm_name: string; total_jobs: number; red_jobs: number; amber_jobs: number;
     green_jobs: number; no_milestone_jobs: number; logged_hours: number;
-    estimated_hours: number; utilisation_pct: number | null;
+    estimated_hours: number; utilisation_pct: number | null; avg_health_score: number | null; last_contact_date: string | null;
   }>;
   jobs_needing_attention: Array<{
     job_id: number; job_number: string; title: string; client_name: string;
@@ -115,6 +116,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [fin, setFin] = useState<FinancialData | null>(null);
   const [ops, setOps] = useState<OperationsData | null>(null);
   const [mil, setMil] = useState<MilestoneStatus | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState("");
 
@@ -122,10 +124,37 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [ind,  setInd]  = useState<string | null>(null);
   const [crm,  setCrm]  = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "financial" | "operations" | "emissions" | "tasks">("overview");
+  const [activeTab, setActiveTab] = useState<"intelligence" | "overview" | "financial" | "operations" | "emissions" | "tasks">("intelligence");
+
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+
+    async function loadCurrentUser() {
+      try {
+        const res = await fetch(`${api}/auth/me`, { cache: "no-store", credentials: "include" });
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => ({})) as { user?: { full_name?: string | null; email?: string | null; user_id?: string | null } };
+        const user = payload?.user || {};
+        const defaultCrm = String(user.full_name || user.email || user.user_id || "").trim();
+        if (!cancelled && defaultCrm) {
+          setCrm((current) => current ?? defaultCrm);
+        }
+      } catch {
+        // Keep the dashboard usable even if the identity lookup fails.
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
+    }
+
+    void loadCurrentUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const load = useCallback(async () => {
-    if (!api) return;
+    if (!api || !authReady) return;
     setLoading(true); setError("");
     try {
       const p = new URLSearchParams();
@@ -159,7 +188,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       if (r4.status === "fulfilled" && r4.value.ok) setMil((await r4.value.json()) as MilestoneStatus);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
-  }, [api, year, ind, crm]);
+  }, [api, authReady, year, ind, crm]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -263,12 +292,18 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       {(ov || !loading) && (
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
+            <TabsTrigger value="intelligence">Intelligence</TabsTrigger>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
             <TabsTrigger value="operations">Operations</TabsTrigger>
             <TabsTrigger value="emissions">Emissions</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
+
+          {/* Intelligence */}
+          <TabsContent value="intelligence" className="space-y-5 pt-3">
+            <IntelligenceDashboard baseUrl={api} crmOwner={crm} />
+          </TabsContent>
 
           {/* Overview */}
           <TabsContent value="overview" className="space-y-5 pt-3">
@@ -299,6 +334,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                         <th className="text-left pb-2 font-medium">CRM</th>
                         <th className="text-right pb-2 font-medium">Jobs</th>
                         <th className="pb-2 font-medium w-48 text-center">Health</th>
+                        <th className="text-right pb-2 font-medium">Avg Health</th>
+                        <th className="text-left pb-2 font-medium">Last Contact</th>
                         <th className="text-right pb-2 font-medium">Logged</th>
                         <th className="text-right pb-2 font-medium">Est.</th>
                         <th className="text-right pb-2 font-medium">Util.</th>
@@ -329,6 +366,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
                                 <span className="text-red-600">{c.red_jobs} ✕</span>
                               </div>
                             </td>
+                            <td className="text-right py-2.5 text-muted-foreground">{c.avg_health_score != null ? formatNumber(c.avg_health_score, 1) : "—"}</td>
+                            <td className="py-2.5 text-muted-foreground">{formatDate(c.last_contact_date, { day: "numeric", month: "short", year: "numeric" })}</td>
                             <td className="text-right py-2.5 text-muted-foreground">{formatHours(c.logged_hours)}</td>
                             <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? formatHours(c.estimated_hours) : "—"}</td>
                             <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? formatPercent(u) : "—"}</td>
