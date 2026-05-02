@@ -73,6 +73,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [typeFilter, setTypeFilter] = useState("all");
   const [directionFilter, setDirectionFilter] = useState("all");
   const [taskStatusFilter, setTaskStatusFilter] = useState("open");
+  const [feedFilter, setFeedFilter] = useState<"all" | "touchpoints" | "communications">("all");
 
   const [newJobId, setNewJobId] = useState<string>("none");
   const [newDirection, setNewDirection] = useState("internal");
@@ -172,11 +173,13 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     return inboxItems.filter((item) => {
       if (typeFilter !== "all" && item.kind !== typeFilter) return false;
       if (directionFilter !== "all" && item.direction !== directionFilter) return false;
+      if (feedFilter === "touchpoints" && (item.source || "").toLowerCase() !== "intelligence" && !(item.source_ref || "").toLowerCase().startsWith("touchpoint:")) return false;
+      if (feedFilter === "communications" && ((item.source || "").toLowerCase() === "intelligence" || (item.source_ref || "").toLowerCase().startsWith("touchpoint:"))) return false;
       if (item.kind === "task" && taskStatusFilter !== "all" && item.status !== taskStatusFilter) return false;
       if (!q) return true;
       return `${item.title} ${item.subtitle} ${item.body}`.toLowerCase().includes(q);
     });
-  }, [inboxItems, query, typeFilter, directionFilter, taskStatusFilter]);
+  }, [inboxItems, query, typeFilter, directionFilter, taskStatusFilter, feedFilter]);
 
   async function createEvent() {
     if (!newBody.trim()) {
@@ -402,16 +405,42 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
 
           <div className="flex items-center justify-between gap-3">
             <Label>Feed</Label>
-            <Select value={taskStatusFilter} onValueChange={setTaskStatusFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Task Statuses</SelectItem>
-                <SelectItem value="open">Open Tasks</SelectItem>
-                <SelectItem value="in_progress">In Progress Tasks</SelectItem>
-                <SelectItem value="done">Done Tasks</SelectItem>
-                <SelectItem value="closed">Closed Tasks</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant={feedFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFeedFilter("all")}
+              >
+                All
+              </Button>
+              <Button
+                type="button"
+                variant={feedFilter === "touchpoints" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFeedFilter("touchpoints")}
+              >
+                Touchpoints
+              </Button>
+              <Button
+                type="button"
+                variant={feedFilter === "communications" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setFeedFilter("communications")}
+              >
+                Communications
+              </Button>
+              <Select value={taskStatusFilter} onValueChange={setTaskStatusFilter}>
+                <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Task Statuses</SelectItem>
+                  <SelectItem value="open">Open Tasks</SelectItem>
+                  <SelectItem value="in_progress">In Progress Tasks</SelectItem>
+                  <SelectItem value="done">Done Tasks</SelectItem>
+                  <SelectItem value="closed">Closed Tasks</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {loading ? (
