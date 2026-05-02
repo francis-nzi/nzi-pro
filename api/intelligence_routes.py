@@ -356,6 +356,42 @@ def _load_touchpoints(con, org_id: str, client_ids: list[int]) -> dict[int, list
     return grouped
 
 
+def _load_health_snapshots(con, org_id: str, client_ids: list[int]) -> dict[int, dict[str, Any]]:
+    if not client_ids or not _table_exists(con, "client_health_snapshots"):
+        return {}
+    placeholders = ",".join(["?"] * len(client_ids))
+    rows = con.execute(
+        f"""
+        SELECT
+            client_db_id,
+            health_score,
+            score_emissions,
+            score_milestones,
+            score_engagement,
+            score_payments,
+            risk_flags
+        FROM client_health_snapshots
+        WHERE org_id = ? AND client_db_id IN ({placeholders})
+        ORDER BY computed_at DESC, snapshot_id DESC
+        """,
+        [org_id, *client_ids],
+    ).fetchall()
+    snapshots: dict[int, dict[str, Any]] = {}
+    for row in rows or []:
+        client_db_id = int(row[0])
+        if client_db_id in snapshots:
+            continue
+        snapshots[client_db_id] = {
+            "health_score": int(row[1] or 0),
+            "score_emissions": int(row[2]) if row[2] is not None else None,
+            "score_milestones": int(row[3]) if row[3] is not None else None,
+            "score_engagement": int(row[4]) if row[4] is not None else None,
+            "score_payments": int(row[5]) if row[5] is not None else None,
+            "risk_flags": _normalize_text(row[6], ""),
+        }
+    return snapshots
+
+
 def _load_invoice_stats(con, org_id: str, client_ids: list[int]) -> dict[int, dict[str, int]]:
     if not client_ids or not _table_exists(con, "invoices"):
         return {}
@@ -565,6 +601,43 @@ def _compute_client_record(
     }
 
 
+def _build_dashboard_record(
+    *,
+    client: dict[str, Any],
+    snapshot: dict[str, Any] | None,
+    touchpoints: list[dict[str, Any]],
+    invoice_stats: dict[str, int],
+) -> dict[str, Any]:
+    last_touchpoint = _safe_date(touchpoints[0]["occurred_at"]) if touchpoints else None
+    cadence = client.get("touchpoint_cadence")
+    engagement_score, engagement_flags, days_since_contact, next_touchpoint_due = _engagement_score(last_touchpoint, cadence)
+    snapshot = snapshot or {}
+    score = int(snapshot.get("health_score") or 0)
+    risk_flags = str(snapshot.get("risk_flags") or "").strip()
+    if not risk_flags:
+        flags = list(engagement_flags)
+        if client.get("engagement_end_date") is not None:
+            days_remaining = (_safe_date(client["engagement_end_date"]) - date.today()).days if _safe_date(client["engagement_end_date"]) else None
+            if days_remaining is not None and days_remaining <= 30:
+                flags.append("RENEWAL_30")
+            elif days_remaining is not None and days_remaining <= 90:
+                flags.append("RENEWAL_90")
+        risk_flags = ",".join(sorted({flag for flag in flags if flag}))
+    return {
+        "client_db_id": int(client["client_db_id"]),
+        "client_name": client["client_name"],
+        "crm_owner": client["crm_owner"],
+        "health_score": score,
+        "risk_flags": risk_flags,
+        "last_touchpoint_date": last_touchpoint.isoformat() if last_touchpoint else None,
+        "days_since_contact": days_since_contact,
+        "touchpoint_due_date": _format_due_date(next_touchpoint_due),
+        "engagement_end_date": _safe_date(client.get("engagement_end_date")).isoformat() if _safe_date(client.get("engagement_end_date")) else None,
+        "open_invoices": int(invoice_stats.get("open_invoices") or 0),
+        "overdue_invoices": int(invoice_stats.get("overdue_invoices") or 0),
+    }
+
+
 def _refresh_snapshots(con, org_id: str, records: list[dict[str, Any]]) -> None:
     if not records:
         return
@@ -697,10 +770,133 @@ def get_dashboard(
         owner_filter = _normalize_text(crm_owner or default_owner, default_owner)
 
     with get_conn() as con:
-        _ensure_schema(con)
-        clients = _load_scoped_clients(con, org_id, owner_filter)
-        client_ids = [int(client["client_db_id"]) for client in clients]
-        if not clients:
+        try:
+            _ensure_schema(con)
+            clients = _load_scoped_clients(con, org_id, owner_filter)
+            client_ids = [int(client["client_db_id"]) for client in clients]
+            if not clients:
+                return {
+                    "action_queue": [],
+                    "portfolio_summary": {
+                        "total_clients": 0,
+                        "healthy": 0,
+                        "needs_attention": 0,
+                        "at_risk": 0,
+                        "avg_health_score": 0,
+                    },
+                    "upcoming_touchpoints": [],
+                    "renewal_pipeline": [],
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "crm_owner": owner_filter or "__all__",
+                }
+
+            touchpoints = _load_touchpoints(con, org_id, client_ids)
+            invoice_stats = _load_invoice_stats(con, org_id, client_ids)
+            snapshots = _load_health_snapshots(con, org_id, client_ids)
+
+            records: list[dict[str, Any]] = []
+            for client in clients:
+                record = _build_dashboard_record(
+                    client=client,
+                    snapshot=snapshots.get(client["client_db_id"]),
+                    touchpoints=touchpoints.get(client["client_db_id"], []),
+                    invoice_stats=invoice_stats.get(client["client_db_id"], {}),
+                )
+                records.append(record)
+
+            action_queue: list[dict[str, Any]] = []
+            upcoming_touchpoints: list[dict[str, Any]] = []
+            renewal_pipeline: list[dict[str, Any]] = []
+            score_total = 0
+            healthy_count = 0
+            needs_attention = 0
+            at_risk = 0
+
+            for client, record in zip(clients, records):
+                score = int(record["health_score"])
+                score_total += score
+                if score >= 70:
+                    healthy_count += 1
+                elif score >= 40:
+                    needs_attention += 1
+                else:
+                    at_risk += 1
+
+                flags = [flag for flag in str(record.get("risk_flags") or "").split(",") if flag]
+                for flag in flags:
+                    action_queue.append(
+                        {
+                            "action_type": flag,
+                            "priority": _priority_for_flag(flag),
+                            "client_db_id": client["client_db_id"],
+                            "client_name": client["client_name"],
+                            "crm_owner": client["crm_owner"],
+                            "headline": {
+                                "RENEWAL_30": "Renewal due within 30 days",
+                                "MILESTONE_RED": "Milestone overdue",
+                                "INVOICE_OVERDUE": "Invoice overdue",
+                                "RENEWAL_90": "Renewal due within 90 days",
+                                "OVERDUE_CALL": "Call overdue",
+                                "EMISSIONS_OFF_TRACK": "Emissions off track",
+                                "NO_ACTIVE_JOB": "No active job",
+                            }.get(flag, flag),
+                            "detail": f"Health score {score}.",
+                            "due_date": record.get("engagement_end_date") if flag in {"RENEWAL_30", "RENEWAL_90"} else record.get("touchpoint_due_date"),
+                        }
+                    )
+
+                touchpoint_due = _safe_date(record.get("touchpoint_due_date"))
+                if touchpoint_due:
+                    days_until_due = (touchpoint_due - date.today()).days
+                    if days_until_due <= 14:
+                        upcoming_touchpoints.append(
+                            {
+                                "client_db_id": client["client_db_id"],
+                                "client_name": client["client_name"],
+                                "crm_owner": client["crm_owner"],
+                                "last_touchpoint_date": record.get("last_touchpoint_date"),
+                                "next_touchpoint_due": touchpoint_due.isoformat(),
+                                "days_overdue": abs(days_until_due) if days_until_due < 0 else 0,
+                                "days_remaining": days_until_due,
+                            }
+                        )
+
+                if record.get("engagement_end_date"):
+                    end_date = _safe_date(record.get("engagement_end_date"))
+                    if end_date:
+                        days_remaining = (end_date - date.today()).days
+                        if days_remaining <= 90:
+                            renewal_pipeline.append(
+                                {
+                                    "client_db_id": client["client_db_id"],
+                                    "client_name": client["client_name"],
+                                    "crm_owner": client["crm_owner"],
+                                    "engagement_end_date": end_date.isoformat(),
+                                    "days_remaining": days_remaining,
+                                    "health_score": score,
+                                }
+                            )
+
+            action_queue.sort(key=lambda item: (int(item["priority"]), _safe_date(item.get("due_date")) or date.max, str(item["client_name"])))
+            upcoming_touchpoints.sort(key=lambda item: (item.get("days_remaining", 9999), str(item["client_name"])))
+            renewal_pipeline.sort(key=lambda item: (int(item["days_remaining"]), str(item["client_name"])))
+
+            return {
+                "action_queue": action_queue,
+                "portfolio_summary": {
+                    "total_clients": len(records),
+                    "healthy": healthy_count,
+                    "needs_attention": needs_attention,
+                    "at_risk": at_risk,
+                    "avg_health_score": round(score_total / len(records), 1) if records else 0,
+                },
+                "upcoming_touchpoints": upcoming_touchpoints,
+                "renewal_pipeline": renewal_pipeline,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "crm_owner": owner_filter or "__all__",
+            }
+        except Exception as exc:
+            logger.exception("intelligence.dashboard_failed")
             return {
                 "action_queue": [],
                 "portfolio_summary": {
@@ -714,117 +910,8 @@ def get_dashboard(
                 "renewal_pipeline": [],
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "crm_owner": owner_filter or "__all__",
+                "detail": "Dashboard data is temporarily unavailable.",
             }
-
-        touchpoints = _load_touchpoints(con, org_id, client_ids)
-        invoice_stats = _load_invoice_stats(con, org_id, client_ids)
-        jobs_by_client = _load_jobs(con, org_id, client_ids)
-
-        records: list[dict[str, Any]] = []
-        for client in clients:
-            client_jobs = jobs_by_client.get(client["client_db_id"], [])
-            record = _compute_client_record(
-                client=client,
-                jobs=client_jobs,
-                touchpoints=touchpoints.get(client["client_db_id"], []),
-                invoice_stats=invoice_stats.get(client["client_db_id"], {}),
-                emissions_by_job={},
-            )
-            record["active_job"] = _pick_active_job(client_jobs)
-            record["touchpoints"] = touchpoints.get(client["client_db_id"], [])
-            records.append(record)
-
-        action_queue: list[dict[str, Any]] = []
-        upcoming_touchpoints: list[dict[str, Any]] = []
-        renewal_pipeline: list[dict[str, Any]] = []
-        score_total = 0
-        healthy_count = 0
-        needs_attention = 0
-        at_risk = 0
-
-        for client, record in zip(clients, records):
-            score = int(record["health_score"])
-            score_total += score
-            if score >= 70:
-                healthy_count += 1
-            elif score >= 40:
-                needs_attention += 1
-            else:
-                at_risk += 1
-
-            flags = [flag for flag in str(record.get("risk_flags") or "").split(",") if flag]
-            for flag in flags:
-                action_queue.append(
-                    {
-                        "action_type": flag,
-                        "priority": _priority_for_flag(flag),
-                        "client_db_id": client["client_db_id"],
-                        "client_name": client["client_name"],
-                        "crm_owner": client["crm_owner"],
-                        "headline": {
-                            "RENEWAL_30": "Renewal due within 30 days",
-                            "MILESTONE_RED": "Milestone overdue",
-                            "INVOICE_OVERDUE": "Invoice overdue",
-                            "RENEWAL_90": "Renewal due within 90 days",
-                            "OVERDUE_CALL": "Call overdue",
-                            "EMISSIONS_OFF_TRACK": "Emissions off track",
-                            "NO_ACTIVE_JOB": "No active job",
-                        }.get(flag, flag),
-                        "detail": f"Health score {score}.",
-                        "due_date": record.get("engagement_end_date") if flag in {"RENEWAL_30", "RENEWAL_90"} else record.get("touchpoint_due_date"),
-                    }
-                )
-
-            touchpoint_due = _safe_date(record.get("touchpoint_due_date"))
-            if touchpoint_due:
-                days_until_due = (touchpoint_due - date.today()).days
-                if days_until_due <= 14:
-                    upcoming_touchpoints.append(
-                        {
-                            "client_db_id": client["client_db_id"],
-                            "client_name": client["client_name"],
-                            "crm_owner": client["crm_owner"],
-                            "last_touchpoint_date": record.get("last_touchpoint_date"),
-                            "next_touchpoint_due": touchpoint_due.isoformat(),
-                            "days_overdue": abs(days_until_due) if days_until_due < 0 else 0,
-                            "days_remaining": days_until_due,
-                        }
-                    )
-
-            if record.get("engagement_end_date"):
-                end_date = _safe_date(record.get("engagement_end_date"))
-                if end_date:
-                    days_remaining = (end_date - date.today()).days
-                    if days_remaining <= 90:
-                        renewal_pipeline.append(
-                            {
-                                "client_db_id": client["client_db_id"],
-                                "client_name": client["client_name"],
-                                "crm_owner": client["crm_owner"],
-                                "engagement_end_date": end_date.isoformat(),
-                                "days_remaining": days_remaining,
-                                "health_score": score,
-                            }
-                        )
-
-        action_queue.sort(key=lambda item: (int(item["priority"]), _safe_date(item.get("due_date")) or date.max, str(item["client_name"])))
-        upcoming_touchpoints.sort(key=lambda item: (item.get("days_remaining", 9999), str(item["client_name"])))
-        renewal_pipeline.sort(key=lambda item: (int(item["days_remaining"]), str(item["client_name"])))
-
-        return {
-            "action_queue": action_queue,
-            "portfolio_summary": {
-                "total_clients": len(records),
-                "healthy": healthy_count,
-                "needs_attention": needs_attention,
-                "at_risk": at_risk,
-                "avg_health_score": round(score_total / len(records), 1) if records else 0,
-            },
-            "upcoming_touchpoints": upcoming_touchpoints,
-            "renewal_pipeline": renewal_pipeline,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "crm_owner": owner_filter or "__all__",
-        }
 
 
 @router.get("/client/{client_db_id}/call-prep")
