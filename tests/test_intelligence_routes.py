@@ -136,3 +136,93 @@ def test_dashboard_all_crms_override_requires_superadmin(monkeypatch):
     assert captured["crm_owner"] is None
     assert result["crm_owner"] == "__all__"
     assert result["portfolio_summary"]["total_clients"] == 1
+
+
+def test_call_prep_uses_cached_snapshot_and_returns_payload(monkeypatch):
+    conn = _FakeConn()
+
+    monkeypatch.setattr(intelligence_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(intelligence_routes, "_ensure_schema", lambda _con: None)
+    monkeypatch.setattr(
+        intelligence_routes,
+        "_load_touchpoints",
+        lambda *_args, **_kwargs: {
+            205: [
+                {
+                    "occurred_at": "2026-05-02T10:30:00+00:00",
+                    "summary": "Discussed renewal scope",
+                    "outcome": "neutral",
+                    "next_action": "Send proposal",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(intelligence_routes, "_load_invoice_stats", lambda *_args, **_kwargs: {205: {"open_invoices": 1, "overdue_invoices": 0}})
+    monkeypatch.setattr(
+        intelligence_routes,
+        "_load_health_snapshots",
+        lambda *_args, **_kwargs: {205: {"health_score": 77, "risk_flags": "OVERDUE_CALL"}},
+    )
+
+    row = (
+        205,
+        "Aberdeen Science Centre",
+        "",
+        2050,
+        2022,
+        513.47,
+        None,
+        None,
+        "monthly",
+    )
+    conn.fetchone = lambda: row  # type: ignore[attr-defined]
+
+    def execute(sql, params=None):
+        conn.queries.append((sql, params))
+        return conn
+
+    conn.execute = execute  # type: ignore[assignment]
+
+    result = intelligence_routes.get_call_prep(205, _user={"user_id": "u1", "full_name": "Jane Smith", "org_id": "org-a"})
+
+    assert result["client_name"] == "Aberdeen Science Centre"
+    assert result["crm_owner"] == "Unassigned"
+    assert result["health_score"] == 77
+    assert result["active_job"] is None
+    assert result["open_invoices"] == 1
+    assert result["talking_points"]
+
+
+def test_call_prep_returns_fallback_when_snapshot_lookup_fails(monkeypatch):
+    conn = _FakeConn()
+
+    monkeypatch.setattr(intelligence_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(intelligence_routes, "_ensure_schema", lambda _con: None)
+
+    def load_touchpoints(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(intelligence_routes, "_load_touchpoints", load_touchpoints)
+    conn.fetchone = lambda: (
+        205,
+        "Aberdeen Science Centre",
+        "Francis Doherty",
+        2050,
+        2022,
+        513.47,
+        None,
+        None,
+        "monthly",
+    )  # type: ignore[attr-defined]
+
+    def execute(sql, params=None):
+        conn.queries.append((sql, params))
+        return conn
+
+    conn.execute = execute  # type: ignore[assignment]
+
+    result = intelligence_routes.get_call_prep(205, _user={"user_id": "u1", "full_name": "Jane Smith", "org_id": "org-a"})
+
+    assert result["client_name"] == "Call Prep"
+    assert result["health_score"] == 0
+    assert result["detail"] == "Call prep data is temporarily unavailable."

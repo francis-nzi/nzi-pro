@@ -756,6 +756,24 @@ def _build_call_prep(record: dict[str, Any], client: dict[str, Any], touchpoints
     }
 
 
+def _build_fallback_call_prep(client_name: str, crm_owner: str, detail: str) -> dict[str, Any]:
+    return {
+        "client_name": client_name,
+        "crm_owner": crm_owner,
+        "last_touchpoint": None,
+        "days_since_contact": None,
+        "health_score": 0,
+        "risk_flags": ["OVERDUE_CALL"],
+        "active_job": None,
+        "emissions_summary": None,
+        "open_invoices": 0,
+        "overdue_invoices": 0,
+        "talking_points": [detail],
+        "engagement_end_date": None,
+        "detail": detail,
+    }
+
+
 @router.get("/dashboard")
 def get_dashboard(
     crm_owner: str | None = Query(default=None, description="Optional CRM filter"),
@@ -921,53 +939,59 @@ def get_call_prep(
 ):
     org_id = require_org(_user)
     with get_conn() as con:
-        _ensure_schema(con)
-        client_row = con.execute(
-            """
-            SELECT
-                db_id,
-                client_name,
-                COALESCE(NULLIF(TRIM(crm_owner), ''), 'Unassigned') AS crm_owner,
-                net_zero_year,
-                benchmark_year,
-                benchmark_total_tco2e,
-                engagement_start_date,
-                engagement_end_date,
-                touchpoint_cadence
-            FROM clients
-            WHERE db_id = ? AND org_id = ?
-            LIMIT 1
-            """,
-            [int(client_db_id), org_id],
-        ).fetchone()
-        if not client_row:
-            raise HTTPException(status_code=404, detail="Client not found")
+        try:
+            _ensure_schema(con)
+            client_row = con.execute(
+                """
+                SELECT
+                    db_id,
+                    client_name,
+                    COALESCE(NULLIF(TRIM(crm_owner), ''), 'Unassigned') AS crm_owner,
+                    net_zero_year,
+                    benchmark_year,
+                    benchmark_total_tco2e,
+                    engagement_start_date,
+                    engagement_end_date,
+                    touchpoint_cadence
+                FROM clients
+                WHERE db_id = ? AND org_id = ?
+                LIMIT 1
+                """,
+                [int(client_db_id), org_id],
+            ).fetchone()
+            if not client_row:
+                raise HTTPException(status_code=404, detail="Client not found")
 
-        client = {
-            "client_db_id": int(client_row[0]),
-            "client_name": _normalize_text(client_row[1], "Untitled client"),
-            "crm_owner": _normalize_text(client_row[2], "Unassigned"),
-            "net_zero_year": int(client_row[3]) if client_row[3] is not None else None,
-            "benchmark_year": int(client_row[4]) if client_row[4] is not None else None,
-            "benchmark_total_tco2e": float(client_row[5]) if client_row[5] is not None else None,
-            "engagement_start_date": _safe_date(client_row[6]),
-            "engagement_end_date": _safe_date(client_row[7]),
-            "touchpoint_cadence": _normalize_text(client_row[8], "monthly"),
-        }
-        jobs_by_client = _load_jobs(con, org_id, [int(client_db_id)])
-        jobs = jobs_by_client.get(int(client_db_id), [])
-        touchpoints = _load_touchpoints(con, org_id, [int(client_db_id)]).get(int(client_db_id), [])
-        invoice_stats = _load_invoice_stats(con, org_id, [int(client_db_id)]).get(int(client_db_id), {})
-        emissions_by_job = _aggregate_emissions(con, [job["job_id"] for job in jobs])
-        record = _compute_client_record(
-            client=client,
-            jobs=jobs,
-            touchpoints=touchpoints,
-            invoice_stats=invoice_stats,
-            emissions_by_job=emissions_by_job,
-        )
-        record["active_job"] = _pick_active_job(jobs)
-        return _build_call_prep(record, client, touchpoints[:1])
+            client = {
+                "client_db_id": int(client_row[0]),
+                "client_name": _normalize_text(client_row[1], "Untitled client"),
+                "crm_owner": _normalize_text(client_row[2], "Unassigned"),
+                "net_zero_year": int(client_row[3]) if client_row[3] is not None else None,
+                "benchmark_year": int(client_row[4]) if client_row[4] is not None else None,
+                "benchmark_total_tco2e": float(client_row[5]) if client_row[5] is not None else None,
+                "engagement_start_date": _safe_date(client_row[6]),
+                "engagement_end_date": _safe_date(client_row[7]),
+                "touchpoint_cadence": _normalize_text(client_row[8], "monthly"),
+            }
+            touchpoints = _load_touchpoints(con, org_id, [int(client_db_id)]).get(int(client_db_id), [])
+            invoice_stats = _load_invoice_stats(con, org_id, [int(client_db_id)]).get(int(client_db_id), {})
+            snapshot = _load_health_snapshots(con, org_id, [int(client_db_id)]).get(int(client_db_id))
+            record = _build_dashboard_record(
+                client=client,
+                snapshot=snapshot,
+                touchpoints=touchpoints,
+                invoice_stats=invoice_stats,
+            )
+            record["active_job"] = None
+            record["latest_year"] = None
+            record["latest_total_tco2e"] = None
+            record["emissions_variance_pct"] = None
+            return _build_call_prep(record, client, touchpoints[:1])
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("intelligence.call_prep_failed", extra={"client_db_id": int(client_db_id)})
+            return _build_fallback_call_prep("Call Prep", "Unassigned", "Call prep data is temporarily unavailable.")
 
 
 @router.get("/touchpoints/{client_db_id}")
