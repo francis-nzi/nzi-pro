@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,6 +20,8 @@ type EventItem = {
   direction: string;
   subject: string;
   body_text: string;
+  source?: string;
+  source_ref?: string;
   status: string;
   created_by: string;
   created_at: string | null;
@@ -54,6 +57,8 @@ type InboxItem = {
   status: string;
   direction: string;
   timestamp: string;
+  source?: string;
+  source_ref?: string;
   taskId?: number;
 };
 
@@ -143,6 +148,8 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       status: ev.status || "logged",
       direction: ev.direction || "internal",
       timestamp: ev.event_at || ev.created_at || "",
+      source: ev.source,
+      source_ref: ev.source_ref,
     }));
 
     const taskItems: InboxItem[] = tasks.map((t) => ({
@@ -416,7 +423,16 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
               {filteredItems.map((item) => (
                 <div key={item.id} className="rounded-md border p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium">[{item.kind === "task" ? "task" : "comm"}] {item.title}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">[{item.kind === "task" ? "task" : "comm"}] {item.title}</div>
+                      {item.kind === "communication" && (
+                        <Badge variant="secondary" className="text-[10px] uppercase tracking-[0.18em]">
+                          {(item.source || "").toLowerCase() === "intelligence" || (item.source_ref || "").toLowerCase().startsWith("touchpoint:")
+                            ? "Touchpoint"
+                            : "Communication"}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">{item.status || "-"}</div>
                   </div>
                   {item.body ? <div className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.body}</div> : null}
