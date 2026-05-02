@@ -292,7 +292,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       {(ov || !loading) && (
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
-            <TabsTrigger value="intelligence">Intelligence</TabsTrigger>
+            <TabsTrigger value="intelligence">Insights</TabsTrigger>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
             <TabsTrigger value="operations">Operations</TabsTrigger>
@@ -300,7 +300,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
 
-          {/* Intelligence */}
+          {/* Insights */}
           <TabsContent value="intelligence" className="space-y-5 pt-3">
             <IntelligenceDashboard baseUrl={api} crmOwner={crm} />
           </TabsContent>

@@ -193,7 +193,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Intelligence</div>
+          <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Insights</div>
           <h2 className="text-3xl font-semibold text-foreground">
             {viewMode === "all" && isSuperAdmin ? "All CRM dashboard" : "Personal CRM dashboard"}
           </h2>
@@ -244,7 +244,7 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
               <div className="max-w-3xl">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-muted-foreground">
                   <Sparkles className="h-3.5 w-3.5" />
-                  <span>Personal intelligence feed</span>
+                  <span>Personal insights feed</span>
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
                   Prioritised actions, touchpoints, and renewals for the current CRM scope. Use the cards below to jump straight into call prep or logging contact.
