@@ -74,6 +74,7 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [nziLogoSrc, setNziLogoSrc] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +120,34 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
       cancelled = true;
     };
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = "";
+
+    async function loadNziLogo() {
+      try {
+        const res = await fetch(`${baseUrl}/system-settings/logo/file`, { credentials: "include" });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setNziLogoSrc(objectUrl);
+      } catch {
+        if (!cancelled) {
+          setNziLogoSrc("");
+        }
+      }
+    }
+
+    void loadNziLogo();
+    return () => {
+      cancelled = true;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [baseUrl]);
 
   const handleDownload = async () => {
     if (!jobId || downloading) return;
@@ -182,11 +211,17 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
             <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
               <div className="p-6 md:p-10">
                 <div className="flex items-start justify-between gap-4">
-                  <img
-                    src="/uploads/system/nzi-logo.png"
-                    alt="Net Zero International"
-                    className="h-16 w-auto object-contain md:h-20"
-                  />
+                  {nziLogoSrc ? (
+                    <img
+                      src={nziLogoSrc}
+                      alt="Net Zero International"
+                      className="h-16 w-auto object-contain md:h-20"
+                    />
+                  ) : (
+                    <div className="flex h-16 w-40 items-center text-sm font-medium text-slate-500 md:h-20">
+                      Net Zero International
+                    </div>
+                  )}
                   <div className="flex min-h-16 min-w-[9rem] items-center justify-end text-right text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
                     {clientLogoSrc ? (
                       <img

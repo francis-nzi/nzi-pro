@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
+from reportlab.lib.pagesizes import A4, landscape
 
 import api.job_emissions_certificate_routes as cert_routes
 
@@ -112,3 +113,48 @@ def test_job_emissions_certificate_pdf_returns_pdf_bytes(monkeypatch):
 
     assert response.media_type == "application/pdf"
     assert response.body.startswith(b"%PDF")
+
+
+def test_job_emissions_certificate_pdf_uses_landscape_pagesize(monkeypatch):
+    fake = _FakeConn()
+    captured: dict[str, object] = {}
+
+    class _FakeCanvas:
+        def __init__(self, buffer, pagesize=None, title=None, author=None):
+            captured["pagesize"] = pagesize
+            self._buffer = buffer
+
+        def __getattr__(self, name):
+            def _noop(*_args, **_kwargs):
+                return None
+
+            return _noop
+
+        def save(self):
+            self._buffer.write(b"%PDF-1.4\n%fake\n")
+
+    class _FakeParagraph:
+        def __init__(self, text, style):
+            self.text = text
+            self.style = style
+
+        def wrap(self, width, height):
+            return (width, 10)
+
+        def drawOn(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(cert_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(cert_routes, "assert_job_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cert_routes, "exact_job_total_emissions", lambda *_args, **_kwargs: 6.22)
+    monkeypatch.setattr(cert_routes, "get_company_profile", lambda _con: {"company_display_name": "Net Zero International"})
+    monkeypatch.setattr(cert_routes.canvas, "Canvas", _FakeCanvas)
+    monkeypatch.setattr(cert_routes, "Paragraph", _FakeParagraph)
+    monkeypatch.setattr(cert_routes, "_get_nzi_logo_reader", lambda _con: None)
+    monkeypatch.setattr(cert_routes, "_get_image_reader_from_logo_url", lambda _logo_url: None)
+
+    response = cert_routes.get_job_emissions_certificate_pdf(3, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert response.media_type == "application/pdf"
+    assert response.body.startswith(b"%PDF")
+    assert captured["pagesize"] == landscape(A4)

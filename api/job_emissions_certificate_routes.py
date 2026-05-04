@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import io
+import base64
 import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Any
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Paragraph
 
 from api.auth import _current_user
@@ -104,6 +108,76 @@ def _parse_local_logo_path(logo_url: str | None) -> Path | None:
     return None
 
 
+def _get_nzi_logo_reader(con) -> ImageReader | None:
+    try:
+        rows = con.execute(
+            "SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN (?, ?, ?)",
+            ["nzi_logo_file", "nzi_logo_b64", "nzi_logo_mime"],
+        ).fetchall()
+        values = {str(r[0] or ""): r[1] for r in rows}
+        filename = str(values.get("nzi_logo_file") or "").strip()
+        if filename:
+            candidate = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "system" / filename
+            if candidate.exists():
+                return ImageReader(str(candidate))
+        logo_b64 = str(values.get("nzi_logo_b64") or "").strip()
+        if logo_b64:
+            raw = base64.b64decode(logo_b64, validate=False)
+            if raw:
+                return ImageReader(io.BytesIO(raw))
+    except Exception:
+        pass
+
+    fallback = Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "system" / "nzi-logo.png"
+    if fallback.exists():
+        try:
+            return ImageReader(str(fallback))
+        except Exception:
+            return None
+
+    alt = Path(__file__).resolve().parents[1] / "assets" / "netzero-logo-big-tree-64x64-1.png"
+    if alt.exists():
+        try:
+            return ImageReader(str(alt))
+        except Exception:
+            return None
+    return None
+
+
+def _get_image_reader_from_logo_url(logo_url: str | None) -> ImageReader | None:
+    value = str(logo_url or "").strip()
+    if not value:
+        return None
+    try:
+        if value.startswith("data:"):
+            header, _, payload = value.partition(",")
+            if ";base64" in header:
+                raw = base64.b64decode(payload, validate=False)
+                return ImageReader(io.BytesIO(raw))
+        if value.startswith("http://") or value.startswith("https://"):
+            with urlopen(value, timeout=5) as response:
+                raw = response.read()
+            return ImageReader(io.BytesIO(raw))
+    except Exception:
+        pass
+
+    local_path = _parse_local_logo_path(value)
+    if local_path and local_path.exists():
+        try:
+            return ImageReader(str(local_path))
+        except Exception:
+            return None
+
+    if value.startswith("/uploads/"):
+        candidate = Path(__file__).resolve().parents[1] / "frontend" / "public" / value.lstrip("/")
+        if candidate.exists():
+            try:
+                return ImageReader(str(candidate))
+            except Exception:
+                return None
+    return None
+
+
 def _certificate_display_date(value: Any) -> str:
     if not value:
         return ""
@@ -187,7 +261,7 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
           j.client_db_id,
           j.org_id,
           c.client_name,
-          c.logo_url AS client_logo_url
+          COALESCE(c.logo_url, c.logo_file) AS client_logo_url
         FROM jobs j
         LEFT JOIN clients c ON c.db_id = j.client_db_id
         WHERE j.job_id = ?
@@ -295,12 +369,12 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
     return _serialize_certificate_row(issued, extra)
 
 
-def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: dict[str, Any]) -> bytes:
+def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: dict[str, Any], con=None) -> bytes:
     buffer = io.BytesIO()
-    page_w, page_h = A4
+    page_w, page_h = landscape(A4)
     c = canvas.Canvas(
         buffer,
-        pagesize=A4,
+        pagesize=landscape(A4),
         title=f"Annual Carbon Emissions Certificate {certificate.get('certificate_number') or ''}",
         author="Net Zero International",
     )
@@ -326,34 +400,8 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     signatory_title = str(certificate.get("signatory_title") or company_profile.get("certificate_signatory_title") or "Chief Executive Officer").strip() or "Chief Executive Officer"
     footer_text = company_footer_text(company_profile) or company_legal_name
 
-    nzi_logo_path = (
-        Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "system" / "nzi-logo.png"
-    )
-    if not nzi_logo_path.exists():
-        fallback_logo = Path(__file__).resolve().parents[1] / "assets" / "netzero-logo-big-tree-64x64-1.png"
-        if fallback_logo.exists():
-            nzi_logo_path = fallback_logo
-    client_logo_path = _parse_local_logo_path(certificate.get("client_logo_url"))
-
-    styles = getSampleStyleSheet()
-    centered_style = ParagraphStyle(
-        "CertificateCentered",
-        parent=styles["Normal"],
-        alignment=1,
-        fontName="Helvetica",
-        fontSize=10.8,
-        leading=14,
-        textColor=colors.HexColor("#3f3f46"),
-    )
-    disclaimer_style = ParagraphStyle(
-        "CertificateDisclaimer",
-        parent=styles["Normal"],
-        alignment=1,
-        fontName="Helvetica",
-        fontSize=8.8,
-        leading=11,
-        textColor=colors.HexColor("#6b7280"),
-    )
+    nzi_logo_reader = _get_nzi_logo_reader(con) if con is not None else None
+    client_logo_reader = _get_image_reader_from_logo_url(certificate.get("client_logo_url"))
 
     def draw_centered_paragraph(text: str, style: ParagraphStyle, top_y: float, width: float) -> float:
         paragraph = Paragraph(text, style)
@@ -361,10 +409,23 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
         paragraph.drawOn(c, (page_w - wrapped_w) / 2.0, top_y - wrapped_h)
         return wrapped_h
 
+    def draw_image_fitted(reader: ImageReader, x: float, y: float, max_w: float, max_h: float) -> bool:
+        try:
+            img_w, img_h = reader.getSize()
+            if not img_w or not img_h:
+                return False
+            scale = min(max_w / float(img_w), max_h / float(img_h))
+            draw_w = float(img_w) * scale
+            draw_h = float(img_h) * scale
+            c.drawImage(reader, x + (max_w - draw_w) / 2.0, y + (max_h - draw_h) / 2.0, width=draw_w, height=draw_h, mask="auto")
+            return True
+        except Exception:
+            return False
+
     # Background and border.
     c.setFillColor(colors.white)
     c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
-    inner_x = 8 * mm
+    inner_x = 9 * mm
     inner_y = 8 * mm
     inner_w = page_w - inner_x * 2
     inner_h = page_h - inner_y * 2
@@ -373,35 +434,36 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     c.rect(inner_x, inner_y, inner_w, inner_h, fill=0, stroke=1)
 
     # Logos.
-    top_logo_y = page_h - inner_y - 23 * mm
-    if nzi_logo_path.exists():
-        c.drawImage(str(nzi_logo_path), inner_x + 8 * mm, top_logo_y, width=36 * mm, height=18 * mm, preserveAspectRatio=True, mask="auto")
+    top_logo_y = page_h - inner_y - 20 * mm
+    if nzi_logo_reader:
+        draw_image_fitted(nzi_logo_reader, inner_x + 7 * mm, top_logo_y, 40 * mm, 18 * mm)
     else:
         c.setFillColor(colors.HexColor("#6b7280"))
         c.setFont("Helvetica-Bold", 18)
         c.drawString(inner_x + 10 * mm, top_logo_y + 6 * mm, "Net Zero International")
 
-    client_logo_label_x = page_w - inner_x - 14 * mm
-    if client_logo_path and client_logo_path.exists():
-        c.drawImage(str(client_logo_path), page_w - inner_x - 40 * mm, top_logo_y + 1 * mm, width=30 * mm, height=15 * mm, preserveAspectRatio=True, mask="auto")
+    client_logo_box_x = page_w - inner_x - 42 * mm
+    client_logo_box_y = top_logo_y + 1 * mm
+    if client_logo_reader:
+        draw_image_fitted(client_logo_reader, client_logo_box_x, client_logo_box_y, 36 * mm, 16 * mm)
     else:
         c.setFillColor(colors.HexColor("#6b7280"))
         c.setFont("Helvetica-Bold", 11)
-        c.drawRightString(client_logo_label_x, top_logo_y + 10 * mm, "[CLIENT LOGO]")
+        c.drawRightString(page_w - inner_x - 8 * mm, top_logo_y + 10 * mm, "[CLIENT LOGO]")
 
     # Main title block.
     orange = colors.HexColor("#f97316")
     dark = colors.HexColor("#2f343a")
     light = colors.HexColor("#6b7280")
 
-    title_top = page_h - 67 * mm
+    title_top = page_h - 55 * mm
     c.setFillColor(orange)
-    c.setFont("Helvetica-Bold", 24)
+    c.setFont("Helvetica-Bold", 26)
     c.drawCentredString(page_w / 2.0, title_top, "Annual Carbon Emissions Certificate")
 
     c.setFillColor(dark)
-    c.setFont("Helvetica-Bold", 26)
-    c.drawCentredString(page_w / 2.0, title_top - 22 * mm, client_name)
+    c.setFont("Helvetica-Bold", 28)
+    c.drawCentredString(page_w / 2.0, title_top - 19 * mm, client_name)
 
     intro_text = (
         "Net Zero International has reviewed the greenhouse gas emissions data for the reporting period stated in this document "
@@ -409,42 +471,45 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     )
     intro_style = ParagraphStyle(
         "CertificateIntro",
-        parent=centered_style,
-        fontSize=10.6,
-        leading=14,
+        parent=getSampleStyleSheet()["Normal"],
+        alignment=1,
+        fontName="Helvetica",
+        fontSize=12,
+        leading=16,
         textColor=colors.HexColor("#42464d"),
     )
-    intro_height = draw_centered_paragraph(intro_text, intro_style, title_top - 35 * mm, 150 * mm)
+    draw_centered_paragraph(intro_text, intro_style, title_top - 35 * mm, 190 * mm)
 
     # Emissions figure.
-    figure_y = title_top - 62 * mm
+    figure_y = title_top - 58 * mm
     c.setFillColor(dark)
-    c.setFont("Helvetica-Bold", 44)
+    c.setFont("Helvetica-Bold", 50)
     c.drawCentredString(page_w / 2.0, figure_y, f"{emissions:,.2f}")
     tco2e_style = ParagraphStyle(
         "CertificateTCO2e",
-        parent=centered_style,
-        fontSize=14,
-        leading=16,
+        parent=getSampleStyleSheet()["Normal"],
+        alignment=1,
         fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=18,
         textColor=light,
     )
-    draw_centered_paragraph("tCO<sub>2</sub>e", tco2e_style, figure_y - 10 * mm, 24 * mm)
+    draw_centered_paragraph("tCO<sub>2</sub>e", tco2e_style, figure_y - 10 * mm, 30 * mm)
 
     # Lower information columns.
-    lower_top = 72 * mm
+    lower_top = 38 * mm
     left_x = inner_x + 10 * mm
-    mid_x = page_w / 2.0 - 2 * mm
+    mid_x = page_w / 2.0 - 8 * mm
     right_x = page_w - inner_x - 65 * mm
 
     c.setFillColor(dark)
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont("Helvetica-Bold", 13)
     c.drawString(left_x, lower_top + 18 * mm, "Verified by Net Zero International")
     c.setStrokeColor(colors.HexColor("#bfc5cc"))
     c.setLineWidth(0.9)
-    c.line(left_x, lower_top + 14 * mm, left_x + 42 * mm, lower_top + 14 * mm)
+    c.line(left_x, lower_top + 14 * mm, left_x + 48 * mm, lower_top + 14 * mm)
     c.setFillColor(light)
-    c.setFont("Helvetica", 9.8)
+    c.setFont("Helvetica-Bold", 9.2)
     c.drawString(left_x, lower_top + 9 * mm, "Authorised Signatory")
     c.setFillColor(dark)
     c.setFont("Helvetica-Bold", 11.5)
@@ -455,28 +520,29 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     c.setFont("Helvetica-Bold", 9.5)
     c.drawString(left_x, lower_top - 9 * mm, "ISSUE DATE")
     c.setFillColor(dark)
-    c.setFont("Helvetica", 10.6)
-    c.drawString(left_x, lower_top - 15 * mm, issued_text)
+    c.setFont("Helvetica", 10.8)
+    c.drawString(left_x, lower_top - 14 * mm, issued_text)
 
     c.setFillColor(light)
     c.setFont("Helvetica-Bold", 9.5)
     c.drawString(mid_x, lower_top + 9 * mm, "REPORTING PERIOD")
     c.setFillColor(dark)
-    c.setFont("Helvetica", 11.1)
-    c.drawString(mid_x, lower_top + 3.5 * mm, reporting_period)
+    c.setFont("Helvetica", 11.3)
+    period_text = reporting_period
+    c.drawString(mid_x, lower_top + 3.5 * mm, period_text[:64])
 
     c.setFillColor(light)
     c.setFont("Helvetica-Bold", 9.5)
     c.drawString(right_x, lower_top + 9 * mm, "STATEMENT NUMBER")
     c.setFillColor(dark)
-    c.setFont("Helvetica", 11.1)
+    c.setFont("Helvetica", 11.3)
     c.drawString(right_x, lower_top + 3.5 * mm, certificate_number)
 
     # Disclaimer banner.
     banner_x = inner_x + 10 * mm
     banner_y = 12 * mm
     banner_w = inner_w - 20 * mm
-    banner_h = 18 * mm
+    banner_h = 16 * mm
     c.setFillColor(colors.HexColor("#eef2f7"))
     c.roundRect(banner_x, banner_y, banner_w, banner_h, 2 * mm, fill=1, stroke=0)
     disclaimer_text = (
@@ -486,16 +552,18 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     )
     disclaimer_style = ParagraphStyle(
         "CertificateDisclaimerBody",
-        parent=disclaimer_style,
-        fontSize=8.7,
-        leading=10.8,
+        parent=getSampleStyleSheet()["Normal"],
+        alignment=1,
+        fontName="Helvetica",
+        fontSize=8.6,
+        leading=10.6,
         textColor=colors.HexColor("#6b7280"),
     )
-    draw_centered_paragraph(disclaimer_text, disclaimer_style, banner_y + banner_h - 3 * mm, banner_w - 8 * mm)
+    draw_centered_paragraph(disclaimer_text, disclaimer_style, banner_y + banner_h - 2.6 * mm, banner_w - 6 * mm)
 
     # Footer.
     c.setFillColor(light)
-    c.setFont("Helvetica", 8.5)
+    c.setFont("Helvetica", 8.4)
     c.drawCentredString(page_w / 2.0, 5.8 * mm, footer_text[:180])
 
     c.showPage()
@@ -517,7 +585,7 @@ def get_job_emissions_certificate_pdf(job_id: int, _user: dict = Depends(_curren
     with get_conn() as con:
         certificate = _load_job_certificate_context(con, int(job_id), _user)
         company_profile = get_company_profile(con)
-        pdf_bytes = _render_certificate_pdf_bytes(certificate, company_profile)
+        pdf_bytes = _render_certificate_pdf_bytes(certificate, company_profile, con)
 
     filename = _certificate_filename(certificate.get("job_number"), certificate.get("certificate_number") or "certificate")
     return Response(
