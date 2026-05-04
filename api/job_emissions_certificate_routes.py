@@ -409,6 +409,12 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
         paragraph.drawOn(c, (page_w - wrapped_w) / 2.0, top_y - wrapped_h)
         return wrapped_h
 
+    def draw_wrapped_left(text: str, style: ParagraphStyle, x: float, top_y: float, width: float) -> float:
+        paragraph = Paragraph(text, style)
+        wrapped_w, wrapped_h = paragraph.wrap(width, page_h)
+        paragraph.drawOn(c, x, top_y - wrapped_h)
+        return wrapped_h
+
     def draw_image_fitted(reader: ImageReader, x: float, y: float, max_w: float, max_h: float) -> bool:
         try:
             img_w, img_h = reader.getSize()
@@ -503,7 +509,7 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     right_x = page_w - inner_x - 65 * mm
 
     c.setFillColor(dark)
-    c.setFont("Helvetica-Bold", 13)
+    c.setFont("Helvetica-Bold", 13.5)
     c.drawString(left_x, lower_top + 18 * mm, "Verified by Net Zero International")
     c.setStrokeColor(colors.HexColor("#bfc5cc"))
     c.setLineWidth(0.9)
@@ -512,9 +518,9 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     c.setFont("Helvetica-Bold", 9.2)
     c.drawString(left_x, lower_top + 9 * mm, "Authorised Signatory")
     c.setFillColor(dark)
-    c.setFont("Helvetica-Bold", 11.5)
+    c.setFont("Helvetica-Bold", 12)
     c.drawString(left_x, lower_top + 4.5 * mm, signatory_name)
-    c.setFont("Helvetica", 10.4)
+    c.setFont("Helvetica", 9.8)
     c.drawString(left_x, lower_top, signatory_title)
     c.setFillColor(light)
     c.setFont("Helvetica-Bold", 9.5)
@@ -523,20 +529,29 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     c.setFont("Helvetica", 10.8)
     c.drawString(left_x, lower_top - 14 * mm, issued_text)
 
-    c.setFillColor(light)
-    c.setFont("Helvetica-Bold", 9.5)
-    c.drawString(mid_x, lower_top + 9 * mm, "REPORTING PERIOD")
-    c.setFillColor(dark)
-    c.setFont("Helvetica", 11.3)
-    period_text = reporting_period
-    c.drawString(mid_x, lower_top + 3.5 * mm, period_text[:64])
+    column_style = ParagraphStyle(
+        "CertificateColumnValue",
+        parent=getSampleStyleSheet()["Normal"],
+        fontName="Helvetica",
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#2f343a"),
+    )
+    column_label_style = ParagraphStyle(
+        "CertificateColumnLabel",
+        parent=getSampleStyleSheet()["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9.5,
+        leading=11,
+        textColor=colors.HexColor("#6b7280"),
+    )
 
     c.setFillColor(light)
-    c.setFont("Helvetica-Bold", 9.5)
-    c.drawString(right_x, lower_top + 9 * mm, "STATEMENT NUMBER")
-    c.setFillColor(dark)
-    c.setFont("Helvetica", 11.3)
-    c.drawString(right_x, lower_top + 3.5 * mm, certificate_number)
+    draw_wrapped_left("REPORTING PERIOD", column_label_style, mid_x, lower_top + 9 * mm, 72 * mm)
+    draw_wrapped_left(reporting_period, column_style, mid_x, lower_top + 3.5 * mm, 72 * mm)
+
+    draw_wrapped_left("STATEMENT NUMBER", column_label_style, right_x, lower_top + 9 * mm, 55 * mm)
+    draw_wrapped_left(certificate_number, column_style, right_x, lower_top + 3.5 * mm, 55 * mm)
 
     # Disclaimer banner.
     banner_x = inner_x + 10 * mm
