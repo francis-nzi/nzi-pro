@@ -5,14 +5,16 @@ import re
 from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Any
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
 
 from api.auth import _current_user
 from api.permissions import assert_job_access
@@ -89,11 +91,62 @@ def _coerce_reporting_year(row: dict[str, Any]) -> int:
     return datetime.now(timezone.utc).year
 
 
-def _serialize_certificate_row(row: dict[str, Any]) -> dict[str, Any]:
+def _parse_local_logo_path(logo_url: str | None) -> Path | None:
+    value = str(logo_url or "").strip()
+    if not value or value.startswith("http://") or value.startswith("https://") or value.startswith("data:"):
+        return None
+    if value.startswith("/"):
+        candidate = Path(__file__).resolve().parents[1] / "frontend" / "public" / value.lstrip("/")
+        return candidate if candidate.exists() else None
+    candidate = Path(value)
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _certificate_display_date(value: Any) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return f"{value.day} {value.strftime('%B %Y')}"
+    if hasattr(value, "date") and hasattr(value, "strftime"):
+        try:
+            return f"{value.day} {value.strftime('%B %Y')}"
+        except Exception:
+            pass
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text[:19])
+        return f"{parsed.day} {parsed.strftime('%B %Y')}"
+    except Exception:
+        try:
+            parsed = datetime.fromisoformat(text[:10])
+            return f"{parsed.day} {parsed.strftime('%B %Y')}"
+        except Exception:
+            return text
+
+
+def _certificate_period_label(start_value: Any, end_value: Any, reporting_year: Any) -> str:
+    start_label = _certificate_display_date(start_value)
+    end_label = _certificate_display_date(end_value)
+    if start_label and end_label:
+        return f"{start_label} to {end_label}"
+    if reporting_year is not None:
+        year = int(reporting_year)
+        return f"1 January {year} to 31 December {year}"
+    if end_label:
+        year = end_label.split()[-1]
+        return f"1 January {year} to {end_label}"
+    return "Reporting period unavailable"
+
+
+def _serialize_certificate_row(row: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     emissions_value = row.get("emissions")
     issued_at = row.get("issued_at")
     updated_at = row.get("updated_at")
-    return {
+    payload = {
         "certificate_id": int(row["certificate_id"]) if row.get("certificate_id") is not None else None,
         "job_id": int(row["job_id"]) if row.get("job_id") is not None else None,
         "org_id": str(row.get("org_id") or "").strip() or None,
@@ -101,6 +154,8 @@ def _serialize_certificate_row(row: dict[str, Any]) -> dict[str, Any]:
         "client_name": str(row.get("client_name") or "").strip() or "Client",
         "job_number": str(row.get("job_number") or "").strip() or None,
         "reporting_year": int(row["reporting_year"]) if row.get("reporting_year") is not None else None,
+        "reporting_period_start": row.get("reporting_period_start").isoformat() if hasattr(row.get("reporting_period_start"), "isoformat") else (str(row.get("reporting_period_start")) if row.get("reporting_period_start") else None),
+        "reporting_period_end": row.get("reporting_period_end").isoformat() if hasattr(row.get("reporting_period_end"), "isoformat") else (str(row.get("reporting_period_end")) if row.get("reporting_period_end") else None),
         "emissions": float(emissions_value or 0.0),
         "certificate_number": str(row.get("certificate_number") or "").strip() or None,
         "issued_at": issued_at.isoformat() if hasattr(issued_at, "isoformat") else (str(issued_at) if issued_at else None),
@@ -108,6 +163,9 @@ def _serialize_certificate_row(row: dict[str, Any]) -> dict[str, Any]:
         "verified_by": "Net Zero International",
         "download_url": f"/jobs/{int(row['job_id'])}/emissions-certificate/pdf" if row.get("job_id") is not None else None,
     }
+    if extra:
+        payload.update(extra)
+    return payload
 
 
 def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +178,7 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
         SELECT
           j.job_id,
           j.job_number,
+          j.reporting_period_start,
           COALESCE(
             j.reporting_year,
             EXTRACT(YEAR FROM j.reporting_period_end)
@@ -127,7 +186,8 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
           j.reporting_period_end,
           j.client_db_id,
           j.org_id,
-          c.client_name
+          c.client_name,
+          c.logo_url AS client_logo_url
         FROM jobs j
         LEFT JOIN clients c ON c.db_id = j.client_db_id
         WHERE j.job_id = ?
@@ -141,6 +201,18 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
     if not org_id:
         raise HTTPException(status_code=403, detail="Organisation context required")
 
+    try:
+        company_profile = get_company_profile(con)
+    except Exception:
+        company_profile = {
+            "company_display_name": "Net Zero International",
+            "company_legal_name": "Net Zero International Limited",
+            "website_url": "https://netzero.international",
+            "company_registration_number": "",
+            "vat_number": "",
+            "certificate_signatory_name": "David Hawes",
+            "certificate_signatory_title": "Chief Executive Officer",
+        }
     reporting_year = _coerce_reporting_year(job_row)
     existing = fetch_row_dict(
         con,
@@ -155,7 +227,14 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
         [int(job_id), int(reporting_year), org_id],
     )
     if existing:
-        return _serialize_certificate_row(existing)
+        extra = {
+            "client_logo_url": str(job_row.get("client_logo_url") or "").strip() or None,
+            "reporting_period_start": job_row.get("reporting_period_start").isoformat() if hasattr(job_row.get("reporting_period_start"), "isoformat") else (str(job_row.get("reporting_period_start")) if job_row.get("reporting_period_start") else None),
+            "reporting_period_end": job_row.get("reporting_period_end").isoformat() if hasattr(job_row.get("reporting_period_end"), "isoformat") else (str(job_row.get("reporting_period_end")) if job_row.get("reporting_period_end") else None),
+            "signatory_name": str(company_profile.get("certificate_signatory_name") or "David Hawes").strip() or "David Hawes",
+            "signatory_title": str(company_profile.get("certificate_signatory_title") or "Chief Executive Officer").strip() or "Chief Executive Officer",
+        }
+        return _serialize_certificate_row(existing, extra)
 
     emissions = exact_job_total_emissions(con, int(job_id))
     temp_number = f"PENDING-{uuid4().hex}"
@@ -206,151 +285,221 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
     )
     if not issued:
         raise HTTPException(status_code=500, detail="Failed to load certificate")
-    return _serialize_certificate_row(issued)
+    extra = {
+        "client_logo_url": str(job_row.get("client_logo_url") or "").strip() or None,
+        "reporting_period_start": job_row.get("reporting_period_start").isoformat() if hasattr(job_row.get("reporting_period_start"), "isoformat") else (str(job_row.get("reporting_period_start")) if job_row.get("reporting_period_start") else None),
+        "reporting_period_end": job_row.get("reporting_period_end").isoformat() if hasattr(job_row.get("reporting_period_end"), "isoformat") else (str(job_row.get("reporting_period_end")) if job_row.get("reporting_period_end") else None),
+        "signatory_name": str(company_profile.get("certificate_signatory_name") or "David Hawes").strip() or "David Hawes",
+        "signatory_title": str(company_profile.get("certificate_signatory_title") or "Chief Executive Officer").strip() or "Chief Executive Officer",
+    }
+    return _serialize_certificate_row(issued, extra)
 
 
 def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: dict[str, Any]) -> bytes:
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
+    page_w, page_h = A4
+    c = canvas.Canvas(
         buffer,
         pagesize=A4,
-        leftMargin=18 * mm,
-        rightMargin=18 * mm,
-        topMargin=20 * mm,
-        bottomMargin=18 * mm,
-        title=f"Carbon Emissions Certificate {certificate.get('certificate_number') or ''}",
+        title=f"Annual Carbon Emissions Certificate {certificate.get('certificate_number') or ''}",
         author="Net Zero International",
-    )
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "CertificateTitle",
-        parent=styles["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=22,
-        leading=26,
-        textColor=colors.HexColor("#1f2937"),
-        spaceAfter=6 * mm,
-    )
-    subtitle_style = ParagraphStyle(
-        "CertificateSubtitle",
-        parent=styles["Normal"],
-        fontSize=10.5,
-        leading=14,
-        textColor=colors.HexColor("#4b5563"),
-        spaceAfter=4 * mm,
-    )
-    body_style = ParagraphStyle(
-        "CertificateBody",
-        parent=styles["Normal"],
-        fontSize=11,
-        leading=15,
-        textColor=colors.HexColor("#111827"),
-    )
-    label_style = ParagraphStyle(
-        "CertificateLabel",
-        parent=styles["Normal"],
-        fontSize=10,
-        leading=12,
-        fontName="Helvetica-Bold",
-        textColor=colors.HexColor("#374151"),
     )
 
     company_name = str(
         company_profile.get("company_display_name")
         or company_profile.get("company_legal_name")
         or "Net Zero International"
-    )
-    client_name = str(certificate.get("client_name") or "Client")
-    job_number = str(certificate.get("job_number") or f"Job {certificate.get('job_id')}")
-    certificate_number = str(certificate.get("certificate_number") or "NZI-EC-000000")
+    ).strip()
+    company_legal_name = str(company_profile.get("company_legal_name") or company_name).strip() or company_name
+    client_name = str(certificate.get("client_name") or "Client").strip() or "Client"
+    job_number = str(certificate.get("job_number") or f"Job {certificate.get('job_id')}").strip()
+    certificate_number = str(certificate.get("certificate_number") or "NZI-EC-000000").strip()
     reporting_year = certificate.get("reporting_year")
     emissions = float(certificate.get("emissions") or 0.0)
-    issued_at = certificate.get("issued_at")
-    issued_text = issued_at[:10] if isinstance(issued_at, str) and len(issued_at) >= 10 else str(issued_at or "")
+    issued_text = _certificate_display_date(certificate.get("issued_at")) or "On issue"
+    reporting_period = _certificate_period_label(
+        certificate.get("reporting_period_start"),
+        certificate.get("reporting_period_end"),
+        reporting_year,
+    )
+    signatory_name = str(certificate.get("signatory_name") or company_profile.get("certificate_signatory_name") or "David Hawes").strip() or "David Hawes"
+    signatory_title = str(certificate.get("signatory_title") or company_profile.get("certificate_signatory_title") or "Chief Executive Officer").strip() or "Chief Executive Officer"
+    footer_text = company_footer_text(company_profile) or company_legal_name
 
-    story: list[Any] = [
-        Paragraph("Carbon Emissions Certificate", title_style),
-        Paragraph(f"Certificate No. {certificate_number}", subtitle_style),
-        Paragraph(
-            f"This certificate confirms the verified carbon emissions associated with {client_name}.",
-            body_style,
-        ),
-        Spacer(1, 4 * mm),
-    ]
+    nzi_logo_path = (
+        Path(__file__).resolve().parents[1] / "frontend" / "public" / "uploads" / "system" / "nzi-logo.png"
+    )
+    if not nzi_logo_path.exists():
+        fallback_logo = Path(__file__).resolve().parents[1] / "assets" / "netzero-logo-big-tree-64x64-1.png"
+        if fallback_logo.exists():
+            nzi_logo_path = fallback_logo
+    client_logo_path = _parse_local_logo_path(certificate.get("client_logo_url"))
 
-    detail_rows = [
-        [Paragraph("Client", label_style), Paragraph(client_name, body_style)],
-        [Paragraph("Job", label_style), Paragraph(job_number, body_style)],
-        [Paragraph("Reporting Year", label_style), Paragraph(str(reporting_year or ""), body_style)],
-        [Paragraph("Emissions", label_style), Paragraph(f"{emissions:,.2f} tCO2e", body_style)],
-        [Paragraph("Issued", label_style), Paragraph(issued_text or "On issue", body_style)],
-    ]
-    detail_table = Table(detail_rows, colWidths=[42 * mm, 120 * mm], hAlign="LEFT")
-    detail_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
-                ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#d1d5db")),
-                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 7),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
+    styles = getSampleStyleSheet()
+    centered_style = ParagraphStyle(
+        "CertificateCentered",
+        parent=styles["Normal"],
+        alignment=1,
+        fontName="Helvetica",
+        fontSize=10.8,
+        leading=14,
+        textColor=colors.HexColor("#3f3f46"),
+    )
+    disclaimer_style = ParagraphStyle(
+        "CertificateDisclaimer",
+        parent=styles["Normal"],
+        alignment=1,
+        fontName="Helvetica",
+        fontSize=8.8,
+        leading=11,
+        textColor=colors.HexColor("#6b7280"),
     )
 
-    story.extend(
-        [
-            detail_table,
-            Spacer(1, 8 * mm),
-            Paragraph(
-                "This certificate has been verified by Net Zero International and may be downloaded for client records.",
-                body_style,
-            ),
-            Spacer(1, 10 * mm),
-            Paragraph("Verified by Net Zero International", ParagraphStyle(
-                "CertificateSignoff",
-                parent=styles["Heading3"],
-                fontName="Helvetica-Bold",
-                fontSize=13,
-                leading=16,
-                textColor=colors.HexColor("#111827"),
-            )),
-            Spacer(1, 2 * mm),
-            Paragraph(
-                f"Authorised signatory for {company_name}",
-                ParagraphStyle(
-                    "CertificateSignature",
-                    parent=styles["Normal"],
-                    fontSize=10.5,
-                    leading=13,
-                    textColor=colors.HexColor("#4b5563"),
-                ),
-            ),
-            Spacer(1, 5 * mm),
-            Paragraph("______________________________", body_style),
-            Paragraph(company_name, ParagraphStyle(
-                "CertificateCompany",
-                parent=styles["Normal"],
-                fontSize=10.5,
-                leading=13,
-                textColor=colors.HexColor("#111827"),
-            )),
-        ]
+    def draw_centered_paragraph(text: str, style: ParagraphStyle, top_y: float, width: float) -> float:
+        paragraph = Paragraph(text, style)
+        wrapped_w, wrapped_h = paragraph.wrap(width, page_h)
+        paragraph.drawOn(c, (page_w - wrapped_w) / 2.0, top_y - wrapped_h)
+        return wrapped_h
+
+    # Background and border.
+    c.setFillColor(colors.white)
+    c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
+    inner_x = 8 * mm
+    inner_y = 8 * mm
+    inner_w = page_w - inner_x * 2
+    inner_h = page_h - inner_y * 2
+    c.setStrokeColor(colors.HexColor("#d1d5db"))
+    c.setLineWidth(0.8)
+    c.rect(inner_x, inner_y, inner_w, inner_h, fill=0, stroke=1)
+
+    # Logos.
+    top_logo_y = page_h - inner_y - 23 * mm
+    if nzi_logo_path.exists():
+        c.drawImage(str(nzi_logo_path), inner_x + 8 * mm, top_logo_y, width=36 * mm, height=18 * mm, preserveAspectRatio=True, mask="auto")
+    else:
+        c.setFillColor(colors.HexColor("#6b7280"))
+        c.setFont("Helvetica-Bold", 18)
+        c.drawString(inner_x + 10 * mm, top_logo_y + 6 * mm, "Net Zero International")
+
+    client_logo_label_x = page_w - inner_x - 14 * mm
+    if client_logo_path and client_logo_path.exists():
+        c.drawImage(str(client_logo_path), page_w - inner_x - 40 * mm, top_logo_y + 1 * mm, width=30 * mm, height=15 * mm, preserveAspectRatio=True, mask="auto")
+    else:
+        c.setFillColor(colors.HexColor("#6b7280"))
+        c.setFont("Helvetica-Bold", 11)
+        c.drawRightString(client_logo_label_x, top_logo_y + 10 * mm, "[CLIENT LOGO]")
+
+    # Main title block.
+    orange = colors.HexColor("#f97316")
+    dark = colors.HexColor("#2f343a")
+    light = colors.HexColor("#6b7280")
+
+    title_top = page_h - 67 * mm
+    c.setFillColor(orange)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawCentredString(page_w / 2.0, title_top, "Annual Carbon Emissions Certificate")
+
+    c.setFillColor(dark)
+    c.setFont("Helvetica-Bold", 26)
+    c.drawCentredString(page_w / 2.0, title_top - 22 * mm, client_name)
+
+    intro_text = (
+        "Net Zero International has reviewed the greenhouse gas emissions data for the reporting period stated in this document "
+        "and confirms the total reported emissions shown below."
     )
+    intro_style = ParagraphStyle(
+        "CertificateIntro",
+        parent=centered_style,
+        fontSize=10.6,
+        leading=14,
+        textColor=colors.HexColor("#42464d"),
+    )
+    intro_height = draw_centered_paragraph(intro_text, intro_style, title_top - 35 * mm, 150 * mm)
 
-    footer_text = company_footer_text(company_profile) or company_name
+    # Emissions figure.
+    figure_y = title_top - 62 * mm
+    c.setFillColor(dark)
+    c.setFont("Helvetica-Bold", 44)
+    c.drawCentredString(page_w / 2.0, figure_y, f"{emissions:,.2f}")
+    tco2e_style = ParagraphStyle(
+        "CertificateTCO2e",
+        parent=centered_style,
+        fontSize=14,
+        leading=16,
+        fontName="Helvetica-Bold",
+        textColor=light,
+    )
+    draw_centered_paragraph("tCO<sub>2</sub>e", tco2e_style, figure_y - 10 * mm, 24 * mm)
 
-    def _footer(canvas_obj, _doc) -> None:
-        canvas_obj.saveState()
-        canvas_obj.setFont("Helvetica", 8)
-        canvas_obj.setFillColor(colors.HexColor("#6b7280"))
-        canvas_obj.drawCentredString(A4[0] / 2.0, 8 * mm, footer_text[:180])
-        canvas_obj.restoreState()
+    # Lower information columns.
+    lower_top = 72 * mm
+    left_x = inner_x + 10 * mm
+    mid_x = page_w / 2.0 - 2 * mm
+    right_x = page_w - inner_x - 65 * mm
 
-    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    c.setFillColor(dark)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left_x, lower_top + 18 * mm, "Verified by Net Zero International")
+    c.setStrokeColor(colors.HexColor("#bfc5cc"))
+    c.setLineWidth(0.9)
+    c.line(left_x, lower_top + 14 * mm, left_x + 42 * mm, lower_top + 14 * mm)
+    c.setFillColor(light)
+    c.setFont("Helvetica", 9.8)
+    c.drawString(left_x, lower_top + 9 * mm, "Authorised Signatory")
+    c.setFillColor(dark)
+    c.setFont("Helvetica-Bold", 11.5)
+    c.drawString(left_x, lower_top + 4.5 * mm, signatory_name)
+    c.setFont("Helvetica", 10.4)
+    c.drawString(left_x, lower_top, signatory_title)
+    c.setFillColor(light)
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(left_x, lower_top - 9 * mm, "ISSUE DATE")
+    c.setFillColor(dark)
+    c.setFont("Helvetica", 10.6)
+    c.drawString(left_x, lower_top - 15 * mm, issued_text)
+
+    c.setFillColor(light)
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(mid_x, lower_top + 9 * mm, "REPORTING PERIOD")
+    c.setFillColor(dark)
+    c.setFont("Helvetica", 11.1)
+    c.drawString(mid_x, lower_top + 3.5 * mm, reporting_period)
+
+    c.setFillColor(light)
+    c.setFont("Helvetica-Bold", 9.5)
+    c.drawString(right_x, lower_top + 9 * mm, "STATEMENT NUMBER")
+    c.setFillColor(dark)
+    c.setFont("Helvetica", 11.1)
+    c.drawString(right_x, lower_top + 3.5 * mm, certificate_number)
+
+    # Disclaimer banner.
+    banner_x = inner_x + 10 * mm
+    banner_y = 12 * mm
+    banner_w = inner_w - 20 * mm
+    banner_h = 18 * mm
+    c.setFillColor(colors.HexColor("#eef2f7"))
+    c.roundRect(banner_x, banner_y, banner_w, banner_h, 2 * mm, fill=1, stroke=0)
+    disclaimer_text = (
+        "This document records the reported greenhouse gas emissions for the period identified above, as reviewed by Net Zero "
+        "International. It does not, by itself, represent carbon neutrality, offsetting, emissions reduction performance, or "
+        "independent third-party accreditation unless expressly stated."
+    )
+    disclaimer_style = ParagraphStyle(
+        "CertificateDisclaimerBody",
+        parent=disclaimer_style,
+        fontSize=8.7,
+        leading=10.8,
+        textColor=colors.HexColor("#6b7280"),
+    )
+    draw_centered_paragraph(disclaimer_text, disclaimer_style, banner_y + banner_h - 3 * mm, banner_w - 8 * mm)
+
+    # Footer.
+    c.setFillColor(light)
+    c.setFont("Helvetica", 8.5)
+    c.drawCentredString(page_w / 2.0, 5.8 * mm, footer_text[:180])
+
+    c.showPage()
+    c.save()
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes

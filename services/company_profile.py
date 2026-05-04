@@ -82,6 +82,18 @@ COMPANY_PROFILE_FIELDS: list[dict[str, str]] = [
         "default": "",
         "description": "Registered company number for invoices, quotes, and legal footers.",
     },
+    {
+        "key": "certificate_signatory_name",
+        "label": "Certificate Signatory Name",
+        "default": "David Hawes",
+        "description": "Name shown on emissions certificates and other sign-off documents.",
+    },
+    {
+        "key": "certificate_signatory_title",
+        "label": "Certificate Signatory Title",
+        "default": "Chief Executive Officer",
+        "description": "Job title shown beneath the certificate signatory name.",
+    },
 ]
 
 COMPANY_PROFILE_DEFAULTS: dict[str, str] = {

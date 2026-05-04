@@ -95,6 +95,8 @@ def test_job_emissions_certificate_issues_once_and_reuses(monkeypatch):
     assert certificate["emissions"] == 6.22
     assert certificate["client_name"] == "Hana Group"
     assert certificate["reporting_year"] == 2022
+    assert certificate["signatory_name"] == "David Hawes"
+    assert certificate["signatory_title"] == "Chief Executive Officer"
     assert again["certificate_number"] == certificate["certificate_number"]
     assert sum(1 for sql, _ in fake.queries if "INSERT INTO job_emissions_certificates" in sql) == 1
 
