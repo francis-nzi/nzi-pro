@@ -178,9 +178,9 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
   const getCurrencySymbol = useCallback((curr: string): string => {
     const symbols: { [key: string]: string } = {
-      GBP: "Â£",
+      GBP: "\u00A3",
       USD: "$",
-      EUR: "â‚¬",
+      EUR: "\u20AC",
       AUD: "A$",
       CAD: "C$",
     };
