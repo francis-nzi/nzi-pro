@@ -238,7 +238,7 @@ export default function JobEmissionsCertificate({ jobId, baseUrl = apiBaseUrl() 
                 </div>
 
                 <div className="mt-14 text-center">
-                  <div className="text-[0.8rem] font-semibold uppercase tracking-[0.34em] text-slate-500">
+                  <div className="text-[0.72rem] font-semibold uppercase leading-none tracking-[0.42em] text-slate-500 md:text-[0.78rem]">
                     Annual Carbon Emissions Certificate
                   </div>
                   <h2 className="mt-6 text-3xl font-semibold tracking-tight text-slate-800 md:text-5xl">
