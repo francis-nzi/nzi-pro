@@ -637,14 +637,11 @@ class JobMonthlyEmissionsResolver:
             annual_storage_qty = storage_qty if storage_qty is not None else monthly_total
             # Infer reference_factor from stored tCO2e / source quantity when the factor
             # lookup failed (e.g. original factor row was deleted after a dataset re-upload).
-            # Dataset factors are typically in kgCO2e, so multiply by 1000 when ghg_unit
-            # indicates kgCO2e to recover the original dataset factor value.
+            # These legacy fallback rows originate from kgCO2e-based DEFRA/DESNZ factors
+            # where: tCO2e = qty × factor_kgCO2e / 1000
+            # Reversing: factor_kgCO2e = tCO2e × 1000 / qty
             if reference_factor is None and has_source_volume and source_qty and source_qty > 0 and annual_storage_qty:
-                inferred_tco2e_per_source = annual_storage_qty / source_qty
-                if storage_ghg_unit and "kg" in storage_ghg_unit.lower():
-                    reference_factor = inferred_tco2e_per_source * 1000
-                else:
-                    reference_factor = inferred_tco2e_per_source
+                reference_factor = (annual_storage_qty / source_qty) * 1000
             emissions = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, apply_pct)
             emissions_before = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, 100.0)
             factor_value = reference_factor if reference_factor is not None else storage_factor
