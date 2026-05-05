@@ -2092,16 +2092,50 @@ def run_migrations():
         except Exception:
             pass
 
-        # Clean up orphaned dataset_id on job_scope_rows where factor_db_id was NULLed
-        # (e.g. after a dataset upload deleted stale factors). dataset_id is derived from
-        # factor_db_id so when factor_db_id is NULL, dataset_id should be too.
+        # Restore dataset_id on legacy fallback rows where it was incorrectly NULLed.
+        # These rows have factor_db_id=NULL (no live FK) but carry original_id which
+        # can be used to re-resolve the correct dataset for the job's client country.
         try:
             con.execute(
                 """
-                UPDATE job_scope_rows
+                UPDATE job_scope_rows jsr
+                SET dataset_id = sub.dataset_id
+                FROM (
+                    SELECT DISTINCT ON (jsr2.row_id)
+                        jsr2.row_id,
+                        fl.dataset_id
+                    FROM job_scope_rows jsr2
+                    JOIN jobs j ON j.job_id = jsr2.job_id
+                    JOIN clients c ON c.client_id = j.client_id
+                    JOIN factor_lookup fl ON fl.original_id = jsr2.original_id
+                    JOIN datasets d ON d.dataset_id = fl.dataset_id
+                    WHERE jsr2.factor_db_id IS NULL
+                      AND jsr2.dataset_id IS NULL
+                      AND jsr2.original_id IS NOT NULL
+                      AND LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(COALESCE(c.country, 'United Kingdom')))
+                    ORDER BY jsr2.row_id, d.year DESC, fl.db_id DESC
+                ) sub
+                WHERE jsr.row_id = sub.row_id
+                  AND jsr.dataset_id IS NULL
+                """
+            )
+        except Exception:
+            pass
+
+        # Remove any dataset_id that points to a dataset not matching the job's client
+        # country — genuine cross-country orphans that couldn't be recovered above.
+        try:
+            con.execute(
+                """
+                UPDATE job_scope_rows jsr
                 SET dataset_id = NULL
-                WHERE factor_db_id IS NULL
-                  AND dataset_id IS NOT NULL
+                FROM jobs j
+                JOIN clients c ON c.client_id = j.client_id
+                JOIN datasets d ON d.dataset_id = jsr.dataset_id
+                WHERE jsr.job_id = j.job_id
+                  AND jsr.factor_db_id IS NULL
+                  AND jsr.dataset_id IS NOT NULL
+                  AND LOWER(TRIM(COALESCE(d.country, ''))) <> LOWER(TRIM(COALESCE(c.country, 'United Kingdom')))
                 """
             )
         except Exception:
