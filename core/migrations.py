@@ -2091,3 +2091,18 @@ def run_migrations():
             con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS original_filename VARCHAR")
         except Exception:
             pass
+
+        # Clean up orphaned dataset_id on job_scope_rows where factor_db_id was NULLed
+        # (e.g. after a dataset upload deleted stale factors). dataset_id is derived from
+        # factor_db_id so when factor_db_id is NULL, dataset_id should be too.
+        try:
+            con.execute(
+                """
+                UPDATE job_scope_rows
+                SET dataset_id = NULL
+                WHERE factor_db_id IS NULL
+                  AND dataset_id IS NOT NULL
+                """
+            )
+        except Exception:
+            pass

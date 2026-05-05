@@ -5628,6 +5628,117 @@ def export_dataset(
         raise HTTPException(status_code=500, detail=f"Failed to export dataset: {e}")
 
 
+@router.get("/datasets/cross-country-audit")
+def cross_country_dataset_audit(_user: dict = Depends(_current_user)):
+    """
+    Find all job_scope_rows where the row's dataset country doesn't match the
+    job's client country — indicates legacy-import factor mis-resolution.
+    Also reports rows where factor_db_id IS NULL but dataset_id IS NOT NULL
+    (orphaned reference left after a dataset upload deleted stale factors).
+    """
+    try:
+        with get_conn() as con:
+            # Orphaned: factor_db_id NULL but dataset_id still set
+            orphaned = con.execute(
+                """
+                SELECT
+                    jsr.row_id,
+                    jsr.job_id,
+                    j.job_number,
+                    j.title AS job_title,
+                    c.client_name,
+                    c.addr_country AS client_country,
+                    jsr.dataset_id,
+                    d.name AS dataset_name,
+                    d.country AS dataset_country,
+                    jsr.scope,
+                    jsr.original_id,
+                    jsr.report_label
+                FROM job_scope_rows jsr
+                JOIN jobs j ON j.job_id = jsr.job_id
+                JOIN clients c ON c.db_id = j.client_db_id
+                LEFT JOIN datasets d ON d.dataset_id = jsr.dataset_id
+                WHERE jsr.factor_db_id IS NULL
+                  AND jsr.dataset_id IS NOT NULL
+                  AND COALESCE(jsr.enabled, TRUE) = TRUE
+                ORDER BY j.job_number, jsr.row_id
+                """
+            ).fetchall()
+
+            # Cross-country: dataset country doesn't match client country
+            cross_country = con.execute(
+                """
+                SELECT
+                    jsr.row_id,
+                    jsr.job_id,
+                    j.job_number,
+                    j.title AS job_title,
+                    c.client_name,
+                    c.addr_country AS client_country,
+                    jsr.dataset_id,
+                    d.name AS dataset_name,
+                    d.country AS dataset_country,
+                    jsr.scope,
+                    jsr.original_id,
+                    jsr.report_label
+                FROM job_scope_rows jsr
+                JOIN jobs j ON j.job_id = jsr.job_id
+                JOIN clients c ON c.db_id = j.client_db_id
+                JOIN datasets d ON d.dataset_id = jsr.dataset_id
+                WHERE COALESCE(jsr.enabled, TRUE) = TRUE
+                  AND d.country IS NOT NULL
+                  AND c.addr_country IS NOT NULL
+                  AND LOWER(TRIM(d.country)) <> LOWER(TRIM(c.addr_country))
+                ORDER BY j.job_number, jsr.row_id
+                """
+            ).fetchall()
+
+            def _row_dict(r):
+                return {
+                    "row_id": r[0], "job_id": r[1], "job_number": r[2],
+                    "job_title": r[3], "client_name": r[4], "client_country": r[5],
+                    "dataset_id": r[6], "dataset_name": r[7], "dataset_country": r[8],
+                    "scope": r[9], "original_id": r[10], "report_label": r[11],
+                }
+
+            orphaned_rows = [_row_dict(r) for r in orphaned]
+            cross_rows = [_row_dict(r) for r in cross_country]
+
+            # Summarise by job
+            orphaned_jobs: dict = {}
+            for r in orphaned_rows:
+                key = r["job_number"] or str(r["job_id"])
+                orphaned_jobs.setdefault(key, {"job_number": r["job_number"], "job_title": r["job_title"],
+                                               "client_name": r["client_name"], "row_count": 0})
+                orphaned_jobs[key]["row_count"] += 1
+
+            cross_jobs: dict = {}
+            for r in cross_rows:
+                key = r["job_number"] or str(r["job_id"])
+                cross_jobs.setdefault(key, {"job_number": r["job_number"], "job_title": r["job_title"],
+                                            "client_name": r["client_name"], "client_country": r["client_country"],
+                                            "datasets": set(), "row_count": 0})
+                cross_jobs[key]["datasets"].add(r["dataset_name"] or str(r["dataset_id"]))
+                cross_jobs[key]["row_count"] += 1
+            for v in cross_jobs.values():
+                v["datasets"] = sorted(v["datasets"])
+
+            return {
+                "orphaned_dataset_id": {
+                    "description": "Rows where factor_db_id is NULL but dataset_id is still set (stale reference)",
+                    "total_rows": len(orphaned_rows),
+                    "jobs": list(orphaned_jobs.values()),
+                },
+                "cross_country_mismatch": {
+                    "description": "Rows where the row's dataset country does not match the client's country",
+                    "total_rows": len(cross_rows),
+                    "jobs": [dict(j) for j in cross_jobs.values()],
+                },
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audit failed: {e}")
+
+
 def _build_dataset_template_workbook(country: str, year: int) -> tuple[bytes, str]:
     country_norm = str(country or "").strip()
     if not country_norm:
