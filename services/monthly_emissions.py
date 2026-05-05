@@ -290,6 +290,55 @@ class JobMonthlyEmissionsResolver:
         self._factor_cache_by_key[cache_key] = result
         return result
 
+    def _lookup_factor_by_original_id(self, original_id: str | None, scope: str | None) -> dict[str, Any] | None:
+        """Look up a factor by original_id across ALL datasets (no dataset_id constraint).
+        Used as a tertiary fallback when factor_db_id and dataset_id are both NULL.
+        Returns the entry from the most recently-dated dataset to prefer current factors."""
+        oid = str(original_id or "").strip()
+        scope_name = str(scope or "").strip()
+        if not oid:
+            return None
+
+        cache_key = ("any_ds", scope_name, oid)
+        if cache_key in self._factor_cache_by_key:
+            return self._factor_cache_by_key[cache_key]
+
+        try:
+            row = self.con.execute(
+                """
+                SELECT fl.db_id, fl.dataset_id, fl.scope, fl.original_id, fl.factor, fl.ghg_unit,
+                       fl.level_1, fl.level_2, fl.column_text, fl.report_label
+                FROM factor_lookup fl
+                LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
+                WHERE fl.original_id = %s
+                  AND (%s = '' OR fl.scope = %s)
+                ORDER BY CASE WHEN fl.scope = %s THEN 0 ELSE 1 END,
+                         COALESCE(d.year, 0) DESC, fl.db_id DESC
+                LIMIT 1
+                """,
+                [oid, scope_name, scope_name, scope_name],
+            ).fetchone()
+        except Exception:
+            row = None
+
+        result = None
+        if row:
+            result = {
+                "db_id": _safe_int(row[0]),
+                "dataset_id": _safe_int(row[1]),
+                "scope": str(row[2]).strip() if row[2] is not None else None,
+                "original_id": str(row[3]).strip() if row[3] is not None else None,
+                "factor": _safe_float(row[4]),
+                "ghg_unit": str(row[5]).strip() if row[5] is not None else None,
+                "level_1": str(row[6]).strip() if row[6] is not None else None,
+                "level_2": str(row[7]).strip() if row[7] is not None else None,
+                "column_text": str(row[8]).strip() if row[8] is not None else None,
+                "report_label": str(row[9]).strip() if row[9] is not None else None,
+            }
+
+        self._factor_cache_by_key[cache_key] = result
+        return result
+
     def _ensure_custom_year_table_state(self) -> bool:
         if self._custom_year_table_exists is not None:
             return bool(self._custom_year_table_exists)
@@ -547,11 +596,21 @@ class JobMonthlyEmissionsResolver:
 
         reference_factor = _safe_float(row.get("lookup_factor"))
         reference_ghg_unit = str(row.get("lookup_ghg_unit")).strip() if row.get("lookup_ghg_unit") is not None else None
+        # Secondary: look up by original_id from notes + dataset_id
         if reference_factor is None and factor_reference:
             ref_lookup = self._lookup_factor(_safe_int(row.get("dataset_id")), scope, factor_reference)
             if ref_lookup:
                 reference_factor = _safe_float(ref_lookup.get("factor"))
                 reference_ghg_unit = ref_lookup.get("ghg_unit") or reference_ghg_unit
+        # Tertiary: search by the row's own original_id across all datasets when both
+        # factor_db_id and dataset_id are NULL (e.g. after a dataset re-upload cleared them)
+        if reference_factor is None:
+            row_oid = str(row.get("original_id") or "").strip()
+            if row_oid:
+                ref_lookup = self._lookup_factor_by_original_id(row_oid, scope)
+                if ref_lookup:
+                    reference_factor = _safe_float(ref_lookup.get("factor"))
+                    reference_ghg_unit = ref_lookup.get("ghg_unit") or reference_ghg_unit
 
         effective_ghg_unit = _effective_ghg_unit(storage_uom, storage_ghg_unit, reference_ghg_unit)
         unit_warning = _unit_warning(storage_uom, storage_ghg_unit, reference_ghg_unit)
