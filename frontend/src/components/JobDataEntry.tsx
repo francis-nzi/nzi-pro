@@ -2159,8 +2159,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                             type="checkbox"
                             className="h-4 w-4 rounded border-gray-300 mt-1"
                             checked={isSelected}
-                            disabled={false}
-                            onChange={() => {}}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedPreviousRowIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(row.row_id)) next.delete(row.row_id);
+                                else next.add(row.row_id);
+                                return next;
+                              });
+                            }}
                             onClick={(e) => e.stopPropagation()}
                           />
                           <div className="min-w-0 flex-1 space-y-1">
