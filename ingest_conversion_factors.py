@@ -756,8 +756,20 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
     summary: dict[str, Any] = {}
 
     if _table_exists(con, "job_scope_rows"):
+        # Exclude emissions-fallback rows (uom='tCO2e', factor≈1.0): those rows store
+        # their value as pre-computed tCO2e and don't live-calculate from factor_db_id,
+        # so deleting the referenced factor has no effect on their calculations.
         row = con.execute(
-            f"SELECT COUNT(*) FROM job_scope_rows WHERE factor_db_id IN ({placeholders}) AND COALESCE(enabled, TRUE) = TRUE",
+            f"""
+            SELECT COUNT(*) FROM job_scope_rows
+            WHERE factor_db_id IN ({placeholders})
+              AND COALESCE(enabled, TRUE) = TRUE
+              AND NOT (
+                LOWER(COALESCE(uom, '')) = 'tco2e'
+                AND factor IS NOT NULL
+                AND ABS(factor - 1.0) < 0.0001
+              )
+            """,
             stale_factor_ids,
         ).fetchone()
         count = int(row[0] or 0)
@@ -771,6 +783,11 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
                     JOIN jobs j ON j.job_id = jsr.job_id
                     WHERE jsr.factor_db_id IN ({placeholders})
                       AND COALESCE(jsr.enabled, TRUE) = TRUE
+                      AND NOT (
+                        LOWER(COALESCE(jsr.uom, '')) = 'tco2e'
+                        AND jsr.factor IS NOT NULL
+                        AND ABS(jsr.factor - 1.0) < 0.0001
+                      )
                     ORDER BY j.job_number
                     """,
                     stale_factor_ids,
