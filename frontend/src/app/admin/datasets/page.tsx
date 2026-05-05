@@ -1957,6 +1957,9 @@ export default function DatasetsPage() {
           </Card>
         </div>
 
+        {/* Cross-Country Audit */}
+        <CrossCountryAudit />
+
         {/* Documentation */}
         <Card className="mt-6">
           <CardHeader>
@@ -1978,6 +1981,138 @@ export default function DatasetsPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+// ─── Cross-Country Audit Panel ────────────────────────────────────────────────
+
+type AuditJobSummary = {
+  job_number: string | null;
+  job_title: string | null;
+  client_name: string | null;
+  client_country?: string | null;
+  datasets?: string[];
+  row_count: number;
+};
+
+type AuditResult = {
+  orphaned_dataset_id: { description: string; total_rows: number; jobs: AuditJobSummary[] };
+  cross_country_mismatch: { description: string; total_rows: number; jobs: AuditJobSummary[] };
+};
+
+function CrossCountryAudit() {
+  const [result, setResult] = useState<AuditResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const runAudit = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl()}/admin/datasets/cross-country-audit`);
+      if (!res.ok) {
+        const msg = await readErrorMessage(res, `Error ${res.status}`);
+        throw new Error(msg);
+      }
+      setResult(await res.json());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <CardTitle>Dataset Reference Audit</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Find job rows referencing a dataset from the wrong country, or with orphaned dataset references after a factor upload.
+            </p>
+          </div>
+          <Button variant="outline" onClick={runAudit} disabled={loading}>
+            {loading ? "Running…" : "Run Audit"}
+          </Button>
+        </div>
+      </CardHeader>
+      {(result || error) && (
+        <CardContent className="space-y-6">
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          {result && (
+            <>
+              <AuditSection
+                title="Orphaned dataset_id (factor deleted, reference remains)"
+                description={result.orphaned_dataset_id.description}
+                totalRows={result.orphaned_dataset_id.total_rows}
+                jobs={result.orphaned_dataset_id.jobs}
+                showDatasets={false}
+              />
+              <AuditSection
+                title="Cross-country mismatch (dataset country ≠ client country)"
+                description={result.cross_country_mismatch.description}
+                totalRows={result.cross_country_mismatch.total_rows}
+                jobs={result.cross_country_mismatch.jobs}
+                showDatasets
+              />
+            </>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function AuditSection({
+  title,
+  description,
+  totalRows,
+  jobs,
+  showDatasets,
+}: {
+  title: string;
+  description: string;
+  totalRows: number;
+  jobs: AuditJobSummary[];
+  showDatasets: boolean;
+}) {
+  return (
+    <div>
+      <h3 className="font-semibold text-sm">{title}</h3>
+      <p className="text-xs text-muted-foreground mt-0.5 mb-2">{description}</p>
+      {totalRows === 0 ? (
+        <p className="text-sm text-green-700 font-medium">No issues found.</p>
+      ) : (
+        <>
+          <p className="text-sm text-amber-700 font-medium mb-2">{totalRows} affected row{totalRows !== 1 ? "s" : ""} across {jobs.length} job{jobs.length !== 1 ? "s" : ""}.</p>
+          <div className="rounded border overflow-hidden text-xs">
+            <table className="w-full">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-3 py-2">Job</th>
+                  <th className="text-left px-3 py-2">Client</th>
+                  {showDatasets && <th className="text-left px-3 py-2">Client Country</th>}
+                  {showDatasets && <th className="text-left px-3 py-2">Wrong Dataset(s)</th>}
+                  <th className="text-right px-3 py-2">Rows</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {jobs.map((j, i) => (
+                  <tr key={i} className="hover:bg-muted/30">
+                    <td className="px-3 py-2 font-mono">{j.job_number || "—"} <span className="font-sans text-muted-foreground">{j.job_title}</span></td>
+                    <td className="px-3 py-2">{j.client_name}</td>
+                    {showDatasets && <td className="px-3 py-2">{j.client_country}</td>}
+                    {showDatasets && <td className="px-3 py-2">{(j.datasets || []).join(", ")}</td>}
+                    <td className="px-3 py-2 text-right">{j.row_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
