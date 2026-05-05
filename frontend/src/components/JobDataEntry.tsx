@@ -2079,6 +2079,30 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
                     </Fragment>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 bg-muted/40 font-semibold text-sm">
+                    <td className="p-2" />
+                    <td className="p-2" />
+                    {visibleColumns.site && <td className="p-2" />}
+                    <td className="p-2 text-muted-foreground">
+                      Filtered total ({filteredData.length} {filteredData.length === 1 ? "row" : "rows"})
+                    </td>
+                    {visibleColumns.qty && (
+                      <td className="p-2 text-right font-mono">
+                        {filteredData.reduce((sum, r) => sum + (r.qty ?? 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </td>
+                    )}
+                    {visibleColumns.apply && <td className="p-2" />}
+                    {visibleColumns.tco2e && (
+                      <td className="p-2 text-right font-mono">
+                        {filteredData.reduce((sum, r) => sum + (r.calc_tco2e ?? 0), 0).toFixed(4)}
+                      </td>
+                    )}
+                    {visibleColumns.confidence && <td className="p-2" />}
+                    <td className="p-2" />
+                    <td className="p-2" />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
