@@ -635,6 +635,10 @@ class JobMonthlyEmissionsResolver:
 
         if uses_emissions_fallback:
             annual_storage_qty = storage_qty if storage_qty is not None else monthly_total
+            # Infer reference_factor from stored tCO2e / source quantity when the factor
+            # lookup failed (e.g. original factor row was deleted after a dataset re-upload)
+            if reference_factor is None and has_source_volume and source_qty and source_qty > 0 and annual_storage_qty:
+                reference_factor = annual_storage_qty / source_qty
             emissions = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, apply_pct)
             emissions_before = _calc_tco2e(annual_storage_qty, storage_factor, effective_ghg_unit, 100.0)
             factor_value = reference_factor if reference_factor is not None else storage_factor
