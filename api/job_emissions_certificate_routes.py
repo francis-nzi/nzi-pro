@@ -149,6 +149,8 @@ def _get_image_reader_from_logo_url(logo_url: str | None) -> ImageReader | None:
     if not value:
         return None
     try:
+        if value.startswith("/api/backend/"):
+            value = value[len("/api/backend"):]
         if value.startswith("data:"):
             header, _, payload = value.partition(",")
             if ";base64" in header:
@@ -484,10 +486,10 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
         leading=16,
         textColor=colors.HexColor("#42464d"),
     )
-    draw_centered_paragraph(intro_text, intro_style, title_top - 35 * mm, 190 * mm)
+    draw_centered_paragraph(intro_text, intro_style, title_top - 31 * mm, 190 * mm)
 
     # Emissions figure.
-    figure_y = title_top - 58 * mm
+    figure_y = title_top - 64 * mm
     c.setFillColor(dark)
     c.setFont("Helvetica-Bold", 50)
     c.drawCentredString(page_w / 2.0, figure_y, f"{emissions:,.2f}")
@@ -503,7 +505,7 @@ def _render_certificate_pdf_bytes(certificate: dict[str, Any], company_profile: 
     draw_centered_paragraph("tCO<sub>2</sub>e", tco2e_style, figure_y - 10 * mm, 30 * mm)
 
     # Lower information columns.
-    lower_top = 38 * mm
+    lower_top = 46 * mm
     left_x = inner_x + 10 * mm
     mid_x = page_w / 2.0 - 8 * mm
     right_x = page_w - inner_x - 65 * mm

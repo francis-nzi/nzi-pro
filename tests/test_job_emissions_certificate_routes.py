@@ -3,11 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from datetime import datetime, timezone
+import base64
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.units import mm
 
 import api.job_emissions_certificate_routes as cert_routes
 
@@ -158,3 +160,125 @@ def test_job_emissions_certificate_pdf_uses_landscape_pagesize(monkeypatch):
     assert response.media_type == "application/pdf"
     assert response.body.startswith(b"%PDF")
     assert captured["pagesize"] == landscape(A4)
+
+
+def test_job_emissions_certificate_pdf_accepts_api_backend_logo_urls(monkeypatch, tmp_path):
+    fake = _FakeConn()
+    original_df = fake.df
+    tiny_png = tmp_path / "logo.png"
+    tiny_png.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6X8V0AAAAASUVORK5CYII="
+        )
+    )
+    seen_paths: list[str] = []
+
+    def _df_with_logo():
+        if "FROM jobs j" in fake._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 3,
+                        "job_number": "J000003",
+                        "reporting_year": 2022,
+                        "reporting_period_end": pd.Timestamp("2022-06-30"),
+                        "client_db_id": 58,
+                        "org_id": "org-a",
+                        "client_name": "Hana Group",
+                        "client_logo_url": "/api/backend/uploads/clients/acme/logo.png",
+                    }
+                ]
+            )
+        return original_df()
+
+    monkeypatch.setattr(cert_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(cert_routes, "assert_job_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cert_routes, "exact_job_total_emissions", lambda *_args, **_kwargs: 6.22)
+    monkeypatch.setattr(cert_routes, "get_company_profile", lambda _con: {"company_display_name": "Net Zero International"})
+    monkeypatch.setattr(fake, "df", _df_with_logo)
+    monkeypatch.setattr(
+        cert_routes,
+        "_parse_local_logo_path",
+        lambda value: (seen_paths.append(value), tiny_png)[1] if value == "/uploads/clients/acme/logo.png" else (seen_paths.append(value), None)[1],
+    )
+
+    response = cert_routes.get_job_emissions_certificate_pdf(3, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert response.media_type == "application/pdf"
+    assert response.body.startswith(b"%PDF")
+    assert "/uploads/clients/acme/logo.png" in seen_paths
+
+
+def test_job_emissions_certificate_pdf_keeps_issue_date_above_banner(monkeypatch):
+    fake = _FakeConn()
+    captured_text_positions: list[tuple[str, float]] = []
+
+    class _RecordingCanvas:
+        def __init__(self, buffer, pagesize=None, title=None, author=None):
+            self._buffer = buffer
+            self.pagesize = pagesize
+
+        def setFillColor(self, *_args, **_kwargs):
+            return None
+
+        def setStrokeColor(self, *_args, **_kwargs):
+            return None
+
+        def setLineWidth(self, *_args, **_kwargs):
+            return None
+
+        def rect(self, *_args, **_kwargs):
+            return None
+
+        def roundRect(self, *_args, **_kwargs):
+            return None
+
+        def line(self, *_args, **_kwargs):
+            return None
+
+        def setFont(self, *_args, **_kwargs):
+            return None
+
+        def drawImage(self, *_args, **_kwargs):
+            return None
+
+        def drawString(self, x, y, text):
+            captured_text_positions.append((str(text), float(y)))
+
+        def drawRightString(self, x, y, text):
+            captured_text_positions.append((str(text), float(y)))
+
+        def drawCentredString(self, x, y, text):
+            captured_text_positions.append((str(text), float(y)))
+
+        def showPage(self):
+            return None
+
+        def save(self):
+            self._buffer.write(b"%PDF-1.4\n%fake\n")
+
+    class _FakeParagraph:
+        def __init__(self, text, style):
+            self.text = text
+            self.style = style
+
+        def wrap(self, width, height):
+            return (width, 10)
+
+        def drawOn(self, canvas, x, y):
+            captured_text_positions.append((str(self.text), float(y)))
+
+    monkeypatch.setattr(cert_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(cert_routes, "assert_job_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cert_routes, "exact_job_total_emissions", lambda *_args, **_kwargs: 6.22)
+    monkeypatch.setattr(cert_routes, "get_company_profile", lambda _con: {"company_display_name": "Net Zero International"})
+    monkeypatch.setattr(cert_routes.canvas, "Canvas", _RecordingCanvas)
+    monkeypatch.setattr(cert_routes, "Paragraph", _FakeParagraph)
+    monkeypatch.setattr(cert_routes, "_get_nzi_logo_reader", lambda _con: None)
+    monkeypatch.setattr(cert_routes, "_get_image_reader_from_logo_url", lambda _logo_url: None)
+
+    response = cert_routes.get_job_emissions_certificate_pdf(3, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert response.body.startswith(b"%PDF")
+    issue_date_y = next(y for text, y in captured_text_positions if text == "27 April 2026")
+    assert issue_date_y > (28 * mm)
