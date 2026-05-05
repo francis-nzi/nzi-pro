@@ -378,11 +378,12 @@ function CoverPage({ data }: { data: LiveData }) {
     year: "numeric",
   });
 
+  const reportingPeriodValue = periodLabel ?? (job_data.reporting_year != null ? String(job_data.reporting_year) : null);
+
   const params: [string, string | null | undefined][] = [
     ["Client", job_data.client_name],
     ["Report Title", reportTitle],
-    ["Reporting Year", job_data.reporting_year != null ? String(job_data.reporting_year) : null],
-    ["Reporting Period", periodLabel],
+    ["Reporting Period", reportingPeriodValue],
     ["Job Number", job_data.job_number],
     ["Report Generated", generatedDate],
   ];

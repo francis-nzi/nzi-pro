@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type JobNote = {
   note_id: string;
@@ -83,6 +85,11 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     "job-communication": true,
     "job-row": true,
   });
+  const [addNoteOpen, setAddNoteOpen] = useState(false);
+  const [noteSubject, setNoteSubject] = useState("");
+  const [noteText, setNoteText] = useState("");
+  const [addNoteLoading, setAddNoteLoading] = useState(false);
+  const [addNoteError, setAddNoteError] = useState("");
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -105,6 +112,37 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   useEffect(() => {
     void loadNotes();
   }, [loadNotes]);
+
+  const handleAddNote = useCallback(async () => {
+    if (!noteText.trim()) return;
+    setAddNoteLoading(true);
+    setAddNoteError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message_text: noteText.trim(),
+          subject: noteSubject.trim() || null,
+          channel: "note",
+          direction: "internal",
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
+      }
+      setAddNoteOpen(false);
+      setNoteSubject("");
+      setNoteText("");
+      void loadNotes();
+    } catch (err) {
+      setAddNoteError((err as Error).message);
+    } finally {
+      setAddNoteLoading(false);
+    }
+  }, [baseUrl, jobId, noteSubject, noteText, loadNotes]);
 
   const availableScopes = useMemo(() => {
     const seen = new Set<string>();
@@ -236,6 +274,44 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   return (
     <div className="space-y-6">
+      <Dialog open={addNoteOpen} onOpenChange={(open) => { setAddNoteOpen(open); if (!open) { setNoteSubject(""); setNoteText(""); setAddNoteError(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Job Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="newNoteSubject">Subject <span className="text-muted-foreground">(optional)</span></Label>
+              <Input
+                id="newNoteSubject"
+                value={noteSubject}
+                onChange={(e) => setNoteSubject(e.target.value)}
+                placeholder="Brief subject..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="newNoteText">Note <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="newNoteText"
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Enter note..."
+                rows={5}
+              />
+            </div>
+            {addNoteError && <p className="text-sm text-destructive">{addNoteError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddNoteOpen(false)} disabled={addNoteLoading}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddNote} disabled={addNoteLoading || !noteText.trim()}>
+              {addNoteLoading ? "Saving..." : "Save Note"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
@@ -245,9 +321,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                 Job communications and job row notes, with row context, author, and timestamp.
               </p>
             </div>
-            <Button variant="outline" asChild>
-              <Link href={`/jobs/${jobId}/data-entry`}>Open Data Entry</Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => setAddNoteOpen(true)}>Add Note</Button>
+              <Button variant="outline" asChild>
+                <Link href={`/jobs/${jobId}/data-entry`}>Open Data Entry</Link>
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
