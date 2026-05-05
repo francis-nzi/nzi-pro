@@ -757,14 +757,14 @@ def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[st
 
     if _table_exists(con, "job_scope_rows"):
         row = con.execute(
-            f"SELECT COUNT(*) FROM job_scope_rows WHERE factor_db_id IN ({placeholders})",
+            f"SELECT COUNT(*) FROM job_scope_rows WHERE factor_db_id IN ({placeholders}) AND COALESCE(enabled, TRUE) = TRUE",
             stale_factor_ids,
         ).fetchone()
         summary["job_scope_rows"] = int(row[0] or 0)
 
     if _table_exists(con, "job_spend_entries"):
         row = con.execute(
-            f"SELECT COUNT(*) FROM job_spend_entries WHERE factor_db_id IN ({placeholders})",
+            f"SELECT COUNT(*) FROM job_spend_entries WHERE factor_db_id IN ({placeholders}) AND COALESCE(is_deleted, FALSE) = FALSE",
             stale_factor_ids,
         ).fetchone()
         summary["job_spend_entries"] = int(row[0] or 0)
