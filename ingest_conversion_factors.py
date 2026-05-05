@@ -1247,6 +1247,14 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
                         deps,
                     )
                 placeholders = ",".join(["%s"] * len(stale_ids))
+                # Clear factor_db_id on any job_scope_rows that still reference these
+                # stale factor IDs (emissions-fallback rows whose FK we allowed through
+                # the 409 check). Must be NULLed before the DELETE or Postgres will
+                # raise a foreign key violation.
+                con.execute(
+                    f"UPDATE job_scope_rows SET factor_db_id = NULL WHERE factor_db_id IN ({placeholders})",
+                    stale_ids,
+                )
                 con.execute(
                     f"DELETE FROM factor_lookup WHERE db_id IN ({placeholders})",
                     stale_ids,
