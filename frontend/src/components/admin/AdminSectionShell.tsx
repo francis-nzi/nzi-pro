@@ -7,9 +7,9 @@ import { ArrowRight, BadgeAlert, Building2, Database, FileCog, Gauge, History, M
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-type AdminDomain = "People & Access" | "Reference Data" | "Reporting & Delivery" | "System & Governance";
+export type AdminDomain = "People & Access" | "Reference Data" | "Reporting & Delivery" | "System & Governance";
 
-type AdminSection = {
+export type AdminSection = {
   title: string;
   href: string;
   description: string;
@@ -18,7 +18,7 @@ type AdminSection = {
   critical?: boolean;
 };
 
-const ADMIN_SECTIONS: AdminSection[] = [
+export const ADMIN_SECTIONS: AdminSection[] = [
   { title: "Organisation Management", href: "/admin/organisations", description: "Tenants, membership, switching, and billing controls.", domain: "People & Access", icon: Building2 },
   { title: "Billing & Entitlements", href: "/admin/billing", description: "Plans, limits, invoices, and billing events.", domain: "People & Access", icon: ShieldCheck },
   { title: "Team Management", href: "/admin/team", description: "Users, invitations, and access.", domain: "People & Access", icon: Users },
@@ -43,9 +43,9 @@ const ADMIN_SECTIONS: AdminSection[] = [
   { title: "Archive Management", href: "/admin/archive", description: "Restore or permanently remove archived records.", domain: "System & Governance", icon: ArchiveRestore, critical: true },
 ];
 
-const DOMAIN_ORDER: AdminDomain[] = ["People & Access", "Reference Data", "Reporting & Delivery", "System & Governance"];
+export const DOMAIN_ORDER: AdminDomain[] = ["People & Access", "Reference Data", "Reporting & Delivery", "System & Governance"];
 
-const DOMAIN_LABELS: Record<AdminDomain, string> = {
+export const DOMAIN_LABELS: Record<AdminDomain, string> = {
   "People & Access": "People & Access",
   "Reference Data": "Reference Data",
   "Reporting & Delivery": "Reporting & Delivery",

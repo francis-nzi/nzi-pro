@@ -290,6 +290,7 @@ export function MainNav() {
     { href: "/support", label: "Help" },
   ];
   links.splice(6, 0, { href: "/admin", label: "Admin" });
+  links.splice(7, 0, { href: "/admin-center", label: "Admin Center" });
   const isAdminRoute = pathname === "/admin" || pathname?.startsWith("/admin/");
   const isHelpRoute =
     pathname === "/support" ||
