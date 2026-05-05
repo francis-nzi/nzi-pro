@@ -748,35 +748,77 @@ def _parse_conversion_factor_workbook(path: Path) -> list[dict[str, Any]]:
     return summaries
 
 
-def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[str, int]:
+def _replacement_dependency_summary(con, stale_factor_ids: list[int]) -> dict[str, Any]:
     if not stale_factor_ids:
         return {}
 
     placeholders = ",".join(["%s"] * len(stale_factor_ids))
-    summary: dict[str, int] = {}
+    summary: dict[str, Any] = {}
 
     if _table_exists(con, "job_scope_rows"):
         row = con.execute(
             f"SELECT COUNT(*) FROM job_scope_rows WHERE factor_db_id IN ({placeholders}) AND COALESCE(enabled, TRUE) = TRUE",
             stale_factor_ids,
         ).fetchone()
-        summary["job_scope_rows"] = int(row[0] or 0)
+        count = int(row[0] or 0)
+        if count:
+            summary["job_scope_rows"] = count
+            try:
+                jobs_rows = con.execute(
+                    f"""
+                    SELECT DISTINCT j.job_id, j.job_number, j.title
+                    FROM job_scope_rows jsr
+                    JOIN jobs j ON j.job_id = jsr.job_id
+                    WHERE jsr.factor_db_id IN ({placeholders})
+                      AND COALESCE(jsr.enabled, TRUE) = TRUE
+                    ORDER BY j.job_number
+                    """,
+                    stale_factor_ids,
+                ).fetchall()
+                summary["job_scope_rows_jobs"] = [
+                    {"job_id": int(r[0]), "job_number": str(r[1] or ""), "title": str(r[2] or "")}
+                    for r in jobs_rows
+                ]
+            except Exception:
+                pass
 
     if _table_exists(con, "job_spend_entries"):
         row = con.execute(
             f"SELECT COUNT(*) FROM job_spend_entries WHERE factor_db_id IN ({placeholders}) AND COALESCE(is_deleted, FALSE) = FALSE",
             stale_factor_ids,
         ).fetchone()
-        summary["job_spend_entries"] = int(row[0] or 0)
+        count = int(row[0] or 0)
+        if count:
+            summary["job_spend_entries"] = count
+            try:
+                jobs_rows = con.execute(
+                    f"""
+                    SELECT DISTINCT j.job_id, j.job_number, j.title
+                    FROM job_spend_entries jse
+                    JOIN jobs j ON j.job_id = jse.job_id
+                    WHERE jse.factor_db_id IN ({placeholders})
+                      AND COALESCE(jse.is_deleted, FALSE) = FALSE
+                    ORDER BY j.job_number
+                    """,
+                    stale_factor_ids,
+                ).fetchall()
+                summary["job_spend_entries_jobs"] = [
+                    {"job_id": int(r[0]), "job_number": str(r[1] or ""), "title": str(r[2] or "")}
+                    for r in jobs_rows
+                ]
+            except Exception:
+                pass
 
     if _table_exists(con, "lca_inventory_items"):
         row = con.execute(
             f"SELECT COUNT(*) FROM lca_inventory_items WHERE mapped_factor_db_id IN ({placeholders})",
             stale_factor_ids,
         ).fetchone()
-        summary["lca_inventory_items"] = int(row[0] or 0)
+        count = int(row[0] or 0)
+        if count:
+            summary["lca_inventory_items"] = count
 
-    return {k: v for k, v in summary.items() if v > 0}
+    return {k: v for k, v in summary.items() if v}
 
 
 def _apply_factor_rows(
@@ -1167,10 +1209,24 @@ def ingest_csv_with_report(path: Path, *, replace: bool, dataset_id: int | None 
             if stale_ids:
                 deps = _replacement_dependency_summary(con, stale_ids)
                 if deps:
-                    details = ", ".join(f"{name}={count}" for name, count in sorted(deps.items()))
+                    count_parts = []
+                    job_refs: list[str] = []
+                    for name, value in sorted(deps.items()):
+                        if name.endswith("_jobs"):
+                            continue
+                        count_parts.append(f"{name}={value}")
+                    for key in ("job_scope_rows_jobs", "job_spend_entries_jobs"):
+                        for j in deps.get(key, []):
+                            label = j.get("job_number") or f"job_id={j.get('job_id')}"
+                            title = j.get("title") or ""
+                            ref = f"{label} ({title})" if title else label
+                            if ref not in job_refs:
+                                job_refs.append(ref)
+                    details = ", ".join(count_parts)
+                    job_hint = f" Affected jobs: {'; '.join(job_refs)}." if job_refs else ""
                     raise DatasetReplacementBlocked(
-                        "STOP: this upload would remove factor rows that are already referenced by jobs. "
-                        f"Remove those job references or upload a compatible replacement first ({details}).",
+                        "STOP: this upload would remove factor rows that are already referenced by active job rows. "
+                        f"Delete those job rows first ({details}).{job_hint}",
                         deps,
                     )
                 placeholders = ",".join(["%s"] * len(stale_ids))
