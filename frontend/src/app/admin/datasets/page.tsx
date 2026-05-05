@@ -2004,11 +2004,14 @@ type AuditResult = {
 function CrossCountryAudit() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState<string>("");
   const [error, setError] = useState("");
 
   const runAudit = useCallback(async () => {
     setLoading(true);
     setError("");
+    setFixResult("");
     try {
       const res = await fetchWithAuth(`${apiBaseUrl()}/admin/datasets/cross-country-audit`);
       if (!res.ok) {
@@ -2023,6 +2026,30 @@ function CrossCountryAudit() {
     }
   }, []);
 
+  const runFix = useCallback(async () => {
+    setFixing(true);
+    setError("");
+    setFixResult("");
+    try {
+      const res = await fetchWithAuth(`${apiBaseUrl()}/admin/datasets/fix-cross-country`, { method: "POST" });
+      if (!res.ok) {
+        const msg = await readErrorMessage(res, `Error ${res.status}`);
+        throw new Error(msg);
+      }
+      const json = await res.json() as { message: string };
+      setFixResult(json.message);
+      // Re-run audit to show updated state
+      const auditRes = await fetchWithAuth(`${apiBaseUrl()}/admin/datasets/cross-country-audit`);
+      if (auditRes.ok) setResult(await auditRes.json());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setFixing(false);
+    }
+  }, []);
+
+  const hasMismatches = (result?.cross_country_mismatch.total_rows ?? 0) > 0;
+
   return (
     <Card className="mt-6">
       <CardHeader>
@@ -2033,13 +2060,21 @@ function CrossCountryAudit() {
               Find job rows referencing a dataset from the wrong country, or with orphaned dataset references after a factor upload.
             </p>
           </div>
-          <Button variant="outline" onClick={runAudit} disabled={loading}>
-            {loading ? "Running…" : "Run Audit"}
-          </Button>
+          <div className="flex gap-2">
+            {result && hasMismatches && (
+              <Button onClick={runFix} disabled={fixing} variant="default">
+                {fixing ? "Fixing…" : "Fix Mismatches"}
+              </Button>
+            )}
+            <Button variant="outline" onClick={runAudit} disabled={loading || fixing}>
+              {loading ? "Running…" : "Run Audit"}
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      {(result || error) && (
+      {(result || error || fixResult) && (
         <CardContent className="space-y-6">
+          {fixResult && <p className="text-sm text-green-700 font-medium">{fixResult}</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {result && (
             <>

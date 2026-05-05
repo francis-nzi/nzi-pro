@@ -5739,6 +5739,77 @@ def cross_country_dataset_audit(_user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Audit failed: {e}")
 
 
+@router.post("/datasets/fix-cross-country")
+def fix_cross_country_mismatches(_user: dict = Depends(_current_user)):
+    """
+    Re-resolve cross-country mismatched job_scope_rows to the correct country's
+    dataset. For each affected row, looks for a factor with the same original_id
+    in a dataset matching the client's country and the same year. If found,
+    updates factor_db_id and dataset_id. If no match, NULLs both fields.
+    """
+    try:
+        with get_conn() as con:
+            rows = con.execute(
+                """
+                SELECT
+                    jsr.row_id,
+                    jsr.original_id,
+                    jsr.dataset_id AS current_dataset_id,
+                    d_current.year AS current_year,
+                    c.addr_country AS client_country
+                FROM job_scope_rows jsr
+                JOIN jobs j ON j.job_id = jsr.job_id
+                JOIN clients c ON c.db_id = j.client_db_id
+                JOIN datasets d_current ON d_current.dataset_id = jsr.dataset_id
+                WHERE COALESCE(jsr.enabled, TRUE) = TRUE
+                  AND d_current.country IS NOT NULL
+                  AND c.addr_country IS NOT NULL
+                  AND LOWER(TRIM(d_current.country)) <> LOWER(TRIM(c.addr_country))
+                """
+            ).fetchall()
+
+            resolved = 0
+            nulled = 0
+            for row_id, original_id, _, current_year, client_country in rows:
+                # Try to find a matching factor in the correct country / same year
+                match = con.execute(
+                    """
+                    SELECT fl.db_id, fl.dataset_id
+                    FROM factor_lookup fl
+                    JOIN datasets d ON d.dataset_id = fl.dataset_id
+                    WHERE fl.original_id = %s
+                      AND d.year = %s
+                      AND LOWER(TRIM(d.country)) = LOWER(TRIM(%s))
+                    ORDER BY fl.db_id DESC
+                    LIMIT 1
+                    """,
+                    [original_id, current_year, client_country],
+                ).fetchone()
+
+                if match:
+                    con.execute(
+                        "UPDATE job_scope_rows SET factor_db_id = %s, dataset_id = %s, updated_at = NOW() WHERE row_id = %s",
+                        [int(match[0]), int(match[1]), int(row_id)],
+                    )
+                    resolved += 1
+                else:
+                    con.execute(
+                        "UPDATE job_scope_rows SET factor_db_id = NULL, dataset_id = NULL, updated_at = NOW() WHERE row_id = %s",
+                        [int(row_id)],
+                    )
+                    nulled += 1
+
+            return {
+                "ok": True,
+                "total": len(rows),
+                "re_resolved": resolved,
+                "nulled_no_match": nulled,
+                "message": f"Fixed {len(rows)} rows: {resolved} re-resolved to correct country dataset, {nulled} NULLed (no matching factor found).",
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fix failed: {e}")
+
+
 def _build_dataset_template_workbook(country: str, year: int) -> tuple[bytes, str]:
     country_norm = str(country or "").strip()
     if not country_norm:
