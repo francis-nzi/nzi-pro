@@ -496,8 +496,6 @@ def get_job_scope_data(
     Get all scope data entries for a job with calculated emissions.
     Optionally filter by scope.
     """
-    print(f"DEBUG: get_job_scope_data called with job_id={job_id}, scope={scope}")
-    print(f"DEBUG: job_id type: {type(job_id)}, value: {repr(job_id)}")
     try:
         with get_conn() as con:
             _ensure_job_scope_rows_schema(con)
@@ -507,10 +505,7 @@ def get_job_scope_data(
             source_qty_select = "source_qty" if has_source_qty else "NULL::numeric AS source_qty"
             source_uom_select = "source_uom" if has_source_uom else "NULL::text AS source_uom"
             fl_parts = _factor_lookup_select_parts(con)
-            # Verify job exists
-            print(f"DEBUG: About to convert job_id to int")
             job_id_int = int(job_id)
-            print(f"DEBUG: job_id converted to: {job_id_int}")
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id=%s", [job_id_int]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
