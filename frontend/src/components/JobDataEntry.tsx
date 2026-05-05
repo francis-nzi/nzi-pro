@@ -1164,7 +1164,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
       if (row.reference_factor !== null && row.reference_factor !== undefined && !Number.isNaN(row.reference_factor)) {
         return row.reference_factor.toFixed(5);
       }
-      return row.factor_reference || "-";
+      return "-";
     }
     if (row.factor !== null && row.factor !== undefined && !Number.isNaN(row.factor)) {
       return row.factor.toFixed(5);
