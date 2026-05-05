@@ -290,16 +290,15 @@ class JobMonthlyEmissionsResolver:
         self._factor_cache_by_key[cache_key] = result
         return result
 
-    def _lookup_factor_by_original_id(self, original_id: str | None, scope: str | None) -> dict[str, Any] | None:
-        """Look up a factor by original_id across ALL datasets (no dataset_id constraint).
+    def _lookup_factor_by_original_id(self, original_id: str | None) -> dict[str, Any] | None:
+        """Look up a factor by original_id across ALL datasets with no scope or dataset constraint.
         Used as a tertiary fallback when factor_db_id and dataset_id are both NULL.
-        Returns the entry from the most recently-dated dataset to prefer current factors."""
+        Returns the entry from the most recently-dated dataset."""
         oid = str(original_id or "").strip()
-        scope_name = str(scope or "").strip()
         if not oid:
             return None
 
-        cache_key = ("any_ds", scope_name, oid)
+        cache_key = ("any_ds", oid)
         if cache_key in self._factor_cache_by_key:
             return self._factor_cache_by_key[cache_key]
 
@@ -311,12 +310,10 @@ class JobMonthlyEmissionsResolver:
                 FROM factor_lookup fl
                 LEFT JOIN datasets d ON d.dataset_id = fl.dataset_id
                 WHERE fl.original_id = %s
-                  AND (%s = '' OR fl.scope = %s)
-                ORDER BY CASE WHEN fl.scope = %s THEN 0 ELSE 1 END,
-                         COALESCE(d.year, 0) DESC, fl.db_id DESC
+                ORDER BY COALESCE(d.year, 0) DESC, fl.db_id DESC
                 LIMIT 1
                 """,
-                [oid, scope_name, scope_name, scope_name],
+                [oid],
             ).fetchone()
         except Exception:
             row = None
@@ -607,7 +604,7 @@ class JobMonthlyEmissionsResolver:
         if reference_factor is None:
             row_oid = str(row.get("original_id") or "").strip()
             if row_oid:
-                ref_lookup = self._lookup_factor_by_original_id(row_oid, scope)
+                ref_lookup = self._lookup_factor_by_original_id(row_oid)
                 if ref_lookup:
                     reference_factor = _safe_float(ref_lookup.get("factor"))
                     reference_ghg_unit = ref_lookup.get("ghg_unit") or reference_ghg_unit
