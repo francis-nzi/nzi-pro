@@ -3512,22 +3512,17 @@ export default function JobDetailPage() {
                     <UploadProgressBar value={uploadProgress} label={uploadStatus || "Uploading"} />
                   ) : null}
 
-                  <div className="flex justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={() => void importValidatedRows()}
-                      disabled={
-                        busy ||
-                        selectedSiteId === "All" ||
-                        !Array.isArray(uploadResult?.rows_ready) ||
-                        uploadResult.rows_ready.length === 0
-                      }
-                    >
-                      Import validated rows
-                    </Button>
-                  </div>
-
-                  {uploadStatus ? <div className="text-sm text-muted-foreground">{uploadStatus}</div> : null}
+                  {uploadStatus ? (
+                    <div className={
+                      uploadStatus.startsWith("Validation OK") || uploadStatus.startsWith("Import complete")
+                        ? "rounded-md border border-green-300 bg-green-50 p-3 text-sm font-medium text-green-800"
+                        : uploadStatus.startsWith("Upload failed") || uploadStatus.startsWith("Import failed") || uploadStatus.startsWith("Import error")
+                          ? "rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm font-medium text-destructive"
+                          : "rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground"
+                    }>
+                      {uploadStatus}
+                    </div>
+                  ) : null}
 
                   {importConflicts.length > 0 ? (
                     <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm space-y-3">
@@ -3609,59 +3604,92 @@ export default function JobDetailPage() {
                         </div>
                       ) : null}
 
-                      {typeof uploadResult?.details?.parsed_row_count === "number" ||
-                      typeof uploadResult?.details?.rows_ready_count === "number" ? (
-                        <div className="rounded-md border p-3 text-sm">
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <div>
-                              <span className="text-muted-foreground">Rows parsed:</span>{" "}
-                              {uploadResult?.details?.parsed_row_count ?? "-"}
+                      {Array.isArray(uploadResult?.rows_ready) && uploadResult.rows_ready.length ? (() => {
+                        const allRows = uploadResult.rows_ready;
+                        const totalTco2e = allRows.reduce((s, r) => s + (typeof r.calc_tco2e === "number" ? r.calc_tco2e : 0), 0);
+                        const scopeSummary = (["Scope 1", "Scope 2", "Scope 3"] as const).map((sc) => {
+                          const rows = allRows.filter((r) => r.scope === sc);
+                          return { sc, count: rows.length, tco2e: rows.reduce((s, r) => s + (typeof r.calc_tco2e === "number" ? r.calc_tco2e : 0), 0) };
+                        }).filter((s) => s.count > 0);
+                        return (
+                          <>
+                            <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                              <div className="grid grid-cols-3 gap-3 mb-2">
+                                <div>
+                                  <div className="text-xs text-muted-foreground">Rows parsed</div>
+                                  <div className="font-semibold">{uploadResult?.details?.parsed_row_count ?? allRows.length}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-muted-foreground">Rows ready</div>
+                                  <div className="font-semibold">{allRows.length}</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-muted-foreground">Total tCO₂e</div>
+                                  <div className="font-semibold">{totalTco2e.toLocaleString(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 4 })}</div>
+                                </div>
+                              </div>
+                              {scopeSummary.length > 0 ? (
+                                <div className="grid grid-cols-3 gap-2 border-t pt-2 text-xs text-muted-foreground">
+                                  {scopeSummary.map(({ sc, count, tco2e }) => (
+                                    <div key={sc}>
+                                      <span className="font-medium text-foreground">{sc}</span>
+                                      {" — "}{tco2e.toLocaleString(undefined, { maximumFractionDigits: 4 })} tCO₂e · {count} row{count !== 1 ? "s" : ""}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
-                            <div>
-                              <span className="text-muted-foreground">Rows ready:</span>{" "}
-                              {uploadResult?.details?.rows_ready_count ?? "-"}
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
 
-                      {Array.isArray(uploadResult?.rows_ready) && uploadResult.rows_ready.length ? (
-                        <div className="rounded-md border p-3">
-                          <div className="mb-2 text-sm font-medium">Preview (first 10 rows)</div>
-                          <div className="max-h-64 overflow-auto">
-                            <table className="w-full text-xs">
-                              <thead className="sticky top-0 bg-background">
-                                <tr className="border-b">
-                                  <th className="p-2 text-left">Scope</th>
-                                  <th className="p-2 text-left">ID</th>
-                                  <th className="p-2 text-left">Report Label</th>
-                                  <th className="p-2 text-right">Qty</th>
-                                  <th className="p-2 text-right">tCO₂e</th>
-                                  <th className="p-2 text-left">Unit</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {uploadResult.rows_ready.slice(0, 10).map((r: UploadReadyRow, idx: number) => (
-                                  <tr key={idx} className="border-b">
-                                    <td className="p-2">{r.scope}</td>
-                                    <td className="p-2 font-mono">{r.original_id}</td>
-                                    <td className="p-2">{r.report_label ?? ""}</td>
-                                    <td className="p-2 text-right">
-                                      {typeof r.qty === "number" ? r.qty.toLocaleString() : r.qty}
-                                    </td>
-                                    <td className="p-2 text-right">
-                                      {typeof r.calc_tco2e === "number"
-                                        ? r.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 6 })
-                                        : r.calc_tco2e}
-                                    </td>
-                                    <td className="p-2">{r.ghg_unit ?? ""}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      ) : null}
+                            <Button
+                              onClick={() => void importValidatedRows()}
+                              disabled={busy || selectedSiteId === "All"}
+                              className="w-full bg-green-700 hover:bg-green-800 text-white text-base py-5"
+                              size="lg"
+                            >
+                              Import {allRows.length} rows into {selectedSiteName() || "selected site"}
+                            </Button>
+                            {selectedSiteId === "All" ? (
+                              <p className="text-xs text-muted-foreground text-center -mt-2">Select a specific site above to enable import</p>
+                            ) : null}
+
+                            <div className="rounded-md border p-3">
+                              <div className="mb-2 text-sm font-medium">Preview (first 10 rows)</div>
+                              <div className="max-h-64 overflow-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="sticky top-0 bg-background">
+                                    <tr className="border-b">
+                                      <th className="p-2 text-left">Scope</th>
+                                      <th className="p-2 text-left">ID</th>
+                                      <th className="p-2 text-left">Report Label</th>
+                                      <th className="p-2 text-right">Qty</th>
+                                      <th className="p-2 text-right">tCO₂e</th>
+                                      <th className="p-2 text-left">Unit</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {allRows.slice(0, 10).map((r: UploadReadyRow, idx: number) => (
+                                      <tr key={idx} className="border-b">
+                                        <td className="p-2">{r.scope}</td>
+                                        <td className="p-2 font-mono">{r.original_id}</td>
+                                        <td className="p-2">{r.report_label ?? ""}</td>
+                                        <td className="p-2 text-right">
+                                          {typeof r.qty === "number" ? r.qty.toLocaleString() : r.qty}
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          {typeof r.calc_tco2e === "number"
+                                            ? r.calc_tco2e.toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                            : r.calc_tco2e}
+                                        </td>
+                                        <td className="p-2">{r.ghg_unit ?? ""}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })() : null}
                     </div>
                   ) : null}
                 </div>
