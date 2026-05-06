@@ -282,7 +282,11 @@ def parse_single_sheet_upload(
         ids = list(set([r["original_id"] for r in scope_rows]))
         
         # Lookup factors (check both factor_lookup and custom_conversion_factors)
-        factor_map = _lookup_factors(dataset_id, scope_name, ids, job_id)
+        try:
+            factor_map = _lookup_factors(dataset_id, scope_name, ids, job_id)
+        except Exception as lookup_exc:
+            errors.append(f"{scope_name}: Factor lookup failed — {lookup_exc}")
+            continue
         
         # Check for missing IDs — report row numbers and the IDs themselves
         missing = [oid for oid in ids if oid not in factor_map]
@@ -379,7 +383,7 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
                 SELECT db_id, original_id, level_1, level_2, level_3, level_4,
                        column_text, uom, ghg_unit, factor, report_label
                 FROM factor_lookup
-                WHERE dataset_id=%s AND scope=%s AND original_id = ANY(%s)
+                WHERE dataset_id=%s AND scope=%s AND original_id = ANY(%s::text[])
             """
             df = con.execute(sql, [dataset_id, scope, original_ids]).df()
         else:
@@ -415,7 +419,7 @@ def _lookup_factors(dataset_id: int, scope: str, original_ids: list[str], job_id
                 SELECT custom_factor_id, custom_id, level_1, level_2, level_3, level_4,
                        uom, ghg_unit, factor, report_label, category
                 FROM custom_conversion_factors
-                WHERE scope=%s AND custom_id = ANY(%s)
+                WHERE scope=%s AND custom_id = ANY(%s::text[])
                   AND (job_id=%s OR job_id IS NULL)
                   AND is_active=TRUE
             """

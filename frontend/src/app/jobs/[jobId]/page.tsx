@@ -598,6 +598,7 @@ type UploadValidationResult = {
   };
   rows_ready?: UploadReadyRow[];
   raw?: string;
+  detail?: string;
 };
 
 type ImportConflict = {
@@ -3580,6 +3581,12 @@ export default function JobDetailPage() {
 
                   {uploadResult ? (
                     <div className="space-y-3">
+                      {uploadResult?.detail ? (
+                        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                          <div className="mb-1 font-medium text-destructive">Server error</div>
+                          <div>{String(uploadResult.detail)}</div>
+                        </div>
+                      ) : null}
                       {Array.isArray(uploadResult?.errors) && uploadResult.errors.length ? (
                         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                           <div className="mb-2 font-medium text-destructive">Errors</div>
