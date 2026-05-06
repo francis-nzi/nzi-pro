@@ -39,6 +39,22 @@ export const ADMIN_CENTER_MODULE_COUNT = ADMIN_CENTER_MODULES.length;
 export const ADMIN_CENTER_PRIORITY_MODULES = getPriorityAdminModules();
 export const ADMIN_CENTER_CRITICAL_MODULES = getCriticalAdminModules();
 
+export function toAdminCenterHref(href: string): string {
+  const normalized = String(href || "").trim();
+  if (!normalized) return normalized;
+  if (normalized.startsWith("/admin-center/") || normalized === "/admin-center") return normalized;
+  if (normalized.startsWith("/admin/")) return normalized.replace(/^\/admin/, "/admin-center");
+  return normalized;
+}
+
+export function toAdminHref(href: string): string {
+  const normalized = String(href || "").trim();
+  if (!normalized) return normalized;
+  if (normalized.startsWith("/admin/") || normalized === "/admin") return normalized;
+  if (normalized.startsWith("/admin-center/")) return normalized.replace(/^\/admin-center/, "/admin");
+  return normalized;
+}
+
 export function getAdminCenterGroup(domain: AdminDomain): AdminCenterGroup {
   return ADMIN_CENTER_GROUPS.find((group) => group.domain === domain) || ADMIN_CENTER_GROUPS[0];
 }
@@ -56,7 +72,7 @@ export function getAdminCenterCriticalModule(): AdminModule | null {
 }
 
 export function getAdminCenterModuleByHref(href: string): AdminModule | null {
-  const normalized = href.endsWith("/") && href !== "/" ? href.slice(0, -1) : href;
+  const normalized = toAdminHref(href.endsWith("/") && href !== "/" ? href.slice(0, -1) : href);
   return ADMIN_CENTER_MODULES.find((module) => normalized === module.href || normalized.startsWith(`${module.href}/`)) ?? null;
 }
 
@@ -90,16 +106,20 @@ function writeVisitedPayload(items: AdminCenterVisitedItem[]) {
 }
 
 export function readAdminCenterRecentlyVisited(): AdminCenterVisitedItem[] {
-  return readVisitedPayload();
+  return readVisitedPayload().map((item) => ({
+    ...item,
+    href: toAdminCenterHref(item.href),
+  }));
 }
 
 export function recordAdminCenterVisit(module: AdminModule): AdminCenterVisitedItem[] {
   if (typeof window === "undefined") return [];
   const visitedAt = new Date().toISOString();
-  const existing = readVisitedPayload().filter((item) => item.href !== module.href);
+  const href = toAdminCenterHref(module.href);
+  const existing = readVisitedPayload().filter((item) => item.href !== href);
   const next: AdminCenterVisitedItem[] = [
     {
-      href: module.href,
+      href,
       title: module.title,
       domain: module.domain,
       visitedAt,

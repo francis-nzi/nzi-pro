@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ADMIN_CENTER_RECENTLY_VISITED_EVENT,
+  toAdminCenterHref,
   readAdminCenterRecentlyVisited,
   type AdminCenterVisitedItem,
 } from "./adminCenterConfig";
@@ -57,7 +58,7 @@ export function AdminCenterRecentlyVisited() {
             {displayItems.map((item) => (
               <Link
                 key={item.href}
-                href={item.href}
+                href={toAdminCenterHref(item.href)}
                 className="group rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-[#1c5026]/20 hover:shadow-md"
               >
                 <div className="flex items-center gap-2">

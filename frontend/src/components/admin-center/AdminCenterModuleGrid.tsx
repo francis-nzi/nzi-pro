@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, ExternalLink } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { AdminModule } from "@/components/admin/adminModuleCatalog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { recordAdminCenterVisit } from "./adminCenterConfig";
+import { recordAdminCenterVisit, toAdminCenterHref } from "./adminCenterConfig";
 
 type AdminCenterModuleGridProps = {
   modules: AdminModule[];
@@ -50,17 +50,13 @@ export function AdminCenterModuleGrid({ modules, onNavigate }: AdminCenterModule
                 </CardHeader>
                 <CardContent className="pb-5">
                   <Link
-                    href={module.href}
+                    href={toAdminCenterHref(module.href)}
                     onClick={() => handleVisit(module)}
                     className="inline-flex items-center gap-2 text-sm font-medium text-[#1c5026] transition hover:text-[#153f1e]"
                   >
                     {module.cta}
                     <ArrowRight className="h-4 w-4" />
                   </Link>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Opens the existing admin module
-                  </div>
                 </CardContent>
               </Card>
             );

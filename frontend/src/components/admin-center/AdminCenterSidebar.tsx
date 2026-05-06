@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import {
   ADMIN_CENTER_GROUPS,
   getAdminCenterModulesByDomain,
+  toAdminCenterHref,
   type AdminDomain,
   type AdminModule,
   recordAdminCenterVisit,
@@ -79,7 +80,7 @@ export function AdminCenterSidebar({ activeDomain, onSelectDomain, onNavigate }:
                       return (
                         <Link
                           key={module.href}
-                          href={module.href}
+                          href={toAdminCenterHref(module.href)}
                           onClick={() => handleVisit(module)}
                           className={cn(
                             "group flex items-start gap-3 rounded-xl px-3 py-2 transition hover:bg-white",
