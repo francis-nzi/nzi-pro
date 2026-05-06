@@ -2289,29 +2289,33 @@ export default function JobDetailPage() {
       return;
     }
 
-    // Check if at least one scope has a dataset configured
-    const hasDataset = SCOPE_KEYS.some(
-      (scope) => {
-        const effective = scopeEffectiveDatasetIds[scope];
-        const fallback = scopeDatasetIds[scope];
-        if (scopeConfigMode === "automatic") {
-          return (
-            (effective && effective !== "__none__") ||
-            (fallback && fallback !== "__none__")
-          );
+    // Check if at least one scope has a dataset configured.
+    // Skip this check in "legacy" mode — scope config hasn't been loaded yet on this tab;
+    // the backend will resolve datasets and return an error if none are found.
+    if (scopeConfigMode !== "legacy") {
+      const hasDataset = SCOPE_KEYS.some(
+        (scope) => {
+          const effective = scopeEffectiveDatasetIds[scope];
+          const fallback = scopeDatasetIds[scope];
+          if (scopeConfigMode === "automatic") {
+            return (
+              (effective && effective !== "__none__") ||
+              (fallback && fallback !== "__none__")
+            );
+          }
+          return Boolean(fallback && fallback !== "__none__");
         }
-        return Boolean(fallback && fallback !== "__none__");
+      );
+      if (!hasDataset) {
+        if (scopeConfigMode === "automatic") {
+          setUploadStatus(
+            "No automatically resolved datasets were found for this reporting period/client. Save reporting period or set manual fallback datasets."
+          );
+        } else {
+          setUploadStatus("Please configure at least one Scope Dataset before uploading.");
+        }
+        return;
       }
-    );
-    if (!hasDataset) {
-      if (scopeConfigMode === "automatic") {
-        setUploadStatus(
-          "No automatically resolved datasets were found for this reporting period/client. Save reporting period or set manual fallback datasets."
-        );
-      } else {
-        setUploadStatus("Please configure at least one Scope Dataset before uploading.");
-      }
-      return;
     }
 
     setBusy(true);
