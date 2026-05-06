@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink, ShieldAlert } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -43,16 +43,6 @@ export function AdminCenterSidebar({ activeDomain, onSelectDomain, onNavigate }:
 
   return (
     <aside className="flex h-full min-h-0 w-full flex-col border-r border-slate-200/80 bg-white/95 backdrop-blur">
-      <div className="border-b border-slate-200/80 px-5 py-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-          <ShieldAlert className="h-4 w-4 text-[#1c5026]" />
-          Admin Center
-        </div>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Grouped modules, recent shortcuts, and operational controls for the team.
-        </p>
-      </div>
-
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <div className="space-y-2">
           {groups.map((group) => {
@@ -78,7 +68,6 @@ export function AdminCenterSidebar({ activeDomain, onSelectDomain, onNavigate }:
                         {group.count}
                       </Badge>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{group.subtitle}</p>
                   </div>
                   {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />}
                 </button>
@@ -112,9 +101,7 @@ export function AdminCenterSidebar({ activeDomain, onSelectDomain, onNavigate }:
                                 </Badge>
                               ) : null}
                             </span>
-                            <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-600">{module.description}</span>
                           </span>
-                          <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition group-hover:opacity-100" />
                         </Link>
                       );
                     })}

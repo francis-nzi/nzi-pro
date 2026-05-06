@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Menu, PanelLeftClose, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -8,14 +9,20 @@ import { cn } from "@/lib/utils";
 type AdminCenterShellProps = {
   sidebar: React.ReactNode;
   children: React.ReactNode;
+  label?: string;
 };
 
-export function AdminCenterShell({ sidebar, children }: AdminCenterShellProps) {
+export function AdminCenterShell({ sidebar, children, label = "Admin Center" }: AdminCenterShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     setMobileOpen(false);
   }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-[linear-gradient(180deg,_#f3f6f8_0%,_#ffffff_18%)]">
@@ -35,7 +42,7 @@ export function AdminCenterShell({ sidebar, children }: AdminCenterShellProps) {
               <Menu className="mr-2 h-4 w-4" />
               Menu
             </Button>
-            <div className="text-sm font-semibold text-slate-500">Admin Center</div>
+            <div className="text-sm font-semibold text-slate-500">{label}</div>
           </div>
           {children}
         </main>
