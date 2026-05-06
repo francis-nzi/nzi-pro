@@ -284,20 +284,27 @@ def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[
 
     scope_list: list[dict[str, Any]] = []
     totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0}
-    for scope_name, scope_data in scopes.items():
+    for scope_name, scope_data in sorted(scopes.items(), key=lambda item: _scope_sort_key(item[0])):
         category_list = []
-        for cat_name, cat_data in scope_data["categories"].items():
+        for cat_name, cat_data in sorted(
+            scope_data["categories"].items(),
+            key=lambda item: (-float(item[1]["total_emissions"] or 0.0), str(item[0]).lower()),
+        ):
             sites_list = [
                 {
                     "site_name": site_name,
                     "total_emissions": round(site_data["total"], 2),
                     "activity_count": site_data["count"]
                 }
-                for site_name, site_data in cat_data["site_emissions"].items()
+                for site_name, site_data in sorted(
+                    cat_data["site_emissions"].items(),
+                    key=lambda item: str(item[0]).lower(),
+                )
             ]
             category_list.append({
                 "category_name": cat_name,
                 "total_emissions": round(cat_data["total_emissions"], 2),
+                "site_count": len(sites_list),
                 "sites": sites_list
             })
 
@@ -305,6 +312,7 @@ def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[
         scope_list.append({
             "scope_name": scope_name,
             "total_emissions": scope_total,
+            "category_count": len(category_list),
             "categories": category_list
         })
         if scope_name in totals:
@@ -416,19 +424,26 @@ def get_job_data_output(
 
                 # Convert to list format
                 category_list = []
-                for cat_name, cat_data in categories.items():
+                for cat_name, cat_data in sorted(
+                    categories.items(),
+                    key=lambda item: (-float(item[1]["total_emissions"] or 0.0), str(item[0]).lower()),
+                ):
                     site_list = [
                         {
                             "site_name": site_name,
                             "total_emissions": round(site_data["total_emissions"], 2),
                             "activities": site_data["activities"]
                         }
-                        for site_name, site_data in cat_data["sites"].items()
+                        for site_name, site_data in sorted(
+                            cat_data["sites"].items(),
+                            key=lambda item: str(item[0]).lower(),
+                        )
                     ]
 
                     category_list.append({
                         "category_name": cat_name,
                         "total_emissions": round(cat_data["total_emissions"], 2),
+                        "site_count": len(site_list),
                         "sites": site_list
                     })
 

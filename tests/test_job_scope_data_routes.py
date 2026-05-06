@@ -3,9 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.job_scope_data_routes as job_scope_data_routes
+import api.job_data_output_routes as job_data_output_routes
 
 
 class _ScopeDataResult:
@@ -207,3 +210,40 @@ def test_get_job_scope_data_falls_back_when_resolver_breaks(monkeypatch) -> None
     assert result["total"] == 1
     assert result["rows"][0]["row_id"] == 11
     assert result["rows"][0]["calc_tco2e"] == 0.005
+
+
+def test_build_scope_summary_orders_scopes_categories_and_sites(monkeypatch) -> None:
+    df = pd.DataFrame(
+        [
+            {"scope": "Scope 3", "category": "Category Z", "site_name": "Site B", "emissions": 1.0},
+            {"scope": "Scope 1", "category": "Category Alpha", "site_name": "Site A", "emissions": 2.0},
+            {"scope": "Scope 1", "category": "Category Beta", "site_name": "Site C", "emissions": 4.0},
+            {"scope": "Scope 2", "category": "Category Gamma", "site_name": "Site D", "emissions": 3.0},
+            {"scope": "Scope 1", "category": "Category Beta", "site_name": "Site B", "emissions": 1.5},
+        ]
+    )
+
+    class _SummaryResolver:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(
+        job_data_output_routes,
+        "combined_row_metrics",
+        lambda row, _resolver=None: {"calc_tco2e": float(row.get("emissions") or 0.0)},
+    )
+
+    scopes, totals = job_data_output_routes._build_scope_summary(df, _SummaryResolver())
+
+    assert [scope["scope_name"] for scope in scopes] == ["Scope 1", "Scope 2", "Scope 3"]
+    assert totals["Scope 1"] == 7.5
+    assert totals["Scope 2"] == 3.0
+    assert totals["Scope 3"] == 1.0
+    assert totals["Total"] == 11.5
+
+    scope1 = scopes[0]
+    assert scope1["category_count"] == 2
+    assert [cat["category_name"] for cat in scope1["categories"]] == ["Category Beta", "Category Alpha"]
+    assert scope1["categories"][0]["site_count"] == 2
+    assert [site["site_name"] for site in scope1["categories"][0]["sites"]] == ["Site B", "Site C"]
+    assert scope1["categories"][0]["total_emissions"] == 5.5

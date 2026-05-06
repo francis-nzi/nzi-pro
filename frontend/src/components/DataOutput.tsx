@@ -40,12 +40,14 @@ type Site = {
 type Category = {
   category_name: string;
   total_emissions: number;
+  site_count?: number;
   sites: Site[];
 };
 
 type Scope = {
   scope_name: string;
   total_emissions: number;
+  category_count?: number;
   categories: Category[];
 };
 
@@ -651,8 +653,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               <div className="space-y-2">
                 {summaryData.scopes.map((scope) => {
                   const scopeExpanded = expandedScopes.has(scope.scope_name);
-                  const topCategories = scope.categories.slice(0, 5).map((category) => category.category_name);
-                  const remainingCategoryCount = Math.max(0, scope.categories.length - topCategories.length);
+                  const categoryCount = scope.category_count ?? scope.categories.length;
                   
                   return (
                     <div key={scope.scope_name} className="border rounded-md">
@@ -680,22 +681,45 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                         </div>
                       </div>
 
-                      <div className="px-3 pb-2">
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className="font-medium text-muted-foreground">Categories:</span>
-                          {topCategories.map((categoryName) => (
-                            <span
-                              key={`${scope.scope_name}-${categoryName}`}
-                              className="inline-flex rounded-full bg-sky-50 px-2 py-1 font-medium text-sky-800"
-                            >
-                              {categoryName}
-                            </span>
-                          ))}
-                          {remainingCategoryCount > 0 && (
-                            <span className="text-muted-foreground">
-                              +{remainingCategoryCount} more
-                            </span>
-                          )}
+                      <div className="px-3 pb-3">
+                        <div className="rounded-md border bg-muted/10">
+                          <div className="flex items-center justify-between border-b px-3 py-2">
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Category amalgamation
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {categoryCount} categories in this scope
+                              </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Scope → Category → Rows
+                            </div>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead className="bg-muted/50">
+                                <tr>
+                                  <th className="px-3 py-2 text-left font-medium">Category</th>
+                                  <th className="px-3 py-2 text-right font-medium">Sites</th>
+                                  <th className="px-3 py-2 text-right font-medium">tCO₂e</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {scope.categories.map((category) => (
+                                  <tr key={`${scope.scope_name}-${category.category_name}`} className="border-t">
+                                    <td className="px-3 py-2 font-medium text-foreground">{category.category_name}</td>
+                                    <td className="px-3 py-2 text-right text-muted-foreground">
+                                      {category.site_count ?? category.sites.length}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-medium">
+                                      {formatNumber(category.total_emissions, 2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       </div>
 
