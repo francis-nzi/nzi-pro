@@ -67,6 +67,28 @@ def _ensure_spend_tables(con) -> None:
         ON client_spend_mappings (client_db_id, normalized_description, is_active)
         """
     )
+    for statement in [
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS normalized_description VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS dataset_id INTEGER",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS factor_db_id INTEGER",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS factor_original_id VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS scope VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS category VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS report_label VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS confidence VARCHAR DEFAULT 'High'",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS locked BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS valid_from DATE",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS valid_to DATE",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS last_reviewed_by VARCHAR",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE client_spend_mappings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ]:
+        try:
+            con.execute(statement)
+        except Exception:
+            pass
 
     con.execute(
         """
@@ -114,18 +136,38 @@ def _ensure_spend_tables(con) -> None:
     except Exception:
         # Best-effort for legacy DBs where sites FK/column state may differ.
         pass
-    try:
-        con.execute("ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS amount_net NUMERIC")
-    except Exception:
-        pass
-    try:
-        con.execute("ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS conversion_currency VARCHAR DEFAULT 'GBP'")
-    except Exception:
-        pass
-    try:
-        con.execute("ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS conversion_rate NUMERIC DEFAULT 1")
-    except Exception:
-        pass
+    for statement in [
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS source_type VARCHAR NOT NULL DEFAULT 'manual'",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS code_type VARCHAR NOT NULL DEFAULT 'nominal_code'",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS reference_code VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS spend_description VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS normalized_description VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS currency VARCHAR NOT NULL DEFAULT 'GBP'",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS conversion_currency VARCHAR DEFAULT 'GBP'",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS conversion_rate NUMERIC DEFAULT 1",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS amount_net NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS amount_gross NUMERIC DEFAULT 0",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS vat_pct NUMERIC DEFAULT 0",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS dataset_id INTEGER",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS factor_db_id INTEGER",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS factor_original_id VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapped_scope VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapped_category VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapped_report_label VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapping_status VARCHAR NOT NULL DEFAULT 'unmapped'",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapping_confidence VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapped_by VARCHAR",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS mapped_at TIMESTAMP",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS estimated_emissions_tco2e NUMERIC",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE job_spend_entries ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+    ]:
+        try:
+            con.execute(statement)
+        except Exception:
+            pass
 
 
 def _normalize_description(value: Any) -> str:
@@ -622,11 +664,11 @@ def list_spend_data(job_id: int, _user: dict = Depends(_current_user)):
             """
             SELECT e.entry_id, e.site_id, s.site_name, e.source_type, e.code_type, e.reference_code, e.spend_description, e.currency,
                    e.conversion_currency, e.conversion_rate,
-                   amount_net, amount_gross, vat_pct, dataset_id, factor_db_id, factor_original_id,
-                   mapped_scope, mapped_category, mapped_report_label,
-                   mapping_status, mapping_confidence, estimated_emissions_tco2e,
+                   e.amount_net, e.amount_gross, e.vat_pct, e.dataset_id, e.factor_db_id, e.factor_original_id,
+                   e.mapped_scope, e.mapped_category, e.mapped_report_label,
+                   e.mapping_status, e.mapping_confidence, e.estimated_emissions_tco2e,
                    fl.ghg_unit AS factor_ghg_unit,
-                   notes, e.created_at, e.updated_at
+                   e.notes, e.created_at, e.updated_at
             FROM job_spend_entries e
             LEFT JOIN client_sites s ON s.site_id = e.site_id
             LEFT JOIN factor_lookup fl ON fl.db_id = e.factor_db_id
