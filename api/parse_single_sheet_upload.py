@@ -294,7 +294,7 @@ def parse_single_sheet_upload(
             missing_ids[scope_name] = missing[:50]
             # Find which rows each missing ID came from
             for oid in missing[:10]:
-                row_nums = [str(r["row_number"]) for r in scope_rows if r["original_id"] == oid]
+                row_nums = [str(n) for r in scope_rows if r["original_id"] == oid for n in (r.get("row_numbers") or [])]
                 row_ref = f" (row{'s' if len(row_nums) > 1 else ''} {', '.join(row_nums)})" if row_nums else ""
                 errors.append(f"{scope_name}: ID '{oid}' not found in factor database{row_ref}")
             if len(missing) > 10:
