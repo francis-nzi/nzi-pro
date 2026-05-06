@@ -96,7 +96,7 @@ export function AdminCenterModuleRouteView({ slug }: { slug: string[] }) {
 
   return (
     <AdminCenterShell label="Admin" sidebar={sidebar}>
-      <div className="space-y-6">
+      <div className="w-full min-w-0 space-y-6 overflow-x-hidden [&_.mx-auto]:mx-0 [&_.max-w-7xl]:max-w-none [&_.max-w-6xl]:max-w-none [&_.max-w-5xl]:max-w-none [&_.max-w-4xl]:max-w-none [&_.max-w-3xl]:max-w-none [&_.max-w-2xl]:max-w-none [&_.max-w-xl]:max-w-none">
         {Page ? <Page /> : <NotFoundState href={legacyHref} />}
       </div>
     </AdminCenterShell>
