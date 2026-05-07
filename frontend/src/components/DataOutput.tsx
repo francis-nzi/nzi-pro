@@ -277,14 +277,48 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     }
   }
 
-  function toggleScope(scopeName: string) {
+  async function toggleScope(scope: Scope) {
+    const scopeName = scope.scope_name;
     const newExpanded = new Set(expandedScopes);
-    if (newExpanded.has(scopeName)) {
+    const isExpanded = newExpanded.has(scopeName);
+    if (isExpanded) {
       newExpanded.delete(scopeName);
-    } else {
-      newExpanded.add(scopeName);
+      setExpandedScopes(newExpanded);
+      setExpandedCategories((prev) => {
+        const next = new Set(prev);
+        for (const category of scope.categories) {
+          next.delete(`${scopeName}-${category.category_name}`);
+        }
+        return next;
+      });
+      if (selectedScope === scopeName) {
+        setSelectedScope(null);
+        setDetailedData(null);
+      }
+      return;
     }
+    newExpanded.add(scopeName);
     setExpandedScopes(newExpanded);
+    await openScopeDetails(scope);
+  }
+
+  async function openScopeDetails(scope: Scope) {
+    const scopeName = scope.scope_name;
+    if (!expandedScopes.has(scopeName)) {
+      const newExpanded = new Set(expandedScopes);
+      newExpanded.add(scopeName);
+      setExpandedScopes(newExpanded);
+    }
+    const data = selectedScope === scopeName && detailedData?.scope === scopeName ? detailedData : await loadScopeDetails(scopeName);
+    if (data?.categories?.length) {
+      setExpandedCategories((prev) => {
+        const next = new Set(prev);
+        for (const category of data.categories) {
+          next.add(`${scopeName}-${category.category_name}`);
+        }
+        return next;
+      });
+    }
   }
 
   function toggleCategory(categoryKey: string) {
@@ -660,7 +694,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                       {/* Scope Header */}
                       <div
                         className="flex items-center justify-between p-3 bg-muted hover:bg-muted/80 cursor-pointer"
-                        onClick={() => toggleScope(scope.scope_name)}
+                          onClick={() => void toggleScope(scope)}
                       >
                         <div className="flex items-center gap-2">
                           {scopeExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -671,9 +705,9 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={(e) => {
+                          onClick={async (e) => {
                               e.stopPropagation();
-                              loadScopeDetails(scope.scope_name);
+                              await openScopeDetails(scope);
                             }}
                           >
                             View Details
