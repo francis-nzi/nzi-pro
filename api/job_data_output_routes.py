@@ -84,6 +84,42 @@ def _safe_text(value: Any) -> str | None:
     return txt
 
 
+def _safe_number(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return float(default)
+        if isinstance(value, str):
+            txt = value.strip()
+            if not txt or txt.lower() in {"nan", "none", "null"}:
+                return float(default)
+            return float(txt)
+        if value != value:  # NaN
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _fallback_audit_metrics(row) -> dict[str, Any]:
+    qty = _safe_number(row.get("qty"), 0.0)
+    factor = _safe_number(row.get("factor"), 0.0)
+    apply_pct = _safe_number(row.get("apply_pct"), 100.0)
+    ghg_unit = _safe_text(row.get("ghg_unit"))
+    calc_tco2e = _safe_number(row.get("calc_tco2e"), 0.0)
+    if not calc_tco2e:
+        calc_tco2e = _calc_emissions_tco2e(qty, factor, apply_pct, ghg_unit)
+    dataset_label = _safe_text(row.get("dataset_name"))
+    return {
+        "display_qty": qty,
+        "display_uom": _safe_text(row.get("uom")),
+        "display_factor": factor,
+        "factor_label": None,
+        "dataset_label": dataset_label,
+        "calc_tco2e": calc_tco2e,
+        "tco2e_before_apply": calc_tco2e,
+    }
+
+
 def _calc_emissions_tco2e(
     qty: float | None,
     factor: float | None,
@@ -503,7 +539,10 @@ def get_job_data_output_audit(
                 scope_name = _clean_label(row.get("scope"), "Unknown")
                 site_name = _clean_label(row.get("site_name"), "No Site Assigned")
                 category_name = _dataset_category_label(row)
-                metrics = combined_row_metrics(row, resolver)
+                try:
+                    metrics = combined_row_metrics(row, resolver)
+                except Exception:
+                    metrics = _fallback_audit_metrics(row)
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
                 emissions_display = round(emissions, 2)

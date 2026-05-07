@@ -75,6 +75,34 @@ class _BrokenResolver:
         raise RuntimeError("dataset resolution failed")
 
 
+class _AuditConnResult:
+    def __init__(self, fetchone_value=None):
+        self._fetchone_value = fetchone_value
+
+    def fetchone(self):
+        return self._fetchone_value
+
+    def df(self):
+        return pd.DataFrame([])
+
+
+class _AuditConn:
+    def __init__(self):
+        self.queries: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append(sql)
+        if "SELECT job_id, reporting_year FROM jobs WHERE job_id = %s" in sql:
+            return _AuditConnResult((664, 2026))
+        return _AuditConnResult()
+
+
 def test_get_job_scope_data_handles_empty_results(monkeypatch) -> None:
     conn = _ScopeDataConn()
 
@@ -247,3 +275,48 @@ def test_build_scope_summary_orders_scopes_categories_and_sites(monkeypatch) -> 
     assert scope1["categories"][0]["site_count"] == 2
     assert [site["site_name"] for site in scope1["categories"][0]["sites"]] == ["Site B", "Site C"]
     assert scope1["categories"][0]["total_emissions"] == 5.5
+
+
+def test_get_job_data_output_audit_falls_back_when_resolver_fails(monkeypatch) -> None:
+    fake_conn = _AuditConn()
+    audit_df = pd.DataFrame(
+        [
+            {
+                "scope": "Scope 1",
+                "site_name": "Site A",
+                "category": "Company Vehicles",
+                "report_label": "Fuel use",
+                "record_type": "legacy",
+                "original_id": "row-1",
+                "qty": 2,
+                "uom": "litres",
+                "factor": 5,
+                "ghg_unit": "tCO2e",
+                "apply_pct": 100,
+                "dataset_name": "Dataset A",
+                "dataset_version": "2026",
+                "source_family": "Legacy Data Entry",
+                "data_confidence": "H",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(job_data_output_routes, "get_conn", lambda: fake_conn)
+    monkeypatch.setattr(job_data_output_routes, "_load_data_output_rows", lambda *_args, **_kwargs: audit_df)
+
+    class _ExplodingResolver:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def row_metrics(self, *_args, **_kwargs):
+            raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(job_data_output_routes, "JobMonthlyEmissionsResolver", _ExplodingResolver)
+
+    result = job_data_output_routes.get_job_data_output_audit(664, _user={"user_id": "u1", "org_id": "org-123"})
+
+    assert result["job_id"] == 664
+    assert result["reporting_year"] == 2026
+    assert result["rows"][0]["category"] == "Company Vehicles"
+    assert result["rows"][0]["tco2e_after_apply"] == 10
+    assert result["scope_subtotals"][0]["subtotal_tco2e_after_apply"] == 10
