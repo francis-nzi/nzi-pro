@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import IntensityMetrics from "@/components/IntensityMetrics";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
 
@@ -86,6 +87,10 @@ type ClientReportingComparisonData = {
   by_scope_category: Array<{
     year: number;
     scopes: ScopeCategoryData;
+  }>;
+  by_site: Array<{
+    year: number;
+    [key: string]: number | string;
   }>;
   by_scope_volume?: Array<{
     year: number;
@@ -611,6 +616,41 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     );
   }, [buildComparisonRows, comparisonData, comparisonYears]);
 
+  const buildSiteComparisonRows = useCallback((bySite: Array<{ year: number; [key: string]: number | string }>) => {
+    if (!comparisonYears.length) return [];
+
+    const siteSet = new Set<string>();
+    for (const yearData of bySite || []) {
+      for (const key of Object.keys(yearData || {})) {
+        if (key !== "year" && key !== "total") {
+          siteSet.add(key);
+        }
+      }
+    }
+
+    const orderedSites = Array.from(siteSet).sort((a, b) => a.localeCompare(b));
+
+    return orderedSites.map((site) => ({
+      site,
+      values: comparisonYears.map((year) => {
+        const yearRow = (bySite || []).find((r) => Number(r.year) === year);
+        if (!yearRow) return 0;
+        const value = yearRow[site];
+        return typeof value === "number" ? value : Number(value || 0);
+      }),
+    }));
+  }, [comparisonYears]);
+
+  const comparisonSiteRows = useMemo(() => {
+    if (!comparisonData || comparisonYears.length === 0) return [];
+    return buildSiteComparisonRows(comparisonData.by_site || []);
+  }, [buildSiteComparisonRows, comparisonData, comparisonYears]);
+
+  const jobTotalEmissions = useMemo(() => {
+    if (!summaryData?.scopes?.length) return 0;
+    return summaryData.scopes.reduce((sum, scope) => sum + Number(scope.total_emissions || 0), 0);
+  }, [summaryData]);
+
   if (loading) {
     return (
       <Card>
@@ -671,6 +711,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
           <TabsTrigger value="by-scope">By Scope</TabsTrigger>
           <TabsTrigger value="by-site">By Site</TabsTrigger>
           <TabsTrigger value="audit-table">Audit Table</TabsTrigger>
+          <TabsTrigger value="intensity-metrics">Intensity Metrics</TabsTrigger>
         </TabsList>
         
         <TabsContent value="by-scope" className="space-y-4">
@@ -1093,6 +1134,61 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Year-over-Year Site Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {comparisonLoading ? (
+                <div className="text-sm text-muted-foreground">Loading comparison data...</div>
+              ) : comparisonError ? (
+                <div className="text-sm text-destructive">{comparisonError}</div>
+              ) : comparisonYears.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No year-over-year site comparison data available.</div>
+              ) : comparisonSiteRows.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No site comparison rows available.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="bg-muted">
+                        <th className="text-left p-2 border">Site</th>
+                        {comparisonYears.map((year) => (
+                          <th key={year} className="text-right p-2 border">{year}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparisonSiteRows.map((row, idx) => (
+                        <tr key={`site-${idx}`} className="hover:bg-muted/30">
+                          <td className="p-2 border">{row.site}</td>
+                          {row.values.map((value, colIdx) => (
+                            <td key={colIdx} className="text-right p-2 border">
+                              {value > 0 ? formatNumber(value, 2) : "-"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr className="bg-muted font-bold">
+                        <td className="p-2 border">Total</td>
+                        {comparisonYears.map((year) => {
+                          const yearRow = (comparisonData?.by_site || []).find((r) => Number(r.year) === year);
+                          const value = yearRow?.total;
+                          const total = typeof value === "number" ? value : Number(value || 0);
+                          return (
+                            <td key={`site-total-${year}`} className="text-right p-2 border">
+                              {total > 0 ? formatNumber(total, 2) : "-"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="audit-table" className="space-y-4">
@@ -1190,6 +1286,14 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="intensity-metrics" className="space-y-4">
+          <IntensityMetrics
+            jobId={jobId}
+            baseUrl={baseUrl}
+            totalEmissions={jobTotalEmissions}
+          />
         </TabsContent>
       </Tabs>
 
