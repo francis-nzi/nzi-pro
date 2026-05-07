@@ -359,3 +359,54 @@ def test_get_job_data_output_audit_falls_back_when_resolver_constructor_fails(mo
 
     assert result["rows"][0]["tco2e_after_apply"] == 10
     assert result["scope_subtotals"][0]["subtotal_tco2e_after_apply"] == 10
+
+
+def test_get_job_data_output_audit_sanitises_optional_pandas_values(monkeypatch) -> None:
+    fake_conn = _AuditConn()
+    audit_df = pd.DataFrame(
+        [
+            {
+                "scope": "Scope 1",
+                "site_name": "Site A",
+                "category": "Company Vehicles",
+                "report_label": "Fuel use",
+                "record_type": "legacy",
+                "original_id": "row-1",
+                "qty": 2,
+                "uom": "litres",
+                "factor": 5,
+                "ghg_unit": "tCO2e",
+                "apply_pct": 100,
+                "dataset_name": "Dataset A",
+                "dataset_version": "2026",
+                "source_family": "Legacy Data Entry",
+                "data_confidence": "H",
+                "source_type": float("nan"),
+                "group_name": float("nan"),
+                "source_name": float("nan"),
+                "asset_identifier": float("nan"),
+                "employee_name": float("nan"),
+            }
+        ]
+    )
+
+    monkeypatch.setattr(job_data_output_routes, "get_conn", lambda: fake_conn)
+    monkeypatch.setattr(job_data_output_routes, "_load_data_output_rows", lambda *_args, **_kwargs: audit_df)
+
+    class _ExplodingResolver:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def row_metrics(self, *_args, **_kwargs):
+            raise RuntimeError("resolver exploded")
+
+    monkeypatch.setattr(job_data_output_routes, "JobMonthlyEmissionsResolver", _ExplodingResolver)
+
+    result = job_data_output_routes.get_job_data_output_audit(664, _user={"user_id": "u1", "org_id": "org-123"})
+
+    row = result["rows"][0]
+    assert row["source_type"] is None
+    assert row["group_name"] is None
+    assert row["source_name"] is None
+    assert row["asset_identifier"] is None
+    assert row["employee_name"] is None

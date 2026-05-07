@@ -587,11 +587,11 @@ def get_job_data_output_audit(
                             )
                         ),
                         "record_type": str(row.get("record_type") or "legacy"),
-                        "source_type": row.get("source_type"),
-                        "group_name": row.get("group_name"),
-                        "source_name": row.get("source_name"),
-                        "asset_identifier": row.get("asset_identifier"),
-                        "employee_name": row.get("employee_name"),
+                        "source_type": _safe_text(row.get("source_type")),
+                        "group_name": _safe_text(row.get("group_name")),
+                        "source_name": _safe_text(row.get("source_name")),
+                        "asset_identifier": _safe_text(row.get("asset_identifier")),
+                        "employee_name": _safe_text(row.get("employee_name")),
                         "dataset_name": str(metrics.get("dataset_label") or row.get("dataset_name") or ""),
                         "dataset_version": str(row.get("dataset_version") or ""),
                     }
