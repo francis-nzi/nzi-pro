@@ -120,6 +120,13 @@ def _fallback_audit_metrics(row) -> dict[str, Any]:
     }
 
 
+def _build_resolver_or_none(con, job_id: int):
+    try:
+        return JobMonthlyEmissionsResolver(con, int(job_id))
+    except Exception:
+        return None
+
+
 def _calc_emissions_tco2e(
     qty: float | None,
     factor: float | None,
@@ -291,7 +298,10 @@ def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[
         scope_name = _clean_label(row.get('scope'), 'Unknown')
         category = _dataset_category_label(row)
         site = _clean_label(row.get('site_name'), 'No Site Assigned')
-        metrics = combined_row_metrics(row, resolver)
+        try:
+            metrics = combined_row_metrics(row, resolver)
+        except Exception:
+            metrics = _fallback_audit_metrics(row)
         emission = round(float(metrics.get("calc_tco2e") or 0.0), 2)
 
         if scope_name not in scopes:
@@ -384,7 +394,7 @@ def get_job_data_output(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             reporting_year = job_check[1]
-            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            resolver = _build_resolver_or_none(con, int(job_id))
             data_df = _load_data_output_rows(con, int(job_id))
 
             if data_df is None or data_df.empty:
@@ -522,7 +532,7 @@ def get_job_data_output_audit(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             reporting_year = job_check[1]
-            resolver = JobMonthlyEmissionsResolver(con, int(job_id))
+            resolver = _build_resolver_or_none(con, int(job_id))
             df = _load_data_output_rows(con, int(job_id))
 
             if df is None or df.empty:
@@ -540,7 +550,10 @@ def get_job_data_output_audit(
                 site_name = _clean_label(row.get("site_name"), "No Site Assigned")
                 category_name = _dataset_category_label(row)
                 try:
-                    metrics = combined_row_metrics(row, resolver)
+                    try:
+                        metrics = combined_row_metrics(row, resolver)
+                    except Exception:
+                        metrics = _fallback_audit_metrics(row)
                 except Exception:
                     metrics = _fallback_audit_metrics(row)
                 qty_val = float(metrics.get("display_qty") or 0.0)

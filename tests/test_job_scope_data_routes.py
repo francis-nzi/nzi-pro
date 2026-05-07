@@ -320,3 +320,42 @@ def test_get_job_data_output_audit_falls_back_when_resolver_fails(monkeypatch) -
     assert result["rows"][0]["category"] == "Company Vehicles"
     assert result["rows"][0]["tco2e_after_apply"] == 10
     assert result["scope_subtotals"][0]["subtotal_tco2e_after_apply"] == 10
+
+
+def test_get_job_data_output_audit_falls_back_when_resolver_constructor_fails(monkeypatch) -> None:
+    fake_conn = _AuditConn()
+    audit_df = pd.DataFrame(
+        [
+            {
+                "scope": "Scope 1",
+                "site_name": "Site A",
+                "category": "Company Vehicles",
+                "report_label": "Fuel use",
+                "record_type": "legacy",
+                "original_id": "row-1",
+                "qty": 2,
+                "uom": "litres",
+                "factor": 5,
+                "ghg_unit": "tCO2e",
+                "apply_pct": 100,
+                "dataset_name": "Dataset A",
+                "dataset_version": "2026",
+                "source_family": "Legacy Data Entry",
+                "data_confidence": "H",
+            }
+        ]
+    )
+
+    monkeypatch.setattr(job_data_output_routes, "get_conn", lambda: fake_conn)
+    monkeypatch.setattr(job_data_output_routes, "_load_data_output_rows", lambda *_args, **_kwargs: audit_df)
+
+    class _BrokenConstructorResolver:
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("resolver constructor exploded")
+
+    monkeypatch.setattr(job_data_output_routes, "JobMonthlyEmissionsResolver", _BrokenConstructorResolver)
+
+    result = job_data_output_routes.get_job_data_output_audit(664, _user={"user_id": "u1", "org_id": "org-123"})
+
+    assert result["rows"][0]["tco2e_after_apply"] == 10
+    assert result["scope_subtotals"][0]["subtotal_tco2e_after_apply"] == 10
