@@ -53,10 +53,11 @@ def _is_placeholder_category(value) -> bool:
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     for value in (
         row.get("dataset_category"),
-        row.get("lookup_level_1"),
-        row.get("level_1"),
         row.get("lookup_category"),
         row.get("category"),
+        row.get("lookup_level_1"),
+        row.get("lookup_level_2"),
+        row.get("level_1"),
         row.get("level_2"),
     ):
         if _is_placeholder_category(value):

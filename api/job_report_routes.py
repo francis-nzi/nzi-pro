@@ -1207,7 +1207,7 @@ def _is_placeholder_category(value: Any) -> bool:
 
 
 def _dataset_category_label(row: dict[str, Any]) -> str:
-    for key in ("dataset_category", "lookup_level_1", "level_1", "lookup_category", "category", "level_2"):
+    for key in ("dataset_category", "lookup_category", "category", "lookup_level_1", "lookup_level_2", "level_1", "level_2"):
         value = row.get(key)
         if _is_placeholder_category(value):
             continue
