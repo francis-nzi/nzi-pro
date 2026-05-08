@@ -277,6 +277,34 @@ def test_build_scope_summary_orders_scopes_categories_and_sites(monkeypatch) -> 
     assert scope1["categories"][0]["total_emissions"] == 5.5
 
 
+def test_build_scope_summary_resolves_site_name_from_site_id(monkeypatch) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "scope": "Scope 3",
+                "category": "Employee Commuting",
+                "site_id": 22,
+                "site_name": "No Site Assigned",
+                "emissions": 9.36,
+            }
+        ]
+    )
+
+    class _SummaryResolver:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr(
+        job_data_output_routes,
+        "combined_row_metrics",
+        lambda row, _resolver=None: {"calc_tco2e": float(row.get("emissions") or 0.0)},
+    )
+
+    scopes, _totals = job_data_output_routes._build_scope_summary(df, _SummaryResolver(), {22: "Registered Office"})
+
+    assert scopes[0]["categories"][0]["sites"][0]["site_name"] == "Registered Office"
+
+
 def test_get_job_data_output_audit_falls_back_when_resolver_fails(monkeypatch) -> None:
     fake_conn = _AuditConn()
     audit_df = pd.DataFrame(

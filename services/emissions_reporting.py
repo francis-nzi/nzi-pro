@@ -49,6 +49,52 @@ def _safe_text(value: Any) -> str | None:
     return txt or None
 
 
+def _site_name_lookup(con) -> dict[int, str]:
+    try:
+        result = con.execute(
+            """
+            SELECT site_id, site_name
+            FROM client_sites
+            """
+        )
+        rows = result.fetchall()
+    except Exception:
+        return {}
+    lookup: dict[int, str] = {}
+    for site_id, site_name in rows:
+        try:
+            key = int(site_id)
+        except Exception:
+            continue
+        label = _clean_label(site_name, "")
+        if label:
+            lookup[key] = label
+    return lookup
+
+
+def resolve_site_name(row: Mapping[str, Any], site_lookup: Mapping[int, str] | None = None, fallback: str = "No Site Assigned") -> str:
+    site_name = _clean_label(row.get("site_name"), "")
+    if site_name and site_name.lower() not in {"no site assigned", "unknown"}:
+        return site_name
+
+    site_id = row.get("site_id")
+    try:
+        site_id_int = int(site_id) if site_id is not None else None
+    except Exception:
+        site_id_int = None
+
+    if site_lookup and site_id_int is not None:
+        resolved = site_lookup.get(site_id_int)
+        if resolved:
+            return resolved
+
+    if site_name:
+        return site_name
+    if site_id_int is not None:
+        return f"Site {site_id_int}"
+    return fallback
+
+
 def combined_row_metrics(row: Mapping[str, Any], resolver=None) -> dict[str, Any]:
     """Return row metrics for mixed legacy + source-register emissions rows.
 
@@ -138,6 +184,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     'Uncategorized'
                 ) AS category,
                 COALESCE(s.site_name, 'No Site Assigned') AS site_name,
+                jsr.site_id AS site_id,
                 jsr.dataset_id,
                 jsr.factor_db_id,
                 jsr.original_id,
@@ -188,6 +235,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     'Uncategorized'
                 ) AS category,
                 COALESCE(cs.site_name, 'No Site Assigned') AS site_name,
+                js.site_id AS site_id,
                 COALESCE(g.dataset_id, js.dataset_id) AS dataset_id,
                 COALESCE(g.factor_db_id, js.factor_db_id) AS factor_db_id,
                 COALESCE(g.original_id, js.original_id) AS original_id,
@@ -231,6 +279,10 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
         """,
         job_ids,
     ).df()
+    if not df.empty:
+        site_lookup = _site_name_lookup(con)
+        if "site_id" in df.columns:
+            df["site_name"] = df.apply(lambda row: resolve_site_name(row, site_lookup), axis=1)
     if not df.empty and "category" in df.columns:
         df["category"] = df["category"].apply(_clean_label)
     if not df.empty and "dataset_category" in df.columns:

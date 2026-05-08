@@ -64,3 +64,82 @@ def test_emissions_reporting_prefers_category_before_level_1_in_sql() -> None:
     assert sql.index("nullif(trim(cast(jsr.category as varchar)), '')") < sql.index(
         "nullif(trim(cast(jsr.level_1 as varchar)), '')"
     )
+
+
+def test_load_combined_reporting_rows_resolves_site_name_from_site_id() -> None:
+    class _Result:
+        def __init__(self, df=None, rows=None):
+            self._df = df
+            self._rows = rows or []
+
+        def fetchall(self):
+            return self._rows
+
+        def df(self):
+            return self._df
+
+    class _CaptureConn:
+        def __init__(self):
+            self.sql = ""
+
+        def execute(self, sql, params=None):
+            self.sql = sql
+            if "information_schema.columns" in sql:
+                return _Result(rows=[])
+            if "FROM client_sites" in sql and "LEFT JOIN" not in sql:
+                return _Result(rows=[(22, "Registered Office")])
+            return _Result(
+                df=pd.DataFrame(
+                    [
+                        {
+                            "job_id": 123,
+                            "row_id": 1,
+                            "dashboard_year": 2025,
+                            "record_type": "legacy",
+                            "scope": "Scope 3",
+                            "level_1": None,
+                            "dataset_category": "Employee Commuting",
+                            "category": "Employee Commuting",
+                            "site_id": 22,
+                            "site_name": "No Site Assigned",
+                            "dataset_id": 1,
+                            "factor_db_id": 1,
+                            "original_id": "row-1",
+                            "source_family": "Legacy Data Entry",
+                            "lookup_category": "Employee Commuting",
+                            "lookup_level_1": "Employee Commuting",
+                            "lookup_level_2": "Employee Commuting",
+                            "source_qty": None,
+                            "source_uom": None,
+                            "qty": 1.0,
+                            "uom": "km",
+                            "factor": 0.1,
+                            "ghg_unit": "kgCO2e",
+                            "apply_pct": 100,
+                            "calc_tco2e": None,
+                            "notes": None,
+                            "source_type": None,
+                            "group_name": None,
+                            "asset_identifier": None,
+                            "employee_name": None,
+                            "month_1": None,
+                            "month_2": None,
+                            "month_3": None,
+                            "month_4": None,
+                            "month_5": None,
+                            "month_6": None,
+                            "month_7": None,
+                            "month_8": None,
+                            "month_9": None,
+                            "month_10": None,
+                            "month_11": None,
+                            "month_12": None,
+                        }
+                    ]
+                )
+            )
+
+    fake = _CaptureConn()
+    df = emissions_reporting.load_combined_reporting_rows(fake, [123])
+
+    assert df.iloc[0]["site_name"] == "Registered Office"

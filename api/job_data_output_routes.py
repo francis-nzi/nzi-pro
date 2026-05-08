@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from core.database import get_conn
 from api.auth import _current_user
 from services.monthly_emissions import JobMonthlyEmissionsResolver
-from services.emissions_reporting import combined_row_metrics
+from services.emissions_reporting import combined_row_metrics, resolve_site_name, _site_name_lookup
 from typing import Any
 
 router = APIRouter()
@@ -158,6 +158,7 @@ def _load_data_output_rows(con, job_id: int):
                     ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END AS category,
                 COALESCE(s.site_name, 'No Site Assigned'::text) AS site_name,
+                jsr.site_id AS site_id,
                 jsr.level_3,
                 jsr.level_4,
                 COALESCE(jsr.column_text, jsr.report_label) AS activity_name,
@@ -216,6 +217,7 @@ def _load_data_output_rows(con, job_id: int):
                     ELSE TRIM(CAST({factor_category_expr} AS VARCHAR))
                 END AS category,
                 COALESCE(cs.site_name, 'No Site Assigned'::text) AS site_name,
+                js.site_id AS site_id,
                 NULL::text AS level_3,
                 NULL::text AS level_4,
                 COALESCE(
@@ -284,20 +286,23 @@ def _load_data_output_rows(con, job_id: int):
         [int(job_id), int(job_id)],
     ).df()
     if not df.empty:
-        for col, fallback in (("scope", "Unknown"), ("category", "Uncategorized"), ("site_name", "No Site Assigned")):
+        site_lookup = _site_name_lookup(con)
+        for col, fallback in (("scope", "Unknown"), ("category", "Uncategorized")):
             if col in df.columns:
                 df[col] = df[col].apply(lambda value: _clean_label(value, fallback))
+        if "site_id" in df.columns:
+            df["site_name"] = df.apply(lambda row: resolve_site_name(row, site_lookup), axis=1)
         df["dataset_category"] = df.apply(lambda row: _dataset_category_label(row), axis=1)
     return df
 
 
 # Shared by Data Output and report generation so both views use the same rounding rules.
-def _build_scope_summary(data_df, resolver) -> tuple[list[dict[str, Any]], dict[str, float]]:
+def _build_scope_summary(data_df, resolver, site_lookup: dict[int, str] | None = None) -> tuple[list[dict[str, Any]], dict[str, float]]:
     scopes: dict[str, dict[str, Any]] = {}
     for _, row in data_df.iterrows():
         scope_name = _clean_label(row.get('scope'), 'Unknown')
         category = _dataset_category_label(row)
-        site = _clean_label(row.get('site_name'), 'No Site Assigned')
+        site = resolve_site_name(row, site_lookup)
         try:
             metrics = combined_row_metrics(row, resolver)
         except Exception:
@@ -396,6 +401,7 @@ def get_job_data_output(
             reporting_year = job_check[1]
             resolver = _build_resolver_or_none(con, int(job_id))
             data_df = _load_data_output_rows(con, int(job_id))
+            site_lookup = _site_name_lookup(con)
 
             if data_df is None or data_df.empty:
                 if scope:
@@ -420,7 +426,7 @@ def get_job_data_output(
                 categories = {}
                 for _, row in data_df.iterrows():
                     category = _dataset_category_label(row)
-                    site = _clean_label(row.get('site_name'), 'No Site Assigned')
+                    site = resolve_site_name(row, site_lookup)
                     metrics = combined_row_metrics(row, resolver)
                     qty_val = float(metrics.get("display_qty") or 0.0)
                     emission = float(metrics.get("calc_tco2e") or 0.0)
@@ -503,7 +509,7 @@ def get_job_data_output(
 
             else:
                 # Summary view - all scopes
-                scope_list, _scope_totals = _build_scope_summary(data_df, resolver)
+                scope_list, _scope_totals = _build_scope_summary(data_df, resolver, site_lookup)
                 return {
                     "job_id": int(job_id),
                     "reporting_year": reporting_year,
@@ -534,6 +540,7 @@ def get_job_data_output_audit(
             reporting_year = job_check[1]
             resolver = _build_resolver_or_none(con, int(job_id))
             df = _load_data_output_rows(con, int(job_id))
+            site_lookup = _site_name_lookup(con)
 
             if df is None or df.empty:
                 return {
@@ -547,7 +554,7 @@ def get_job_data_output_audit(
             subtotal_map: dict[tuple[str, str], float] = {}
             for _, row in df.iterrows():
                 scope_name = _clean_label(row.get("scope"), "Unknown")
-                site_name = _clean_label(row.get("site_name"), "No Site Assigned")
+                site_name = resolve_site_name(row, site_lookup)
                 category_name = _dataset_category_label(row)
                 try:
                     try:
