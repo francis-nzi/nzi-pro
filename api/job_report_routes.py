@@ -4282,8 +4282,8 @@ def generate_html_report(
         raise HTTPException(status_code=500, detail=f"Failed to generate HTML report: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/generate-professional-pdf")
-def generate_professional_pdf(
+# Shared implementation used by api.job_report_pdf_routes.
+def _generate_professional_pdf_impl(
     job_id: int,
     request: Request,
     save_version: bool = Query(False),

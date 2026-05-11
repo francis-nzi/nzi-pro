@@ -108,6 +108,7 @@ from api.job_live_report_routes import router as job_live_report_router
 from api.main_dashboard_routes import router as main_dashboard_router
 from api.job_data_output_routes import router as job_data_output_router
 from api.job_report_routes import router as job_report_router
+from api.job_report_pdf_routes import router as job_report_pdf_router
 from api.pdf_generation_routes import router as pdf_generation_router
 from api.job_files_routes import router as job_files_router
 from api.job_emissions_certificate_routes import router as job_emissions_certificate_router
@@ -504,6 +505,9 @@ app.include_router(job_data_output_router)
 
 # Include job report routes
 app.include_router(job_report_router)
+
+# Include professional PDF report routes
+app.include_router(job_report_pdf_router)
 
 # Include PDF generation routes (Phase 1: Async PDF)
 app.include_router(pdf_generation_router)
