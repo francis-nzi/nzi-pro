@@ -88,6 +88,7 @@ from api.admin_jobs_routes import router as admin_jobs_router
 from api.admin_archive_routes import router as admin_archive_router
 from api.admin_monitoring_routes import router as admin_monitoring_router
 from api.admin_audit_routes import router as admin_audit_router
+from api.support_feedback_routes import router as support_feedback_router
 from api.stripe_billing_routes import router as stripe_billing_router
 from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
 from api.job_scope_data_routes import router as job_scope_data_router
@@ -125,11 +126,6 @@ from api.crm_automation_routes import router as crm_automation_router
 from api.business_development_routes import router as business_development_router
 from api.lca_routes import router as lca_router
 from api.onedrive_routes import router as onedrive_router
-from api.feedback_routes import (
-    create_feedback_item as _create_feedback_item,
-    list_feedback_items as _list_feedback_items,
-    update_feedback_item as _update_feedback_item,
-)
 from api.spend_data_routes import router as spend_data_router
 from api.employee_commuting_routes import router as employee_commuting_router
 from api.quotes_routes import router as quotes_router
@@ -137,7 +133,6 @@ from api.xero_routes import router as xero_router
 from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
 from api.auth_routes import router as auth_router
-from api.auth_routes import _current_org_summary
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from services.tenancy import require_org
 
@@ -341,79 +336,6 @@ def _job_scope_config_audit_snapshot(con, job_id: int) -> dict:
 app = FastAPI(title="NZI Pro API", version="0.1.0")
 _rate_limiter = build_default_rate_limiter()
 
-
-def _json_null_if_na(value):
-    """Convert pandas/NumPy NA-like values to JSON-safe None."""
-    try:
-        if pd.isna(value):
-            return None
-    except Exception:
-        pass
-    return value
-
-
-@app.get("/support/database-fingerprint")
-def support_database_fingerprint(_user: dict[str, str] = Depends(_current_user)):
-    """Return a small fingerprint for the currently connected database."""
-    with get_conn() as con:
-        row = con.execute(
-            """
-            SELECT
-              current_database() AS db_name,
-              current_user AS db_user,
-              inet_server_addr()::text AS host_ip,
-              inet_server_port() AS host_port,
-              version() AS pg_version
-            """
-        ).fetchone()
-
-    if not row:
-        raise HTTPException(status_code=500, detail="Unable to read database fingerprint")
-
-    return {
-        "db_name": row[0],
-        "db_user": row[1],
-        "host_ip": row[2],
-        "host_port": row[3],
-        "pg_version": row[4],
-    }
-
-
-@app.get("/support/diagnostics")
-def support_diagnostics(user: dict[str, str] = Depends(_current_user)):
-    """Return a support-friendly snapshot of the active session and database."""
-    fingerprint = support_database_fingerprint(user)
-    current_org = _current_org_summary(user)
-    permissions = sorted(
-        {
-            str(permission).strip()
-            for permission in (user.get("effective_permissions") or [])
-            if str(permission).strip()
-        }
-    )
-    role = str(user.get("role") or "").strip()
-    can_manage_organisations = bool(
-        user.get("is_super_admin")
-        or "admin.access" in permissions
-        or role.lower() in {"admin", "superadmin"}
-    )
-    return {
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "database": fingerprint,
-        "session": {
-            "user_id": str(user.get("user_id") or "").strip() or None,
-            "email": str(user.get("email") or "").strip() or None,
-            "role": role or None,
-            "org_id": str(user.get("org_id") or "").strip() or None,
-            "mfa_enabled": bool(user.get("mfa_enabled")) if user.get("mfa_enabled") is not None else None,
-            "must_change_password": bool(user.get("must_change_password")) if user.get("must_change_password") is not None else None,
-            "is_super_admin": bool(user.get("is_super_admin")) if user.get("is_super_admin") is not None else None,
-            "effective_permissions": permissions,
-        },
-        "current_org": current_org,
-        "can_manage_organisations": can_manage_organisations,
-    }
-
 # Serve frontend-uploaded assets (e.g., /uploads/system/nzi-logo.png)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UPLOADS_DIR = PROJECT_ROOT / "frontend" / "public" / "uploads"
@@ -526,6 +448,7 @@ app.include_router(admin_jobs_router)
 app.include_router(admin_archive_router)
 app.include_router(admin_monitoring_router)
 app.include_router(admin_audit_router)
+app.include_router(support_feedback_router)
 
 # Include Stripe billing routes
 app.include_router(stripe_billing_router)
@@ -627,37 +550,6 @@ app.include_router(onedrive_router)
 app.include_router(dataset_import_router)
 _safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")
 _safe_startup_log("OK", f"Feedback router registered with {len(feedback_router.routes)} routes")
-
-
-# Explicit feedback endpoints to guarantee availability on the main app.
-@app.get("/feedback/items")
-def app_list_feedback_items(
-    feedback_type: str = Query(default="all"),
-    include_completed: bool = Query(default=True),
-    _user: dict = Depends(_current_user),
-):
-    return _list_feedback_items(
-        feedback_type=feedback_type,
-        include_completed=include_completed,
-        _user=_user,
-    )
-
-
-@app.post("/feedback/items")
-def app_create_feedback_item(
-    body: dict = Body(...),
-    _user: dict = Depends(_current_user),
-):
-    return _create_feedback_item(body=body, _user=_user)
-
-
-@app.patch("/feedback/items/{feedback_id}")
-def app_update_feedback_item(
-    feedback_id: int,
-    body: dict = Body(...),
-    _user: dict = Depends(_current_user),
-):
-    return _update_feedback_item(feedback_id=feedback_id, body=body, _user=_user)
 
 
 @app.on_event("startup")
@@ -864,48 +756,6 @@ async def rate_limit_middleware(request: Request, call_next):
         )
 
     return await call_next(request)
-
-
-# ... existing code ...
-@app.get("/health")
-def health():
-    try:
-        with get_conn() as con:
-            row = con.execute("SELECT 1").fetchone()
-        if not row or row[0] != 1:
-            raise HTTPException(status_code=503, detail="Database health check failed")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Database health check failed: {exc}")
-    return {
-        "ok": True,
-        "service": "NZI Pro API",
-        "database": "ok",
-    }
-# ... existing code ...
-
-
-@app.get("/debug/env")
-def debug_env(_user: dict[str, str] = Depends(_current_user)):
-    url = os.getenv("DATABASE_URL") or ""
-    host = ""
-    port: int | None = None
-    try:
-        if url:
-            parsed = urlparse(url)
-            host = parsed.hostname or ""
-            port = parsed.port
-    except Exception:
-        host = ""
-        port = None
-    return {
-        "db_backend": db_backend(),
-        "database_url_is_set": bool(url),
-        "database_url_host": host,
-        "database_url_port": port,
-        "database_url_has_sslmode": ("sslmode=" in url),
-    }
 
 
 @app.post("/jobs")
