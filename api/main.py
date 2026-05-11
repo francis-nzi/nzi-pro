@@ -93,6 +93,7 @@ from api.stripe_billing_routes import router as stripe_billing_router
 from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
 from api.job_scope_data_routes import router as job_scope_data_router
 from api.job_report_version_routes import router as job_report_version_router
+from api.job_report_docx_routes import router as job_report_docx_router
 from api.job_emission_register_routes import router as job_emission_register_router
 from api.job_custom_factors_routes import router as job_custom_factors_router
 from api.job_milestone_routes import router as job_milestone_router
@@ -463,6 +464,7 @@ app.include_router(job_scope_data_router)
 # Include emission register routes
 app.include_router(job_emission_register_router)
 app.include_router(job_report_version_router)
+app.include_router(job_report_docx_router)
 
 # Include job custom factors routes
 app.include_router(job_custom_factors_router)
