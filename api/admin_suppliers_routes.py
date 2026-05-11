@@ -12,6 +12,7 @@ from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
 from core.auth import set_user_password
+from api.admin_user_helpers import _ensure_supplier_tables
 from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email

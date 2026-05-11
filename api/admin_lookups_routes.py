@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
+from api.admin_routes import _ensure_lookup_table, _ensure_lookup_table_once
 from core.auth import set_user_password
 from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content

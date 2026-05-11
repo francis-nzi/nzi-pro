@@ -3,8 +3,12 @@ Shared admin-user helper functions used by the user management routes.
 """
 
 from datetime import datetime, timezone
+from threading import Lock
 
 import pandas as pd
+
+_ADMIN_USER_BOOTSTRAPPED = False
+_ADMIN_USER_BOOTSTRAP_LOCK = Lock()
 
 from core.auth import set_user_password
 from core.database import get_conn
