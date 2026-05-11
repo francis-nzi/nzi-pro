@@ -41,7 +41,8 @@ def _safe_float(value: Any) -> float | None:
         return None
     try:
         return float(s)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to parse float value %r: %s", s, exc)
         return None
 
 
@@ -482,14 +483,14 @@ def _parse_month_header(value: Any) -> date | None:
         try:
             d = datetime.strptime(s, fmt)
             return date(d.year, d.month, 1)
-        except Exception:
-            logger.debug("Unable to parse month header %r with format %s", s, fmt)
+        except Exception as exc:
+            logger.debug("Unable to parse month header %r with format %s: %s", s, fmt, exc)
     try:
         d = pd.to_datetime(s, dayfirst=True, errors="coerce")
         if pd.notna(d):
             return date(int(d.year), int(d.month), 1)
-    except Exception:
-        logger.debug("Unable to parse month header %r via pandas date conversion", s)
+    except Exception as exc:
+        logger.debug("Unable to parse month header %r via pandas date conversion: %s", s, exc)
     return None
 
 

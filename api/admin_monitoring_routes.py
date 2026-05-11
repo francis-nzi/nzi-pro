@@ -34,8 +34,8 @@ def _optional_int_param(value: object | None) -> int | None:
         return None
     try:
         return int(value)
-    except Exception:
-        logger.debug("Unable to parse optional integer parameter %r", value)
+    except Exception as exc:
+        logger.debug("Unable to parse optional integer parameter %r: %s", value, exc)
         return None
 
 
@@ -135,8 +135,8 @@ def _bg_dt(value: object | None) -> str | None:
         return value.strip() or None
     try:
         return value.isoformat()
-    except Exception:
-        logger.debug("Unable to serialise background job timestamp %r", value)
+    except Exception as exc:
+        logger.debug("Unable to serialise background job timestamp %r: %s", value, exc)
         return str(value)
 
 
@@ -285,7 +285,8 @@ def _bg_monitor_snapshot() -> dict[str, object]:
 def _bg_find_job(queue, job_token: str):
     try:
         return queue.fetch_job(job_token)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to fetch RQ job %s for replay lookup: %s", job_token, exc)
         return None
 
 
@@ -469,7 +470,8 @@ def replay_background_job(body: dict = Body(...), _user: dict = Depends(_current
         current_status = "unknown"
         try:
             current_status = str(rq_job.get_status() or "unknown")
-        except Exception:
+        except Exception as exc:
+            logger.debug("Unable to read status for replay job %s: %s", job_token, exc)
             current_status = str(getattr(rq_job, "status", "unknown") or "unknown")
 
         if current_status not in {"failed", "canceled"}:
@@ -505,8 +507,8 @@ def replay_background_job(body: dict = Body(...), _user: dict = Depends(_current
         try:
             replayed_job.meta = replay_meta
             replayed_job.save_meta()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Unable to persist replay metadata for job %s: %s", job_token, exc)
 
         return {
             "ok": True,
