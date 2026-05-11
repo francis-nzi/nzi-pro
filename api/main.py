@@ -76,8 +76,18 @@ from services.playwright_browser import ensure_playwright_browser
 from services.emissions_reporting import exact_job_total_emissions
 from services.rate_limiter import build_default_rate_limiter
 from api.admin_routes import router as admin_router
-from api.admin_routes import _require_org_capacity
-from api.admin_routes import _require_org_plan_active
+from api.org_admin_helpers import _require_org_capacity
+from api.org_admin_helpers import _require_org_plan_active
+from api.admin_users_routes import router as admin_users_router
+from api.admin_organisations_routes import router as admin_organisations_router
+from api.admin_datasets_routes import router as admin_datasets_router
+from api.admin_lookups_routes import router as admin_lookups_router
+from api.admin_suppliers_routes import router as admin_suppliers_router
+from api.admin_legacy_routes import router as admin_legacy_router
+from api.admin_jobs_routes import router as admin_jobs_router
+from api.admin_archive_routes import router as admin_archive_router
+from api.admin_monitoring_routes import router as admin_monitoring_router
+from api.admin_audit_routes import router as admin_audit_router
 from api.stripe_billing_routes import router as stripe_billing_router
 from api.stripe_billing_routes import webhook_router as stripe_billing_webhook_router
 from api.job_scope_data_routes import router as job_scope_data_router
@@ -506,6 +516,16 @@ def _seeded_job_template_fallbacks(template_key: str | None, template_type: str 
 
 # Include admin routes
 app.include_router(admin_router)
+app.include_router(admin_users_router)
+app.include_router(admin_organisations_router)
+app.include_router(admin_datasets_router)
+app.include_router(admin_lookups_router)
+app.include_router(admin_suppliers_router)
+app.include_router(admin_legacy_router)
+app.include_router(admin_jobs_router)
+app.include_router(admin_archive_router)
+app.include_router(admin_monitoring_router)
+app.include_router(admin_audit_router)
 
 # Include Stripe billing routes
 app.include_router(stripe_billing_router)
@@ -3477,7 +3497,7 @@ def create_client(
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
