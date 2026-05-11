@@ -303,6 +303,13 @@ def _load_job_certificate_context(con, job_id: int, current_user: dict[str, Any]
         [int(job_id), int(reporting_year), org_id],
     )
     if existing:
+        current_emissions = exact_job_total_emissions(con, int(job_id))
+        if float(current_emissions or 0.0) != float(existing.get("emissions") or 0.0):
+            con.execute(
+                "UPDATE job_emissions_certificates SET emissions = ?, updated_at = NOW() WHERE certificate_id = ?",
+                [float(current_emissions or 0.0), int(existing["certificate_id"])],
+            )
+            existing["emissions"] = current_emissions
         extra = {
             "client_logo_url": str(job_row.get("client_logo_url") or "").strip() or None,
             "reporting_period_start": job_row.get("reporting_period_start").isoformat() if hasattr(job_row.get("reporting_period_start"), "isoformat") else (str(job_row.get("reporting_period_start")) if job_row.get("reporting_period_start") else None),
