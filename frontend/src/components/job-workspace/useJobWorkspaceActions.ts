@@ -1,6 +1,6 @@
 import { withAuditHeaders } from "@/lib/auth-client";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
-import { primeJobShellData } from "@/lib/job-shell-data";
+import { primeJobShellData, type JobShellJob } from "@/lib/job-shell-data";
 import { AUTO_REPORT_METADATA_FIELDS, SCOPE_KEYS, buildMetadataFieldValues, scopeMapFromItems, type JobScopeConfigItem, type ReportMetadataField } from "@/lib/job-workspace";
 
 type WorkspaceJob = {
@@ -14,7 +14,7 @@ type WorkspaceJob = {
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number | null;
-  client_name?: string | null;
+  client_name: string | null;
   crm_owner?: string | null;
   crm_name?: string | null;
   start_date?: string | null;
@@ -82,6 +82,8 @@ type ActionDeps = {
   scopeConfigMode: string;
   scopeDatasetIds: Record<string, string>;
   additionalDatasetIds: string[];
+  reportingPeriodStart: string;
+  reportingPeriodEnd: string;
   selectedSiteId: string;
   uploadFile: File | null;
   uploadResult: UploadValidationResult | null;
@@ -128,6 +130,8 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     scopeConfigMode,
     scopeDatasetIds,
     additionalDatasetIds,
+    reportingPeriodStart,
+    reportingPeriodEnd,
     selectedSiteId,
     uploadFile,
     uploadResult,
@@ -278,7 +282,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
       setStatus("Template updated.");
       setSelectedTemplateId(jobTemplateId);
       if (job) {
-        primeJobShellData(baseUrl, jobId, { job: { ...job, job_template_id: Number(jobTemplateId) }, clientOwnerLabel, clientBenchmarkPeriodLabel });
+        primeJobShellData(baseUrl, jobId, { job: { ...job, job_template_id: Number(jobTemplateId), client_db_id: job.client_db_id ?? 0 } as JobShellJob, clientOwnerLabel, clientBenchmarkPeriodLabel });
       }
     } catch (e) {
       setStatus(`Save error: ${(e as Error).message}`);
@@ -379,7 +383,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
       setStatus("Reporting period updated. Datasets will be auto-selected based on this period.");
       if (job) {
         primeJobShellData(baseUrl, jobId, {
-          job: { ...job, reporting_period_start: reportingPeriodStart || null, reporting_period_end: reportingPeriodEnd || null },
+          job: { ...job, reporting_period_start: reportingPeriodStart || null, reporting_period_end: reportingPeriodEnd || null, client_db_id: job.client_db_id ?? 0 } as JobShellJob,
           clientOwnerLabel,
           clientBenchmarkPeriodLabel,
         });

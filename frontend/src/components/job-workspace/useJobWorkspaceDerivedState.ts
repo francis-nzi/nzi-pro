@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 
-import { calculateDerivedEnergyEmissionFields, parseClientYearEndMonthToNumber, parseDateMonthToNumber } from "@/lib/report-metadata";
+import { calculateDerivedEnergyEmissionFields, type EnergyEmissionFactorDetails } from "@/lib/report-metadata";
 import {
   JOB_SETUP_METADATA_KEY_ORDER,
   JOB_SETUP_METADATA_KEYS,
@@ -25,7 +25,8 @@ type JobLike = {
 };
 
 type TeamMember = {
-  full_name?: string | null;
+  user_id?: string | null;
+  full_name: string | null;
   status?: string | null;
   position?: string | null;
 };
@@ -53,7 +54,7 @@ type DerivedDeps = {
   reportingPeriodStart: string;
   reportingPeriodEnd: string;
   clientYearEndMonth: string;
-  activeTab: WorkspaceTab["key"];
+  activeTab: string;
   activeSetupSubtab: string;
   reportMetadataFields: ReportMetadataField[];
   reportMetadataValues: Record<string, string>;
@@ -70,6 +71,22 @@ type DerivedDeps = {
   selectedTemplateId: string;
   selectedMilestoneTemplateId: string;
 };
+
+function parseClientYearEndMonthToNumber(value: string): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const monthNames = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const idx = monthNames.findIndex((m) => m === trimmed.toLowerCase());
+  if (idx >= 0) return idx + 1;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n >= 1 && n <= 12 ? n : null;
+}
+
+function parseDateMonthToNumber(dateStr: string): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return Number.isNaN(d.getTime()) ? null : d.getMonth() + 1;
+}
 
 function sortReportFields(fields: ReportMetadataField[]) {
   const filtered = fields.filter((field) =>
@@ -244,7 +261,7 @@ export default function useJobWorkspaceDerivedState({
   }, [activeTeamMembers]);
 
   const derivedEnergyMetadataValues = useMemo(
-    () => calculateDerivedEnergyEmissionFields(reportMetadataValues, reportMetadataEnergyFactors),
+    () => calculateDerivedEnergyEmissionFields(reportMetadataValues, reportMetadataEnergyFactors as EnergyEmissionFactorDetails | null),
     [reportMetadataValues, reportMetadataEnergyFactors]
   );
 

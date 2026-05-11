@@ -11,7 +11,7 @@ const ClientTimeline = dynamic(() => import("@/components/ClientTimeline"), {
 });
 
 type JobCommunicationsTabsProps = {
-  jobId: string;
+  jobId: number;
   baseUrl: string;
   clientDbId: number | null;
 };

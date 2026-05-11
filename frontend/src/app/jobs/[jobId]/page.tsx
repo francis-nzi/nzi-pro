@@ -18,6 +18,7 @@ import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
+import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
 import type { WorkspaceBreadcrumb, WorkspaceTab } from "@/components/job-workspace/types";
 import {
   JOB_WORKSPACE_GROUPS,
@@ -101,13 +102,13 @@ type Job = {
   reporting_year: number | null;
   reporting_period_start: string | null;
   reporting_period_end: string | null;
-  is_benchmark: boolean | null;
+  is_benchmark?: boolean | null;
   status: string | null;
   job_type?: string | null;
   job_type_id?: number | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
-  client_db_id: number;
+  client_db_id: number | null;
   client_name: string | null;
   crm_owner?: string | null;
   crm_name?: string | null;
@@ -373,7 +374,7 @@ export default function JobDetailPage() {
       setSelectedMilestoneTemplateId,
       setScopeConfigMode,
       setScopeConfigWarnings,
-      setScopeAutoResolution,
+      setScopeAutoResolution: setScopeAutoResolution as unknown as React.Dispatch<React.SetStateAction<{ unresolved_scopes?: string[] | null; uses_legacy_fallback?: boolean | null; [key: string]: unknown } | null>>,
       setScopeEffectiveDatasetIds,
       setScopeDatasetIds,
       setAdditionalDatasetIds,
@@ -440,27 +441,6 @@ export default function JobDetailPage() {
     ]
   );
 
-  useJobWorkspaceData({
-    jobId,
-    baseUrl,
-    searchParams,
-    activeTab,
-    activeSetupSubtab,
-    activeWorkspaceSubtab,
-    showAdvancedDatasetConfig,
-    datasetsLength: datasets.length,
-    scopeConfigMode,
-    scopeConfigReloadToken,
-    milestoneTemplatesLength: milestoneTemplates.length,
-    milestoneTemplateCompletionsLength: milestoneTemplateCompletions.length,
-    reportMetadataFieldsLength: reportMetadataFields.length,
-    selectedMilestoneTemplateId,
-    job,
-    jobTypes,
-    jobType,
-    setters: workspaceDataSetters,
-  });
-
   const {
     activeWorkspaceGroup,
     activeWorkspaceSubtabs,
@@ -493,6 +473,7 @@ export default function JobDetailPage() {
     activeSetupSubtab,
     reportMetadataFields,
     reportMetadataValues,
+    setReportMetadataValues,
     reportMetadataEnergyFactors,
     teamMembers,
     datasets,
@@ -504,7 +485,27 @@ export default function JobDetailPage() {
     scopeConfigMode,
     selectedTemplateId,
     selectedMilestoneTemplateId,
-    crmName,
+  });
+
+  useJobWorkspaceData({
+    jobId,
+    baseUrl,
+    searchParams,
+    activeTab,
+    activeSetupSubtab,
+    activeWorkspaceSubtab,
+    showAdvancedDatasetConfig,
+    datasetsLength: datasets.length,
+    scopeConfigMode,
+    scopeConfigReloadToken,
+    milestoneTemplatesLength: milestoneTemplates.length,
+    milestoneTemplateCompletionsLength: milestoneTemplateCompletions.length,
+    reportMetadataFieldsLength: reportMetadataFields.length,
+    selectedMilestoneTemplateId,
+    job,
+    jobTypes,
+    jobType,
+    setters: workspaceDataSetters,
   });
   function handleWorkspaceGroupChange(groupKey: WorkspaceTab["key"]) {
     const group = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === groupKey);
@@ -658,18 +659,18 @@ export default function JobDetailPage() {
     setBusy,
     setStatus,
     setUploadStatus,
-    setUploadResult,
+    setUploadResult: setUploadResult as React.Dispatch<React.SetStateAction<unknown>>,
     setUploadProgress,
-    setImportConflicts,
+    setImportConflicts: setImportConflicts as unknown as React.Dispatch<React.SetStateAction<{ [key: string]: unknown }[]>>,
     setImportConflictAcknowledged,
     setReportMetadataStatus,
     setSavingReportMetadata,
     setReportMetadataApiUnavailable,
     setReportMetadataValues,
-    setReportMetadataEnergyFactors,
+    setReportMetadataEnergyFactors: setReportMetadataEnergyFactors as React.Dispatch<React.SetStateAction<unknown>>,
     setScopeConfigMode,
     setScopeConfigWarnings,
-    setScopeAutoResolution,
+    setScopeAutoResolution: setScopeAutoResolution as React.Dispatch<React.SetStateAction<unknown>>,
     setScopeEffectiveDatasetIds,
     setScopeDatasetIds,
     setAdditionalDatasetIds,
@@ -681,13 +682,6 @@ export default function JobDetailPage() {
     crmName,
     jobStartDate,
     jobEndDate,
-    setJobTitle,
-    setJobStatus,
-    setJobType,
-    setOriginalPortfolio,
-    setCrmName,
-    setJobStartDate,
-    setJobEndDate,
     reportMetadataFieldsForSetup,
     reportMetadataApiUnavailable,
     reportMetadataValues,
@@ -707,7 +701,7 @@ export default function JobDetailPage() {
   const isSetupCustomFields = activeWorkspaceSubtab === "setup-custom-fields";
   const activeWorkspaceSubtabsWithRoutes = useMemo(
     () =>
-      activeWorkspaceSubtabs.map((subtab) => {
+      activeWorkspaceSubtabs.map((subtab: { href?: string; key: string; label: string }) => {
         if (subtab.href) return subtab;
         const routeHrefByKey: Record<string, string> = {
           "data-entry": `/jobs/${jobId}/data-entry`,

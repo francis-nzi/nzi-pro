@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { primeJobShellData } from "@/lib/job-shell-data";
+import { type EnergyEmissionFactorDetails } from "@/lib/report-metadata";
 import { withAuditHeaders } from "@/lib/auth-client";
 import {
   JOB_SETUP_METADATA_FALLBACK_FIELDS,
@@ -27,7 +28,7 @@ type WorkspaceJob = {
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number | null;
-  client_name?: string | null;
+  client_name: string | null;
   crm_owner?: string | null;
   crm_name?: string | null;
   job_type_id?: number | null;
@@ -38,40 +39,51 @@ type WorkspaceJob = {
 };
 
 type JobTemplate = {
-  template_id: number;
-  is_default?: boolean | null;
-  items?: Array<{
-    milestone_name?: string | null;
-    days_offset?: number | string | null;
-    item_id?: number | string | null;
-  }>;
+  job_template_id: number;
+  template_key: string | null;
+  template_name: string | null;
+  excel_template_path: string | null;
+  crp_template_path: string | null;
+  is_active: boolean;
 };
 
 type MilestoneTemplate = {
   template_id: number;
-  is_default?: boolean | null;
+  template_name: string;
+  is_default?: boolean;
   items?: Array<{
-    milestone_name?: string | null;
-    days_offset?: number | string | null;
-    item_id?: number | string | null;
+    item_id: number;
+    template_id?: number | null;
+    milestone_name: string;
+    days_offset: number;
+    sort_order: number;
   }>;
 };
 
 type MilestoneTemplateCompletion = {
-  item_id?: number | string | null;
-  is_complete?: boolean | null;
+  completion_id?: number | null;
+  job_id: number;
+  item_id: number;
+  template_id?: number | null;
+  milestone_name?: string | null;
+  days_offset?: number | null;
+  sort_order?: number | null;
+  is_complete?: boolean;
   completed_at?: string | null;
   completed_by?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 };
 
 type JobType = {
   job_type_id: number;
   name: string;
-  is_active?: boolean | null;
+  is_active: boolean;
+  is_crp?: boolean;
 };
 
 type JobSitesResponse = {
-  sites?: Array<{ site_id?: number | null; site_name?: string | null }>;
+  sites: Array<{ site_id: number | null; site_name: string | null; location: string | null; is_registered_office: boolean }>;
 };
 
 type JobTemplatesResponse = {
@@ -132,7 +144,7 @@ type JobWorkspaceDataEffectArgs = {
     setJobStatuses: Setter<Array<{ status_id: number; name: string }>>;
     setJobTypes: Setter<JobType[]>;
     setPortfolios: Setter<string[]>;
-    setTeamMembers: Setter<Array<{ full_name?: string | null; position?: string | null; status?: string | null }>>;
+    setTeamMembers: Setter<Array<{ user_id: string; full_name: string; email?: string; role?: string; position?: string; status?: string }>>;
     setReportingPeriodStart: Setter<string>;
     setReportingPeriodEnd: Setter<string>;
     setClientCurrency: Setter<string>;
@@ -150,11 +162,11 @@ type JobWorkspaceDataEffectArgs = {
     setSelectedMilestoneTemplateId: Setter<string>;
     setScopeConfigMode: Setter<string>;
     setScopeConfigWarnings: Setter<string[]>;
-    setScopeAutoResolution: Setter<JobScopeConfigResponse["auto_resolution"] | null>;
+    setScopeAutoResolution: Setter<{ unresolved_scopes?: string[] | null; uses_legacy_fallback?: boolean | null; [key: string]: unknown } | null>;
     setScopeEffectiveDatasetIds: Setter<Record<string, string>>;
     setScopeDatasetIds: Setter<Record<string, string>>;
     setAdditionalDatasetIds: Setter<string[]>;
-    setDatasets: Setter<Array<Record<string, unknown>>>;
+    setDatasets: Setter<Array<{ dataset_id: number; name: string | null; source: string | null; analysis_type: string | null; country: string | null; region: string | null; currency: string | null; year: number | null; version: string | null; archived?: boolean; archived_at?: string | null; archived_by?: string | null }>>;
     setScopeCatalogCount: Setter<number | null>;
     setScopeCatalogStatus: Setter<string>;
     setLoadingSetupMilestones: Setter<boolean>;
@@ -163,15 +175,14 @@ type JobWorkspaceDataEffectArgs = {
     setReportMetadataApiUnavailable: Setter<boolean>;
     setReportMetadataFields: Setter<ReportMetadataField[]>;
     setReportMetadataValues: Setter<Record<string, string>>;
-    setReportMetadataEnergyFactors: Setter<unknown>;
+    setReportMetadataEnergyFactors: Setter<EnergyEmissionFactorDetails | null>;
     setReportMetadataStatus: Setter<string>;
   };
 };
 
-function normalizeTeamMembers(
-  items: Array<{ full_name?: string | null; position?: string | null; status?: string | null }>
-) {
-  return Array.isArray(items) ? items : [];
+function normalizeTeamMembers(items: unknown[]) {
+  type TM = { user_id: string; full_name: string; email?: string; role?: string; position?: string; status?: string };
+  return (Array.isArray(items) ? items : []) as TM[];
 }
 
 export default function useJobWorkspaceData({
@@ -302,8 +313,8 @@ export default function useJobWorkspaceData({
             status: jJson.status,
             job_template_id: jJson.job_template_id,
             milestone_template_id: jJson.milestone_template_id,
-            client_db_id: jJson.client_db_id,
-            client_name: jJson.client_name,
+            client_db_id: jJson.client_db_id ?? 0,
+            client_name: jJson.client_name ?? null,
             crm_owner: jJson.crm_owner,
             crm_name: jJson.crm_name,
           },
@@ -486,7 +497,7 @@ export default function useJobWorkspaceData({
         if (dRes.ok) {
           const dJson = (await dRes.json()) as DatasetsResponse;
           const catalog = dJson?.items ?? [];
-          setters.setDatasets(catalog as Array<Record<string, unknown>>);
+          setters.setDatasets(catalog as unknown as Parameters<typeof setters.setDatasets>[0]);
           setters.setScopeCatalogCount(catalog.length);
           setters.setScopeCatalogStatus(
             catalog.length > 0
@@ -638,7 +649,7 @@ export default function useJobWorkspaceData({
         setters.setReportMetadataFields(effectiveFields);
         setters.setReportMetadataValues(buildMetadataFieldValues(effectiveFields, metadata));
         setters.setReportMetadataEnergyFactors(
-          (payload?.energy_emissions_factors || null) as unknown
+          (payload?.energy_emissions_factors || null) as EnergyEmissionFactorDetails | null
         );
       } catch (e) {
         const fallbackMetadata = await loadFallbackMetadataValuesFromReportData();

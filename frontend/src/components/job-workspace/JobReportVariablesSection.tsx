@@ -8,9 +8,9 @@ import { AUTO_REPORT_METADATA_FIELDS, type ReportMetadataField } from "@/lib/job
 import { normalizeMetadataBoolean } from "@/lib/job-workspace";
 
 type ConsultantOption = {
-  user_id: string;
-  full_name: string;
-  position?: string;
+  user_id?: string | null;
+  full_name: string | null;
+  position?: string | null;
 };
 
 type JobReportVariablesSectionProps = {
@@ -37,7 +37,7 @@ function renderFieldInput(
   if (field.key === "consultant_name") {
     const currentName = value.trim();
     const hasCurrentInList = consultantOptions.some(
-      (member) => member.full_name.trim().toLowerCase() === currentName.toLowerCase()
+      (member) => (member.full_name ?? "").trim().toLowerCase() === currentName.toLowerCase()
     );
 
     return (
@@ -50,7 +50,7 @@ function renderFieldInput(
             return;
           }
           const selected = consultantOptions.find(
-            (member) => member.full_name.trim().toLowerCase() === nextValue.trim().toLowerCase()
+            (member) => (member.full_name ?? "").trim().toLowerCase() === nextValue.trim().toLowerCase()
           );
           onValueChange("consultant_name", nextValue);
           onValueChange("consultant_position", (selected?.position ?? "").trim());
@@ -62,7 +62,7 @@ function renderFieldInput(
         <SelectContent>
           <SelectItem value="__none__">None</SelectItem>
           {consultantOptions.map((member) => (
-            <SelectItem key={`consultant-${member.user_id}-${member.full_name}`} value={member.full_name}>
+            <SelectItem key={`consultant-${member.user_id ?? ""}-${member.full_name ?? ""}`} value={member.full_name ?? ""}>
               {member.full_name}
             </SelectItem>
           ))}

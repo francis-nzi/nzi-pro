@@ -7,8 +7,8 @@ const JobFinancial = dynamic(() => import("@/components/JobFinancial"), {
 });
 
 type JobFinancialTabsProps = {
-  jobId: string;
-  clientId: string | number | null;
+  jobId: number;
+  clientId: number | null;
   jobNumber: string | null;
   baseUrl: string;
 };
