@@ -3692,7 +3692,6 @@ def generate_report_with_assets(
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/generate-report")
 def generate_job_report(
     job_id: int,
     request: Request,
@@ -4074,7 +4073,6 @@ def generate_job_report(
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
 
 
-@router.get("/jobs/{job_id}/generate-html-report")
 def generate_html_report(
     job_id: int,
     template_id: int | None = Query(None),

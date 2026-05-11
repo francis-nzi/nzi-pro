@@ -98,6 +98,7 @@ from api.job_setup_routes import router as job_setup_router
 from api.job_report_version_routes import router as job_report_version_router
 from api.job_report_docx_routes import router as job_report_docx_router
 from api.job_report_asset_routes import router as job_report_asset_router
+from api.job_report_generation_routes import router as job_report_generation_router
 from api.job_emission_register_routes import router as job_emission_register_router
 from api.job_custom_factors_routes import router as job_custom_factors_router
 from api.job_milestone_routes import router as job_milestone_router
@@ -476,6 +477,7 @@ app.include_router(job_emission_register_router)
 app.include_router(job_report_version_router)
 app.include_router(job_report_docx_router)
 app.include_router(job_report_asset_router)
+app.include_router(job_report_generation_router)
 
 # Include job custom factors routes
 app.include_router(job_custom_factors_router)
