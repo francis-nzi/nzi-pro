@@ -34,3 +34,8 @@ final_reports/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Local tooling / temp
+.claude/
+tmp_pdf_review/
+tmp_*/

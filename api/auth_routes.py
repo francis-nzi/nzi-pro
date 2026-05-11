@@ -9,7 +9,7 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.admin_routes import _ensure_org_entitlement_schema, _ensure_org_lifecycle_schema, _slugify_org_name
+from api.org_admin_helpers import _ensure_org_entitlement_schema, _ensure_org_lifecycle_schema, _slugify_org_name
 from core.auth import authenticate_user, create_user, get_user_by_id, set_user_password
 from core.database import get_conn
 from api.auth import _current_user, _mfa_required_for_all_users

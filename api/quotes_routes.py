@@ -13,7 +13,7 @@ from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle, Par
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from api.auth import _current_user
-from api.admin_routes import _require_org_plan_active
+from api.org_admin_helpers import _require_org_plan_active
 from api.permissions import assert_client_access, assert_job_access
 from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile

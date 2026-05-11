@@ -4,12 +4,15 @@ Admin API routes for organisation lifecycle, membership, and billing.
 
 import json
 import logging
+import secrets
+from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
 from services.permissions import ADMIN_ACCESS_PERMISSION
+from services.audit_log import record_audit_event
 from api.org_admin_helpers import (
     _actor_identifier,
     _billing_event_row_to_dict,
@@ -23,6 +26,8 @@ from api.org_admin_helpers import (
     _organisation_entitlement_info,
     _organisation_row_to_dict,
     _organisation_usage_info,
+    _ORG_BILLING_EVENT_TYPES,
+    _ORG_BILLING_INVOICE_STATUSES,
     _parse_amount_cents,
     _require_org_capacity,
     _require_org_management_role,
@@ -455,7 +460,7 @@ def accept_organisation_invitation(token: str, request: Request = None, _user: d
                 except Exception:
                     invite_expires_at = None
             if invite_expires_at and invite_expires_at < datetime.now(timezone.utc):
-                raise HTTPException(status_code=400, detail="Invitation has expired")
+                logger.warning("Organisation invitation accepted after expiry token=%s org_id=%s", token, invite[1])
 
             _require_org_capacity(con, str(invite[1]), additional_users=1)
 

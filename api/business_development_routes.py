@@ -17,7 +17,7 @@ from dotenv import dotenv_values
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
-from api.admin_routes import _require_org_capacity, _require_org_plan_active
+from api.org_admin_helpers import _require_org_capacity, _require_org_plan_active
 from core.database import get_conn
 from services.tenancy import require_org
 

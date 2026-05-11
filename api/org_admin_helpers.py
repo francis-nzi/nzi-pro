@@ -19,6 +19,78 @@ from services.permissions import SUPERADMIN_ROLE
 
 logger = logging.getLogger(__name__)
 
+_ORG_ROLE_RANKS = {
+    "owner": 40,
+    "admin": 30,
+    "billing": 20,
+    "member": 10,
+    "consultant": 10,
+}
+_ORG_ROLE_LABELS = {
+    "owner": "Owner",
+    "admin": "Admin",
+    "billing": "Billing",
+    "member": "Member",
+    "consultant": "Consultant",
+}
+_ORG_ROLE_CAPABILITIES = {
+    "owner": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": True,
+        "can_manage_billing": True,
+    },
+    "admin": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "billing": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": True,
+    },
+    "member": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "consultant": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+}
+_ORG_MANAGEMENT_ROLES = {"owner", "admin"}
+_ORG_SWITCH_ROLES = {"owner", "admin", "billing", "member", "consultant"}
+_ORG_BILLING_INVOICE_STATUSES = {"draft", "issued", "paid", "overdue", "void", "refunded"}
+_ORG_BILLING_EVENT_TYPES = {
+    "invoice_created",
+    "invoice_issued",
+    "payment_received",
+    "payment_failed",
+    "subscription_created",
+    "subscription_updated",
+    "subscription_canceled",
+    "renewal",
+    "reminder_sent",
+    "note",
+}
+
 def _ensure_org_lifecycle_schema(con) -> None:
     """Keep org lifecycle tables and columns available on older databases."""
     try:
