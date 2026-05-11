@@ -1421,7 +1421,7 @@ def list_jobs(
         else:
             return "green"
 
-    items: list[dict[str, object]] = []
+            items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
             # Calculate individual milestone statuses
@@ -4948,10 +4948,7 @@ def client_jobs(
             # Calculate overall status
             overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
 
-            try:
-                total_emissions = exact_job_total_emissions(con, job_id)
-            except Exception:
-                total_emissions = _float_or_zero(r.get("total_emissions", 0))
+            total_emissions = _float_or_zero(r.get("total_emissions", 0))
 
             items.append(
                 {

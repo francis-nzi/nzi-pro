@@ -246,6 +246,7 @@ function ClientDetailPageContent() {
   const [sitesLoaded, setSitesLoaded] = useState<boolean>(false);
   const [contactsLoaded, setContactsLoaded] = useState<boolean>(false);
   const [jobsLoaded, setJobsLoaded] = useState<boolean>(false);
+  const [jobsLoading, setJobsLoading] = useState<boolean>(false);
   const [financialLoaded, setFinancialLoaded] = useState<boolean>(false);
   const [financialSummaryLoaded, setFinancialSummaryLoaded] = useState<boolean>(false);
   const [quoteLookupsLoaded, setQuoteLookupsLoaded] = useState<boolean>(false);
@@ -359,6 +360,7 @@ function ClientDetailPageContent() {
   }, [baseUrl, clientId]);
 
   const reloadJobs = useCallback(async () => {
+    setJobsLoading(true);
     try {
       const jobsRes = await fetch(`${baseUrl}/clients/${clientId}/jobs?limit=50&offset=0`, { credentials: "include" });
       if (jobsRes.ok) {
@@ -369,6 +371,7 @@ function ClientDetailPageContent() {
       setJobs([]);
     } finally {
       setJobsLoaded(true);
+      setJobsLoading(false);
     }
   }, [baseUrl, clientId]);
 
@@ -471,6 +474,7 @@ function ClientDetailPageContent() {
       setSitesLoaded(false);
       setContactsLoaded(false);
       setJobsLoaded(false);
+      setJobsLoading(true);
       setFinancialLoaded(false);
       setFinancialSummaryLoaded(false);
       setQuoteLookupsLoaded(false);
@@ -494,6 +498,7 @@ function ClientDetailPageContent() {
             setSitesLoaded(true);
             setContactsLoaded(true);
             setJobsLoaded(true);
+            setJobsLoading(false);
             setFinancialLoaded(true);
             setFinancialSummaryLoaded(true);
             setQuoteLookupsLoaded(true);
@@ -524,6 +529,7 @@ function ClientDetailPageContent() {
         setSitesLoaded(false);
         setContactsLoaded(false);
         setJobsLoaded(false);
+        setJobsLoading(false);
         setFinancialLoaded(false);
         setFinancialSummaryLoaded(false);
         setQuoteLookupsLoaded(false);
@@ -543,7 +549,7 @@ function ClientDetailPageContent() {
     if (activeSection === "contacts" && !contactsLoaded) {
       void reloadContacts();
     }
-    if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && !jobsLoaded) {
+    if ((activeSection === "jobs" || activeSection === "timeline" || activeSection === "notes") && !jobsLoaded && !jobsLoading) {
       void reloadJobs();
     }
     if ((activeSection === "details" || activeSection === "sites") && !sitesLoaded) {
@@ -563,6 +569,7 @@ function ClientDetailPageContent() {
     clientNotFound,
     contactsLoaded,
     jobsLoaded,
+    jobsLoading,
     sitesLoaded,
     financialLoaded,
     financialSummaryLoaded,
@@ -1666,7 +1673,7 @@ function ClientDetailPageContent() {
     if (activeSection === "details") return renderDetailsSection();
     if (activeSection === "sites") return renderSitesSection();
     if (activeSection === "contacts") return renderContactsSection();
-    if (activeSection === "jobs") return <ClientJobsSection loading={!jobsLoaded} jobs={jobs} />;
+    if (activeSection === "jobs") return <ClientJobsSection loading={jobsLoading || !jobsLoaded} jobs={jobs} />;
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
     return renderFinancialSection();
