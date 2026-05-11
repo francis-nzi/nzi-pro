@@ -8,7 +8,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 type ClientJobsSectionProps = {
-  clientId: number;
+  loading?: boolean;
   jobs: Array<{
     job_id: number;
     job_number: string | null;
@@ -22,7 +22,20 @@ type ClientJobsSectionProps = {
   }>;
 };
 
-export default function ClientJobsSection({ clientId, jobs }: ClientJobsSectionProps) {
+export default function ClientJobsSection({ loading = false, jobs }: ClientJobsSectionProps) {
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Jobs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground">Loading jobs...</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (jobs.length === 0) {
     return (
       <Card>

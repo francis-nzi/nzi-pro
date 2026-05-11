@@ -16,8 +16,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { milestoneDotClass } from "@/lib/status-utils";
-
 const ClientCommunications = dynamic(() => import("@/components/ClientCommunications"), {
   ssr: false,
   loading: () => <div className="py-8 text-center text-sm text-muted-foreground">Loading communications...</div>,
@@ -374,7 +372,7 @@ function ClientDetailPageContent() {
     }
   }, [baseUrl, clientId]);
 
-  async function reloadSites() {
+  const reloadSites = useCallback(async () => {
     try {
       const sitesRes = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
         credentials: "include",
@@ -387,9 +385,9 @@ function ClientDetailPageContent() {
     } finally {
       setSitesLoaded(true);
     }
-  }
+  }, [baseUrl, clientId]);
 
-  async function reloadFinancialData() {
+  const reloadFinancialData = useCallback(async () => {
     try {
       const [quotesRes, invoicesRes] = await Promise.allSettled([
         fetch(`${baseUrl}/clients/${clientId}/quotes`, { credentials: "include" }),
@@ -408,9 +406,9 @@ function ClientDetailPageContent() {
     } finally {
       setFinancialLoaded(true);
     }
-  }
+  }, [baseUrl, clientId]);
 
-  async function reloadFinancialSummary() {
+  const reloadFinancialSummary = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/financial/summary`, { credentials: "include" });
       if (res.ok) {
@@ -422,9 +420,9 @@ function ClientDetailPageContent() {
     } finally {
       setFinancialSummaryLoaded(true);
     }
-  }
+  }, [baseUrl, clientId]);
 
-  async function reloadQuoteLookups() {
+  const reloadQuoteLookups = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/quotes/lookups`, { credentials: "include" });
       if (res.ok) {
@@ -436,7 +434,7 @@ function ClientDetailPageContent() {
     } finally {
       setQuoteLookupsLoaded(true);
     }
-  }
+  }, [baseUrl, clientId]);
 
   useEffect(() => {
     const section = String(searchParams.get("section") || "").trim().toLowerCase();
@@ -572,6 +570,7 @@ function ClientDetailPageContent() {
     quoteLookupsLoaded,
     reloadContacts,
     reloadJobs,
+    reloadSites,
     reloadFinancialData,
     reloadFinancialSummary,
     reloadQuoteLookups,
@@ -1667,7 +1666,7 @@ function ClientDetailPageContent() {
     if (activeSection === "details") return renderDetailsSection();
     if (activeSection === "sites") return renderSitesSection();
     if (activeSection === "contacts") return renderContactsSection();
-    if (activeSection === "jobs") return <ClientJobsSection clientId={clientId} jobs={jobs} />;
+    if (activeSection === "jobs") return <ClientJobsSection loading={!jobsLoaded} jobs={jobs} />;
     if (activeSection === "reporting") return <ClientReporting clientId={clientId} baseUrl={baseUrl} />;
     if (activeSection === "custom-fields") return <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />;
     return renderFinancialSection();

@@ -4789,7 +4789,7 @@ def client_jobs(
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
-        require_org(_user)
+        org_id = require_org(_user)
         with get_conn() as con:
             try:
                 total_row = con.execute(
@@ -4797,8 +4797,9 @@ def client_jobs(
                     SELECT COUNT(*)
                     FROM jobs j
                     WHERE j.client_db_id = ?
+                      AND j.org_id = ?
                     """,
-                    [int(client_db_id)],
+                    [int(client_db_id), org_id],
                 ).fetchone()
                 rows = (
                     con.execute(
@@ -4833,6 +4834,7 @@ def client_jobs(
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
                         WHERE j.client_db_id = ?
+                          AND j.org_id = ?
                         GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
                                  j.job_type, j.is_crp, j.reporting_period_end,
                                  jp.data_collection_due, jp.data_collection_completed_at,
@@ -4841,7 +4843,7 @@ def client_jobs(
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                         LIMIT ? OFFSET ?
                         """,
-                        [int(client_db_id), int(limit), int(offset)],
+                        [int(client_db_id), org_id, int(limit), int(offset)],
                     )
                     .df()
                 )
