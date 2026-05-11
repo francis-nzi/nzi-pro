@@ -4612,7 +4612,6 @@ def _generate_professional_pdf_impl(
         raise HTTPException(status_code=500, detail=f"Failed to generate professional PDF: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/generate-report-docx")
 def generate_job_report_docx(
     job_id: int,
     payload: GenerateReportPayload | None = None,
