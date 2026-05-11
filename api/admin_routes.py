@@ -380,8 +380,8 @@ def _ensure_legacy_cleanup_schema(con) -> None:
     for ddl in statements:
         try:
             con.execute(ddl)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring legacy cleanup schema step %r: %s", ddl, exc)
 
 MISSING_DATA_MONTH_OPTIONS = [
     {"value": "January", "label": "January"},
@@ -486,7 +486,8 @@ def _missing_data_table_options(con, table_name: str) -> list[dict[str, str]]:
             ORDER BY name
             """
         ).fetchall()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to load missing-data options from %s: %s", table_name, exc)
         return []
     out: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -509,7 +510,8 @@ def _missing_data_user_options(con) -> list[dict[str, str]]:
             ORDER BY COALESCE(NULLIF(TRIM(full_name), ''), email)
             """
         ).fetchall()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to load missing-data user options: %s", exc)
         return []
     out: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -549,6 +551,7 @@ def _missing_data_field_options(con, entity: str, field_name: str, meta: dict[st
                 if str(row[0] or "").strip()
             ]
         except Exception:
+            logger.warning("Unable to load currency lookup options for missing-data fields")
             return []
     if source in {"industries_lookup", "portfolios_lookup", "job_statuses_lookup"}:
         options = _missing_data_table_options(con, source)
@@ -565,7 +568,8 @@ def _missing_data_field_options(con, entity: str, field_name: str, meta: dict[st
                 """
             ).fetchall()
             return [{"value": str(row[0]), "label": str(row[0])} for row in rows if str(row[0] or "").strip()]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to derive missing-data industry options from clients: %s", exc)
             return []
     return []
 

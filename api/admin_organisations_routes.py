@@ -457,7 +457,8 @@ def accept_organisation_invitation(token: str, request: Request = None, _user: d
             if isinstance(invite_expires_at, str):
                 try:
                     invite_expires_at = datetime.fromisoformat(invite_expires_at)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Unable to parse invitation expiry timestamp %r: %s", invite[5], exc)
                     invite_expires_at = None
             if invite_expires_at and invite_expires_at < datetime.now(timezone.utc):
                 logger.warning("Organisation invitation accepted after expiry token=%s org_id=%s", token, invite[1])

@@ -326,8 +326,8 @@ def _ensure_factor_lookup_schema(con) -> None:
     ]:
         try:
             con.execute(f"ALTER TABLE factor_lookup ADD COLUMN IF NOT EXISTS {column} {ddl_type}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring factor_lookup schema step for %s: %s", column, exc)
 
 
 def _serialize_factor_row(row: dict[str, Any]) -> dict[str, Any]:
