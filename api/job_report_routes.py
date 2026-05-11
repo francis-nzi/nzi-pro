@@ -3262,7 +3262,6 @@ def _apply_braced_placeholder_substitution(content: str, render_values: dict[str
     return re.sub(r"(?<!\{)\{[^{}]+\}(?!\})", _replace, content)
 
 
-@router.get("/jobs/{job_id}/emissions-by-activity")
 def get_emissions_by_activity(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     """
     Get detailed emissions breakdown by activity with category groupings.
@@ -3285,7 +3284,6 @@ def get_emissions_by_activity(job_id: int, _user: dict[str, str] = Depends(_curr
     }
 
 
-@router.get("/jobs/{job_id}/report-assets")
 def get_report_assets(job_id: int, _user: dict[str, str] = Depends(_current_user)):
     """
     Generate all required chart assets for a carbon report.
@@ -3365,7 +3363,6 @@ def get_report_assets(job_id: int, _user: dict[str, str] = Depends(_current_user
         raise HTTPException(status_code=500, detail=f"Failed to generate report assets: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/generate-report-with-assets")
 def generate_report_with_assets(
     job_id: int,
     request: Request,
