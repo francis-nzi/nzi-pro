@@ -1,6 +1,11 @@
-# nzi_pro/core/migrations.py
+from __future__ import annotations
+
+import logging
+
 from core.database import db_backend, get_conn
 from services.permissions import ensure_permission_schema
+
+logger = logging.getLogger(__name__)
 
 
 def run_migrations():
@@ -232,20 +237,20 @@ def run_migrations():
                 con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_status VARCHAR DEFAULT 'pending'")
                 con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_synced_at TIMESTAMP")
                 con.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS xero_sync_error TEXT")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Ignoring invoice xero column migration step: %s", exc)
             try:
                 con.execute("CREATE INDEX IF NOT EXISTS xero_invoice_links_xero_invoice_idx ON xero_invoice_links (xero_invoice_id)")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Ignoring xero invoice link index migration step: %s", exc)
             try:
                 con.execute("CREATE INDEX IF NOT EXISTS xero_contact_links_contact_idx ON xero_contact_links (xero_contact_id)")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Ignoring xero contact link index migration step: %s", exc)
             try:
                 con.execute("CREATE INDEX IF NOT EXISTS invoices_xero_invoice_idx ON invoices (xero_invoice_id)")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Ignoring invoices xero invoice index migration step: %s", exc)
 
             con.execute(
                 """
@@ -502,15 +507,15 @@ def run_migrations():
             )
             
             # Add budget_hours column if it doesn't exist (for existing tables)
-            try:
-                con.execute(
-                    """
-                    ALTER TABLE time_subjects 
-                    ADD COLUMN IF NOT EXISTS budget_hours NUMERIC(10,2) DEFAULT 0
-                    """
-                )
-            except Exception:
-                pass  # Column might already exist
+        try:
+            con.execute(
+                """
+                ALTER TABLE time_subjects 
+                ADD COLUMN IF NOT EXISTS budget_hours NUMERIC(10,2) DEFAULT 0
+                """
+            )
+        except Exception as exc:
+            logger.warning("Ignoring time_subjects budget_hours migration step: %s", exc)
 
             con.execute(
                 """
@@ -711,7 +716,8 @@ def run_migrations():
             has_job_types = con.execute(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='job_types'"
             ).fetchone()[0]
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to check legacy job_types table: %s", exc)
             has_job_types = 0
 
         if has_job_types:
@@ -907,7 +913,8 @@ def run_migrations():
             exists = con.execute(
                 "SELECT 1 FROM information_schema.tables WHERE table_name='clients'"
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to check clients table before legacy migration: %s", exc)
             exists = None
         if exists:
             con.execute("ALTER TABLE clients ADD COLUMN IF NOT EXISTS industry VARCHAR")
@@ -1685,7 +1692,8 @@ def run_migrations():
                     """
                 ).fetchone()
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to inspect legacy job_report_variables table: %s", exc)
             legacy_job_report_variables_exists = False
 
         # Optional link to template version used when values were entered
@@ -1748,8 +1756,8 @@ def run_migrations():
                   AND jrv.org_id IS NULL
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_report_variable_values org_id backfill step: %s", exc)
 
         # One active report template assignment per job
         con.execute(
@@ -1776,8 +1784,8 @@ def run_migrations():
                   AND jra.org_id IS NULL
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_report_template_assignments org_id backfill step: %s", exc)
 
         con.execute(
             """
@@ -1861,8 +1869,8 @@ def run_migrations():
                   AND jrv.org_id IS NULL
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_report_variable_values org_id backfill failure: %s", exc)
 
         con.execute(
             """
@@ -1940,8 +1948,8 @@ def run_migrations():
                 ON organisation_memberships (org_id, user_id)
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring organisation_memberships uniqueness index step: %s", exc)
 
         tenant_tables = [
             "users",
@@ -1981,8 +1989,8 @@ def run_migrations():
         for table_name in tenant_tables:
             try:
                 con.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS org_id UUID")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Ignoring org_id column migration for %s: %s", table_name, exc)
 
         default_org_row = con.execute(
             "SELECT org_id FROM organisations WHERE slug = 'nzi-internal' LIMIT 1"
@@ -1995,8 +2003,8 @@ def run_migrations():
                         f"UPDATE {table_name} SET org_id = %s WHERE org_id IS NULL",
                         [default_org_id],
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Ignoring org_id backfill for %s: %s", table_name, exc)
 
         try:
             # These indexes back the busiest tenant-scoped list and lookup paths.
@@ -2066,8 +2074,8 @@ def run_migrations():
                 ON organisation_invitations (org_id, lower(email))
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring organisation index migration batch failure: %s", exc)
 
         try:
             con.execute(
@@ -2083,14 +2091,14 @@ def run_migrations():
                   updated_at = NOW()
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring organisation_memberships seed backfill failure: %s", exc)
 
         try:
             con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS file_content BYTEA")
             con.execute("ALTER TABLE job_templates ADD COLUMN IF NOT EXISTS original_filename VARCHAR")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_templates file-content migration failure: %s", exc)
 
         # Restore dataset_id on legacy fallback rows where it was incorrectly NULLed.
         # These rows have factor_db_id=NULL (no live FK) but carry original_id which
@@ -2119,8 +2127,8 @@ def run_migrations():
                   AND jsr.dataset_id IS NULL
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_scope_rows legacy dataset recovery failure: %s", exc)
 
         # Remove any dataset_id that points to a dataset not matching the job's client
         # country — genuine cross-country orphans that couldn't be recovered above.
@@ -2138,5 +2146,5 @@ def run_migrations():
                   AND LOWER(TRIM(COALESCE(d.country, ''))) <> LOWER(TRIM(COALESCE(c.country, 'United Kingdom')))
                 """
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring job_scope_rows cross-country cleanup failure: %s", exc)

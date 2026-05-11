@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -16,6 +17,8 @@ from openpyxl import load_workbook
 
 from core.database import db_backend, get_conn
 from services.sites import add_site
+
+logger = logging.getLogger(__name__)
 
 ID_RE = re.compile(r"^\d+_\d+_\d+_\d+_\d+$")
 SPEND_ID_RE = re.compile(r"^(?:[A-Z0-9]+-)?SPEND-[A-Z0-9.\-]+$", re.IGNORECASE)
@@ -357,7 +360,8 @@ def _load_template_lookup() -> dict[str, str]:
                 if kk and vv:
                     out[kk] = vv
         return out
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to load preferred lookup items from %s: %s", path, exc)
         return {}
 
 
@@ -479,13 +483,13 @@ def _parse_month_header(value: Any) -> date | None:
             d = datetime.strptime(s, fmt)
             return date(d.year, d.month, 1)
         except Exception:
-            pass
+            logger.debug("Unable to parse month header %r with format %s", s, fmt)
     try:
         d = pd.to_datetime(s, dayfirst=True, errors="coerce")
         if pd.notna(d):
             return date(int(d.year), int(d.month), 1)
     except Exception:
-        pass
+        logger.debug("Unable to parse month header %r via pandas date conversion", s)
     return None
 
 
@@ -1134,7 +1138,8 @@ def _resolve_site_id(job_id: int, site_id: int | None) -> int:
 
     try:
         return int(add_site(int(client_db_id), "Registered Office", _build_registered_office_location(client_row), True))
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to add registered office site for client %s: %s", client_db_id, exc)
         existing_site_id = _lookup_existing_site_id(int(client_db_id))
         if existing_site_id is not None:
             return int(existing_site_id)
@@ -1176,9 +1181,8 @@ def _ensure_job_scope_rows_schema(con) -> None:
     for ddl in ddl_statements:
         try:
             con.execute(ddl)
-        except Exception:
-            # Some environments may already be aligned or reject a specific ALTER.
-            pass
+        except Exception as exc:
+            logger.warning("Ignoring legacy annual schema step %r: %s", ddl, exc)
 
 
 def commit_legacy_rows(job_id: int, site_id: int | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
