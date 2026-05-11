@@ -551,7 +551,7 @@ def _missing_data_field_options(con, entity: str, field_name: str, meta: dict[st
                 if str(row[0] or "").strip()
             ]
         except Exception:
-            logger.warning("Unable to load currency lookup options for missing-data fields")
+            logger.warning("Unable to load currency lookup options for missing-data fields", exc_info=True)
             return []
     if source in {"industries_lookup", "portfolios_lookup", "job_statuses_lookup"}:
         options = _missing_data_table_options(con, source)
