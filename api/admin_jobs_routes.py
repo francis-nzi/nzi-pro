@@ -1,0 +1,738 @@
+"""
+Admin API routes for team, lookups, datasets, and system management.
+"""
+
+import logging
+import hashlib
+
+from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form, Query, Request
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
+from api.auth import _current_user
+from api.permissions import require_permission
+from core.database import get_conn
+from core.auth import set_user_password
+from services.pdf_generation_queue import get_pdf_queue
+from services.messaging_templates import build_email_content
+from services.outbound_email import send_tracked_email
+from services.tenancy import require_org, get_current_org_context, run_with_org_context
+from pathlib import Path
+import io
+import zipfile
+import tempfile
+import secrets
+import string
+import re
+import json
+import os
+from datetime import date, datetime, timedelta, timezone
+import inspect
+import pandas as pd
+from threading import Lock
+from decimal import Decimal, InvalidOperation
+from services.legacy_annual_import import parse_legacy_annual_workbook, commit_legacy_rows, resolve_unresolved_rows
+from services.attribute_override_import import (
+    build_override_template_workbook,
+    commit_override_rows,
+    parse_override_workbook,
+)
+from services.audit_log import ensure_audit_log_table, parse_json_text, record_audit_event
+from services.permissions import (
+    ACCESS_SCOPES,
+    ADMIN_ACCESS_PERMISSION,
+    DEFAULT_INTERNAL_ACCESS_SCOPE,
+    DEFAULT_PORTAL_ACCESS_SCOPE,
+    PERMISSIONS,
+    SUPERADMIN_ROLE,
+    ensure_permission_schema,
+    get_effective_permissions_for_user,
+    invalidate_permission_cache,
+)
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from typing import Any
+
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
+)
+logger = logging.getLogger(__name__)
+
+_LOOKUP_BOOTSTRAP_LOCK = Lock()
+_LOOKUP_BOOTSTRAPPED: set[str] = set()
+_ADMIN_USER_BOOTSTRAPPED = False
+_ADMIN_USER_BOOTSTRAP_LOCK = Lock()
+_ORG_SCOPED_LOOKUP_TABLES = {"job_types", "time_subjects", "portfolios_lookup"}
+_ORG_ROLE_RANKS = {
+    "owner": 40,
+    "admin": 30,
+    "billing": 20,
+    "member": 10,
+    "consultant": 10,
+}
+_ORG_ROLE_LABELS = {
+    "owner": "Owner",
+    "admin": "Admin",
+    "billing": "Billing",
+    "member": "Member",
+    "consultant": "Consultant",
+}
+_ORG_ROLE_CAPABILITIES = {
+    "owner": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": True,
+        "can_manage_billing": True,
+    },
+    "admin": {
+        "can_switch": True,
+        "can_manage_members": True,
+        "can_invite": True,
+        "can_manage_organisation": True,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "billing": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": True,
+    },
+    "member": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+    "consultant": {
+        "can_switch": True,
+        "can_manage_members": False,
+        "can_invite": False,
+        "can_manage_organisation": False,
+        "can_transfer_ownership": False,
+        "can_manage_billing": False,
+    },
+}
+_ORG_MANAGEMENT_ROLES = {"owner", "admin"}
+_ORG_SWITCH_ROLES = {"owner", "admin", "billing", "member", "consultant"}
+_ORG_BILLING_INVOICE_STATUSES = {"draft", "issued", "paid", "overdue", "void", "refunded"}
+_ORG_BILLING_EVENT_TYPES = {
+    "invoice_created",
+    "invoice_issued",
+    "payment_received",
+    "payment_failed",
+    "subscription_created",
+    "subscription_updated",
+    "subscription_canceled",
+    "renewal",
+    "reminder_sent",
+    "note",
+}
+
+
+
+from fastapi import APIRouter, Body, Depends, HTTPException
+from api.auth import _current_user
+from api.permissions import require_permission
+from core.database import get_conn
+from services.permissions import ADMIN_ACCESS_PERMISSION
+from api.admin_routes import (
+    _missing_data_field_catalog,
+    _missing_data_query,
+    _missing_data_update_one,
+    _serialize_missing_data_value,
+)
+
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
+)
+
+
+def _ensure_job_items_table(con) -> None:
+    """Ensure job_items table exists."""
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS public.job_items (
+              item_id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+              item_code text UNIQUE NOT NULL,
+              item_name text NOT NULL,
+              description text,
+              notes text,
+              category text,
+              unit text DEFAULT 'day',
+              estimated_hours numeric(10,2) DEFAULT 0,
+              vat_rate_id integer REFERENCES vat_rates_lookup(vat_rate_id),
+              cost_amount numeric(12,2) NOT NULL DEFAULT 0,
+              cost_currency text DEFAULT 'GBP',
+              sell_amount numeric(12,2) NOT NULL DEFAULT 0,
+              sell_currency text DEFAULT 'GBP',
+              vat_rate numeric(5,2) DEFAULT 20.00,
+              is_active boolean NOT NULL DEFAULT true,
+              sort_order integer DEFAULT 0,
+              created_at timestamptz NOT NULL DEFAULT now(),
+              updated_at timestamptz NOT NULL DEFAULT now()
+            )
+        """)
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE public.job_items ADD COLUMN IF NOT EXISTS notes text")
+    except Exception:
+        pass
+    try:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS public.job_type_items (
+              job_type_item_id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+              job_type_id integer NOT NULL REFERENCES job_types(job_type_id) ON DELETE CASCADE,
+              item_id integer NOT NULL REFERENCES job_items(item_id) ON DELETE CASCADE,
+              quantity numeric(10,2) DEFAULT 1,
+              is_required boolean DEFAULT true,
+              sort_order integer DEFAULT 0,
+              UNIQUE(job_type_id, item_id)
+            )
+        """)
+    except Exception:
+        pass
+
+# =========================
+# JOB ITEMS / MISSING DATA
+# =========================
+
+@router.get("/job-items")
+def list_job_items(
+    _user: dict = Depends(_current_user),
+    include_inactive: bool = False
+):
+    """List all job items."""
+    try:
+        def _safe_int(value, default=None):
+            if value is None:
+                return default
+            txt = str(value).strip().lower()
+            if txt in ("", "nan", "none", "null"):
+                return default
+            try:
+                return int(value)
+            except Exception:
+                return default
+
+        with get_conn() as con:
+            _ensure_job_items_table(con)
+            if include_inactive:
+                df = con.execute(
+                    """
+                    SELECT item_id, item_code, item_name, description, category, unit,
+                           notes,
+                           estimated_hours, vat_rate_id,
+                           cost_amount, cost_currency, sell_amount, sell_currency,
+                           vat_rate, is_active, sort_order, created_at, updated_at
+                    FROM job_items
+                    ORDER BY sort_order, item_name
+                    """
+                ).df()
+            else:
+                df = con.execute(
+                    """
+                    SELECT item_id, item_code, item_name, description, category, unit,
+                           notes,
+                           estimated_hours, vat_rate_id,
+                           cost_amount, cost_currency, sell_amount, sell_currency,
+                           vat_rate, is_active, sort_order, created_at, updated_at
+                    FROM job_items
+                    WHERE is_active = true
+                    ORDER BY sort_order, item_name
+                    """
+                ).df()
+        
+        items = []
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                items.append({
+                    "item_id": _safe_int(r.get("item_id"), 0),
+                    "item_code": str(r.get("item_code") or ""),
+                    "item_name": str(r.get("item_name") or ""),
+                    "description": str(r.get("description") or ""),
+                    "notes": str(r.get("notes") or ""),
+                    "category": str(r.get("category") or ""),
+                    "unit": str(r.get("unit") or "day"),
+                    "estimated_hours": float(r.get("estimated_hours") or 0),
+                    "vat_rate_id": _safe_int(r.get("vat_rate_id"), None),
+                    "cost_amount": float(r.get("cost_amount") or 0),
+                    "cost_currency": str(r.get("cost_currency") or "GBP"),
+                    "sell_amount": float(r.get("sell_amount") or 0),
+                    "sell_currency": str(r.get("sell_currency") or "GBP"),
+                    "vat_rate": float(r.get("vat_rate") or 20),
+                    "is_active": bool(r.get("is_active", True)),
+                    "sort_order": _safe_int(r.get("sort_order"), 0),
+                    "created_at": str(r.get("created_at")) if r.get("created_at") else None,
+                    "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
+                })
+        
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list job items: {e}")
+
+
+@router.get("/job-items/{item_id}")
+def get_job_item(item_id: int, _user: dict = Depends(_current_user)):
+    """Get a single job item by ID."""
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                """
+                SELECT item_id, item_code, item_name, description, category, unit,
+                       notes,
+                       estimated_hours, vat_rate_id,
+                       cost_amount, cost_currency, sell_amount, sell_currency,
+                       vat_rate, is_active, sort_order, created_at, updated_at
+                FROM job_items
+                WHERE item_id = %s
+                """,
+                [item_id]
+            ).df()
+        
+        if df is None or df.empty:
+            raise HTTPException(status_code=404, detail="Job item not found")
+        
+        r = df.iloc[0]
+        return {
+            "item_id": int(r.get("item_id")),
+            "item_code": str(r.get("item_code") or ""),
+            "item_name": str(r.get("item_name") or ""),
+            "description": str(r.get("description") or ""),
+            "notes": str(r.get("notes") or ""),
+            "category": str(r.get("category") or ""),
+            "unit": str(r.get("unit") or "day"),
+            "estimated_hours": float(r.get("estimated_hours") or 0),
+            "vat_rate_id": int(r.get("vat_rate_id")) if r.get("vat_rate_id") else None,
+            "cost_amount": float(r.get("cost_amount") or 0),
+            "cost_currency": str(r.get("cost_currency") or "GBP"),
+            "sell_amount": float(r.get("sell_amount") or 0),
+            "sell_currency": str(r.get("sell_currency") or "GBP"),
+            "vat_rate": float(r.get("vat_rate") or 20),
+            "is_active": bool(r.get("is_active", True)),
+            "sort_order": int(r.get("sort_order") or 0),
+            "created_at": str(r.get("created_at")) if r.get("created_at") else None,
+            "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get job item: {e}")
+
+
+@router.post("/job-items")
+def create_job_item(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    """Create a new job item."""
+    try:
+        item_code = body.get("item_code", "").strip().upper()
+        item_name = body.get("item_name", "").strip()
+        
+        if not item_code or not item_name:
+            raise HTTPException(status_code=400, detail="Item code and name are required")
+        
+        with get_conn() as con:
+            row = con.execute(
+                """
+                INSERT INTO job_items
+                (item_code, item_name, description, notes, category, unit, estimated_hours, vat_rate_id,
+                 cost_amount, cost_currency, sell_amount, sell_currency,
+                 vat_rate, is_active, sort_order)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING item_id
+                """,
+                [
+                    item_code,
+                    item_name,
+                    body.get("description", ""),
+                    body.get("notes", ""),
+                    body.get("category", ""),
+                    body.get("unit", "day"),
+                    body.get("estimated_hours", 0),
+                    body.get("vat_rate_id"),
+                    body.get("cost_amount", 0),
+                    body.get("cost_currency", "GBP"),
+                    body.get("sell_amount", 0),
+                    body.get("sell_currency", "GBP"),
+                    body.get("vat_rate", 20),
+                    body.get("is_active", True),
+                    body.get("sort_order", 0),
+                ],
+            ).fetchone()
+            
+            item_id = int(row[0])
+        
+        return {"ok": True, "item_id": item_id, "message": "Job item created successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create job item: {e}")
+
+
+@router.put("/job-items/{item_id}")
+def update_job_item(
+    item_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user)
+):
+    """Update an existing job item."""
+    try:
+        with get_conn() as con:
+            # Check if item exists
+            existing = con.execute(
+                "SELECT item_id FROM job_items WHERE item_id = %s",
+                [item_id]
+            ).fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail=f"Job item {item_id} not found")
+            
+            # Build update query dynamically
+            updates = []
+            params = []
+            
+            allowed_fields = [
+                "item_code", "item_name", "description", "notes", "category", "unit",
+                "estimated_hours", "vat_rate_id",
+                "cost_amount", "cost_currency", "sell_amount", "sell_currency",
+                "vat_rate", "is_active", "sort_order"
+            ]
+            
+            for field in allowed_fields:
+                if field in body:
+                    updates.append(f"{field} = %s")
+                    params.append(body[field])
+            
+            if not updates:
+                return {"ok": True, "message": "No fields to update"}
+            
+            # Add updated_at timestamp
+            updates.append("updated_at = NOW()")
+            
+            params.append(item_id)
+            query = f"UPDATE job_items SET {', '.join(updates)} WHERE item_id = %s"
+            
+            con.execute(query, params)
+        
+        return {"ok": True, "message": "Job item updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update job item: {e}")
+
+
+@router.patch("/job-items/{item_id}")
+def patch_job_item(
+    item_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user)
+):
+    """Partially update a job item (archive/deactivate)."""
+    try:
+        with get_conn() as con:
+            # Check if item exists
+            existing = con.execute(
+                "SELECT item_id FROM job_items WHERE item_id = %s",
+                [item_id]
+            ).fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail=f"Job item {item_id} not found")
+            
+            updates = []
+            params = []
+            
+            if "is_active" in body:
+                updates.append("is_active = %s")
+                params.append(body["is_active"])
+                updates.append("updated_at = NOW()")
+            
+            if "sort_order" in body:
+                updates.append("sort_order = %s")
+                params.append(body["sort_order"])
+            
+            if not updates:
+                return {"ok": True, "message": "No fields to update"}
+            
+            params.append(item_id)
+            query = f"UPDATE job_items SET {', '.join(updates)} WHERE item_id = %s"
+            
+            con.execute(query, params)
+        
+        return {"ok": True, "message": "Job item updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update job item: {e}")
+
+
+@router.delete("/job-items/{item_id}")
+def delete_job_item(item_id: int, _user: dict = Depends(_current_user)):
+    """Delete a job item. Only inactive items can be deleted."""
+    try:
+        with get_conn() as con:
+            # Check if item exists and is inactive
+            existing = con.execute(
+                "SELECT item_id, is_active FROM job_items WHERE item_id = %s",
+                [item_id]
+            ).fetchone()
+            
+            if not existing:
+                raise HTTPException(status_code=404, detail=f"Job item {item_id} not found")
+            
+            if existing[1]:  # is_active is True
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete active job items. First deactivate the item."
+                )
+            
+            # Delete the item
+            con.execute("DELETE FROM job_items WHERE item_id = %s", [item_id])
+        
+        return {"ok": True, "message": "Job item deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete job item: {e}")
+
+
+# Job Type Items (Many-to-Many relationship)
+@router.get("/job-types/{job_type_id}/items")
+def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
+    """Get all job items associated with a job type."""
+    try:
+        with get_conn() as con:
+            df = con.execute(
+                """
+                SELECT jti.job_type_item_id, jti.job_type_id, jti.item_id, jti.quantity,
+                       jti.is_required, jti.sort_order,
+                       ji.item_code, ji.item_name, ji.description, ji.category, ji.unit,
+                       ji.cost_amount, ji.cost_currency, ji.sell_amount, ji.sell_currency,
+                       ji.vat_rate
+                FROM job_type_items jti
+                JOIN job_items ji ON ji.item_id = jti.item_id
+                WHERE jti.job_type_id = %s
+                ORDER BY jti.sort_order, ji.item_name
+                """,
+                [job_type_id]
+            ).df()
+        
+        items = []
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                items.append({
+                    "job_type_item_id": int(r.get("job_type_item_id")),
+                    "job_type_id": int(r.get("job_type_id")),
+                    "item_id": int(r.get("item_id")),
+                    "quantity": float(r.get("quantity") or 1),
+                    "is_required": bool(r.get("is_required", True)),
+                    "sort_order": int(r.get("sort_order") or 0),
+                    "item_code": str(r.get("item_code") or ""),
+                    "item_name": str(r.get("item_name") or ""),
+                    "description": str(r.get("description") or ""),
+                    "category": str(r.get("category") or ""),
+                    "unit": str(r.get("unit") or "day"),
+                    "cost_amount": float(r.get("cost_amount") or 0),
+                    "cost_currency": str(r.get("cost_currency") or "GBP"),
+                    "sell_amount": float(r.get("sell_amount") or 0),
+                    "sell_currency": str(r.get("sell_currency") or "GBP"),
+                    "vat_rate": float(r.get("vat_rate") or 20),
+                })
+        
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get job type items: {e}")
+
+
+@router.post("/job-types/{job_type_id}/items")
+def add_job_type_item(
+    job_type_id: int,
+    body: dict = Body(...),
+    _user: dict = Depends(_current_user)
+):
+    """Add a job item to a job type."""
+    try:
+        item_id = body.get("item_id")
+        
+        if not item_id:
+            raise HTTPException(status_code=400, detail="item_id is required")
+        
+        with get_conn() as con:
+            # Check if job type exists
+            jt_exists = con.execute(
+                "SELECT job_type_id FROM job_types WHERE job_type_id = %s",
+                [job_type_id]
+            ).fetchone()
+            
+            if not jt_exists:
+                raise HTTPException(status_code=404, detail=f"Job type {job_type_id} not found")
+            
+            # Check if item exists
+            item_exists = con.execute(
+                "SELECT item_id FROM job_items WHERE item_id = %s",
+                [item_id]
+            ).fetchone()
+            
+            if not item_exists:
+                raise HTTPException(status_code=404, detail=f"Job item {item_id} not found")
+            
+            # Insert the association
+            con.execute(
+                """
+                INSERT INTO job_type_items (job_type_id, item_id, quantity, is_required, sort_order)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (job_type_id, item_id) DO UPDATE SET
+                    quantity = EXCLUDED.quantity,
+                    is_required = EXCLUDED.is_required,
+                    sort_order = EXCLUDED.sort_order
+                """,
+                [
+                    job_type_id,
+                    item_id,
+                    body.get("quantity", 1),
+                    body.get("is_required", True),
+                    body.get("sort_order", 0),
+                ]
+            )
+        
+        return {"ok": True, "message": "Job item added to job type"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add job type item: {e}")
+
+
+@router.delete("/job-types/{job_type_id}/items/{item_id}")
+def remove_job_type_item(
+    job_type_id: int,
+    item_id: int,
+    _user: dict = Depends(_current_user)
+):
+    """Remove a job item from a job type."""
+    try:
+        with get_conn() as con:
+            con.execute(
+                "DELETE FROM job_type_items WHERE job_type_id = %s AND item_id = %s",
+                [job_type_id, item_id]
+            )
+        
+        return {"ok": True, "message": "Job item removed from job type"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove job type item: {e}")
+
+
+# =========================
+# Missing Data
+# =========================
+
+@router.get("/missing-data/fields")
+def admin_missing_data_fields(_user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            return {"ok": True, "entities": _missing_data_field_catalog(con)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load missing-data fields: {e}")
+
+
+@router.post("/missing-data/query")
+def admin_missing_data_query(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        missing_only = bool(body.get("missing_only", True))
+        search = str(body.get("search") or "").strip()
+        limit = int(body.get("limit") or 200)
+        with get_conn() as con:
+            return _missing_data_query(
+                con,
+                entity=entity,
+                field_name=field_name,
+                missing_only=missing_only,
+                search=search,
+                limit=limit,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to query missing data: {e}")
+
+
+@router.post("/missing-data/update")
+def admin_missing_data_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        record_id = body.get("record_id")
+        if record_id is None:
+            raise HTTPException(status_code=400, detail="record_id is required")
+        with get_conn() as con:
+            value = _missing_data_update_one(
+                con,
+                entity=entity,
+                field_name=field_name,
+                record_id=int(record_id),
+                value=body.get("value"),
+            )
+        return {
+            "ok": True,
+            "entity": entity,
+            "field": field_name,
+            "record_id": int(record_id),
+            "value": _serialize_missing_data_value(value),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update missing-data field: {e}")
+
+
+@router.post("/missing-data/bulk-update")
+def admin_missing_data_bulk_update(body: dict = Body(...), _user: dict = Depends(_current_user)):
+    try:
+        entity = str(body.get("entity") or "").strip().lower()
+        field_name = str(body.get("field") or "").strip()
+        record_ids_raw = body.get("record_ids") or []
+        if not isinstance(record_ids_raw, list) or not record_ids_raw:
+            raise HTTPException(status_code=400, detail="record_ids must be a non-empty list")
+        record_ids = [int(record_id) for record_id in record_ids_raw]
+        with get_conn() as con:
+            value = None
+            updated = 0
+            for record_id in record_ids:
+                value = _missing_data_update_one(
+                    con,
+                    entity=entity,
+                    field_name=field_name,
+                    record_id=record_id,
+                    value=body.get("value"),
+                )
+                updated += 1
+        return {
+            "ok": True,
+            "entity": entity,
+            "field": field_name,
+            "updated_rows": updated,
+            "value": _serialize_missing_data_value(value),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to bulk update missing-data field: {e}")
+
+
+# =========================
+# Import / Export (WFM)
+# =========================
+
