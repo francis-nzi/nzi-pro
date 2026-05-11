@@ -109,6 +109,7 @@ type ScopeDataRow = {
 type Site = {
   site_id: number;
   site_name: string;
+  is_registered_office?: boolean;
 };
 
 type TemplateFactor = {
@@ -431,7 +432,10 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             }
             if (sitesRes.ok) {
               const sitesData = await sitesRes.json();
-              setSites(sitesData.active_sites || []);
+              const activeSites: Site[] = sitesData.active_sites || [];
+              setSites(activeSites);
+              const regOffice = activeSites.find((s) => s.is_registered_office);
+              if (regOffice) setSiteFilter(String(regOffice.site_id));
             }
           } catch (e) {
             console.error("Error loading sites:", e);
@@ -936,6 +940,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         data_source: "Company Data",
         data_confidence: "M",
         is_custom_entry: false,
+        site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
       };
       
       console.log("Sending payload:", payload);
@@ -994,6 +999,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
         data_source: "Company Data",
         data_confidence: row.data_confidence || "M",
         is_custom_entry: false,
+        site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
       };
 
       const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
@@ -1047,6 +1053,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           data_source: "Company Data",
           data_confidence: row.data_confidence || "M",
           is_custom_entry: false,
+          site_id: siteFilter !== "All" ? parseInt(siteFilter) : null,
         };
         const res = await fetch(`${effectiveBaseUrl}/jobs/${jobId}/scope-data`, {
           method: "POST",
@@ -1588,16 +1595,16 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               </Select>
             </div>
             <div className="min-w-0">
-              <Label htmlFor="siteFilter">Site</Label>
+              <Label htmlFor="siteFilter">Working Site</Label>
               <Select value={siteFilter} onValueChange={setSiteFilter}>
                 <SelectTrigger id="siteFilter" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All">All Sites</SelectItem>
-                  {availableSites.map((site) => (
-                    <SelectItem key={site.siteId} value={site.siteId}>
-                      {site.siteName}
+                  {sites.map((site) => (
+                    <SelectItem key={site.site_id} value={String(site.site_id)}>
+                      {site.site_name}{site.is_registered_office ? " ★" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
