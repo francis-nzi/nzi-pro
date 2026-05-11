@@ -1,8 +1,11 @@
+import logging
 import os
 from pathlib import Path
 from threading import Lock
 
 import kaleido
+
+logger = logging.getLogger(__name__)
 
 _BROWSER_LOCK = Lock()
 _BROWSER_PATH: str | None = None
@@ -19,8 +22,8 @@ def _candidate_browser_roots() -> list[Path]:
     if wfm_raw:
         try:
             roots.append(Path(wfm_raw).resolve().parent / "kaleido-browser")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Unable to derive Kaleido browser directory from WFM_RAW_DATA_DIR: %s", exc)
 
     roots.append(Path("/var/data/nzi-pro-api/kaleido-browser"))
     roots.append(Path("/tmp/nzi-kaleido-browser"))
@@ -45,7 +48,8 @@ def _find_existing_browser(root: Path) -> str | None:
             for candidate in root.rglob(candidate_name):
                 if candidate.is_file():
                     return str(candidate)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to scan Kaleido browser root %s: %s", root, exc)
             continue
     return None
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any
 
 from core.database import get_conn
+
+logger = logging.getLogger(__name__)
 SUPERADMIN_ROLE = "SuperAdmin"
 ADMIN_ACCESS_PERMISSION = "admin.access"
 DEFAULT_INTERNAL_ACCESS_SCOPE = "all"
@@ -526,5 +529,5 @@ def user_can_access_job(user: dict[str, Any] | None, job_id: int) -> bool:
         if client_org_id:
             return client_org_id == user_org_id
     except Exception:
-        pass
+        logger.warning("Unable to resolve permission access check for job %s; denying access", job_id)
     return False

@@ -1,3 +1,4 @@
+import logging
 import io
 import os
 
@@ -5,6 +6,8 @@ from openpyxl import Workbook, load_workbook
 
 from core.database import get_conn
 from services.sites import list_sites
+
+logger = logging.getLogger(__name__)
 
 
 def _replace_sheet(wb, name: str):
@@ -48,14 +51,14 @@ def _load_template_workbook() -> Workbook:
             template_path = os.path.join(base_dir, "templates", "NZI Data Upload Template - Basic UK.xlsx")
         if os.path.exists(template_path):
             return load_workbook(template_path)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Falling back to generated Excel template workbook: %s", exc)
 
     wb = Workbook()
     try:
         wb.remove(wb.active)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Unable to remove default workbook sheet; continuing with generated sheets: %s", exc)
 
     for name in ("Scope 1", "Scope 2", "Scope 3"):
         ws = wb.create_sheet(title=name)
@@ -136,8 +139,8 @@ def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_
             try:
                 if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
                     ws["B1"].value = selected_site
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Unable to update template site name on worksheet %s: %s", ws.title, exc)
 
         bio = io.BytesIO()
         wb.save(bio)
@@ -177,7 +180,8 @@ def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_
                     label = f"{label} {int(y)}"
                 parts.append(label)
         data_files_ref = ", ".join(parts)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to derive Excel template data file references for job %s: %s", job_id, exc)
         data_files_ref = ""
 
     wb = _load_template_workbook()
@@ -282,8 +286,8 @@ def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_
                     ws_sites.append(list(row_vals))
             else:
                 ws_sites.append(["No sites found for this client."])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Unable to append sites worksheet for job %s: %s", job_id, exc)
 
     for ws in wb.worksheets:
         if ws["A1"].value and str(ws["A1"].value).strip().startswith("Site Name:"):
@@ -318,7 +322,8 @@ def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_
                     ).fetchone()
                 if r:
                     prev_job_id = int(r[0])
-            except Exception:
+            except Exception as exc:
+                logger.warning("Unable to resolve previous-year job for job %s: %s", job_id, exc)
                 prev_job_id = None
 
         if prev_job_id is not None:
@@ -347,8 +352,8 @@ def build_excel_template_bytes(*, job_id: int, selected_site: str, include_prev_
                     ws_prev.append(list(prev_df.columns))
                     for row_vals in prev_df.itertuples(index=False, name=None):
                         ws_prev.append(list(row_vals))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Unable to add previous-year worksheet for job %s: %s", job_id, exc)
 
     buf = io.BytesIO()
     wb.save(buf)
