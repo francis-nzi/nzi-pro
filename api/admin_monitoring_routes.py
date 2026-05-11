@@ -2,6 +2,7 @@
 Admin monitoring, disaster recovery, and audit-log routes.
 """
 
+import logging
 import csv
 import hashlib
 import io
@@ -19,6 +20,8 @@ from services.pdf_generation_queue import get_pdf_queue
 from services.permissions import ADMIN_ACCESS_PERMISSION
 from api.permissions import require_permission
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
@@ -32,6 +35,7 @@ def _optional_int_param(value: object | None) -> int | None:
     try:
         return int(value)
     except Exception:
+        logger.debug("Unable to parse optional integer parameter %r", value)
         return None
 
 
@@ -42,7 +46,8 @@ def _dr_setting_value(con, key: str) -> str | None:
             [str(key).strip()],
         ).fetchone()
         return str(row[0]).strip() if row and row[0] is not None else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to read disaster recovery setting %s: %s", key, exc)
         return None
 
 
@@ -131,6 +136,7 @@ def _bg_dt(value: object | None) -> str | None:
     try:
         return value.isoformat()
     except Exception:
+        logger.debug("Unable to serialise background job timestamp %r", value)
         return str(value)
 
 
@@ -139,7 +145,8 @@ def _bg_job_payload(rq_job, *, queue_name: str) -> dict[str, object]:
     status = "unknown"
     try:
         status = str(rq_job.get_status() or "unknown")
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to read RQ job status for %s: %s", getattr(rq_job, "id", ""), exc)
         status = str(getattr(rq_job, "status", "unknown") or "unknown")
 
     payload = {
@@ -173,7 +180,8 @@ def _bg_job_payload(rq_job, *, queue_name: str) -> dict[str, object]:
 def _bg_queue_registry_counts(queue) -> dict[str, int | None]:
     try:
         from rq.registry import CanceledJobRegistry, DeferredJobRegistry, FailedJobRegistry, FinishedJobRegistry, StartedJobRegistry
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to import RQ registries: %s", exc)
         return {
             "queued": None,
             "failed": None,
@@ -194,14 +202,16 @@ def _bg_queue_registry_counts(queue) -> dict[str, int | None]:
     counts: dict[str, int | None] = {}
     try:
         counts["queued"] = len(queue)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to count queued RQ jobs: %s", exc)
         counts["queued"] = None
     for key, registry_cls in registry_map.items():
         if key == "queued":
             continue
         try:
             counts[key] = len(registry_cls(queue=queue))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to count %s RQ jobs: %s", key, exc)
             counts[key] = None
     return counts
 
@@ -209,7 +219,8 @@ def _bg_queue_registry_counts(queue) -> dict[str, int | None]:
 def _bg_queue_jobs(queue, limit: int = 20) -> list[dict[str, object]]:
     try:
         from rq.registry import CanceledJobRegistry, DeferredJobRegistry, FailedJobRegistry, FinishedJobRegistry, StartedJobRegistry
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to import RQ registries for job listing: %s", exc)
         registry_classes = []
     else:
         registry_classes = [
@@ -223,14 +234,15 @@ def _bg_queue_jobs(queue, limit: int = 20) -> list[dict[str, object]]:
     job_ids: list[str] = []
     try:
         job_ids.extend([str(job_id) for job_id in list(getattr(queue, "job_ids", []) or []) if str(job_id).strip()])
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Unable to read queued RQ job IDs: %s", exc)
 
     for registry_cls in registry_classes:
         try:
             registry = registry_cls(queue=queue)
             job_ids.extend([str(job_id) for job_id in registry.get_job_ids() if str(job_id).strip()])
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to inspect RQ registry %s: %s", getattr(registry_cls, "__name__", "unknown"), exc)
             continue
 
     unique_ids: list[str] = []
@@ -245,7 +257,8 @@ def _bg_queue_jobs(queue, limit: int = 20) -> list[dict[str, object]]:
     for job_id in unique_ids:
         try:
             rq_job = queue.fetch_job(job_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Unable to fetch RQ job %s: %s", job_id, exc)
             rq_job = None
         if not rq_job:
             continue
