@@ -769,10 +769,10 @@ async def job_excel_upload(
 
     details["sheets"] = list(wb.sheetnames)
 
-    # Year-mismatch check: compare filename year against job's reporting period.
+    # Year-mismatch check: compare filename years against the job's reporting period.
     # The standard template filename contains the period dates, e.g.:
     #   J000002_ClientName_SiteName_2021-01-01-to-2021-12-31_data_upload.xlsx
-    # Extract the end-year from the filename and compare to the job.
+    # Multi-year reporting periods are allowed, so we accept either boundary year.
     try:
         import re as _re
         with get_conn() as _con:
@@ -781,18 +781,30 @@ async def job_excel_upload(
                 [int(job_id)],
             ).fetchone()
         if _job_period:
+            _job_start = _job_period[0]
             _job_end = _job_period[1]
-            _job_year = int(_job_period[2]) if _job_period[2] else (int(str(_job_end)[:4]) if _job_end else None)
-            # Look for a 4-digit year in the filename (prefer the end-date year if two found)
+            _job_year = int(_job_period[2]) if _job_period[2] else None
+            _job_start_year = int(str(_job_start)[:4]) if _job_start else None
+            _job_end_year = int(str(_job_end)[:4]) if _job_end else None
+            allowed_years = {
+                year
+                for year in (_job_year, _job_start_year, _job_end_year)
+                if year is not None
+            }
+            # Look for 4-digit years in the filename and allow any matching boundary year.
             _years_in_name = [int(y) for y in _re.findall(r'\b(20\d{2})\b', filename)]
-            if _years_in_name and _job_year:
-                # Use the last year found (likely the period end year in the filename)
+            if _years_in_name and allowed_years:
                 _file_year = _years_in_name[-1]
-                if _file_year != _job_year:
+                if _file_year not in allowed_years:
+                    period_label = (
+                        f"{_job_start_year}-{_job_end_year}"
+                        if _job_start_year and _job_end_year and _job_start_year != _job_end_year
+                        else str(_job_year or _job_end_year or _job_start_year or "unknown")
+                    )
                     errors.append(
                         f"Year mismatch: this file appears to be for {_file_year} "
-                        f"but the job covers {_job_year}. "
-                        f"Please upload the correct file for the {_job_year} reporting period."
+                        f"but the job covers {period_label}. "
+                        f"Please upload the correct file for the {period_label} reporting period."
                     )
     except Exception:
         pass  # Don't block upload if year check itself fails
