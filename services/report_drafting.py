@@ -21,8 +21,8 @@ SECTION_CONFIGS: dict[str, dict[str, str]] = {
         "title": "Executive Summary",
         "purpose": "Write the opening summary for a client-ready carbon report.",
         "focus": "headline story, direction of travel, biggest drivers, and business meaning",
-        "length": "Write 2 short paragraphs, around 120-180 words in total.",
-        "style": "Open with the client name, total emissions, and the comparison story. Then explain the largest driver, the action picture, and the business implication.",
+        "length": "Write 3-4 short paragraphs, around 180-280 words in total.",
+        "style": "Open with the client name, total emissions, and the comparison story. Then explain the largest driver, the action picture, the operational context, and the business implication. Finish with the direction of travel and what leadership should focus on next.",
     },
     "emissions_overview": {
         "title": "Emissions Overview",
@@ -336,6 +336,101 @@ def _coerce_readable_draft_text(
             f"{section_title}: summarise the current actions, prioritise the next steps, and highlight the most practical delivery themes."
         )
     return f"Draft the {section_title.lower()} section using the supplied evidence."
+
+
+def _enrich_executive_summary_text(context: dict[str, Any], draft_text: str) -> str:
+    existing = _text(draft_text).strip()
+    if not existing:
+        return _build_section_fallback_draft(context, "executive_summary")
+
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n+", existing) if part.strip()]
+    word_count = len(re.findall(r"\S+", existing))
+    if word_count >= 150 and len(paragraphs) >= 2:
+        return existing
+
+    job_data = context.get("job_data") or {}
+    scope_totals = context.get("scope_totals") or {}
+    benchmark_totals = context.get("benchmark_totals") or {}
+    categories = _sort_categories(context.get("categories") or [])
+    job_actions = context.get("job_actions") or {}
+    items = job_actions.get("items") or []
+    current_total = _as_float(scope_totals.get("Total"))
+    previous_total = _as_float(benchmark_totals.get("Total"))
+    change_sentence, _ = _change_text(current_total, previous_total)
+    top = _top_category(categories)
+    top_name = _text(top.get("category") if top else "")
+    top_emissions = _as_float(top.get("emissions") if top else 0.0)
+    company_name = _text(job_data.get("client_name") or "The client")
+    reporting_year = _text(job_data.get("reporting_year") or "the reporting period")
+    description = _text(job_data.get("description") or "")
+    headcount = _as_float(job_data.get("no_of_staff"))
+    premises_owned = _as_float(job_data.get("no_premises_owned"))
+    premises_leased = _as_float(job_data.get("no_premises_leased"))
+    vehicles_owned = _as_float(job_data.get("no_vehicles_owned"))
+    vehicles_leased = _as_float(job_data.get("no_vehicles_leased"))
+    commitment_year = _text(job_data.get("net_zero_year") or "")
+    interim_year = _text(job_data.get("interim_year") or "")
+    action_count = len(items)
+    short_count = int((job_actions.get("term_counts") or {}).get("short") or 0)
+    medium_count = int((job_actions.get("term_counts") or {}).get("medium") or 0)
+    long_count = int((job_actions.get("term_counts") or {}).get("long") or 0)
+
+    paragraphs = [existing.rstrip(".") + "."]
+
+    context_bits = [
+        f"Operational context: {description}" if description else "",
+        f"The business reports an average headcount of {headcount:.0f} people" if headcount > 0 else "",
+        (
+            "Its footprint spans "
+            + ", ".join(
+                part
+                for part in [
+                    f"{premises_owned:.0f} owned premises" if premises_owned > 0 else "",
+                    f"{premises_leased:.0f} leased premises" if premises_leased > 0 else "",
+                    f"{vehicles_owned:.0f} owned vehicles" if vehicles_owned > 0 else "",
+                    f"{vehicles_leased:.0f} leased vehicles" if vehicles_leased > 0 else "",
+                ]
+                if part
+            )
+        )
+        if any(value > 0 for value in (premises_owned, premises_leased, vehicles_owned, vehicles_leased))
+        else "",
+    ]
+    context_sentence = ". ".join(bit for bit in context_bits if bit).strip()
+    if context_sentence:
+        paragraphs.append(context_sentence + ".")
+
+    strategy_bits = [
+        f"ShredIT ME's wider Net Zero programme targets {commitment_year}" if commitment_year else "",
+        f"with an interim milestone in {interim_year}" if commitment_year and interim_year else "",
+        (
+            f"The current action plan contains {action_count} actions "
+            f"({short_count} short-term, {medium_count} medium-term, {long_count} long-term)"
+            if action_count > 0
+            else ""
+        ),
+    ]
+    strategy_sentence = " ".join(bit for bit in strategy_bits if bit).strip()
+    if strategy_sentence:
+        follow_up = strategy_sentence + "."
+    else:
+        follow_up = (
+            "The summary should be read as a baseline for future reductions, with attention on the largest drivers and the practical delivery roadmap."
+        )
+    if top_name:
+        follow_up = (
+            f"{follow_up} The largest category is {top_name} at {top_emissions:.1f} tCO₂e, "
+            f"which remains the most obvious operational focus."
+        )
+    if change_sentence:
+        follow_up = f"{follow_up} {change_sentence}."
+    paragraphs.append(follow_up)
+
+    closing = (
+        f"Overall, {company_name} is moving from measurement into delivery: {reporting_year} should be treated as the reference point for governance, business planning, and future reduction momentum."
+    )
+    paragraphs.append(closing)
+    return "\n\n".join(paragraphs).strip()
 
 
 def _extract_balanced_json_object(raw: str) -> str | None:
@@ -729,6 +824,9 @@ def generate_report_section_draft(
         normalized["confidence"] = normalized.get("confidence") or "low"
         if raw_text.strip():
             normalized["caveats"] = _safe_list(normalized.get("caveats")) + ["Model response could not be parsed as JSON; review before use."]
+
+    if section_key == "executive_summary":
+        normalized["draft_text"] = _enrich_executive_summary_text(context, str(normalized.get("draft_text") or ""))
 
     normalized.update(
         {
