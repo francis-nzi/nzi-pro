@@ -1796,14 +1796,14 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
     top = _top_category(categories)
 
     context_summary = (
-        f"{job_data.get('client_name') or 'Client'} reported {current_total:.2f} tCO₂e in "
+        f"{job_data.get('client_name') or 'Client'} reported {current_total:.1f} tCO₂e in "
         f"{job_data.get('reporting_year') or 'the reporting period'}."
     )
     if change_pct is not None:
         direction = "higher" if change_pct > 0 else "lower" if change_pct < 0 else "flat"
         context_summary += f" Total emissions are {abs(change_pct):.1f}% {direction} than the comparison period."
     if top:
-        context_summary += f" Largest category: {top.get('category')} at {_coerce_float(top.get('emissions')):.2f} tCO₂e."
+        context_summary += f" Largest category: {top.get('category')} at {_coerce_float(top.get('emissions')):.1f} tCO₂e."
 
     selected_template_key = selected_template.get("template_key") if selected_template else None
 

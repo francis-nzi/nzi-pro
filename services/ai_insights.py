@@ -29,7 +29,7 @@ def _get_anthropic_client():
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
-    return Anthropic(api_key=api_key)
+    return Anthropic(api_key=api_key, timeout=45.0)
 
 
 def _get_openai_client():
@@ -40,7 +40,7 @@ def _get_openai_client():
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
-    return OpenAI(api_key=api_key)
+    return OpenAI(api_key=api_key, timeout=45.0)
 
 
 def _build_prompt(

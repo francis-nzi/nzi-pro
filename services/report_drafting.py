@@ -3,12 +3,15 @@
 import json
 import os
 import re
+import logging
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
 from services.ai_insights import _get_anthropic_client, _get_openai_client
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_ANTHROPIC_MODEL = os.environ.get("REPORT_DRAFT_ANTHROPIC_MODEL", os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-6"))
 DEFAULT_OPENAI_MODEL = os.environ.get("REPORT_DRAFT_OPENAI_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4.1"))
@@ -122,7 +125,7 @@ def _format_category_list(categories: list[dict[str, Any]], *, limit: int = 3) -
         category = _text(item.get("category") or "Uncategorized")
         emissions = _as_float(item.get("emissions"))
         if category:
-            items.append(f"{category} ({emissions:.2f} tCO₂e)")
+            items.append(f"{category} ({emissions:.1f} tCO₂e)")
     return ", ".join(items)
 
 
@@ -165,13 +168,13 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
     comparison_job = _text(previous_job_data.get("job_number") or "")
 
     if section_key == "executive_summary":
-        paragraph_1 = f"{client_name} reported {current_total:.2f} tCO₂e in {reporting_year}. {change_sentence}".strip()
+        paragraph_1 = f"{client_name} reported {current_total:.1f} tCO₂e in {reporting_year}. {change_sentence}".strip()
         if previous_job_data:
             paragraph_1 += f" The comparison period is {comparison_year}{f' ({comparison_job})' if comparison_job else ''}."
         paragraph_2_bits = []
         if top:
             paragraph_2_bits.append(
-                f"The largest driver is { _text(top.get('category')) } at {_as_float(top.get('emissions')):.2f} tCO₂e"
+                f"The largest driver is { _text(top.get('category')) } at {_as_float(top.get('emissions')):.1f} tCO₂e"
             )
         if action_list:
             paragraph_2_bits.append(
@@ -187,8 +190,8 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
 
     if section_key == "emissions_overview":
         paragraph_1 = (
-            f"Total emissions are {current_total:.2f} tCO₂e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.2f}, "
-            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.2f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.2f} tCO₂e. "
+            f"Total emissions are {current_total:.1f} tCO₂e across Scope 1 {_as_float(scope_totals.get('Scope 1')):.1f}, "
+            f"Scope 2 {_as_float(scope_totals.get('Scope 2')):.1f}, and Scope 3 {_as_float(scope_totals.get('Scope 3')):.1f} tCO₂e. "
             f"{change_sentence}"
         ).strip()
         paragraph_2_bits = []
@@ -213,7 +216,7 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
             paragraph_2_bits.append(f"Priority actions include {action_list}")
         if top:
             paragraph_2_bits.append(
-                f"These should remain aligned to the largest emissions source, { _text(top.get('category')) }, at {_as_float(top.get('emissions')):.2f} tCO₂e"
+                f"These should remain aligned to the largest emissions source, { _text(top.get('category')) }, at {_as_float(top.get('emissions')):.1f} tCO₂e"
             )
         if paragraph_2_bits:
             paragraph_2 = ". ".join(paragraph_2_bits).strip()
@@ -226,7 +229,7 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
 
     return (
         f"Draft the { _get_section_config(section_key)['title'].lower() } section using the supplied evidence. "
-        f"Current emissions are {current_total:.2f} tCO₂e and the comparison note is: {change_sentence}"
+        f"Current emissions are {current_total:.1f} tCO₂e and the comparison note is: {change_sentence}"
     )
 
 
@@ -389,7 +392,7 @@ def _scope_total_text(scope_totals: dict[str, Any]) -> str:
     s1 = _as_float(scope_totals.get("Scope 1"))
     s2 = _as_float(scope_totals.get("Scope 2"))
     s3 = _as_float(scope_totals.get("Scope 3"))
-    return f"Scope 1 {s1:.2f} tCO₂e, Scope 2 {s2:.2f} tCO₂e, Scope 3 {s3:.2f} tCO₂e, Total {total:.2f} tCO₂e"
+    return f"Scope 1 {s1:.1f} tCO₂e, Scope 2 {s2:.1f} tCO₂e, Scope 3 {s3:.1f} tCO₂e, Total {total:.1f} tCO₂e"
 
 
 def _change_text(current_total: float, previous_total: float) -> tuple[str, float | None]:
@@ -429,7 +432,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             "Previous job: "
             f"{_text(previous_job_data.get('job_number') or '')} | "
             f"{_text(previous_job_data.get('reporting_year') or 'N/A')} | "
-            f"Total {_as_float(benchmark_totals.get('Total')):.2f} tCO₂e"
+            f"Total {_as_float(benchmark_totals.get('Total')):.1f} tCO₂e"
         )
 
     if categories:
@@ -438,7 +441,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             lines.append(
                 "- "
                 f"{_text(item.get('category') or 'Uncategorized')}: "
-                f"{_as_float(item.get('emissions')):.2f} tCO₂e"
+                f"{_as_float(item.get('emissions')):.1f} tCO₂e"
             )
 
     if previous_categories:
@@ -447,7 +450,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
             lines.append(
                 "- "
                 f"{_text(item.get('category') or 'Uncategorized')}: "
-                f"{_as_float(item.get('emissions')):.2f} tCO₂e"
+                f"{_as_float(item.get('emissions')):.1f} tCO₂e"
             )
 
     items = job_actions.get("items") or []
@@ -483,6 +486,7 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
 def _build_prompt(context: dict[str, Any], section_key: str) -> str:
     config = _get_section_config(section_key)
     lines = _build_context_lines({**context, "section_key": section_key})
+    client_name = _text((context.get("job_data") or {}).get("client_name") or "")
     schema = {
         "section_key": section_key,
         "section_title": config["title"],
@@ -496,14 +500,17 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
         [
             "You are drafting a client-ready carbon report section.",
             "Use only the evidence provided below. Do not invent data, dates, or claims.",
+            "Use the exact client name provided below. Do not substitute another company or organisation name.",
             "If a detail is missing, say so plainly.",
             "Write the draft_text as finished report prose, not as a prompt, note, or placeholder sentence.",
             "Do not write phrases like 'draft the section' or 'use the supplied evidence' in the draft_text field.",
             f"{config['length']} {config['style']}",
+            "Round emissions values to 1 decimal place in the prose unless a source value is explicitly shown with a different precision.",
             "The draft_text should read naturally in a report and should be specific to the evidence pack.",
             "Return ONLY valid JSON with this schema:",
             json.dumps(schema, ensure_ascii=False),
             "",
+            f"Client name: {client_name or 'Client'}",
             f"Section purpose: {config['purpose']}",
             f"Section focus: {config['focus']}",
             "",
@@ -530,15 +537,15 @@ def _fallback_payload(context: dict[str, Any], section_key: str, *, reason: str)
 
     evidence_used: list[dict[str, str]] = []
     if current_total:
-        evidence_used.append({"label": "Current total emissions", "source": "jobs + data output", "value": f"{current_total:.2f} tCO₂e"})
+        evidence_used.append({"label": "Current total emissions", "source": "jobs + data output", "value": f"{current_total:.1f} tCO₂e"})
     if previous_total:
-        evidence_used.append({"label": "Comparison total emissions", "source": "benchmark job", "value": f"{previous_total:.2f} tCO₂e"})
+        evidence_used.append({"label": "Comparison total emissions", "source": "benchmark job", "value": f"{previous_total:.1f} tCO₂e"})
     if top:
         evidence_used.append(
             {
                 "label": "Top category",
                 "source": "job_scope_rows.level_2",
-                "value": f"{_text(top.get('category'))}: {_as_float(top.get('emissions')):.2f} tCO₂e",
+                "value": f"{_text(top.get('category'))}: {_as_float(top.get('emissions')):.1f} tCO₂e",
             }
         )
 
@@ -619,6 +626,7 @@ def generate_report_section_draft(
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
         except Exception as exc:
+            logger.warning("OpenAI draft generation failed; falling back to rule-based draft", exc_info=True)
             return _fallback_payload(context, section_key, reason=f"OpenAI unavailable: {exc}")
     else:
         try:
@@ -634,6 +642,7 @@ def generate_report_section_draft(
             else:
                 raw_text = str(response)
         except Exception as exc:
+            logger.warning("Anthropic draft generation failed; falling back to rule-based draft", exc_info=True)
             return _fallback_payload(context, section_key, reason=f"Anthropic unavailable: {exc}")
 
     parsed = _extract_json(raw_text)
