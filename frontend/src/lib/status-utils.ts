@@ -70,7 +70,7 @@ export function milestoneLabel(status?: MilestoneStatus): string {
     case "completed":
       return "Complete";
     default:
-      return "No milestones";
+      return "Not set";
   }
 }
 

@@ -9,6 +9,7 @@ from api.auth import _current_user
 from api.client_route_helpers import ensure_client_org_columns
 from api.permissions import assert_client_access, assert_permission
 from core.database import db_backend, get_conn
+from services.emissions_reporting import exact_job_total_emissions
 from services.tenancy import require_org
 
 router = APIRouter()
@@ -357,6 +358,36 @@ def client_jobs(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    def get_milestone_status(due_date, completed_at):
+        """Calculate traffic light status: green, amber, red, completed."""
+        from datetime import date as _date
+
+        if completed_at is not None and not pd.isna(completed_at):
+            return "completed"
+        if due_date is None or pd.isna(due_date):
+            return "green"
+        if hasattr(due_date, "date"):
+            due_date = due_date.date()
+        days_until_due = (due_date - _date.today()).days
+        if days_until_due < -1:
+            return "red"
+        if days_until_due <= 7:
+            return "amber"
+        return "green"
+
+    def get_overall_status(statuses: list[str]) -> str | None:
+        if not statuses:
+            return None
+        if "red" in statuses:
+            return "red"
+        if "amber" in statuses:
+            return "amber"
+        if "green" in statuses:
+            return "green"
+        return "completed" if "completed" in statuses else None
+
+    total_emissions_by_job: dict[int, float] = {}
+
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
@@ -374,8 +405,12 @@ def client_jobs(
                     con.execute(
                         """
                         SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end
+                               j.job_type, j.is_crp, j.reporting_period_end,
+                               jp.data_collection_due, jp.data_collection_completed_at,
+                               jp.first_draft_due, jp.first_draft_completed_at,
+                               jp.final_report_due, jp.final_report_completed_at
                         FROM jobs j
+                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         WHERE j.client_db_id = ?
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                         LIMIT ? OFFSET ?
@@ -384,6 +419,16 @@ def client_jobs(
                     )
                     .df()
                 )
+                total_emissions_by_job: dict[int, float] = {}
+                if rows is not None and not rows.empty:
+                    try:
+                        for job_id in [int(job_id) for job_id in rows["job_id"].dropna().tolist()]:
+                            try:
+                                total_emissions_by_job[job_id] = round(float(exact_job_total_emissions(con, job_id) or 0.0), 1)
+                            except Exception:
+                                total_emissions_by_job[job_id] = 0.0
+                    except Exception:
+                        total_emissions_by_job = {}
             except Exception:
                 total_row = (0,)
                 rows = pd.DataFrame()
@@ -439,6 +484,15 @@ def client_jobs(
             if job_id is None:
                 continue
 
+            milestone_statuses = []
+            if r.get("data_collection_due"):
+                milestone_statuses.append(get_milestone_status(r.get("data_collection_due"), r.get("data_collection_completed_at")))
+            if r.get("first_draft_due"):
+                milestone_statuses.append(get_milestone_status(r.get("first_draft_due"), r.get("first_draft_completed_at")))
+            if r.get("final_report_due"):
+                milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
+            overall_milestone_status = get_overall_status(milestone_statuses)
+
             items.append(
                 {
                     "job_id": job_id,
@@ -448,7 +502,8 @@ def client_jobs(
                     "status": None if _is_missing(r.get("status")) else r.get("status"),
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
                     "is_crp": _bool_or_false(r.get("is_crp")),
-                    "milestone_status": None,
+                    "milestone_status": overall_milestone_status,
+                    "total_emissions": total_emissions_by_job.get(job_id),
                 }
             )
 

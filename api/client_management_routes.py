@@ -303,7 +303,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
 
-        return {
+    return {
         "client_db_id": int(row[0]),
         "client_name": row[1],
         "industry": row[2],
