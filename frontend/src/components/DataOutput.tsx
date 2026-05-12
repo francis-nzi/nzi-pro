@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import EmissionsSummary from "@/components/EmissionsSummary";
-import IntensityMetrics from "@/components/IntensityMetrics";
+import JobIntensityYearOverYear from "@/components/JobIntensityYearOverYear";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
 
@@ -142,6 +142,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   const [error, setError] = useState("");
   const [summaryData, setSummaryData] = useState<DataOutputSummary | null>(null);
   const [auditData, setAuditData] = useState<AuditData | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const [detailedData, setDetailedData] = useState<DataOutputDetailed | null>(null);
   const [comparisonData, setComparisonData] = useState<ClientReportingComparisonData | null>(null);
@@ -230,9 +231,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
       setSummaryData(summaryJson);
       setAuditData(auditJson);
 
-      const clientId = Number(jobJson?.client_db_id);
-      if (Number.isFinite(clientId) && clientId > 0) {
-        const comparisonRes = await fetch(`${baseUrl}/clients/${clientId}/reporting`);
+      const resolvedClientId = Number(jobJson?.client_db_id);
+      setClientId(Number.isFinite(resolvedClientId) ? resolvedClientId : null);
+
+      if (Number.isFinite(resolvedClientId) && resolvedClientId > 0) {
+        const comparisonRes = await fetch(`${baseUrl}/clients/${resolvedClientId}/reporting`);
         if (comparisonRes.ok) {
           const comparisonJson = (await comparisonRes.json()) as ClientReportingComparisonData;
           setComparisonData(comparisonJson);
@@ -241,6 +244,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
           setComparisonError(`Failed to load year-over-year comparison: ${comparisonRes.status}`);
         }
       } else {
+        setClientId(null);
         setComparisonData(null);
         setComparisonError("Unable to resolve client for year-over-year comparison.");
       }
@@ -645,11 +649,6 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     if (!comparisonData || comparisonYears.length === 0) return [];
     return buildSiteComparisonRows(comparisonData.by_site || []);
   }, [buildSiteComparisonRows, comparisonData, comparisonYears]);
-
-  const jobTotalEmissions = useMemo(() => {
-    if (!summaryData?.scopes?.length) return 0;
-    return summaryData.scopes.reduce((sum, scope) => sum + Number(scope.total_emissions || 0), 0);
-  }, [summaryData]);
 
   if (loading) {
     return (
@@ -1289,11 +1288,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
         </TabsContent>
 
         <TabsContent value="intensity-metrics" className="space-y-4">
-          <IntensityMetrics
-            jobId={jobId}
-            baseUrl={baseUrl}
-            totalEmissions={jobTotalEmissions}
-          />
+          <JobIntensityYearOverYear clientId={clientId} baseUrl={baseUrl} />
         </TabsContent>
       </Tabs>
 
