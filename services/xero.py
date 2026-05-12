@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from core.database import get_conn
 from services.audit_log import fetch_row_dict
 
+import logging
+
 XERO_CONNECTION_KEY = "default"
 XERO_API_BASE = "https://api.xero.com/api.xro/2.0"
 XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize"
@@ -24,6 +26,7 @@ XERO_DEFAULT_AUTH_TYPE = "custom_connection"
 XERO_DEFAULT_SCOPE = "accounting.contacts accounting.invoices"
 XERO_DEFAULT_ACCOUNT_CODE = "200"
 XERO_DEFAULT_TAX_TYPE = "NONE"
+logger = logging.getLogger(__name__)
 
 
 def _env(name: str, default: str = "") -> str:
@@ -68,6 +71,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value if value is not None else default)
     except Exception:
+        logger.debug("Failed to coerce Xero numeric value; using default", exc_info=True)
         return default
 
 
@@ -82,6 +86,7 @@ def _safe_date(value: Any, fallback: date | None = None) -> str | None:
     try:
         return date.fromisoformat(text[:10]).isoformat()
     except Exception:
+        logger.debug("Failed to parse Xero date value; using fallback", exc_info=True)
         return text[:10] or (fallback.isoformat() if fallback else None)
 
 
@@ -110,7 +115,7 @@ def _json_request(
             if isinstance(parsed, dict):
                 detail = parsed
         except Exception:
-            pass
+            logger.debug("Failed to parse Xero error payload as JSON; using raw error detail", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Xero request failed: {detail}") from exc
     except URLError as exc:
         raise HTTPException(status_code=502, detail=f"Xero request failed: {exc.reason}") from exc
@@ -210,15 +215,15 @@ def _ensure_schema(con) -> None:
     try:
         con.execute("CREATE INDEX IF NOT EXISTS xero_invoice_links_xero_invoice_idx ON xero_invoice_links (xero_invoice_id)")
     except Exception:
-        pass
+        logger.debug("Failed to ensure xero_invoice_links index; continuing", exc_info=True)
     try:
         con.execute("CREATE INDEX IF NOT EXISTS xero_contact_links_contact_idx ON xero_contact_links (xero_contact_id)")
     except Exception:
-        pass
+        logger.debug("Failed to ensure xero_contact_links index; continuing", exc_info=True)
     try:
         con.execute("CREATE INDEX IF NOT EXISTS invoices_xero_invoice_idx ON invoices (xero_invoice_id)")
     except Exception:
-        pass
+        logger.debug("Failed to ensure invoices_xero_invoice index; continuing", exc_info=True)
 
 
 def _fetch_one(con, sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> dict[str, Any] | None:
@@ -418,7 +423,7 @@ def _refresh_token(connection: Mapping[str, Any]) -> dict[str, Any]:
             if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) > (_now() + timedelta(seconds=60)):
                 return dict(connection)
         except Exception:
-            pass
+            logger.debug("Failed to parse Xero token expiry; refreshing token", exc_info=True)
 
     client_id, client_secret = _client_credentials()
     auth_type = str(connection.get("integration_type") or _env("XERO_AUTH_TYPE", XERO_DEFAULT_AUTH_TYPE)).strip().lower()
@@ -818,7 +823,7 @@ def upsert_xero_contact(client_db_id: int, *, con=None, connection: Mapping[str,
             try:
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
 
 
 def test_xero_connection(*, con=None) -> dict[str, Any]:
@@ -851,14 +856,14 @@ def test_xero_connection(*, con=None) -> dict[str, Any]:
         try:
             save_xero_connection({"status": "error", "last_error": str(exc.detail)})
         except Exception:
-            pass
+            logger.debug("Failed to persist Xero connection error state", exc_info=True)
         raise
     finally:
         if manage_con:
             try:
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
 
 
 def _sync_local_invoice(con, invoice_id: int, xero_invoice: Mapping[str, Any], sync_status: str = "synced", sync_error: str | None = None) -> dict[str, Any]:
@@ -886,14 +891,14 @@ def create_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
         try:
             _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=str(exc.detail))
         except Exception:
-            pass
+            logger.debug("Failed to persist Xero invoice sync failure state", exc_info=True)
         raise
     finally:
         if manage_con:
             try:
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logger.debug("Failed to close Xero connection context cleanly", exc_info=True)
 
 
 def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -920,14 +925,14 @@ def update_xero_invoice(invoice_id: int, *, con=None, connection: Mapping[str, A
         try:
             _save_invoice_link(con, invoice_id=int(invoice_id), xero_invoice={}, sync_status="failed", sync_error=str(exc.detail))
         except Exception:
-            pass
+            logger.debug("Failed to persist Xero invoice sync failure state", exc_info=True)
         raise
     finally:
         if manage_con:
             try:
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logger.debug("Failed to close Xero connection context cleanly after invoice sync", exc_info=True)
 
 
 def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -953,7 +958,7 @@ def sync_invoice_status_from_xero(invoice_id: int, *, con=None, connection: Mapp
             try:
                 con.__exit__(None, None, None)  # type: ignore[attr-defined]
             except Exception:
-                pass
+                logger.debug("Failed to close Xero connection context cleanly after invoice status sync", exc_info=True)
 
 
 def handle_xero_webhook(payload: Mapping[str, Any] | list[Any] | None) -> dict[str, Any]:
