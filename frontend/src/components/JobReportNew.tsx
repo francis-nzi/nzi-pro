@@ -460,6 +460,7 @@ export default function JobReportNew({
   const [draftError, setDraftError] = useState("");
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
+  const [reportVersionsLoading, setReportVersionsLoading] = useState(true);
   const [workspaceWarnings, setWorkspaceWarnings] = useState<string[]>([]);
   const [reportVersionsError, setReportVersionsError] = useState<string>("");
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
@@ -472,12 +473,10 @@ export default function JobReportNew({
     setLoading(true);
     setError("");
     setWorkspaceWarnings([]);
-    setReportVersionsError("");
     try {
-      const [assignmentResult, actionsResult, versionsResult] = await Promise.allSettled([
+      const [assignmentResult, actionsResult] = await Promise.allSettled([
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }, 1),
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }, 1),
-        fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }, 1),
       ]);
 
       const warnings: string[] = [];
@@ -540,29 +539,6 @@ export default function JobReportNew({
         warnings.push("Report actions could not be loaded.");
       }
 
-      if (versionsResult.status === "fulfilled") {
-        const versionsRes = versionsResult.value;
-        if (!versionsRes.ok) {
-          const warning = await parseFailure(versionsRes, "Version history could not be loaded");
-          warnings.push(warning);
-          setReportVersionsError(warning);
-          setReportVersions([]);
-        } else {
-          const versionsPayload = await versionsRes.json();
-          if (versionsPayload?.warning) {
-            const warning = String(versionsPayload.warning);
-            warnings.push(warning);
-            setReportVersionsError(warning);
-          }
-          setReportVersions(Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : []);
-        }
-      } else {
-        const warning = "Version history could not be loaded.";
-        warnings.push(warning);
-        setReportVersionsError(warning);
-        setReportVersions([]);
-      }
-
       setWorkspaceWarnings(warnings);
       if (warnings.length > 0) {
         setError("Some report workspace data could not be loaded.");
@@ -573,6 +549,75 @@ export default function JobReportNew({
       setLoading(false);
     }
   }, [baseUrl, jobId]);
+
+  useEffect(() => {
+    if (!isActive || loading) {
+      return;
+    }
+
+    let cancelled = false;
+    async function loadReportVersions() {
+      setReportVersionsLoading(true);
+      setReportVersionsError("");
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }, 1);
+        if (!res.ok) {
+          const warning = await (async () => {
+            let detail = `${res.status}`;
+            try {
+              const raw = await res.text();
+              try {
+                const parsed = JSON.parse(raw) as { detail?: unknown };
+                if (parsed?.detail) {
+                  detail = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+                } else if (raw.trim()) {
+                  detail = raw.slice(0, 400);
+                }
+              } catch {
+                if (raw.trim()) {
+                  detail = raw.slice(0, 400);
+                }
+              }
+            } catch {
+              // Keep status code fallback.
+            }
+            return `Version history could not be loaded: ${detail}`;
+          })();
+          if (!cancelled) {
+            setReportVersionsError(warning);
+            setReportVersions([]);
+          }
+          return;
+        }
+        const versionsPayload = await res.json();
+        if (!cancelled) {
+          if (versionsPayload?.warning) {
+            setReportVersionsError(String(versionsPayload.warning));
+          }
+          setReportVersions(Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const warning = formatFriendlyFetchError(err, "Version history could not be loaded");
+          setReportVersionsError(warning);
+          setReportVersions([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setReportVersionsLoading(false);
+        }
+      }
+    }
+
+    const handle = window.setTimeout(() => {
+      void loadReportVersions();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [baseUrl, jobId, isActive, loading]);
 
   useEffect(() => {
     if (!isActive) {
@@ -717,7 +762,7 @@ export default function JobReportNew({
     let cancelled = false;
 
     async function loadDraftContext() {
-      if (!selectedProfile.templateKey) {
+      if (!selectedProfile.templateKey || loading) {
         setDraftContext(null);
         return;
       }
@@ -747,12 +792,15 @@ export default function JobReportNew({
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, jobId, selectedProfile.templateKey]);
+  }, [baseUrl, jobId, loading, selectedProfile.templateKey]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadReportDrafts() {
+      if (loading) {
+        return;
+      }
       setDraftSyncReady(false);
       setServerDraftCount(0);
 
@@ -854,7 +902,7 @@ export default function JobReportNew({
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, jobId, selectedProfile.sections, selectedProfile.templateKey]);
+  }, [baseUrl, jobId, loading, selectedProfile.sections, selectedProfile.templateKey]);
 
   const selectedActions = Array.isArray(actionsSummary?.items) ? actionsSummary.items.length : 0;
   const shortActions = actionsSummary?.term_counts?.short || 0;
@@ -1555,7 +1603,11 @@ export default function JobReportNew({
                   </Badge>
                 </div>
                 <div className="mt-2 space-y-2">
-                  {reportVersionsError ? (
+                  {reportVersionsLoading ? (
+                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                      Loading version history...
+                    </div>
+                  ) : reportVersionsError ? (
                     <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
                       {reportVersionsError}
                     </div>
