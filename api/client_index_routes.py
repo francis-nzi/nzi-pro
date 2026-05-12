@@ -360,7 +360,6 @@ def client_jobs(
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = require_org(_user)
         with get_conn() as con:
             try:
                 total_row = con.execute(
@@ -368,9 +367,8 @@ def client_jobs(
                     SELECT COUNT(*)
                     FROM jobs j
                     WHERE j.client_db_id = ?
-                      AND j.org_id = ?
                     """,
-                    [int(client_db_id), org_id],
+                    [int(client_db_id)],
                 ).fetchone()
                 rows = (
                     con.execute(
@@ -379,11 +377,10 @@ def client_jobs(
                                j.job_type, j.is_crp, j.reporting_period_end
                         FROM jobs j
                         WHERE j.client_db_id = ?
-                          AND j.org_id = ?
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                         LIMIT ? OFFSET ?
                         """,
-                        [int(client_db_id), org_id, int(limit), int(offset)],
+                        [int(client_db_id), int(limit), int(offset)],
                     )
                     .df()
                 )
