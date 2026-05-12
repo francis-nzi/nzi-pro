@@ -368,24 +368,22 @@ def client_jobs(
                     SELECT COUNT(*)
                     FROM jobs j
                     WHERE j.client_db_id = ?
+                      AND j.org_id = ?
                     """,
-                    [int(client_db_id)],
+                    [int(client_db_id), org_id],
                 ).fetchone()
                 rows = (
                     con.execute(
                         """
                         SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end,
-                               jp.data_collection_due, jp.data_collection_completed_at,
-                               jp.first_draft_due, jp.first_draft_completed_at,
-                               jp.final_report_due, jp.final_report_completed_at
+                               j.job_type, j.is_crp, j.reporting_period_end
                         FROM jobs j
-                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         WHERE j.client_db_id = ?
+                          AND j.org_id = ?
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                         LIMIT ? OFFSET ?
                         """,
-                        [int(client_db_id), int(limit), int(offset)],
+                        [int(client_db_id), org_id, int(limit), int(offset)],
                     )
                     .df()
                 )
@@ -395,39 +393,6 @@ def client_jobs(
     except Exception:
         total_row = (0,)
         rows = pd.DataFrame()
-
-    # Helper function to calculate milestone status
-    def get_milestone_status(due_date, completed_at):
-        """Calculate traffic light status: green, amber, red, completed"""
-        if completed_at:
-            return "completed"
-        if not due_date:
-            return "green"
-
-        import pandas as pd
-
-        # Handle pandas Timestamp
-        if isinstance(due_date, pd.Timestamp):
-            due_date = due_date.date()
-
-        today = date.today()
-        days_until_due = (due_date - today).days
-
-        if days_until_due < -1:  # Overdue by more than 1 day
-            return "red"
-        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
-            return "amber"
-        else:
-            return "green"
-
-    def get_overall_status(statuses):
-        """Get overall status: red if any red, amber if any amber, else green"""
-        if "red" in statuses:
-            return "red"
-        elif "amber" in statuses:
-            return "amber"
-        else:
-            return "green"
 
     def _is_missing(value) -> bool:
         try:
@@ -477,18 +442,6 @@ def client_jobs(
             if job_id is None:
                 continue
 
-            # Calculate individual milestone statuses
-            milestone_statuses = []
-            if not _is_missing(r.get("data_collection_due")):
-                milestone_statuses.append(get_milestone_status(r.get("data_collection_due"), r.get("data_collection_completed_at")))
-            if not _is_missing(r.get("first_draft_due")):
-                milestone_statuses.append(get_milestone_status(r.get("first_draft_due"), r.get("first_draft_completed_at")))
-            if not _is_missing(r.get("final_report_due")):
-                milestone_statuses.append(get_milestone_status(r.get("final_report_due"), r.get("final_report_completed_at")))
-
-            # Calculate overall status
-            overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
-
             items.append(
                 {
                     "job_id": job_id,
@@ -498,7 +451,7 @@ def client_jobs(
                     "status": None if _is_missing(r.get("status")) else r.get("status"),
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
                     "is_crp": _bool_or_false(r.get("is_crp")),
-                    "milestone_status": overall_milestone_status,
+                    "milestone_status": None,
                 }
             )
 
