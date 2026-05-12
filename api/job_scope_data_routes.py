@@ -852,6 +852,23 @@ def get_job_notes_summary(
                         "updated_by": actor_label,
                     }
 
+            scope_options: list[str] = []
+            category_options: list[str] = []
+            if notes_df is not None and not notes_df.empty:
+                scope_seen: set[str] = set()
+                category_seen: set[str] = set()
+                for _, row in notes_df.iterrows():
+                    scope_value = _safe_text(row.get("scope"))
+                    if scope_value and scope_value not in scope_seen:
+                        scope_seen.add(scope_value)
+                        scope_options.append(scope_value)
+                    category_value = _safe_text(row.get("category") or row.get("level_2") or row.get("level_1"))
+                    if category_value and category_value not in category_seen:
+                        category_seen.add(category_value)
+                        category_options.append(category_value)
+                scope_options.sort(key=lambda value: value.lower())
+                category_options.sort(key=lambda value: value.lower())
+
             items: list[dict[str, Any]] = []
             if communications_df is not None and not communications_df.empty:
                 for _, row in communications_df.iterrows():
@@ -976,6 +993,8 @@ def get_job_notes_summary(
                     if site_options_df is not None and not site_options_df.empty
                     else None
                 ),
+                "scope_options": scope_options,
+                "category_options": category_options,
             }
     except HTTPException:
         raise

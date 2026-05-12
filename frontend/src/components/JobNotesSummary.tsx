@@ -147,6 +147,9 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const availableScopes = useMemo(() => {
     const seen = new Set<string>();
+    for (const scope of summary?.scope_options || []) {
+      if (scope) seen.add(scope);
+    }
     for (const item of summary?.items || []) {
       if (item.scope) seen.add(item.scope);
     }
@@ -155,6 +158,9 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const availableCategories = useMemo(() => {
     const seen = new Set<string>();
+    for (const category of summary?.category_options || []) {
+      if (category) seen.add(category);
+    }
     for (const item of summary?.items || []) {
       if (item.category) seen.add(item.category);
     }
@@ -401,22 +407,22 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const renderNotesTable = useCallback((items: JobNote[]) => {
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1400px] text-sm">
+      <div className="w-full">
+        <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b text-left">
-              <th className="p-2">Source</th>
-              <th className="p-2">Where</th>
-              <th className="p-2">Note</th>
-              <th className="p-2">Updated By</th>
-              <th className="p-2">Updated At</th>
-              <th className="p-2">Actions</th>
+              <th className="w-[24%] p-2">Source</th>
+              <th className="w-[28%] p-2">Where</th>
+              <th className="w-[28%] p-2">Note</th>
+              <th className="w-[10%] p-2">Updated By</th>
+              <th className="w-[10%] p-2">Updated At</th>
+              <th className="w-[10%] p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.note_id} className={`border-b align-top ${item.archived ? "bg-muted/30" : ""}`}>
-                <td className="p-2">
+                <td className="p-2 align-top break-words">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-medium">{item.source_label}</div>
                     {item.archived ? (
@@ -430,7 +436,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                     {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
                 </td>
-                <td className="p-2">
+                <td className="p-2 align-top break-words">
                   <div className="font-medium">{item.note_location}</div>
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     <Badge variant="outline" className="bg-white text-[10px] uppercase tracking-[0.14em]">
@@ -447,12 +453,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                     {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
                 </td>
-                <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>
-                <td className="p-2">{item.note_updated_by || "-"}</td>
-                <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
-                <td className="p-2">
+                <td className="p-2 align-top whitespace-pre-wrap break-words">{item.note_text}</td>
+                <td className="p-2 align-top break-words">{item.note_updated_by || "-"}</td>
+                <td className="p-2 align-top">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
+                <td className="p-2 align-top">
                   {item.source_type === "job-communication" && !item.archived ? (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2">
                       <Button variant="outline" size="sm" onClick={() => openEditNote(item)}>
                         Edit
                       </Button>
@@ -491,13 +497,13 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           }
         }}
       >
-        <DialogContent className="w-[95vw] max-w-4xl">
+        <DialogContent className="w-[96vw] max-w-6xl">
           <DialogHeader>
             <DialogTitle>{editingNote ? "Edit Job Note" : "Add Job Note"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5 md:col-span-2">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-1.5 md:col-span-3">
                 <Label htmlFor="newNoteSubject">Subject <span className="text-muted-foreground">(optional)</span></Label>
                 <Input
                   id="newNoteSubject"
@@ -538,7 +544,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5 md:col-span-2">
+              <div className="space-y-1.5">
                 <Label htmlFor="newNoteSite">Site</Label>
                 <Select value={noteSiteId} onValueChange={setNoteSiteId}>
                   <SelectTrigger id="newNoteSite" className="w-full">
@@ -555,7 +561,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5 md:col-span-2">
+              <div className="space-y-1.5 md:col-span-3">
                 <Label htmlFor="newNoteText">Note <span className="text-destructive">*</span></Label>
                 <Textarea
                   id="newNoteText"
