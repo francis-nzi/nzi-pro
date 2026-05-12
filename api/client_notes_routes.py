@@ -194,6 +194,10 @@ def get_client_notes_summary(
                     jc.channel,
                     jc.subject,
                     jc.message_text,
+                    jc.scope,
+                    jc.category,
+                    jc.site_id,
+                    COALESCE(jc.site_name, cs.site_name, '') AS site_name,
                     jc.created_by,
                     jc.created_at,
                     jc.updated_at,
@@ -202,8 +206,10 @@ def get_client_notes_summary(
                     j.title AS job_title
                 FROM job_communications jc
                 JOIN jobs j ON j.job_id = jc.job_id
+                LEFT JOIN client_sites cs ON cs.site_id = jc.site_id
                 WHERE j.client_db_id = %s
                   AND lower(COALESCE(jc.channel, '')) = 'note'
+                  AND COALESCE(jc.archived, FALSE) = FALSE
                 ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
                 """,
                 [int(client_id)],
@@ -235,10 +241,10 @@ def get_client_notes_summary(
                                 "job_id": job_id_val,
                                 "job_number": job_number,
                                 "job_title": job_title,
-                                "scope": "",
-                                "site_id": None,
-                                "site_name": "",
-                                "category": "",
+                                "scope": _safe_text(row.get("scope")),
+                                "site_id": _safe_int(row.get("site_id")),
+                                "site_name": _safe_text(row.get("site_name")),
+                                "category": _safe_text(row.get("category")),
                                 "report_label": "",
                                 "original_id": "",
                                 "note_location": " | ".join(location_bits),

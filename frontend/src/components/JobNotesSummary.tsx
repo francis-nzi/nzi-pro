@@ -14,10 +14,12 @@ type JobNote = {
   note_id: string;
   source_type: string;
   source_label: string;
+  communication_id: number | null;
   row_id: number | null;
   job_id: number;
   job_number: string | null;
   job_title: string | null;
+  note_subject: string | null;
   scope: string;
   site_id: number | null;
   site_name: string;
@@ -32,12 +34,21 @@ type JobNote = {
   row_updated_at: string | null;
 };
 
+type SiteOption = {
+  site_id: number;
+  site_name: string;
+  is_registered_office: boolean;
+};
+
 type JobNotesSummary = {
   job_id: number;
   job_number: string | null;
   job_title: string | null;
+  client_db_id?: number | null;
   total: number;
   items: JobNote[];
+  site_options?: SiteOption[];
+  default_site_id?: number | null;
 };
 
 type JobNoteGroup = {
@@ -76,6 +87,8 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<JobNotesSummary | null>(null);
+  const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
+  const [defaultSiteId, setDefaultSiteId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState("All");
@@ -87,9 +100,13 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   });
   const [addNoteOpen, setAddNoteOpen] = useState(false);
   const [noteSubject, setNoteSubject] = useState("");
+  const [noteScope, setNoteScope] = useState("__none__");
+  const [noteCategory, setNoteCategory] = useState("__none__");
+  const [noteSiteId, setNoteSiteId] = useState("__none__");
   const [noteText, setNoteText] = useState("");
   const [addNoteLoading, setAddNoteLoading] = useState(false);
   const [addNoteError, setAddNoteError] = useState("");
+  const [editingNote, setEditingNote] = useState<JobNote | null>(null);
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -101,8 +118,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       }
       const json = (await res.json()) as JobNotesSummary;
       setSummary(json);
+      setSiteOptions(json.site_options || []);
+      setDefaultSiteId(json.default_site_id ?? null);
     } catch (err) {
       setSummary(null);
+      setSiteOptions([]);
+      setDefaultSiteId(null);
       setError((err as Error).message);
     } finally {
       setLoading(false);
@@ -113,36 +134,11 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     void loadNotes();
   }, [loadNotes]);
 
-  const handleAddNote = useCallback(async () => {
-    if (!noteText.trim()) return;
-    setAddNoteLoading(true);
-    setAddNoteError("");
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message_text: noteText.trim(),
-          subject: noteSubject.trim() || null,
-          channel: "note",
-          direction: "internal",
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
-      }
-      setAddNoteOpen(false);
-      setNoteSubject("");
-      setNoteText("");
-      void loadNotes();
-    } catch (err) {
-      setAddNoteError((err as Error).message);
-    } finally {
-      setAddNoteLoading(false);
-    }
-  }, [baseUrl, jobId, noteSubject, noteText, loadNotes]);
+  const resolvedDefaultSiteId = useMemo(() => {
+    if (defaultSiteId != null) return String(defaultSiteId);
+    if (siteOptions.length > 0) return String(siteOptions[0].site_id);
+    return "__none__";
+  }, [defaultSiteId, siteOptions]);
 
   const availableScopes = useMemo(() => {
     const seen = new Set<string>();
@@ -151,6 +147,26 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     }
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [summary]);
+
+  const availableCategories = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of summary?.items || []) {
+      if (item.category) seen.add(item.category);
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [summary]);
+
+  const noteScopeOptions = useMemo(() => {
+    const seen = new Set<string>(availableScopes);
+    if (editingNote?.scope) seen.add(editingNote.scope);
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [availableScopes, editingNote?.scope]);
+
+  const noteCategoryOptions = useMemo(() => {
+    const seen = new Set<string>(availableCategories);
+    if (editingNote?.category) seen.add(editingNote.category);
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  }, [availableCategories, editingNote?.category]);
 
   const availableSources = useMemo(() => {
     const seen = new Set<string>();
@@ -162,6 +178,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const availableSites = useMemo(() => {
     const seen = new Map<string, string>();
+    for (const site of siteOptions) {
+      const key = String(site.site_id);
+      if (!seen.has(key)) {
+        seen.set(key, site.site_name || `Site ${site.site_id}`);
+      }
+    }
     for (const item of summary?.items || []) {
       if (item.site_id == null) continue;
       const key = String(item.site_id);
@@ -170,7 +192,24 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       }
     }
     return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
-  }, [summary]);
+  }, [siteOptions, summary]);
+
+  const noteSiteOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const site of siteOptions) {
+      const key = String(site.site_id);
+      if (!seen.has(key)) {
+        seen.set(key, site.site_name || `Site ${site.site_id}`);
+      }
+    }
+    if (editingNote?.site_id != null) {
+      const key = String(editingNote.site_id);
+      if (!seen.has(key)) {
+        seen.set(key, editingNote.site_name || `Site ${editingNote.site_id}`);
+      }
+    }
+    return Array.from(seen.entries()).map(([siteId, siteName]) => ({ siteId, siteName }));
+  }, [editingNote?.site_id, editingNote?.site_name, siteOptions]);
 
   const availableAuthors = useMemo(() => {
     const seen = new Set<string>();
@@ -179,6 +218,126 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     }
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [summary]);
+
+  const resetNoteForm = useCallback((note?: JobNote | null) => {
+    if (note && note.source_type === "job-communication") {
+      setEditingNote(note);
+      setNoteSubject(note.note_subject || "");
+      setNoteScope(note.scope || "__none__");
+      setNoteCategory(note.category || "__none__");
+      setNoteSiteId(note.site_id != null ? String(note.site_id) : resolvedDefaultSiteId);
+      setNoteText(note.note_text || "");
+      return;
+    }
+    setEditingNote(null);
+    setNoteSubject("");
+    setNoteScope("__none__");
+    setNoteCategory("__none__");
+    setNoteSiteId(resolvedDefaultSiteId);
+    setNoteText("");
+  }, [resolvedDefaultSiteId]);
+
+  const openAddNote = useCallback(() => {
+    resetNoteForm(null);
+    setAddNoteError("");
+    setAddNoteOpen(true);
+  }, [resetNoteForm]);
+
+  const openEditNote = useCallback((note: JobNote) => {
+    resetNoteForm(note);
+    setAddNoteError("");
+    setAddNoteOpen(true);
+  }, [resetNoteForm]);
+
+  useEffect(() => {
+    if (!addNoteOpen || editingNote) return;
+    if (noteSiteId !== "__none__") return;
+    setNoteSiteId(resolvedDefaultSiteId);
+  }, [addNoteOpen, editingNote, noteSiteId, resolvedDefaultSiteId]);
+
+  const handleSaveNote = useCallback(async () => {
+    if (!noteText.trim()) return;
+    setAddNoteLoading(true);
+    setAddNoteError("");
+    try {
+      const selectedSiteId = noteSiteId && noteSiteId !== "__none__" ? Number(noteSiteId) : null;
+      const selectedSite = siteOptions.find((site) => String(site.site_id) === String(selectedSiteId));
+      const payload = {
+        message_text: noteText.trim(),
+        subject: noteSubject.trim() || null,
+        channel: "note",
+        direction: "internal",
+        scope: noteScope !== "__none__" ? noteScope : null,
+        category: noteCategory !== "__none__" ? noteCategory : null,
+        site_id: selectedSiteId,
+        site_name: selectedSite?.site_name || null,
+      };
+
+      const res = editingNote?.communication_id
+        ? await fetch(`${baseUrl}/jobs/${jobId}/communications/${editingNote.communication_id}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetch(`${baseUrl}/jobs/${jobId}/communications`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
+      }
+      setAddNoteOpen(false);
+      setEditingNote(null);
+      setNoteSubject("");
+      setNoteScope("__none__");
+      setNoteCategory("__none__");
+      setNoteSiteId(resolvedDefaultSiteId);
+      setNoteText("");
+      void loadNotes();
+    } catch (err) {
+      setAddNoteError((err as Error).message);
+    } finally {
+      setAddNoteLoading(false);
+    }
+  }, [
+    baseUrl,
+    editingNote?.communication_id,
+    jobId,
+    loadNotes,
+    noteCategory,
+    noteScope,
+    noteSiteId,
+    noteSubject,
+    noteText,
+    resolvedDefaultSiteId,
+    siteOptions,
+  ]);
+
+  const handleArchiveNote = useCallback(
+    async (note: JobNote) => {
+      if (!note.communication_id) return;
+      if (typeof window !== "undefined" && !window.confirm("Archive this note?")) return;
+      try {
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/${note.communication_id}/archive`, {
+          method: "PATCH",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { detail?: string }).detail || `Error ${res.status}`);
+        }
+        void loadNotes();
+      } catch (err) {
+        setAddNoteError((err as Error).message);
+      }
+    },
+    [baseUrl, jobId, loadNotes],
+  );
 
   const filteredNotes = useMemo(() => {
     return (summary?.items || []).filter((item) => {
@@ -189,6 +348,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       if (search.trim()) {
         return matchesSearch(search, [
           item.source_label,
+          item.note_subject,
           item.note_text,
           item.note_location,
           item.scope,
@@ -235,7 +395,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const renderNotesTable = useCallback((items: JobNote[]) => {
     return (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1200px] text-sm">
+        <table className="w-full min-w-[1400px] text-sm">
           <thead>
             <tr className="border-b text-left">
               <th className="p-2">Source</th>
@@ -243,6 +403,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
               <th className="p-2">Note</th>
               <th className="p-2">Updated By</th>
               <th className="p-2">Updated At</th>
+              <th className="p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -250,6 +411,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
               <tr key={item.note_id} className="border-b align-top">
                 <td className="p-2">
                   <div className="font-medium">{item.source_label}</div>
+                  {item.note_subject ? <div className="mt-1 text-xs text-muted-foreground">{item.note_subject}</div> : null}
                   <div className="mt-1 text-xs text-muted-foreground">
                     {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
@@ -264,40 +426,119 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                 <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>
                 <td className="p-2">{item.note_updated_by || "-"}</td>
                 <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
+                <td className="p-2">
+                  {item.source_type === "job-communication" ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openEditNote(item)}>
+                        Edit
+                      </Button>
+                      <Button variant="destructive" size="sm" onClick={() => void handleArchiveNote(item)}>
+                        Archive
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Read only</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     );
-  }, []);
+  }, [handleArchiveNote, openEditNote]);
 
   return (
     <div className="space-y-6">
-      <Dialog open={addNoteOpen} onOpenChange={(open) => { setAddNoteOpen(open); if (!open) { setNoteSubject(""); setNoteText(""); setAddNoteError(""); } }}>
-        <DialogContent className="max-w-lg">
+      <Dialog
+        open={addNoteOpen}
+        onOpenChange={(open) => {
+          setAddNoteOpen(open);
+          if (!open) {
+            setEditingNote(null);
+            setNoteSubject("");
+            setNoteScope("__none__");
+            setNoteCategory("__none__");
+            setNoteSiteId("__none__");
+            setNoteText("");
+            setAddNoteError("");
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Add Job Note</DialogTitle>
+            <DialogTitle>{editingNote ? "Edit Job Note" : "Add Job Note"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="newNoteSubject">Subject <span className="text-muted-foreground">(optional)</span></Label>
-              <Input
-                id="newNoteSubject"
-                value={noteSubject}
-                onChange={(e) => setNoteSubject(e.target.value)}
-                placeholder="Brief subject..."
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="newNoteText">Note <span className="text-destructive">*</span></Label>
-              <Textarea
-                id="newNoteText"
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Enter note..."
-                rows={5}
-              />
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="newNoteSubject">Subject <span className="text-muted-foreground">(optional)</span></Label>
+                <Input
+                  id="newNoteSubject"
+                  value={noteSubject}
+                  onChange={(e) => setNoteSubject(e.target.value)}
+                  placeholder="Brief subject..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="newNoteScope">Scope</Label>
+                <Select value={noteScope} onValueChange={setNoteScope}>
+                  <SelectTrigger id="newNoteScope" className="w-full">
+                    <SelectValue placeholder="No scope" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No scope</SelectItem>
+                    {noteScopeOptions.map((scope) => (
+                      <SelectItem key={scope} value={scope}>
+                        {scope}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="newNoteCategory">Category</Label>
+                <Select value={noteCategory} onValueChange={setNoteCategory}>
+                  <SelectTrigger id="newNoteCategory" className="w-full">
+                    <SelectValue placeholder="No category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No category</SelectItem>
+                    {noteCategoryOptions.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="newNoteSite">Site</Label>
+                <Select value={noteSiteId} onValueChange={setNoteSiteId}>
+                  <SelectTrigger id="newNoteSite" className="w-full">
+                    <SelectValue placeholder="No site" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No site</SelectItem>
+                    {noteSiteOptions.map((site) => (
+                      <SelectItem key={site.siteId} value={site.siteId}>
+                        {site.siteName}
+                        {siteOptions.find((opt) => String(opt.site_id) === site.siteId)?.is_registered_office ? " (Registered Office)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label htmlFor="newNoteText">Note <span className="text-destructive">*</span></Label>
+                <Textarea
+                  id="newNoteText"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Enter note..."
+                  rows={8}
+                />
+              </div>
             </div>
             {addNoteError && <p className="text-sm text-destructive">{addNoteError}</p>}
           </div>
@@ -305,8 +546,8 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
             <Button variant="outline" onClick={() => setAddNoteOpen(false)} disabled={addNoteLoading}>
               Cancel
             </Button>
-            <Button onClick={handleAddNote} disabled={addNoteLoading || !noteText.trim()}>
-              {addNoteLoading ? "Saving..." : "Save Note"}
+            <Button onClick={handleSaveNote} disabled={addNoteLoading || !noteText.trim()}>
+              {addNoteLoading ? "Saving..." : editingNote ? "Update Note" : "Save Note"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -322,7 +563,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
               </p>
             </div>
             <div className="flex gap-2">
-              <Button onClick={() => setAddNoteOpen(true)}>Add Note</Button>
+              <Button onClick={openAddNote}>Add Note</Button>
               <Button variant="outline" asChild>
                 <Link href={`/jobs/${jobId}/data-entry`}>Open Data Entry</Link>
               </Button>

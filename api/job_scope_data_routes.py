@@ -720,7 +720,7 @@ def get_job_notes_summary(
 
             job_row = con.execute(
                 """
-                SELECT job_id, job_number, title
+                SELECT job_id, job_number, title, client_db_id
                 FROM jobs
                 WHERE job_id=%s
                 """,
@@ -737,6 +737,10 @@ def get_job_notes_summary(
                     jc.client_db_id,
                     jc.subject,
                     jc.message_text,
+                    jc.scope,
+                    jc.category,
+                    jc.site_id,
+                    COALESCE(jc.site_name, cs.site_name, '') AS site_name,
                     jc.created_by,
                     jc.created_at,
                     jc.updated_at,
@@ -745,12 +749,27 @@ def get_job_notes_summary(
                     j.title AS job_title
                 FROM job_communications jc
                 JOIN jobs j ON j.job_id = jc.job_id
+                LEFT JOIN client_sites cs ON cs.site_id = jc.site_id
                 WHERE jc.job_id = %s
                   AND lower(COALESCE(jc.channel, '')) = 'note'
+                  AND COALESCE(jc.archived, FALSE) = FALSE
                 ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
                 """,
                 [int(job_id)],
             ).df()
+
+            site_options_df = None
+            client_db_id = _safe_int(job_row[3]) if len(job_row) > 3 else None
+            if client_db_id is not None:
+                site_options_df = con.execute(
+                    """
+                    SELECT site_id, site_name, is_registered_office
+                    FROM client_sites
+                    WHERE client_db_id = %s
+                    ORDER BY COALESCE(is_registered_office, FALSE) DESC, lower(coalesce(site_name, '')) ASC, site_id ASC
+                    """,
+                    [int(client_db_id)],
+                ).df()
 
             notes_df = con.execute(
                 """
@@ -840,14 +859,16 @@ def get_job_notes_summary(
                             "note_id": f"job-comm-{int(row.get('communication_id') or 0)}",
                             "source_type": "job-communication",
                             "source_label": "Job Note",
+                            "communication_id": int(row.get("communication_id") or 0),
                             "row_id": None,
                             "job_id": int(row.get("job_id") or job_id),
                             "job_number": job_number,
                             "job_title": job_title,
-                            "scope": "",
-                            "site_id": None,
-                            "site_name": "",
-                            "category": "",
+                            "note_subject": subject,
+                            "scope": _safe_text(row.get("scope")),
+                            "site_id": _safe_int(row.get("site_id")),
+                            "site_name": _safe_text(row.get("site_name")),
+                            "category": _safe_text(row.get("category")),
                             "report_label": "",
                             "original_id": "",
                             "note_text": note_text,
@@ -885,10 +906,12 @@ def get_job_notes_summary(
                             "note_id": f"job-row-{row_id}",
                             "source_type": "job-row",
                             "source_label": "Job Row Note",
+                            "communication_id": None,
                             "row_id": row_id,
                             "job_id": int(row.get("job_id") or job_id),
                             "job_number": str(job_row[1]) if len(job_row) > 1 and job_row[1] is not None else None,
                             "job_title": str(job_row[2]) if len(job_row) > 2 and job_row[2] is not None else None,
+                            "note_subject": "",
                             "scope": str(row.get("scope") or ""),
                             "site_id": _safe_int(row.get("site_id")),
                             "site_name": site_name,
@@ -908,8 +931,31 @@ def get_job_notes_summary(
                 "job_id": int(job_id),
                 "job_number": str(job_row[1]) if len(job_row) > 1 and job_row[1] is not None else None,
                 "job_title": str(job_row[2]) if len(job_row) > 2 and job_row[2] is not None else None,
+                "client_db_id": _safe_int(job_row[3]) if len(job_row) > 3 else None,
                 "total": len(items),
                 "items": items,
+                "site_options": [
+                    {
+                        "site_id": int(r.get("site_id")) if r.get("site_id") is not None else None,
+                        "site_name": _safe_text(r.get("site_name")),
+                        "is_registered_office": bool(r.get("is_registered_office")) if r.get("is_registered_office") is not None else False,
+                    }
+                    for _, r in (site_options_df.iterrows() if site_options_df is not None and not site_options_df.empty else [])
+                ],
+                "default_site_id": (
+                    _safe_int(
+                        next(
+                            (
+                                r.get("site_id")
+                                for _, r in site_options_df.iterrows()
+                                if bool(r.get("is_registered_office"))
+                            ),
+                            None,
+                        )
+                    )
+                    if site_options_df is not None and not site_options_df.empty
+                    else None
+                ),
             }
     except HTTPException:
         raise

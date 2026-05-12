@@ -43,6 +43,10 @@ def _ensure_tables(con) -> None:
           channel VARCHAR NOT NULL DEFAULT 'note',
           subject TEXT,
           message_text TEXT NOT NULL,
+          scope VARCHAR,
+          category VARCHAR,
+          site_id INTEGER,
+          site_name VARCHAR,
           from_name VARCHAR,
           from_email VARCHAR,
           to_name VARCHAR,
@@ -52,6 +56,9 @@ def _ensure_tables(con) -> None:
           requires_follow_up BOOLEAN NOT NULL DEFAULT FALSE,
           follow_up_due DATE,
           is_private BOOLEAN NOT NULL DEFAULT FALSE,
+          archived BOOLEAN NOT NULL DEFAULT FALSE,
+          archived_at TIMESTAMP,
+          archived_by VARCHAR,
           automation_key VARCHAR,
           created_by VARCHAR NOT NULL,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -84,6 +91,79 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS requires_follow_up BOOLEAN NOT NULL DEFAULT FALSE")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS follow_up_due DATE")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS scope VARCHAR")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS category VARCHAR")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS site_id INTEGER")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS site_name VARCHAR")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        return int(float(value))
+    except Exception:
+        return None
+
+
+def _resolve_site_details(con, client_db_id: int | None, site_id: Any = None, site_name: Any = None) -> dict[str, Any]:
+    site_id_val = _coerce_int(site_id)
+    site_name_val = str(site_name or "").strip() or None
+
+    if client_db_id is None:
+        return {"site_id": site_id_val, "site_name": site_name_val}
+
+    if site_id_val is not None:
+        if not site_name_val:
+            row = con.execute(
+                """
+                SELECT site_name
+                FROM client_sites
+                WHERE client_db_id = %s AND site_id = %s
+                LIMIT 1
+                """,
+                [int(client_db_id), int(site_id_val)],
+            ).fetchone()
+            if row and row[0] is not None:
+                site_name_val = str(row[0]).strip() or None
+        return {"site_id": site_id_val, "site_name": site_name_val}
+
+    if site_name_val:
+        row = con.execute(
+            """
+            SELECT site_id, site_name
+            FROM client_sites
+            WHERE client_db_id = %s AND lower(coalesce(site_name, '')) = lower(%s)
+            ORDER BY is_registered_office DESC, site_id ASC
+            LIMIT 1
+            """,
+            [int(client_db_id), site_name_val],
+        ).fetchone()
+        if row:
+            return {
+                "site_id": int(row[0]) if row[0] is not None else None,
+                "site_name": str(row[1] or site_name_val).strip() or None,
+            }
+
+    row = con.execute(
+        """
+        SELECT site_id, site_name
+        FROM client_sites
+        WHERE client_db_id = %s
+        ORDER BY COALESCE(is_registered_office, FALSE) DESC, lower(coalesce(site_name, '')) ASC, site_id ASC
+        LIMIT 1
+        """,
+        [int(client_db_id)],
+    ).fetchone()
+    if row:
+        return {
+            "site_id": int(row[0]) if row[0] is not None else None,
+            "site_name": str(row[1] or "").strip() or None,
+        }
+    return {"site_id": None, "site_name": None}
 
 
 def _milestone_status(due_date: Any, completed_at: Any) -> str:
@@ -120,6 +200,10 @@ def _serialize_comm(row: dict[str, Any]) -> dict[str, Any]:
         "channel": str(row.get("channel") or "note"),
         "subject": str(row.get("subject") or ""),
         "message_text": str(row.get("message_text") or ""),
+        "scope": str(row.get("scope") or ""),
+        "category": str(row.get("category") or ""),
+        "site_id": int(row.get("site_id")) if row.get("site_id") is not None else None,
+        "site_name": str(row.get("site_name") or ""),
         "from_name": str(row.get("from_name") or ""),
         "from_email": str(row.get("from_email") or ""),
         "to_name": str(row.get("to_name") or ""),
@@ -129,6 +213,9 @@ def _serialize_comm(row: dict[str, Any]) -> dict[str, Any]:
         "requires_follow_up": bool(row.get("requires_follow_up")) if row.get("requires_follow_up") is not None else False,
         "follow_up_due": row.get("follow_up_due").isoformat() if row.get("follow_up_due") else None,
         "is_private": bool(row.get("is_private")) if row.get("is_private") is not None else False,
+        "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+        "archived_at": row.get("archived_at").isoformat() if row.get("archived_at") else None,
+        "archived_by": str(row.get("archived_by") or ""),
         "automation_key": str(row.get("automation_key") or ""),
         "created_by": str(row.get("created_by") or ""),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
@@ -781,10 +868,12 @@ def list_job_communications(job_id: int, _user: dict = Depends(_current_user)):
             comm_df = con.execute(
                 """
                 SELECT communication_id, job_id, client_db_id, direction, channel, subject, message_text,
+                       scope, category, site_id, site_name,
                        from_name, from_email, to_name, to_email, status, event_at, requires_follow_up,
-                       follow_up_due, is_private, automation_key, created_by, created_at, updated_at
+                       follow_up_due, is_private, archived, archived_at, archived_by, automation_key, created_by, created_at, updated_at
                 FROM job_communications
                 WHERE job_id = %s
+                  AND COALESCE(archived, FALSE) = FALSE
                 ORDER BY COALESCE(event_at, created_at) DESC, communication_id DESC
                 LIMIT 500
                 """,
@@ -900,14 +989,21 @@ def create_job_communication(job_id: int, body: dict = Body(...), _user: dict = 
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
             client_db_id = int(job_row[0]) if job_row[0] is not None else None
+            resolved_site = _resolve_site_details(
+                con,
+                client_db_id,
+                body.get("site_id"),
+                body.get("site_name"),
+            )
             row = con.execute(
                 """
                 INSERT INTO job_communications (
                   job_id, client_db_id, direction, channel, subject, message_text,
+                  scope, category, site_id, site_name,
                   from_name, from_email, to_name, to_email, status, event_at,
                   requires_follow_up, follow_up_due, is_private, automation_key, created_by, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 RETURNING communication_id
                 """,
                 [
@@ -917,6 +1013,10 @@ def create_job_communication(job_id: int, body: dict = Body(...), _user: dict = 
                     str(body.get("channel") or "note"),
                     str(body.get("subject") or "").strip() or None,
                     message_text,
+                    str(body.get("scope") or "").strip() or None,
+                    str(body.get("category") or "").strip() or None,
+                    int(resolved_site["site_id"]) if resolved_site.get("site_id") is not None else None,
+                    str(resolved_site.get("site_name") or "").strip() or None,
                     str(body.get("from_name") or "").strip() or None,
                     str(body.get("from_email") or "").strip() or None,
                     str(body.get("to_name") or "").strip() or None,
@@ -962,6 +1062,8 @@ def update_job_communication(
                 "channel",
                 "subject",
                 "message_text",
+                "scope",
+                "category",
                 "from_name",
                 "from_email",
                 "to_name",
@@ -974,9 +1076,20 @@ def update_job_communication(
                 if key in body:
                     updates.append(f"{key} = %s")
                     value = body.get(key)
-                    if key in ("subject", "from_name", "from_email", "to_name", "to_email", "automation_key"):
+                    if key in ("subject", "scope", "category", "from_name", "from_email", "to_name", "to_email", "automation_key", "site_name"):
                         value = str(value or "").strip() or None
                     params.append(value)
+            if "site_id" in body or "site_name" in body:
+                resolved_site = _resolve_site_details(
+                    con,
+                    client_db_id,
+                    body.get("site_id"),
+                    body.get("site_name"),
+                )
+                updates.append("site_id = %s")
+                params.append(int(resolved_site["site_id"]) if resolved_site.get("site_id") is not None else None)
+                updates.append("site_name = %s")
+                params.append(str(resolved_site.get("site_name") or "").strip() or None)
             if "requires_follow_up" in body:
                 updates.append("requires_follow_up = %s")
                 params.append(bool(body.get("requires_follow_up")))
@@ -997,6 +1110,45 @@ def update_job_communication(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update communication: {e}")
+
+
+@router.patch("/jobs/{job_id}/communications/{communication_id}/archive")
+def archive_job_communication(
+    job_id: int,
+    communication_id: int,
+    _user: dict = Depends(_current_user),
+):
+    actor = _actor(_user)
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            if not job_row:
+                raise HTTPException(status_code=404, detail="Job not found")
+            client_db_id = int(job_row[0]) if job_row[0] is not None else None
+            exists = con.execute(
+                "SELECT 1 FROM job_communications WHERE job_id = %s AND communication_id = %s",
+                [int(job_id), int(communication_id)],
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Communication not found")
+            con.execute(
+                """
+                UPDATE job_communications
+                SET archived = TRUE,
+                    archived_at = NOW(),
+                    archived_by = %s,
+                    status = 'archived',
+                    updated_at = NOW()
+                WHERE job_id = %s AND communication_id = %s
+                """,
+                [actor, int(job_id), int(communication_id)],
+            )
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive communication: {e}")
 
 
 @router.post("/jobs/{job_id}/communications/tasks")
