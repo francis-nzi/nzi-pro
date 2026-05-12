@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,9 @@ type JobNote = {
   original_id: string;
   note_text: string;
   note_location: string;
+  archived?: boolean;
+  archived_at?: string | null;
+  archived_by?: string | null;
   note_updated_at: string | null;
   note_updated_by: string | null;
   row_created_at: string | null;
@@ -91,6 +95,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const [defaultSiteId, setDefaultSiteId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All");
+  const [archiveFilter, setArchiveFilter] = useState("Active");
   const [scopeFilter, setScopeFilter] = useState("All");
   const [siteFilter, setSiteFilter] = useState("All");
   const [authorFilter, setAuthorFilter] = useState("All");
@@ -112,7 +117,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/notes-summary`, { credentials: "include" });
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/notes-summary?archive_state=all`, { credentials: "include" });
       if (!res.ok) {
         throw new Error(`Failed to load notes summary: ${res.status}`);
       }
@@ -342,6 +347,8 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const filteredNotes = useMemo(() => {
     return (summary?.items || []).filter((item) => {
       if (sourceFilter !== "All" && item.source_type !== sourceFilter) return false;
+      if (archiveFilter === "Active" && item.archived) return false;
+      if (archiveFilter === "Archived" && !item.archived) return false;
       if (scopeFilter !== "All" && item.scope !== scopeFilter) return false;
       if (siteFilter !== "All" && String(item.site_id ?? "") !== siteFilter) return false;
       if (authorFilter !== "All" && (item.note_updated_by || "") !== authorFilter) return false;
@@ -361,7 +368,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       }
       return true;
     });
-  }, [authorFilter, search, siteFilter, scopeFilter, sourceFilter, summary]);
+  }, [archiveFilter, authorFilter, search, siteFilter, scopeFilter, sourceFilter, summary]);
 
   const groupedNotes = useMemo<JobNoteGroup[]>(() => {
     const groupMeta: Array<Pick<JobNoteGroup, "key" | "label" | "description">> = [
@@ -408,26 +415,43 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.note_id} className="border-b align-top">
+              <tr key={item.note_id} className={`border-b align-top ${item.archived ? "bg-muted/30" : ""}`}>
                 <td className="p-2">
-                  <div className="font-medium">{item.source_label}</div>
-                  {item.note_subject ? <div className="mt-1 text-xs text-muted-foreground">{item.note_subject}</div> : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium">{item.source_label}</div>
+                    {item.archived ? (
+                      <Badge variant="destructive" className="text-[10px] uppercase tracking-[0.16em]">
+                        Archived
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {item.note_subject ? <div className="mt-1 text-xs font-medium text-slate-700">{item.note_subject}</div> : null}
                   <div className="mt-1 text-xs text-muted-foreground">
                     {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
                 </td>
                 <td className="p-2">
                   <div className="font-medium">{item.note_location}</div>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <Badge variant="outline" className="bg-white text-[10px] uppercase tracking-[0.14em]">
+                      Scope: {item.scope || "None"}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white text-[10px] uppercase tracking-[0.14em]">
+                      Category: {item.category || "None"}
+                    </Badge>
+                    <Badge variant="outline" className="bg-white text-[10px] uppercase tracking-[0.14em]">
+                      Site: {item.site_name || "No site"}
+                    </Badge>
+                  </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"} | {item.scope || "No scope"} |{" "}
-                    {item.site_name || "No site"}
+                    {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
                 </td>
                 <td className="p-2 whitespace-pre-wrap">{item.note_text}</td>
                 <td className="p-2">{item.note_updated_by || "-"}</td>
                 <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
                 <td className="p-2">
-                  {item.source_type === "job-communication" ? (
+                  {item.source_type === "job-communication" && !item.archived ? (
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => openEditNote(item)}>
                         Edit
@@ -436,6 +460,8 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                         Archive
                       </Button>
                     </div>
+                  ) : item.archived ? (
+                    <span className="text-xs text-muted-foreground">Archived</span>
                   ) : (
                     <span className="text-xs text-muted-foreground">Read only</span>
                   )}
@@ -571,7 +597,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_12rem_12rem]">
             <div className="min-w-0">
               <Label htmlFor="noteSearch">Search</Label>
               <Input
@@ -595,6 +621,19 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                       {source === "job-communication" ? "Job Note" : source === "job-row" ? "Job Row Note" : source}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0">
+              <Label htmlFor="noteArchiveFilter">Archive</Label>
+              <Select value={archiveFilter} onValueChange={setArchiveFilter}>
+                <SelectTrigger id="noteArchiveFilter" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Archived">Archived</SelectItem>
+                  <SelectItem value="All">All</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -653,6 +692,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
               onClick={() => {
                 setSearch("");
                 setSourceFilter("All");
+                setArchiveFilter("Active");
                 setScopeFilter("All");
                 setSiteFilter("All");
                 setAuthorFilter("All");

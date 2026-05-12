@@ -697,6 +697,7 @@ def get_job_scope_data(
 @router.get("/jobs/{job_id}/notes-summary")
 def get_job_notes_summary(
     job_id: int,
+    archive_state: str = Query("active"),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """Return a consolidated list of notes across job scope rows with row context and audit metadata."""
@@ -713,6 +714,16 @@ def get_job_notes_summary(
         return text_value or None
 
     try:
+        archive_state_normalized = str(archive_state or "active").strip().lower()
+        if archive_state_normalized not in {"active", "archived", "all"}:
+            raise HTTPException(status_code=400, detail="Invalid archive state")
+
+        archived_clause = ""
+        if archive_state_normalized == "active":
+            archived_clause = "AND COALESCE(jc.archived, FALSE) = FALSE"
+        elif archive_state_normalized == "archived":
+            archived_clause = "AND COALESCE(jc.archived, FALSE) = TRUE"
+
         with get_conn() as con:
             _ensure_job_communications_tables(con)
             _ensure_job_scope_rows_schema(con)
@@ -730,7 +741,7 @@ def get_job_notes_summary(
                 raise HTTPException(status_code=404, detail="Job not found")
 
             communications_df = con.execute(
-                """
+                f"""
                 SELECT
                     jc.communication_id,
                     jc.job_id,
@@ -741,6 +752,9 @@ def get_job_notes_summary(
                     jc.category,
                     jc.site_id,
                     COALESCE(jc.site_name, cs.site_name, '') AS site_name,
+                    jc.archived,
+                    jc.archived_at,
+                    jc.archived_by,
                     jc.created_by,
                     jc.created_at,
                     jc.updated_at,
@@ -752,7 +766,7 @@ def get_job_notes_summary(
                 LEFT JOIN client_sites cs ON cs.site_id = jc.site_id
                 WHERE jc.job_id = %s
                   AND lower(COALESCE(jc.channel, '')) = 'note'
-                  AND COALESCE(jc.archived, FALSE) = FALSE
+                  {archived_clause}
                 ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
                 """,
                 [int(job_id)],
@@ -869,6 +883,9 @@ def get_job_notes_summary(
                             "site_id": _safe_int(row.get("site_id")),
                             "site_name": _safe_text(row.get("site_name")),
                             "category": _safe_text(row.get("category")),
+                            "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+                            "archived_at": _to_iso(row.get("archived_at")),
+                            "archived_by": _safe_text(row.get("archived_by")) or None,
                             "report_label": "",
                             "original_id": "",
                             "note_text": note_text,
@@ -916,6 +933,9 @@ def get_job_notes_summary(
                             "site_id": _safe_int(row.get("site_id")),
                             "site_name": site_name,
                             "category": str(row.get("category") or row.get("level_2") or row.get("level_1") or ""),
+                            "archived": False,
+                            "archived_at": None,
+                            "archived_by": None,
                             "report_label": str(row.get("report_label") or row.get("column_text") or row.get("original_id") or ""),
                             "original_id": str(row.get("original_id") or ""),
                             "note_text": note_text,
