@@ -25,6 +25,13 @@ from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_plan_active
 
 router = APIRouter()
+
+
+def _json_null_if_na(value):
+    try:
+        return None if pd.isna(value) else value
+    except Exception:
+        return value
 @router.post("/jobs")
 def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
     """Create a new job with automatic period calculation."""
