@@ -538,7 +538,7 @@ def list_jobs(
         else:
             return "green"
 
-            items: list[dict[str, object]] = []
+    items: list[dict[str, object]] = []
     if rows is not None and (not rows.empty):
         for _, r in rows.iterrows():
             # Calculate individual milestone statuses
