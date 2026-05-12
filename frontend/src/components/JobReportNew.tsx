@@ -409,6 +409,8 @@ export default function JobReportNew({
   const [draftError, setDraftError] = useState("");
   const [activeDraftSection, setActiveDraftSection] = useState<string>("Executive Summary");
   const [loading, setLoading] = useState(true);
+  const [workspaceWarnings, setWorkspaceWarnings] = useState<string[]>([]);
+  const [reportVersionsError, setReportVersionsError] = useState<string>("");
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [savingReportVersion, setSavingReportVersion] = useState(false);
   const [reportVersionBusy, setReportVersionBusy] = useState<{ id: number; kind: "download" | "snapshot" } | null>(null);
@@ -418,58 +420,102 @@ export default function JobReportNew({
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
     setError("");
+    setWorkspaceWarnings([]);
+    setReportVersionsError("");
     try {
-      const [assignmentRes, actionsRes, versionsRes] = await Promise.all([
+      const [assignmentResult, actionsResult, versionsResult] = await Promise.allSettled([
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-template-assignment`, { credentials: "include" }, 1),
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-actions`, { credentials: "include" }, 1),
         fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-versions`, { credentials: "include" }, 1),
       ]);
 
-      if (!assignmentRes.ok) {
-        let d = String(assignmentRes.status);
-        try { const b = await assignmentRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
-        throw new Error(`Failed to load report template assignment: ${d}`);
-      }
-      if (!actionsRes.ok) {
-        let d = String(actionsRes.status);
-        try { const b = await actionsRes.json() as { detail?: string }; if (b.detail) d = b.detail; } catch { /* ignore */ }
-        throw new Error(`Failed to load report actions: ${d}`);
-      }
-      if (!versionsRes.ok) {
-        let d = String(versionsRes.status);
+      const warnings: string[] = [];
+
+      const parseFailure = async (res: Response, label: string) => {
+        let detail = `${res.status}`;
         try {
-          const raw = await versionsRes.text();
+          const raw = await res.text();
           try {
-            const b = JSON.parse(raw) as { detail?: unknown };
-            d = b.detail ? String(b.detail).slice(0, 400) : `${versionsRes.status}: ${raw.slice(0, 400)}`;
+            const parsed = JSON.parse(raw) as { detail?: unknown };
+            if (parsed?.detail) {
+              detail = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+            } else if (raw.trim()) {
+              detail = raw.slice(0, 400);
+            }
           } catch {
-            d = `${versionsRes.status}: ${raw.slice(0, 400)}`;
+            if (raw.trim()) {
+              detail = raw.slice(0, 400);
+            }
           }
-        } catch { /* ignore */ }
-        throw new Error(`Failed to load report versions: ${d}`);
+        } catch {
+          // Keep status code fallback.
+        }
+        return `${label}: ${detail}`;
+      };
+
+      if (assignmentResult.status === "fulfilled") {
+        const assignmentRes = assignmentResult.value;
+        if (!assignmentRes.ok) {
+          warnings.push(await parseFailure(assignmentRes, "Report profile assignment could not be loaded"));
+        } else {
+          const assignmentPayload = await assignmentRes.json();
+          const availableTemplates: ReportTemplate[] = Array.isArray(assignmentPayload?.available_templates)
+            ? assignmentPayload.available_templates
+            : [];
+          const currentAssignment: TemplateAssignment | null = assignmentPayload?.assignment || null;
+          setTemplates(availableTemplates);
+          setAssignment(currentAssignment);
+          const preferredKey =
+            currentAssignment?.template_key ||
+            availableTemplates.find((template) => template.template_key === "crp_standard")?.template_key ||
+            availableTemplates.find((template) => template.template_key === "annual_carbon_report")?.template_key ||
+            availableTemplates[0]?.template_key ||
+            "crp_standard";
+          setSelectedKey(preferredKey);
+        }
+      } else {
+        warnings.push("Report profile assignment could not be loaded.");
       }
 
-      const assignmentPayload = await assignmentRes.json();
-      const actionsPayload = await actionsRes.json();
-      const versionsPayload = await versionsRes.json();
+      if (actionsResult.status === "fulfilled") {
+        const actionsRes = actionsResult.value;
+        if (!actionsRes.ok) {
+          warnings.push(await parseFailure(actionsRes, "Report actions could not be loaded"));
+        } else {
+          const actionsPayload = await actionsRes.json();
+          setActionsSummary(actionsPayload || null);
+        }
+      } else {
+        warnings.push("Report actions could not be loaded.");
+      }
 
-      const availableTemplates: ReportTemplate[] = Array.isArray(assignmentPayload?.available_templates)
-        ? assignmentPayload.available_templates
-        : [];
-      const currentAssignment: TemplateAssignment | null = assignmentPayload?.assignment || null;
+      if (versionsResult.status === "fulfilled") {
+        const versionsRes = versionsResult.value;
+        if (!versionsRes.ok) {
+          const warning = await parseFailure(versionsRes, "Version history could not be loaded");
+          warnings.push(warning);
+          setReportVersionsError(warning);
+          setReportVersions([]);
+        } else {
+          const versionsPayload = await versionsRes.json();
+          if (versionsPayload?.warning) {
+            const warning = String(versionsPayload.warning);
+            warnings.push(warning);
+            setReportVersionsError(warning);
+          }
+          setReportVersions(Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : []);
+        }
+      } else {
+        const warning = "Version history could not be loaded.";
+        warnings.push(warning);
+        setReportVersionsError(warning);
+        setReportVersions([]);
+      }
 
-      setTemplates(availableTemplates);
-      setAssignment(currentAssignment);
-      setActionsSummary(actionsPayload || null);
-      setReportVersions(Array.isArray(versionsPayload?.versions) ? versionsPayload.versions : []);
-
-      const preferredKey =
-        currentAssignment?.template_key ||
-        availableTemplates.find((template) => template.template_key === "crp_standard")?.template_key ||
-        availableTemplates.find((template) => template.template_key === "annual_carbon_report")?.template_key ||
-        availableTemplates[0]?.template_key ||
-        "crp_standard";
-      setSelectedKey(preferredKey);
+      setWorkspaceWarnings(warnings);
+      if (warnings.length > 0) {
+        setError("Some report workspace data could not be loaded.");
+      }
     } catch (err) {
       setError(formatFriendlyFetchError(err, "Failed to load reporting workspace"));
     } finally {
@@ -488,6 +534,16 @@ export default function JobReportNew({
     () => PROFILE_LIBRARY.find((profile) => profile.key === selectedKey) || PROFILE_LIBRARY[0],
     [selectedKey]
   );
+  const stage4Checks = useMemo(
+    () => [
+      { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
+      { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
+      { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
+      { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
+    ],
+    [assignment?.template_id, draftReady, draftStarted, selectedActions]
+  );
+  const stage4MissingChecks = stage4Checks.filter((item) => !item.done);
   const initialDraftNotes = useMemo(() => buildInitialDraftNotes(selectedProfile), [selectedProfile]);
 
   useEffect(() => {
@@ -1339,13 +1395,62 @@ export default function JobReportNew({
                 </div>
               ) : null}
 
+              <div
+                className={`rounded-xl border p-3 ${
+                  stage4MissingChecks.length > 0 || reportVersionsError
+                    ? "border-rose-200 bg-rose-50/80"
+                    : "border-emerald-200 bg-emerald-50/80"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900">
+                    {stage4MissingChecks.length > 0 || reportVersionsError ? "Needs attention" : "All set"}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] uppercase tracking-[0.18em] ${
+                      stage4MissingChecks.length > 0 || reportVersionsError
+                        ? "border-rose-200 bg-rose-100 text-rose-700"
+                        : "border-emerald-200 bg-emerald-100 text-emerald-700"
+                    }`}
+                  >
+                    {stage4MissingChecks.length > 0 || reportVersionsError ? "Not done" : "Done"}
+                  </Badge>
+                </div>
+                {reportVersionsError ? (
+                  <div className="mt-2 rounded-md border border-rose-200 bg-white px-3 py-2 text-xs text-rose-800">
+                    {reportVersionsError}
+                  </div>
+                ) : null}
+                {workspaceWarnings.length > 0 ? (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace warnings</div>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-800">
+                      {workspaceWarnings.map((warning) => (
+                        <li key={warning} className="rounded-md border border-rose-200 bg-white px-3 py-2 text-xs text-rose-800">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {stage4MissingChecks.length > 0 ? (
+                  <div className="mt-2">
+                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Missing items</div>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-800">
+                      {stage4MissingChecks.map((item) => (
+                        <li key={item.label} className="rounded-md border border-rose-200 bg-white px-3 py-2">
+                          <div className="font-medium text-slate-900">{item.label}</div>
+                          <div className="text-xs text-muted-foreground">{item.note}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-2">
-                {[
-                  { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
-                  { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
-                  { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
-                  { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
-                ].map((item) => {
+                {stage4Checks.map((item) => {
                   const passed = item.done;
                   return (
                     <div
@@ -1392,6 +1497,11 @@ export default function JobReportNew({
                   </Badge>
                 </div>
                 <div className="mt-2 space-y-2">
+                  {reportVersionsError ? (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                      {reportVersionsError}
+                    </div>
+                  ) : null}
                   {latestReportVersion ? (
                     <div className="rounded-lg border bg-white px-3 py-2">
                       <div className="flex flex-wrap items-center gap-2">

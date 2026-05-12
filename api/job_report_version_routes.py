@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
 import hashlib
 import json
 
@@ -35,6 +36,7 @@ from core.database import get_conn
 from services.audit_log import record_audit_event
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/jobs/{job_id}/report-versions")
@@ -91,10 +93,12 @@ def list_report_versions(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        print(f"ERROR list_report_versions job_id={job_id}: {e!r}", flush=True)
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to list report versions: {e}")
+        logger.warning("Failed to list report versions for job %s; returning empty history", job_id, exc_info=True)
+        return {
+            "job_id": int(job_id),
+            "versions": [],
+            "warning": "Version history is temporarily unavailable.",
+        }
     return {"job_id": int(job_id), "versions": versions}
 
 
