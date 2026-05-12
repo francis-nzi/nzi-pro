@@ -621,9 +621,73 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _build_executive_summary_context_lines(context: dict[str, Any]) -> list[str]:
+    job_data = context.get("job_data") or {}
+    previous_job_data = context.get("previous_job_data") or {}
+    scope_totals = context.get("scope_totals") or {}
+    benchmark_totals = context.get("benchmark_totals") or {}
+    categories = _sort_categories(context.get("categories") or [])
+    job_actions = context.get("job_actions") or {}
+
+    lines = [
+        f"Section: {_get_section_config('executive_summary').get('title')}",
+        f"Job: {_text(job_data.get('job_number') or context.get('job_id'))} | {_text(job_data.get('client_name') or 'Client')} | Reporting year {_text(job_data.get('reporting_year') or 'N/A')}",
+        f"Client: {_text(job_data.get('industry') or 'Unknown industry')} | {_text(job_data.get('country') or 'Unknown country')}",
+        f"Company context: Net Zero target year {_text(job_data.get('net_zero_year') or 'N/A')} | Interim year {_text(job_data.get('interim_year') or 'N/A')}",
+        f"Operational context: {_text(job_data.get('description') or 'No company description provided.')}",
+        f"Workforce context: Headcount {_text(job_data.get('no_of_staff') or 'N/A')} | Premises owned {_text(job_data.get('no_premises_owned') or 'N/A')} | Premises leased {_text(job_data.get('no_premises_leased') or 'N/A')} | Vehicles owned {_text(job_data.get('no_vehicles_owned') or 'N/A')} | Vehicles leased {_text(job_data.get('no_vehicles_leased') or 'N/A')}",
+        f"Current totals: {_scope_total_text(scope_totals)}",
+        f"Benchmark totals: {_scope_total_text(benchmark_totals)}",
+    ]
+
+    current_total = _as_float(scope_totals.get("Total"))
+    previous_total = _as_float(benchmark_totals.get("Total"))
+    change_sentence, _change_pct = _change_text(current_total, previous_total)
+    lines.append(f"Comparison note: {change_sentence}")
+
+    if previous_job_data:
+        lines.append(
+            "Previous job: "
+            f"{_text(previous_job_data.get('job_number') or '')} | "
+            f"{_text(previous_job_data.get('reporting_year') or 'N/A')} | "
+            f"Total {_as_float(benchmark_totals.get('Total')):.1f} tCO₂e"
+        )
+
+    if categories:
+        lines.append("Top categories:")
+        for item in categories[:3]:
+            lines.append(
+                "- "
+                f"{_text(item.get('category') or 'Uncategorized')}: "
+                f"{_as_float(item.get('emissions')):.1f} tCO₂e"
+            )
+
+    items = job_actions.get("items") or []
+    if items:
+        lines.append(
+            f"Actions: {len(items)} total | "
+            f"Short {int((job_actions.get('term_counts') or {}).get('short') or 0)} | "
+            f"Medium {int((job_actions.get('term_counts') or {}).get('medium') or 0)} | "
+            f"Long {int((job_actions.get('term_counts') or {}).get('long') or 0)}"
+        )
+        for item in items[:3]:
+            lines.append(
+                "- "
+                f"{_text(item.get('action_name') or '')} | "
+                f"{_text(item.get('action_term_label') or item.get('action_term') or '')} | "
+                f"{_text(item.get('action_category') or '')}"
+            )
+
+    return lines
+
+
 def _build_prompt(context: dict[str, Any], section_key: str) -> str:
     config = _get_section_config(section_key)
-    lines = _build_context_lines({**context, "section_key": section_key})
+    lines = (
+        _build_executive_summary_context_lines({**context, "section_key": section_key})
+        if section_key == "executive_summary"
+        else _build_context_lines({**context, "section_key": section_key})
+    )
     client_name = _text((context.get("job_data") or {}).get("client_name") or "")
     schema = {
         "section_key": section_key,
@@ -643,7 +707,7 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
             "Write the draft_text as finished report prose, not as a prompt, note, or placeholder sentence.",
             "Do not write phrases like 'draft the section' or 'use the supplied evidence' in the draft_text field.",
             f"{config['length']} {config['style']}",
-            "For Executive Summary, write a fuller board-ready narrative in 3-4 short paragraphs: paragraph 1 should open with the emissions headline and year-on-year movement; paragraph 2 should explain the key drivers and what changed; paragraph 3 should describe what the numbers mean for the business, operational focus, and intensity; paragraph 4 is optional and can mention targets, governance, momentum, and the practical direction of travel.",
+            "For Executive Summary, write a fuller board-ready narrative in 3 short paragraphs: paragraph 1 should open with the emissions headline and year-on-year movement; paragraph 2 should explain the key drivers and what changed; paragraph 3 should describe what the numbers mean for the business, operational focus, and intensity. If useful, add a brief fourth sentence about targets, governance, momentum, and the practical direction of travel.",
             "Avoid opening with generic boilerplate such as 'recorded total greenhouse gas emissions'. Start with the client story, the change, and the business meaning in natural prose.",
             "Do not sound generic. Do not write a terse numbers-only recap. The summary should feel strategic, specific, and decision-useful.",
             "Where the evidence supports it, mention the Net Zero target year, interim milestone, workforce scale, operational footprint, and intensity context so the summary reads like a real executive brief rather than a dashboard note.",
@@ -777,6 +841,7 @@ def generate_report_section_draft(
     raw_text = ""
     model_name = model or (DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL)
     temperature = 0.1 if section_key == "executive_summary" else 0.2
+    max_tokens = 800 if section_key == "executive_summary" else 1200
 
     if provider_key == "openai":
         try:
@@ -788,7 +853,7 @@ def generate_report_section_draft(
                     {"role": "user", "content": prompt},
                 ],
                 temperature=temperature,
-                max_tokens=1200,
+                max_tokens=max_tokens,
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
         except Exception as exc:
@@ -802,7 +867,7 @@ def generate_report_section_draft(
                 system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
-                max_tokens=1200,
+                max_tokens=max_tokens,
             )
             if response.content and hasattr(response.content[0], "text"):
                 raw_text = response.content[0].text.strip()
