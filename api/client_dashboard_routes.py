@@ -17,7 +17,7 @@ from api.permissions import assert_client_access
 from services.tenancy import require_org
 from services.tenancy import org_context
 from services import ai_insights
-from services.client_benchmark import ensure_client_benchmark_columns, get_client_benchmark_metrics
+from services.client_benchmark import get_client_benchmark_metrics
 from services.emissions_reporting import attach_exact_emissions, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
 logger = logging.getLogger(__name__)
@@ -311,7 +311,6 @@ def get_client_dashboard(
         if cached is not None:
             return cached
         with get_conn() as con:
-            ensure_client_benchmark_columns(con)
             diagnostic: dict[str, object] = {
                 "org_id": org_id,
                 "jobs_source": None,

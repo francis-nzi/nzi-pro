@@ -18,7 +18,6 @@ from api.client_management_helpers import (
 from api.permissions import assert_client_access, assert_permission
 from core.database import get_conn
 from services.audit_log import record_audit_event
-from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_capacity
 
@@ -277,9 +276,6 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
     assert_permission(_user, "clients.view")
     require_org(_user)
     with get_conn() as con:
-        _ensure_client_org_columns(con)
-        _ensure_client_billing_columns(con)
-        ensure_client_benchmark_columns(con)
         assert_client_access(_user, int(client_db_id))
         row = con.execute(
             """
@@ -307,7 +303,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
     if not row:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    return {
+        return {
         "client_db_id": int(row[0]),
         "client_name": row[1],
         "industry": row[2],
@@ -351,7 +347,7 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "benchmark_scope_3_tco2e": float(row[38]) if row[38] is not None else None,
         "benchmark_total_tco2e": float(row[39]) if row[39] is not None else None,
         "billing_company": row[40] if len(row) > 40 else row[1],
-    }
+        }
 
 
 @router.patch("/clients/{client_db_id}")
