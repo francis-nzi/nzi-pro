@@ -6,6 +6,7 @@ import math
 import os
 import re
 import base64
+import logging
 from urllib.parse import quote_plus, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -22,6 +23,7 @@ from core.database import get_conn
 from services.tenancy import require_org
 
 router = APIRouter(tags=["business-development"])
+logger = logging.getLogger(__name__)
 
 _DOTENV_CACHE: dict[str, str] | None = None
 
@@ -37,6 +39,7 @@ def _env_value(key: str, default: str = "") -> str:
             raw = dotenv_values(str(env_path))
             _DOTENV_CACHE = {str(k): str(v or "") for k, v in raw.items() if k}
         except Exception:
+            logger.debug("Failed to load business-development dotenv cache; using empty defaults", exc_info=True)
             _DOTENV_CACHE = {}
     return str((_DOTENV_CACHE or {}).get(key) or default).strip()
 
@@ -282,7 +285,7 @@ def _parse_json_array(text: str) -> list[dict[str, Any]]:
         if isinstance(value, list):
             return [v for v in value if isinstance(v, dict)]
     except Exception:
-        pass
+        logger.debug("Failed to parse JSON array payload; trying fallback forms", exc_info=True)
     m = re.search(r"```(?:json)?\s*(\[.*\])\s*```", raw, flags=re.DOTALL)
     if not m:
         try:
@@ -292,6 +295,7 @@ def _parse_json_array(text: str) -> list[dict[str, Any]]:
                 if isinstance(items, list):
                     return [x for x in items if isinstance(x, dict)]
         except Exception:
+            logger.debug("Failed to parse fallback JSON object payload; returning empty list", exc_info=True)
             return []
         return []
     try:
@@ -299,6 +303,7 @@ def _parse_json_array(text: str) -> list[dict[str, Any]]:
         if isinstance(value, list):
             return [v for v in value if isinstance(v, dict)]
     except Exception:
+        logger.debug("Failed to parse fenced JSON array payload; returning empty list", exc_info=True)
         return []
     return []
 
@@ -1359,7 +1364,7 @@ def _load_never_return_company_keys(con, org_id: str | None = None) -> set[str]:
                 if key:
                     keys.add(key)
     except Exception:
-        pass
+        logger.debug("Failed to load business-development company key set; returning partial results", exc_info=True)
     return keys
 
 
@@ -1899,7 +1904,7 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         obj = json.loads(raw)
         return obj if isinstance(obj, dict) else {}
     except Exception:
-        pass
+        logger.debug("Failed to parse JSON object payload; trying fenced fallback", exc_info=True)
     m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.DOTALL)
     if not m:
         return {}
@@ -1907,6 +1912,7 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         obj = json.loads(m.group(1))
         return obj if isinstance(obj, dict) else {}
     except Exception:
+        logger.debug("Failed to parse fenced JSON object payload; returning empty dict", exc_info=True)
         return {}
 
 
@@ -2667,6 +2673,7 @@ def _gemini_generate_service_leads(
             # API returns "models/<id>".
             discovered_models.append(name.split("/", 1)[-1])
     except Exception:
+        logger.debug("Failed to discover Gemini models; using default candidate list", exc_info=True)
         discovered_models = []
 
     if discovered_models:
