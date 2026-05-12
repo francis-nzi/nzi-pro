@@ -5,6 +5,7 @@ Provides overview metrics for the main dashboard
 
 import csv
 import io
+import logging
 import math
 from datetime import date
 
@@ -17,6 +18,7 @@ from services.monthly_emissions import JobMonthlyEmissionsResolver
 from services.emissions_reporting import combined_row_metrics, load_combined_emissions_summary_rows, load_combined_reporting_rows
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 SUPPORTED_REPORT_VIEWS = (
@@ -47,10 +49,12 @@ def _table_exists(con, table_name: str) -> bool:
         return bool(row)
     except Exception:
         # Fallback for engines/environments where information_schema is unavailable
+        logger.debug("Information schema table probe failed for dashboard helper; trying SELECT fallback", exc_info=True)
         try:
             con.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()
             return True
         except Exception:
+            logger.debug("Failed to detect dashboard table existence; returning False", exc_info=True)
             return False
 
 
@@ -64,10 +68,12 @@ def _column_exists(con, table_name: str, column_name: str) -> bool:
         return bool(row)
     except Exception:
         # Fallback for engines/environments where information_schema is unavailable
+        logger.debug("Information schema column probe failed for dashboard helper; trying SELECT fallback", exc_info=True)
         try:
             con.execute(f"SELECT {column_name} FROM {table_name} LIMIT 1").fetchone()
             return True
         except Exception:
+            logger.debug("Failed to detect dashboard column existence; returning False", exc_info=True)
             return False
 
 
@@ -112,7 +118,7 @@ def _normalize_to_date(value):
         try:
             return value.date()
         except Exception:
-            pass
+            logger.debug("Failed to normalize date-like dashboard value; returning None", exc_info=True)
     if isinstance(value, str):
         txt = value.strip()
         if not txt:
@@ -120,6 +126,7 @@ def _normalize_to_date(value):
         try:
             return date.fromisoformat(txt[:10])
         except Exception:
+            logger.debug("Failed to parse dashboard ISO date string; returning None", exc_info=True)
             return None
 
 
@@ -134,6 +141,7 @@ def _normalize_int_value(value) -> int | None:
         try:
             return int(float(value))
         except Exception:
+            logger.debug("Failed to normalize integer dashboard value; returning None", exc_info=True)
             return None
 
 
@@ -443,9 +451,10 @@ def get_dashboard_overview(
                     SELECT COUNT(*) FROM jobs j
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
                     WHERE (status NOT IN ('Completed', 'Archived', 'Cancelled') OR status IS NULL){job_where}
-                    """
+                """
                 active_jobs = con.execute(active_jobs_query, job_params).fetchone()[0]
             except Exception:
+                logger.debug("Failed to load filtered active jobs count; falling back to total jobs count", exc_info=True)
                 active_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
             
             # Total datasets
@@ -455,6 +464,7 @@ def get_dashboard_overview(
                         "SELECT COUNT(*) FROM datasets WHERE archived = FALSE OR archived IS NULL"
                     ).fetchone()[0]
                 except Exception:
+                    logger.debug("Failed to load filtered dataset count; falling back to total datasets count", exc_info=True)
                     total_datasets = con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
             else:
                 total_datasets = 0
@@ -494,6 +504,7 @@ def get_dashboard_overview(
             try:
                 ind_df = con.execute(client_count_sql, client_params).df()
             except Exception:
+                logger.debug("Failed to load dashboard industry breakdown; returning empty breakdown", exc_info=True)
                 ind_df = None
             if ind_df is not None and not ind_df.empty:
                 for _, r in ind_df.iterrows():
@@ -531,6 +542,7 @@ def get_dashboard_overview(
                         job_params
                     ).df()
                 except Exception:
+                    logger.debug("Failed to load dashboard recent jobs from job_plan path; trying fallback query", exc_info=True)
                     recent_jobs_df = con.execute(
                         f"""
                         SELECT
@@ -1156,8 +1168,9 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
                     FROM jobs j
                     LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                     """
-                ).df()
+            ).df()
             except Exception:
+                logger.debug("Failed to load dashboard milestone summary; falling back to no-milestones total", exc_info=True)
                 total_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
                 return {
                     "green": 0,
@@ -2434,7 +2447,7 @@ def get_dashboard_bi_portfolio(
                                 "emissions": round(float(row["emissions"]), 2),
                             })
             except Exception:
-                pass
+                logger.debug("Failed to build dashboard top clients breakdown; continuing without it", exc_info=True)
 
             return {
                 "portfolio": {
