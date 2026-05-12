@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from api.job_setup_helpers import (
 from api.job_template_helpers import _job_template_paths
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from core.database import db_backend, get_conn
+from api.client_management_helpers import _list_sites
 from services.audit_log import record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
