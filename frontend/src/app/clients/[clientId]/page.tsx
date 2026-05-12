@@ -1743,6 +1743,8 @@ function ClientDetailPageContent() {
                         src={clientLogoSrc}
                         alt={`${client?.client_name || "Client"} logo`}
                         className="max-h-20 max-w-full object-contain"
+                        loading="lazy"
+                        fetchPriority="low"
                       />
                     </div>
                   ) : (

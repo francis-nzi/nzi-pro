@@ -367,8 +367,8 @@ def client_jobs(
                     """
                     SELECT COUNT(*)
                     FROM jobs j
-                    WHERE j.client_db_id = ?
-                      AND j.org_id = ?
+                    WHERE j.client_db_id = %s
+                      AND (j.org_id = %s OR j.org_id IS NULL)
                     """,
                     [int(client_db_id), org_id],
                 ).fetchone()
@@ -382,10 +382,10 @@ def client_jobs(
                                jp.final_report_due, jp.final_report_completed_at
                         FROM jobs j
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        WHERE j.client_db_id = ?
-                          AND j.org_id = ?
+                        WHERE j.client_db_id = %s
+                          AND (j.org_id = %s OR j.org_id IS NULL)
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
-                        LIMIT ? OFFSET ?
+                        LIMIT %s OFFSET %s
                         """,
                         [int(client_db_id), org_id, int(limit), int(offset)],
                     )
