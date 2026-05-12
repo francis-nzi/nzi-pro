@@ -295,6 +295,7 @@ def _dashboard_rows_from_exact_reporting(con, job_ids: list[int]):
 def get_client_dashboard(
     client_db_id: int,
     year: int | None = Query(default=None),
+    lite: bool = Query(default=False),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
@@ -375,46 +376,61 @@ def get_client_dashboard(
                 job_ids = [int(j) for j in jobs_df['job_id'].tolist()]
             diagnostic["jobs_count"] = len(job_ids)
 
-            # IMPORTANT: do not flip this primary/fallback order to "speed up"
-            # the dashboard. The exact per-row resolver path MUST stay primary
-            # because the aggregated summary SQL does not apply monthly emission
-            # factors, so swapping it in produces totals that drift from the
-            # per-job figure shown in the Jobs list and the /clients/{id}/reporting
-            # page (e.g. 39.0 vs 40.6 for jobs with monthly-resolved factors).
-            # The 15s response cache above is the right place to recover speed.
-            #
-            # Primary: exact per-row resolver path (matches /clients/{id}/reporting
-            # and the per-job totals shown in the Jobs list, including monthly
-            # factor handling).
-            try:
-                scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
-                if scope_df is not None:
-                    diagnostic["exact_row_count"] = int(len(scope_df))
-            except Exception as exc:
-                logger.exception(
-                    "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
-                    client_db_id,
-                    job_ids,
-                )
-                diagnostic["error"] = f"exact_reporting: {exc}"
-                scope_df = None
-
-            # Fallback: aggregated summary query — faster but uses a single factor
-            # per row, so totals can drift from the per-job figure. Only consulted
-            # if the exact path fails or returns nothing, to preserve a response.
-            if (scope_df is None or scope_df.empty) and job_ids:
+            if lite:
                 try:
                     scope_df = load_combined_emissions_summary_rows(con, job_ids)
                     if scope_df is not None:
+                        diagnostic["jobs_source"] = f"{diagnostic.get('jobs_source') or 'lite'}_summary"
                         diagnostic["summary_row_count"] = int(len(scope_df))
                 except Exception as exc:
                     logger.exception(
-                        "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
+                        "dashboard.summary_reporting_failed client_db_id=%s job_ids=%s",
                         client_db_id,
                         job_ids,
                     )
-                    diagnostic["error"] = f"emissions_summary: {exc}"
+                    diagnostic["error"] = f"summary_reporting: {exc}"
                     scope_df = None
+            else:
+                # IMPORTANT: do not flip this primary/fallback order to "speed up"
+                # the dashboard. The exact per-row resolver path MUST stay primary
+                # because the aggregated summary SQL does not apply monthly emission
+                # factors, so swapping it in produces totals that drift from the
+                # per-job figure shown in the Jobs list and the /clients/{id}/reporting
+                # page (e.g. 39.0 vs 40.6 for jobs with monthly-resolved factors).
+                # The 15s response cache above is the right place to recover speed.
+                #
+                # Primary: exact per-row resolver path (matches /clients/{id}/reporting
+                # and the per-job totals shown in the Jobs list, including monthly
+                # factor handling).
+                try:
+                    scope_df = _dashboard_rows_from_exact_reporting(con, job_ids)
+                    if scope_df is not None:
+                        diagnostic["exact_row_count"] = int(len(scope_df))
+                except Exception as exc:
+                    logger.exception(
+                        "dashboard.exact_reporting_failed client_db_id=%s job_ids=%s",
+                        client_db_id,
+                        job_ids,
+                    )
+                    diagnostic["error"] = f"exact_reporting: {exc}"
+                    scope_df = None
+
+                # Fallback: aggregated summary query — faster but uses a single factor
+                # per row, so totals can drift from the per-job figure. Only consulted
+                # if the exact path fails or returns nothing, to preserve a response.
+                if (scope_df is None or scope_df.empty) and job_ids:
+                    try:
+                        scope_df = load_combined_emissions_summary_rows(con, job_ids)
+                        if scope_df is not None:
+                            diagnostic["summary_row_count"] = int(len(scope_df))
+                    except Exception as exc:
+                        logger.exception(
+                            "dashboard.emissions_summary_failed client_db_id=%s job_ids=%s",
+                            client_db_id,
+                            job_ids,
+                        )
+                        diagnostic["error"] = f"emissions_summary: {exc}"
+                        scope_df = None
 
             benchmark_metrics = None
             try:
@@ -602,7 +618,7 @@ def get_client_dashboard(
                 raise HTTPException(status_code=404, detail="Client not found")
             industry = client_info[0] if len(client_info) > 0 else None
             net_year = client_info[1] if len(client_info) > 1 else None
-            if industry:
+            if industry and not lite:
                 try:
                     if org_id:
                         avg_df = con.execute(
@@ -819,7 +835,7 @@ def get_client_dashboard(
                 'intensity_metrics': intensity_metrics,
                 'currency': currency,
                 'benchmark_metrics': benchmark_metrics,
-                'industry_average_emissions': None,
+                'industry_average_emissions': None if lite else industry_average_emissions,
                 'net_zero_progress': net_zero_progress,
                 'diagnostic': diagnostic,
             }

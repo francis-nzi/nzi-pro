@@ -81,7 +81,6 @@ type ClientDashboardProps = {
   baseUrl: string;
 };
 
-const SCOPE_COLORS = ["#0f766e", "#0891b2", "#38bdf8"];
 const ClientDashboardCharts = dynamic(() => import("@/components/ClientDashboardCharts"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-muted-foreground">Loading charts...</div>,
@@ -132,12 +131,16 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
     try {
       setLoading(true);
       setError("");
-      const params = year !== null ? `?year=${year}` : "";
+      const params = new URLSearchParams();
+      params.set("lite", "1");
+      if (year !== null) {
+        params.set("year", String(year));
+      }
       const token = getToken();
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const res = await fetch(`${baseUrl}/clients/${clientId}/dashboard${params}`, {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/dashboard?${params.toString()}`, {
         cache: "no-store",
         credentials: "include",
         headers,
@@ -209,15 +212,18 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
       }));
   }, [data, selectedYear]);
 
-  const currentMetrics = selectedYearData
-    ? {
+  const currentMetrics = useMemo(() => {
+    if (selectedYearData) {
+      return {
         total_emissions: Number(selectedYearData.total || 0),
         scope1: Number(selectedYearData.scope1 || 0),
         scope2: Number(selectedYearData.scope2 || 0),
         scope3: Number(selectedYearData.scope3 || 0),
         year: selectedYearData.year,
-      }
-    : data?.current_metrics ?? null;
+      };
+    }
+    return data?.current_metrics ?? null;
+  }, [data?.current_metrics, selectedYearData]);
 
   const scopeData = useMemo(() => {
     if (!currentMetrics) return [];
