@@ -2861,6 +2861,7 @@ def _ensure_glossary_cards_and_fetch(job_id: int, job_data: dict[str, Any], lega
         try:
             report_year_val = int(report_year) if report_year is not None else None
         except Exception:
+            logger.debug("Failed to coerce report year for legacy glossary lookup; continuing without report year context", exc_info=True)
             report_year_val = None
 
         report_country = str(job_data.get("country") or "").strip()
@@ -2970,6 +2971,7 @@ def _docx_add_variable_sections(
     try:
         from docx.shared import Pt as DocxPt
     except Exception:  # pragma: no cover
+        logger.debug("DOCX shared styling import failed; continuing without DocxPt styling", exc_info=True)
         DocxPt = None
 
     if not template_variables:

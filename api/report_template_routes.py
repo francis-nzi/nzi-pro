@@ -1284,6 +1284,7 @@ def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | N
             [int(dataset_id)],
         ).fetchall()
     except Exception:
+        logger.debug("Legacy energy-factor schema lookup failed; continuing to fallback schema", exc_info=True)
         try:
             # Backward compatibility for older factor_lookup schemas without level_4/report_label.
             rows = con.execute(
@@ -1408,6 +1409,7 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
         raw_scope_dataset = scope_map.get("Scope 2")
         dataset_id = int(raw_scope_dataset) if raw_scope_dataset is not None else None
     except Exception:
+        logger.debug("Failed to resolve scope 2 dataset for energy-factor lookup; continuing without dataset context", exc_info=True)
         dataset_id = None
 
     factor_year = _get_job_energy_factor_year(con, int(job_id), dataset_id)
@@ -1939,6 +1941,7 @@ def _lookup_team_member(
                 [name, name, name],
             ).fetchone()
         except Exception:
+            logger.debug("Consultant lookup failed against users table; falling back to consultant_position-less query", exc_info=True)
             try:
                 # Backward compatibility if users.position has not been migrated yet.
                 # Do NOT fall back to role for consultant_position.
@@ -1977,6 +1980,7 @@ def _lookup_team_member(
                 [normalized_actor, normalized_actor],
             ).fetchone()
         except Exception:
+            logger.debug("Consultant lookup failed against users table; falling back to consultant_position-less query", exc_info=True)
             try:
                 # Backward compatibility if users.position has not been migrated yet.
                 # Do NOT fall back to role for consultant_position.
@@ -2765,6 +2769,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(float(text))
     except Exception:
+        logger.debug("Failed to coerce integer value for template helper; returning default", exc_info=True)
         return default
 
 
@@ -3103,6 +3108,7 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
                     [int(job_id)],
                 ).fetchone()
             except Exception:
+                logger.debug("Failed to load selected report template assignment; returning empty row", exc_info=True)
                 row = None
 
             active_filter = "COALESCE(rt.is_active, TRUE) = TRUE" if "is_active" in template_cols else "TRUE"
@@ -3159,6 +3165,7 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
                     [int(client_db_id)] if "%s" in scope_filter else [],
                 ).df()
             except Exception:
+                logger.debug("Failed to load available report templates; returning empty list", exc_info=True)
                 available_df = None
 
             available: list[dict[str, Any]] = []
