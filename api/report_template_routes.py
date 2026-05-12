@@ -44,6 +44,7 @@ def _get_table_columns(con, table_name: str) -> set[str]:
             [str(table_name)],
         ).fetchall()
     except Exception:
+        logger.debug("Failed to read report template table columns; returning empty set", exc_info=True)
         return set()
     return {str(r[0]).strip().lower() for r in (rows or []) if r and r[0]}
 
@@ -1246,6 +1247,7 @@ def _load_energy_factors_from_asset(year: int) -> tuple[float | None, float | No
                 if location_factor is not None or td_factor is not None:
                     return (location_factor, td_factor)
         except Exception:
+            logger.debug("Legacy energy-factor schema lookup failed; continuing to next candidate", exc_info=True)
             continue
 
     return (None, None)
@@ -1260,6 +1262,7 @@ def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | N
         ).fetchone()
         dataset_country = _normalize_country_token(dataset_row[0] if dataset_row else "")
     except Exception:
+        logger.debug("Failed to resolve dataset country for energy-factor lookup; continuing without country context", exc_info=True)
         dataset_country = ""
 
     try:
