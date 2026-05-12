@@ -294,7 +294,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem_14rem_12rem_12rem_12rem]">
+          <div className="space-y-4">
             <div className="min-w-0">
               <Label htmlFor="clientNoteSearch">Search</Label>
               <Input
@@ -305,85 +305,87 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 className="w-full"
               />
             </div>
-            <div className="min-w-0">
-              <Label htmlFor="clientNoteSourceFilter">Source</Label>
-              <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                <SelectTrigger id="clientNoteSourceFilter" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Sources</SelectItem>
-                  {availableSources.map((source) => (
-                    <SelectItem key={source} value={source}>
-                      {sourceLabel(source)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0">
-              <Label htmlFor="clientNoteJobFilter">Job</Label>
-              <Select value={jobFilter} onValueChange={setJobFilter}>
-                <SelectTrigger id="clientNoteJobFilter" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Jobs</SelectItem>
-                  {availableJobs.map((job) => (
-                    <SelectItem key={job.job_id} value={String(job.job_id)}>
-                      {jobLabel(job)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0">
-              <Label htmlFor="clientNoteScopeFilter">Scope</Label>
-              <Select value={scopeFilter} onValueChange={setScopeFilter}>
-                <SelectTrigger id="clientNoteScopeFilter" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Scopes</SelectItem>
-                  {availableScopes.map((scope) => (
-                    <SelectItem key={scope} value={scope}>
-                      {scope}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0">
-              <Label htmlFor="clientNoteSiteFilter">Site</Label>
-              <Select value={siteFilter} onValueChange={setSiteFilter}>
-                <SelectTrigger id="clientNoteSiteFilter" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Sites</SelectItem>
-                  {availableSites.map((site) => (
-                    <SelectItem key={site.siteId} value={site.siteId}>
-                      {site.siteName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0">
-              <Label htmlFor="clientNoteAuthorFilter">Author</Label>
-              <Select value={authorFilter} onValueChange={setAuthorFilter}>
-                <SelectTrigger id="clientNoteAuthorFilter" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Authors</SelectItem>
-                  {availableAuthors.map((author) => (
-                    <SelectItem key={author} value={author}>
-                      {author}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="min-w-0">
+                <Label htmlFor="clientNoteSourceFilter">Source</Label>
+                <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                  <SelectTrigger id="clientNoteSourceFilter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Sources</SelectItem>
+                    {availableSources.map((source) => (
+                      <SelectItem key={source} value={source}>
+                        {sourceLabel(source)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <Label htmlFor="clientNoteJobFilter">Job</Label>
+                <Select value={jobFilter} onValueChange={setJobFilter}>
+                  <SelectTrigger id="clientNoteJobFilter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Jobs</SelectItem>
+                    {availableJobs.map((job) => (
+                      <SelectItem key={job.job_id} value={String(job.job_id)}>
+                        {jobLabel(job)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <Label htmlFor="clientNoteScopeFilter">Scope</Label>
+                <Select value={scopeFilter} onValueChange={setScopeFilter}>
+                  <SelectTrigger id="clientNoteScopeFilter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Scopes</SelectItem>
+                    {availableScopes.map((scope) => (
+                      <SelectItem key={scope} value={scope}>
+                        {scope}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <Label htmlFor="clientNoteSiteFilter">Site</Label>
+                <Select value={siteFilter} onValueChange={setSiteFilter}>
+                  <SelectTrigger id="clientNoteSiteFilter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Sites</SelectItem>
+                    {availableSites.map((site) => (
+                      <SelectItem key={site.siteId} value={site.siteId}>
+                        {site.siteName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-0">
+                <Label htmlFor="clientNoteAuthorFilter">Author</Label>
+                <Select value={authorFilter} onValueChange={setAuthorFilter}>
+                  <SelectTrigger id="clientNoteAuthorFilter" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Authors</SelectItem>
+                    {availableAuthors.map((author) => (
+                      <SelectItem key={author} value={author}>
+                        {author}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
