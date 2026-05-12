@@ -12,6 +12,7 @@ from api.auth import _current_user
 from api.permissions import require_permission
 from core.database import get_conn
 from api.admin_routes import _ensure_lookup_table, _ensure_lookup_table_once
+from api.admin_user_helpers import _ensure_positions_lookup_table
 from core.auth import set_user_password
 from services.pdf_generation_queue import get_pdf_queue
 from services.messaging_templates import build_email_content
@@ -187,6 +188,8 @@ def list_lookup_items(
     def _fetch_data():
         with get_conn() as con:
             _ensure_lookup_table_once(con, table_name, org_id)
+            if table_name == "positions_lookup":
+                _ensure_positions_lookup_table(con)
             has_active_flag = _lookup_has_active_flag(con, query_table)
             active_filter = ""
             if has_active_flag and not include_archived:

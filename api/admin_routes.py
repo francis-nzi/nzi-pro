@@ -36,6 +36,7 @@ from services.attribute_override_import import (
     commit_override_rows,
     parse_override_workbook,
 )
+from api.admin_user_helpers import _ensure_positions_lookup_table
 from services.audit_log import ensure_audit_log_table, parse_json_text, record_audit_event
 from services.permissions import (
     ACCESS_SCOPES,

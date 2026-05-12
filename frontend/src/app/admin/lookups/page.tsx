@@ -362,11 +362,21 @@ export default function LookupsPage() {
             </p>
           </div>
           <Button variant="secondary" asChild>
-            <Link href="/admin">← Back to Admin</Link>
+            <Link href="/admin">&larr; Back to Admin</Link>
           </Button>
         </div>
 
-        {status && <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>}
+        {status && (
+          <div
+            className={`mb-4 rounded-md p-3 text-sm ${
+              status.toLowerCase().startsWith("error")
+                ? "border border-rose-200 bg-rose-50 text-rose-700"
+                : "bg-muted text-foreground"
+            }`}
+          >
+            {status}
+          </div>
+        )}
 
         <div className="mb-4">
           <Label htmlFor="lookupFilter" className="mb-2 block text-sm font-medium">Find Lookup Category</Label>
