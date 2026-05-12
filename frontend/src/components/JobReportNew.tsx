@@ -1317,7 +1317,7 @@ export default function JobReportNew({
                     Stage 4 checkpoint
                   </Badge>
                   <Badge variant="outline" className="bg-white">
-                    {draftReady ? "Ready to review" : "Needs attention"}
+                    {draftReady ? "Done" : "Not done"}
                   </Badge>
                 </div>
                 <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
@@ -1371,7 +1371,7 @@ export default function JobReportNew({
                               passed ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-rose-200 bg-rose-100 text-rose-700"
                             }`}
                           >
-                            {passed ? "Passed" : "Needs attention"}
+                            {passed ? "Done" : "Not done"}
                           </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground">{item.note}</div>
