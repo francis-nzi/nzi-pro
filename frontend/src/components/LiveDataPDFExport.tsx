@@ -28,6 +28,8 @@ interface LiveDataPDFExportProps {
   onError?: (error: string) => void;
   variant?: 'default' | 'outline' | 'ghost';
   size?: 'sm' | 'md' | 'lg';
+  buttonLabel?: string;
+  busyLabel?: string;
 }
 
 type ExportState = 'idle' | 'queued' | 'generating' | 'completed' | 'error' | 'canceled';
@@ -47,6 +49,8 @@ export function LiveDataPDFExport({
   onError,
   variant = 'default',
   size = 'md',
+  buttonLabel = 'Export to PDF',
+  busyLabel = 'Generating PDF...',
 }: LiveDataPDFExportProps) {
   const [state, setState] = useState<ExportState>('idle');
   const [progress, setProgress] = useState(0);
@@ -57,6 +61,19 @@ export function LiveDataPDFExport({
   const wsRef = useRef<WebSocket | null>(null);
   const jobTokenRef = useRef<string | null>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerDownload = (url: string) => {
+    if (!url) {
+      return;
+    }
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "";
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
 
   /**
    * Handle export button click
@@ -74,7 +91,8 @@ export function LiveDataPDFExport({
         params.append('template_id', templateId.toString());
       }
 
-      const response = await fetch(`/api/jobs/${jobId}/queue-pdf`, {
+      const queueUrl = `/api/jobs/${jobId}/queue-pdf${params.toString() ? `?${params.toString()}` : ''}`;
+      const response = await fetch(queueUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -134,6 +152,9 @@ export function LiveDataPDFExport({
             setState('completed');
             const url = update.result?.download_url || '';
             setDownloadUrl(url);
+            if (url) {
+              triggerDownload(url);
+            }
             if (onComplete) onComplete(url);
             wsRef.current?.close();
           } else if (update.status === 'failed' || update.status === 'error') {
@@ -191,6 +212,9 @@ export function LiveDataPDFExport({
           setState('completed');
           const url = data.result?.download_url || '';
           setDownloadUrl(url);
+          if (url) {
+            triggerDownload(url);
+          }
           if (onComplete) onComplete(url);
         } else if (data.status === 'failed') {
           clearInterval(pollIntervalRef.current!);
@@ -262,7 +286,7 @@ export function LiveDataPDFExport({
         className="gap-2"
       >
         <Download className="w-4 h-4" />
-        Export to PDF
+        {buttonLabel}
       </Button>
     );
   }
@@ -333,7 +357,7 @@ export function LiveDataPDFExport({
       <div className="flex items-center gap-2">
         <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
         <span className="text-sm font-medium text-gray-700">
-          {state === 'queued' ? 'Queued...' : 'Generating PDF...'}
+          {state === 'queued' ? 'Queued...' : busyLabel}
         </span>
       </div>
 
@@ -361,16 +385,16 @@ export function LiveDataPDFExport({
 // ============================================================================
 
 const logger = {
-  info: (message: string, ...args: any[]) => {
+  info: (message: string, ...args: unknown[]) => {
     console.log(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  debug: (message: string, ...args: any[]) => {
+  debug: (message: string, ...args: unknown[]) => {
     console.debug(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  warn: (message: string, ...args: any[]) => {
+  warn: (message: string, ...args: unknown[]) => {
     console.warn(`[LiveDataPDFExport] ${message}`, ...args);
   },
-  error: (message: string, ...args: any[]) => {
+  error: (message: string, ...args: unknown[]) => {
     console.error(`[LiveDataPDFExport] ${message}`, ...args);
   },
 };

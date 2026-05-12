@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import { LiveDataPDFExport } from "@/components/LiveDataPDFExport";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, CheckCircle2, CircleX, FileText, Sparkles, Target } from "lucide-react";
 import { apiUrl } from "@/lib/auth-client";
@@ -881,55 +882,6 @@ export default function JobReportNew({
     [reportVersionBusy]
   );
 
-  const saveReviewPdf = useCallback(async () => {
-    setSavingReportVersion(true);
-    setStatus("");
-    setError("");
-    try {
-      const res = await fetchWithRetry(
-        `${baseUrl}/jobs/${jobId}/generate-report-with-assets?save_version=true&report_version_status=review`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      , 1);
-      if (!res.ok) {
-        let message = `Failed to save review PDF (${res.status})`;
-        try {
-          const payload = await res.json();
-          if (payload?.detail) {
-            message = typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail);
-          }
-        } catch {
-          // Keep fallback message.
-        }
-        throw new Error(message);
-      }
-
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") || "";
-      const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
-      const filename = filenameMatch?.[1] || `job-${jobId}-emissions-report.pdf`;
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-
-      const versionNumber = res.headers.get("X-Report-Version-Number") || "";
-      const versionLabel = res.headers.get("X-Report-Version-Label") || `v${versionNumber || "?"}`;
-      setStatus(`Saved review PDF as ${versionLabel}.`);
-      await loadWorkspace();
-    } catch (err) {
-      setError(formatFriendlyFetchError(err, "Failed to save review PDF"));
-    } finally {
-      setSavingReportVersion(false);
-    }
-  }, [baseUrl, jobId, loadWorkspace]);
-
   const markVersionFinal = useCallback(
     async (reportVersionId: number) => {
       setSavingReportVersion(true);
@@ -1573,10 +1525,17 @@ export default function JobReportNew({
                 <Button asChild variant="outline">
                   <Link href={`/jobs/${jobId}/report-live`}>Open live report</Link>
                 </Button>
-                <Button onClick={saveReviewPdf} disabled={savingReportVersion} className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  {savingReportVersion ? "Saving review PDF..." : "Preview & Export"}
-                </Button>
+                <LiveDataPDFExport
+                  jobId={jobId}
+                  templateId={assignment?.template_id ?? undefined}
+                  buttonLabel="Preview & Export"
+                  busyLabel="Saving review PDF..."
+                  onComplete={() => {
+                    setStatus("Saved review PDF.");
+                    void loadWorkspace();
+                  }}
+                  onError={(message) => setError(message)}
+                />
                 <Button variant="outline" onClick={() => onOpenActions?.()}>
                   Review Actions
                 </Button>
