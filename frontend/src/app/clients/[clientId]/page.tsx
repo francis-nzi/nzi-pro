@@ -474,7 +474,7 @@ function ClientDetailPageContent() {
       setSitesLoaded(false);
       setContactsLoaded(false);
       setJobsLoaded(false);
-      setJobsLoading(true);
+      setJobsLoading(false);
       setFinancialLoaded(false);
       setFinancialSummaryLoaded(false);
       setQuoteLookupsLoaded(false);
