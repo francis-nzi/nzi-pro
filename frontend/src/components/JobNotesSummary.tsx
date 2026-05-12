@@ -53,6 +53,8 @@ type JobNotesSummary = {
   items: JobNote[];
   site_options?: SiteOption[];
   default_site_id?: number | null;
+  scope_options?: string[];
+  category_options?: string[];
 };
 
 type JobNoteGroup = {
