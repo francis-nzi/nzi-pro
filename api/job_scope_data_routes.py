@@ -854,15 +854,29 @@ def get_job_notes_summary(
 
             scope_options: list[str] = []
             category_options: list[str] = []
-            if notes_df is not None and not notes_df.empty:
+            scope_category_df = con.execute(
+                """
+                SELECT DISTINCT
+                    COALESCE(TRIM(CAST(scope AS VARCHAR)), '') AS scope,
+                    COALESCE(TRIM(CAST(category AS VARCHAR)), '') AS category
+                FROM job_scope_rows
+                WHERE job_id = %s
+                  AND (
+                    COALESCE(TRIM(CAST(scope AS VARCHAR)), '') <> ''
+                    OR COALESCE(TRIM(CAST(category AS VARCHAR)), '') <> ''
+                  )
+                """,
+                [int(job_id)],
+            ).df()
+            if scope_category_df is not None and not scope_category_df.empty:
                 scope_seen: set[str] = set()
                 category_seen: set[str] = set()
-                for _, row in notes_df.iterrows():
+                for _, row in scope_category_df.iterrows():
                     scope_value = _safe_text(row.get("scope"))
                     if scope_value and scope_value not in scope_seen:
                         scope_seen.add(scope_value)
                         scope_options.append(scope_value)
-                    category_value = _safe_text(row.get("category") or row.get("level_2") or row.get("level_1"))
+                    category_value = _safe_text(row.get("category"))
                     if category_value and category_value not in category_seen:
                         category_seen.add(category_value)
                         category_options.append(category_value)
