@@ -9,7 +9,6 @@ from api.auth import _current_user
 from api.client_route_helpers import ensure_client_org_columns
 from api.permissions import assert_client_access, assert_permission
 from core.database import db_backend, get_conn
-from services.emissions_reporting import exact_job_total_emissions
 from services.tenancy import require_org
 
 router = APIRouter()
@@ -492,11 +491,6 @@ def client_jobs(
             # Calculate overall status
             overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
 
-            try:
-                total_emissions = _float_or_zero(exact_job_total_emissions(con, job_id))
-            except Exception:
-                total_emissions = 0.0
-
             items.append(
                 {
                     "job_id": job_id,
@@ -507,7 +501,6 @@ def client_jobs(
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
                     "is_crp": _bool_or_false(r.get("is_crp")),
                     "milestone_status": overall_milestone_status,
-                    "total_emissions": total_emissions,
                 }
             )
 

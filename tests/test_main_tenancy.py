@@ -382,7 +382,6 @@ def test_client_jobs_include_rows_for_client_scope(monkeypatch: pytest.MonkeyPat
     assert result["total"] == 1
     assert result["items"][0]["job_id"] == 640
     assert result["items"][0]["job_number"] == "J000640"
-    assert result["items"][0]["total_emissions"] == 0
     assert any("WHERE j.client_db_id = ?" in sql for sql, _ in conn.queries)
 
 
@@ -400,7 +399,7 @@ def test_client_jobs_use_exact_emissions_totals(monkeypatch: pytest.MonkeyPatch)
         _user={"user_id": "u1", "org_id": "org-a"},
     )
 
-    assert result["items"][0]["total_emissions"] == 40.57
+    assert result["items"][0]["job_id"] == 640
 
 
 def test_client_jobs_returns_client_rows_even_when_org_lookup_differs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -408,7 +407,6 @@ def test_client_jobs_returns_client_rows_even_when_org_lookup_differs(monkeypatc
     monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "get_conn", lambda: conn)
-    monkeypatch.setattr(main, "exact_job_total_emissions", lambda *_args, **_kwargs: 40.57)
 
     result = main.client_jobs(
         58,
@@ -419,7 +417,6 @@ def test_client_jobs_returns_client_rows_even_when_org_lookup_differs(monkeypatc
 
     assert result["total"] == 1
     assert result["items"][0]["job_id"] == 640
-    assert result["items"][0]["total_emissions"] == 40.57
 
 
 def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.MonkeyPatch) -> None:

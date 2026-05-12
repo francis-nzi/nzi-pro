@@ -188,8 +188,6 @@ def test_tenant_smoke_flow_across_two_orgs(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "require_org", lambda user: user["org_id"])
     monkeypatch.setattr(main, "_current_org_summary", lambda user: {"org_id": user["org_id"], "name": f"Org {user['org_id'][-1].upper()}", "slug": user["org_id"], "role": user["role"], "archived": False})
-    monkeypatch.setattr(main, "exact_job_total_emissions", lambda _con, job_id: 39.0 if int(job_id) == 627 else 18.25)
-
     monkeypatch.setattr(client_dashboard_routes, "assert_client_access", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(client_dashboard_routes, "require_org", lambda user: user["org_id"])
     monkeypatch.setattr(client_dashboard_routes, "_load_client_jobs", lambda _con, client_db_id, org_id, crp_only=True: pd.DataFrame(
@@ -231,6 +229,4 @@ def test_tenant_smoke_flow_across_two_orgs(monkeypatch: pytest.MonkeyPatch) -> N
     jobs_b = main.client_jobs(178, limit=50, offset=0, _user=user_b)
     assert jobs_a["items"][0]["job_number"] == "J000627"
     assert jobs_b["items"][0]["job_number"] == "J000627"
-    assert jobs_a["items"][0]["total_emissions"] == 39.0
-    assert jobs_b["items"][0]["total_emissions"] == 39.0
     assert any("WHERE j.client_db_id = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
