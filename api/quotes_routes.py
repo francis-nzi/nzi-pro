@@ -4,6 +4,7 @@ from datetime import date
 from typing import Any
 import re
 import os
+import logging
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from reportlab.lib import colors
@@ -22,6 +23,7 @@ from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
 
 router = APIRouter(tags=["quotes"])
+logger = logging.getLogger(__name__)
 
 
 def _quote_org_id(user: dict | None) -> str | None:
@@ -223,7 +225,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill quotes.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -238,7 +240,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill quote_lines.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -253,7 +255,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill invoices.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -268,7 +270,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill invoice_lines.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -283,7 +285,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill quote_email_log.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -298,7 +300,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill invoice_email_log.org_id; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -314,7 +316,7 @@ def _ensure_quote_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to backfill job_other_costs.org_id; continuing", exc_info=True)
 
 
 def _ensure_supplier_tables(con) -> None:
@@ -337,7 +339,7 @@ def _ensure_supplier_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to create suppliers table; continuing", exc_info=True)
     try:
         con.execute(
             """
@@ -358,7 +360,7 @@ def _ensure_supplier_tables(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Failed to create supplier_service_items table; continuing", exc_info=True)
 
 
 def _compute_totals(lines: list[dict[str, Any]]) -> dict[str, float]:
@@ -686,6 +688,7 @@ def _display_date(value: Any) -> str:
         parsed = date.fromisoformat(text[:10])
         return f"{parsed.day} {parsed.strftime('%B %Y')}"
     except Exception:
+        logger.debug("Failed to parse PDF footer date value; returning original text", exc_info=True)
         return text
 
 
@@ -1079,6 +1082,7 @@ def quote_lookups(client_id: int, _user: dict = Depends(_current_user)):
                     """
                 ).df()
             except Exception:
+                logger.debug("Failed to load currency_lookup; falling back to currencies_lookup", exc_info=True)
                 currencies_df = con.execute(
                     """
                     SELECT currency_code, name AS currency_name, symbol
