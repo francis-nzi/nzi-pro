@@ -7,6 +7,7 @@ import csv
 from datetime import date, datetime
 from decimal import Decimal
 from functools import lru_cache
+import logging
 import math
 from pathlib import Path
 import re
@@ -23,6 +24,8 @@ from services.dataset_selector import (
     resolve_dataset_resolution,
 )
 from services.report_actions import get_job_report_actions_payload
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -346,7 +349,7 @@ def _ensure_report_template_schema(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Ignoring job_report_variable_values org backfill failure", exc_info=True)
 
     con.execute(
         """
@@ -377,7 +380,7 @@ def _ensure_report_template_schema(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Ignoring job_report_template_assignments org backfill failure", exc_info=True)
 
     con.execute(
         """
@@ -626,6 +629,7 @@ def _get_template_required_key_override(con, template_id: int) -> set[str] | Non
         ).fetchone()
         template_key = str(template_row[0] or "").strip().lower() if template_row else ""
     except Exception:
+        logger.debug("Failed to resolve template required-key override; continuing without override", exc_info=True)
         template_key = ""
     return _TEMPLATE_REQUIRED_KEY_OVERRIDES.get(template_key)
 
@@ -867,6 +871,7 @@ def _format_period_label(start_value: Any, end_value: Any) -> str | None:
         try:
             return datetime.fromisoformat(str(v)).date()
         except Exception:
+            logger.debug("Failed to parse period date value; returning None", exc_info=True)
             return None
 
     start_dt = _to_date(start_value)
@@ -891,6 +896,7 @@ def _safe_float(value: Any) -> float | None:
     try:
         return float(value)
     except Exception:
+        logger.debug("Failed to coerce float value; returning None", exc_info=True)
         return None
 
 
@@ -997,6 +1003,7 @@ def _table_columns(con, table_name: str) -> set[str]:
             return set()
         return {str(v).strip().lower() for v in df["column_name"].tolist()}
     except Exception:
+        logger.debug("Failed to read selector columns; returning empty set", exc_info=True)
         return set()
 
 
@@ -1095,6 +1102,7 @@ def _get_job_primary_scope_country(con, job_id: int, scope_name: str) -> str:
             return ""
         return _normalize_country_token(row[0])
     except Exception:
+        logger.debug("Failed to resolve dataset country; returning empty string", exc_info=True)
         return ""
 
 
@@ -1189,7 +1197,7 @@ def _load_energy_factors_from_asset(year: int) -> tuple[float | None, float | No
     try:
         candidate_years.append(int(year))
     except Exception:
-        pass
+        logger.debug("Ignoring invalid template year input while building candidate years", exc_info=True)
     if 2025 not in candidate_years:
         candidate_years.append(2025)
 
@@ -1293,6 +1301,7 @@ def _lookup_energy_factors_from_dataset(con, dataset_id: int) -> tuple[float | N
                 [int(dataset_id)],
             ).fetchall()
         except Exception:
+            logger.debug("Failed to load factor_lookup rows for energy factor resolution; returning no rows", exc_info=True)
             rows = []
 
     best_location_factor: tuple[int, float] | None = None
@@ -1359,7 +1368,7 @@ def _get_job_energy_factor_year(con, job_id: int, dataset_id: int | None) -> int
             if row and row[0] is not None:
                 return int(row[0])
         except Exception:
-            pass
+            logger.debug("Ignoring energy-factor year lookup failure", exc_info=True)
 
     try:
         row = con.execute(
@@ -1384,7 +1393,7 @@ def _get_job_energy_factor_year(con, job_id: int, dataset_id: int | None) -> int
             if row[2] is not None:
                 return int(row[2])
     except Exception:
-        pass
+        logger.debug("Ignoring job reporting-year lookup failure", exc_info=True)
 
     return datetime.now().year
 
@@ -1407,6 +1416,7 @@ def _get_energy_emissions_factor_pair(con, job_id: int) -> tuple[float, float]:
     try:
         resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
     except Exception:
+        logger.debug("Failed to resolve dataset resolution for energy factor pair; defaulting to empty resolution", exc_info=True)
         resolution = {}
 
     dataset_catalog = {
@@ -1473,6 +1483,7 @@ def _get_energy_emissions_factor_details(con, job_id: int) -> dict[str, float]:
     try:
         resolution = resolve_dataset_resolution(int(job_id), scopes=("Scope 2", "Scope 3"))
     except Exception:
+        logger.debug("Failed to resolve dataset resolution for report template sync; defaulting to empty resolution", exc_info=True)
         resolution = {}
 
     dataset_catalog = {
@@ -1767,6 +1778,7 @@ def _sync_datasets_names_from_resolver(job_id: int, meta: dict[str, Any]) -> boo
     try:
         resolved_names = str(get_datasets_names_for_report(int(job_id)) or "").strip()
     except Exception:
+        logger.debug("Failed to resolve datasets names for report sync", exc_info=True)
         return False
 
     if not resolved_names:
@@ -1805,7 +1817,6 @@ def _sync_employee_number_from_intensity_metrics(con, job_id: int, meta: dict[st
                 try:
                     new_employee_number = int(employees_value)
                     current_employee_number = meta.get("employee_number")
-                    
                     # Sync if: current is None/0 OR intensity metrics value is different
                     if current_employee_number is None or current_employee_number == 0:
                         meta["employee_number"] = new_employee_number
@@ -1816,10 +1827,11 @@ def _sync_employee_number_from_intensity_metrics(con, job_id: int, meta: dict[st
                         meta["employee_number"] = new_employee_number
                         return True
                 except (ValueError, TypeError):
-                    pass
-                    
+                    logger.debug("Ignoring malformed employee_number value while syncing intensity metrics", exc_info=True)
+
         return False
     except Exception:
+        logger.debug("Failed to sync employee number from intensity metrics", exc_info=True)
         return False
 
 
@@ -1879,10 +1891,11 @@ def _sync_reporting_elements_from_intensity_metrics(con, job_id: int, meta: dict
                             meta[meta_key] = new_value
                             changed = True
                     except (ValueError, TypeError):
-                        pass
+                        logger.debug("Ignoring malformed intensity metric value while syncing report metadata", exc_info=True)
         
         return changed
     except Exception:
+        logger.debug("Failed to sync reporting elements from intensity metrics", exc_info=True)
         return False
 
 
@@ -1939,6 +1952,7 @@ def _lookup_team_member(
                     [name, name, name],
                 ).fetchone()
             except Exception:
+                logger.debug("Consultant lookup failed against users table; returning no consultant match", exc_info=True)
                 row = None
         if row:
             full_name = str(row[0]).strip() if row[0] is not None else None
@@ -1975,6 +1989,7 @@ def _lookup_team_member(
                     [normalized_actor, normalized_actor],
                 ).fetchone()
             except Exception:
+                logger.debug("Consultant lookup failed against users table for normalized actor; returning no consultant match", exc_info=True)
                 row = None
         if row:
             full_name = str(row[0]).strip() if row[0] is not None else None
@@ -2150,7 +2165,7 @@ def _build_default_report_meta(con, job_id: int, actor_email: str | None = None)
                     employee_number = int(employees_value)
                 except (ValueError, TypeError):
                     # Keep the fallback value if conversion fails
-                    pass
+                    logger.debug("Ignoring malformed employees.value while deriving employee number", exc_info=True)
 
     defaults = dict(REPORT_METADATA_DEFAULTS)
     defaults.update(
@@ -3051,7 +3066,7 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
                     _user.get("email", "system:auto-template"),
                 )
             except Exception:
-                pass
+                logger.debug("Ignoring default template auto-assignment failure", exc_info=True)
 
             assignment_cols = _get_table_columns(con, "job_report_template_assignments")
             template_cols = _get_table_columns(con, "report_templates")
@@ -3191,6 +3206,7 @@ def get_job_report_template_assignment(job_id: int, _user: dict = Depends(_curre
 
             return {"job_id": int(job_id), "assignment": assignment, "available_templates": available}
     except Exception:
+        logger.debug("Failed to load report template assignment; returning empty payload", exc_info=True)
         return {"job_id": int(job_id), "assignment": None, "available_templates": []}
 
 
@@ -3371,9 +3387,12 @@ def get_job_report_variables(
     except HTTPException:
         raise
     except Exception as e:
-        print(
-            f"[report-variables] job_id={job_id} template_id={template_id} "
-            f"version_id={version_id} error={type(e).__name__}: {e}"
+        logger.error(
+            "Failed to load report variables for job %s template %s version %s",
+            job_id,
+            template_id,
+            version_id,
+            exc_info=True,
         )
         raise HTTPException(status_code=500, detail=f"Failed to load variables: {type(e).__name__}: {e}")
 

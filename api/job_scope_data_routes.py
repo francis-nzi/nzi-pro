@@ -4,6 +4,7 @@ Supports in-app data entry with real-time calculations.
 """
 
 import math
+import logging
 import re
 from typing import Any
 import pandas as pd
@@ -17,6 +18,7 @@ from services.dataset_selector import get_scope_primary_datasets
 from services.monthly_emissions import JobMonthlyEmissionsResolver
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _FACTOR_ORIGINAL_ID_RE = re.compile(r"(?:^|[;( ])factor_original_id=([^;)\s]+)", re.IGNORECASE)
 _STORAGE_REASON_RE = re.compile(r"(?:^|[;( ])storage_reason=([^;)\s]+)", re.IGNORECASE)
@@ -27,55 +29,55 @@ def _ensure_job_scope_rows_schema(con) -> None:
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS site_id INTEGER")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.site_id compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS category VARCHAR")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.category compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS level_4 VARCHAR")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.level_4 compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS report_label VARCHAR")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.report_label compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS ghg_unit VARCHAR")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.ghg_unit compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS apply_pct NUMERIC DEFAULT 100")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.apply_pct compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS data_source VARCHAR DEFAULT 'Company Data'")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.data_source compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS data_confidence VARCHAR DEFAULT 'M'")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.data_confidence compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS is_custom_entry BOOLEAN DEFAULT FALSE")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.is_custom_entry compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.enabled compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_qty NUMERIC")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.source_qty compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS source_uom VARCHAR")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.source_uom compatibility migration failure", exc_info=True)
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows.updated_at compatibility migration failure", exc_info=True)
     try:
         con.execute(
             """
@@ -85,11 +87,11 @@ def _ensure_job_scope_rows_schema(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows unique index compatibility migration failure", exc_info=True)
     try:
         con.execute("DROP INDEX IF EXISTS job_scope_rows_job_site_scope_oid_uidx")
     except Exception:
-        pass
+        logger.debug("Ignoring job_scope_rows unique index drop failure", exc_info=True)
 
 
 def _legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
@@ -101,6 +103,7 @@ def _legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
                 [int(job_id)]
             ).df()
     except Exception:
+        logger.debug("Failed to load legacy scope dataset map; returning empty map", exc_info=True)
         return dataset_map
 
     if df_config is None or df_config.empty:
@@ -114,6 +117,7 @@ def _legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
             try:
                 dataset_map[str(scope_val)] = int(dataset_id)
             except Exception:
+                logger.debug("Skipping invalid legacy scope dataset mapping value", exc_info=True)
                 continue
 
     return dataset_map
@@ -149,6 +153,7 @@ def _additional_dataset_ids(con, job_id: int) -> list[int]:
                 out.append(int(dsid))
         return out
     except Exception:
+        logger.debug("Failed to load legacy scope dataset ids; returning empty list", exc_info=True)
         return []
 
 
@@ -158,6 +163,7 @@ def _safe_int(value):
     try:
         return int(float(value))
     except Exception:
+        logger.debug("Failed to coerce numeric value; returning None", exc_info=True)
         return None
 
 
@@ -170,6 +176,7 @@ def _safe_float(value):
             return None
         return out
     except Exception:
+        logger.debug("Failed to parse output row bundle; returning None", exc_info=True)
         return None
 
 
@@ -186,13 +193,13 @@ def _json_safe(value):
         if pd.isna(value):
             return None
     except Exception:
-        pass
+        logger.debug("Skipping NaN check failure while normalizing value", exc_info=True)
     try:
         # NumPy scalar -> Python scalar
         if hasattr(value, "item"):
             return value.item()
     except Exception:
-        pass
+        logger.debug("Skipping item() extraction failure while normalizing value", exc_info=True)
     return value
 
 
@@ -210,6 +217,7 @@ def _table_columns(con, table_name: str) -> set[str]:
             return set()
         return {str(v).strip().lower() for v in df["column_name"].tolist()}
     except Exception:
+        logger.debug("Failed to read selector columns; returning empty set", exc_info=True)
         return set()
 
 
@@ -286,6 +294,7 @@ def _lookup_factor_from_reference(con, dataset_id: int | None, scope: str | None
         try:
             row = con.execute(query, params).fetchone()
         except Exception:
+            logger.debug("Optional lookup failed while resolving scope data", exc_info=True)
             row = None
         if not row:
             continue
@@ -397,6 +406,7 @@ def _load_custom_factor_year_values(con, factor_ids: list[int]) -> dict[int, dic
             ).fetchone()
         )
     except Exception:
+        logger.debug("Failed to detect table existence; defaulting to False", exc_info=True)
         table_exists = False
 
     if not table_exists:
@@ -512,7 +522,7 @@ def get_job_scope_data(
             try:
                 resolver = JobMonthlyEmissionsResolver(con, job_id_int)
             except Exception as resolver_error:
-                print(f"WARNING: falling back to minimal scope-data metrics for job {job_id_int}: {resolver_error}")
+                logger.warning("Falling back to minimal scope-data metrics for job %s", job_id_int, exc_info=True)
                 resolver = None
             
             # Build query
@@ -597,7 +607,7 @@ def get_job_scope_data(
                     try:
                         metrics = resolver.row_metrics(r) if resolver is not None else _scope_data_fallback_metrics(r)
                     except Exception as metrics_error:
-                        print(f"WARNING: resolver failed for row {r.get('row_id')}: {metrics_error}")
+                        logger.warning("Scope-data resolver failed for row %s", r.get("row_id"), exc_info=True)
                         metrics = _scope_data_fallback_metrics(r)
                     source_qty_val = safe_float(metrics.get("source_qty"))
                     source_uom_val = metrics.get("source_uom")
@@ -666,14 +676,13 @@ def get_job_scope_data(
                         "updated_at": str(r.get("updated_at")) if r.get("updated_at") else None,
                     })
                 except Exception as row_error:
-                    print(f"ERROR processing row {idx}: {row_error}")
-                    print(f"Row data: {raw_row}")
+                    logger.error("Error processing scope row %s", idx, exc_info=True)
                     raise
             
             try:
                 job_id_int = int(job_id)
             except Exception as jid_error:
-                print(f"ERROR converting job_id to int: {job_id}, error: {jid_error}")
+                logger.error("Error converting job_id to int for scope data", exc_info=True)
                 job_id_int = job_id
             
             return {"job_id": job_id_int, "rows": rows, "total": len(rows)}
@@ -681,11 +690,7 @@ def get_job_scope_data(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR in get_job_scope_data: {error_details}")
-        print(f"Exception type: {type(e)}")
-        print(f"Exception args: {e.args}")
+        logger.error("ERROR in get_job_scope_data", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to fetch scope data: {str(e)}")
 
 
@@ -703,7 +708,7 @@ def get_job_notes_summary(
             if hasattr(value, "isoformat"):
                 return value.isoformat()
         except Exception:
-            pass
+            logger.debug("Skipping isoformat conversion failure while normalizing value", exc_info=True)
         text_value = str(value).strip()
         return text_value or None
 
@@ -1199,7 +1204,7 @@ def create_scope_data_row(
                     else:
                         resolved_dataset_id = current_ds
             except Exception:
-                pass
+                logger.debug("Ignoring resolved_dataset_id conversion failure while updating scope config", exc_info=True)
 
             # Fall back to whatever the payload supplied if resolution failed
             final_dataset_id = resolved_dataset_id if resolved_dataset_id is not None else payload.get("dataset_id")
@@ -1460,7 +1465,7 @@ def delete_scope_data_row(
 @router.get("/jobs/{job_id}/template-factors-test")
 def get_template_factors_test(job_id: int):
     """Simple test endpoint without authentication"""
-    print(f"TEST ENDPOINT CALLED for job_id={job_id}")
+    logger.debug("TEST ENDPOINT CALLED for job_id=%s", job_id)
     return {"test": "success", "job_id": job_id}
 
 @router.get("/jobs/{job_id}/template-factors")
@@ -1501,6 +1506,7 @@ def get_template_factors(
                 try:
                     job_reporting_year = int(getattr(job_row[2], "year", None) or str(job_row[2])[:4])
                 except Exception:
+                    logger.debug("Failed to derive job reporting year from job row", exc_info=True)
                     job_reporting_year = None
 
             search_term = (search or "").strip().lower()
@@ -1515,6 +1521,7 @@ def get_template_factors(
                         dataset_map[str(scope_val)] = int(dataset_id)
             except Exception:
                 # Fall back to legacy manual scope config.
+                logger.debug("Falling back to legacy manual scope config after scope dataset resolution failed", exc_info=True)
                 dataset_map = {}
 
             if not dataset_map:
@@ -1539,6 +1546,7 @@ def get_template_factors(
                     ).fetchone()
                 )
             except Exception:
+                logger.debug("Unable to detect custom factor state; defaulting to False", exc_info=True)
                 has_custom_factors = False
 
             if has_custom_factors:
@@ -1640,7 +1648,7 @@ def get_template_factors(
                                 }
                             )
                 except Exception as cf_error:
-                    print(f"WARNING: custom_factors load skipped due to error: {cf_error}")
+                    logger.warning("custom_factors load skipped due to error", exc_info=True)
 
             # ---------------------------------------------------------------
             # 1b) Job-scoped custom factors - only for this job
@@ -1657,6 +1665,7 @@ def get_template_factors(
                     ).fetchone()
                 )
             except Exception:
+                logger.debug("Unable to detect job custom factor state; defaulting to False", exc_info=True)
                 has_job_custom_factors = False
 
             if has_job_custom_factors:
@@ -1738,7 +1747,7 @@ def get_template_factors(
                                 }
                             )
                 except Exception as jcf_error:
-                    print(f"WARNING: job_custom_factors load skipped due to error: {jcf_error}")
+                    logger.warning("job_custom_factors load skipped due to error", exc_info=True)
 
             custom_total = len(custom_factors)
 
@@ -1835,7 +1844,7 @@ def get_template_factors(
                     factors = [*custom_page, *dataset_factors]
                     total_count = custom_total + dataset_total
                 except Exception as ds_error:
-                    print(f"WARNING: dataset factor lookup failed, returning custom factors only: {ds_error}")
+                    logger.warning("dataset factor lookup failed, returning custom factors only", exc_info=True)
                     factors = custom_factors[offset: offset + limit]
                     total_count = custom_total
             else:
@@ -1855,9 +1864,7 @@ def get_template_factors(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        error_details = f"Failed to fetch template factors: {e}\n{traceback.format_exc()}"
-        print(f"ERROR: {error_details}")
+        logger.error("Failed to fetch template factors for job %s", job_id, exc_info=True)
         # Fail-safe response for UI continuity; diagnostics are logged server-side.
         return {
             "job_id": int(job_id),

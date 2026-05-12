@@ -6,6 +6,7 @@ Generates comprehensive PDF reports with emissions data.
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
+import logging
 import io
 from datetime import datetime
 import hashlib
@@ -57,6 +58,8 @@ from services.client_benchmark import ensure_client_benchmark_columns, get_clien
 from services.audit_log import record_audit_event
 from api.job_data_output_routes import _load_data_output_rows, _build_scope_summary
 
+logger = logging.getLogger(__name__)
+
 # DocRaptor configuration
 DOCRAPTOR_API_KEY = os.getenv('DOCRAPTOR_API_KEY', 'YOUR_TEST_API_KEY_GENERATES_WATERMARKS')
 # Production mode when a real key is configured; test mode (watermarked) otherwise
@@ -91,6 +94,7 @@ def _table_columns(con, table_name: str) -> set[str]:
             [table_name],
         ).fetchall()
     except Exception:
+        logger.debug("Failed to read table columns for report helper; returning empty set", exc_info=True)
         return set()
     return {str(row[0]).strip().lower() for row in rows if row and row[0] is not None}
 
@@ -177,13 +181,13 @@ def _get_nzi_logo_src() -> str:
             if logo_b64:
                 return f"data:{mime};base64,{logo_b64}"
     except Exception:
-        pass
+        logger.debug("Falling back to filesystem logo lookup after DB lookup failed", exc_info=True)
     # 2. Try local file (dev / first-run before any upload)
     try:
         if _SYSTEM_LOGO_PATH.exists():
             return "data:image/png;base64," + base64.b64encode(_SYSTEM_LOGO_PATH.read_bytes()).decode("ascii")
     except Exception:
-        pass
+        logger.debug("Falling back to empty logo after filesystem logo lookup failed", exc_info=True)
     return ""
 
 
@@ -209,7 +213,7 @@ def _get_client_logo_src(logo_url: str | None) -> str:
             mime = mime_map.get(suffix, "image/png")
             return f"data:{mime};base64," + base64.b64encode(file_path.read_bytes()).decode("ascii")
     except Exception:
-        pass
+        logger.debug("Falling back to original client logo URL after local file lookup failed", exc_info=True)
     return logo_url
 
 
@@ -222,7 +226,7 @@ def _normalize_render_value(value):
         if isinstance(value, float) and value != value:
             return ""
     except Exception:
-        pass
+        logger.debug("Unable to normalize render value; returning original value", exc_info=True)
     return value
 
 
@@ -440,7 +444,7 @@ def _ensure_report_versions_schema(con) -> None:
         try:
             con.execute(_stmt)
         except Exception:
-            pass
+            logger.debug("Ignoring job_report_versions DDL compatibility failure", exc_info=True)
     try:
         con.execute(
             """
@@ -453,7 +457,7 @@ def _ensure_report_versions_schema(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Ignoring job_report_versions org backfill failure", exc_info=True)
 
 
 def _ensure_report_drafts_schema(con) -> None:
@@ -508,7 +512,7 @@ def _ensure_report_drafts_schema(con) -> None:
             """
         )
     except Exception:
-        pass
+        logger.debug("Ignoring job_report_drafts org backfill failure", exc_info=True)
 
 
 def _safe_path_segment(text: str | None) -> str:
@@ -861,6 +865,7 @@ def _load_report_version_snapshot(con, job_id: int, report_version_id: int) -> t
     try:
         snapshot_payload = json.loads(snapshot_raw)
     except Exception as exc:
+        logger.warning("Failed to parse report version snapshot JSON", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to parse report version snapshot: {exc}")
     if not isinstance(snapshot_payload, dict):
         raise HTTPException(status_code=500, detail="Report version snapshot is invalid")
@@ -941,11 +946,13 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
             try:
                 template_selection = _get_template_selection(int(template_id), int(version_id))
             except Exception:
+                logger.debug("Failed to resolve explicit report template selection; falling back to snapshot metadata", exc_info=True)
                 template_selection = None
         elif template_id is not None:
             try:
                 template_selection = _get_template_selection(int(template_id), None)
             except Exception:
+                logger.debug("Failed to resolve report template selection without version; falling back to snapshot metadata", exc_info=True)
                 template_selection = None
         if not template_selection:
             template_selection = template_meta
@@ -1301,6 +1308,7 @@ def _records_from_df(df):
     try:
         return df.where(df.notna(), None).to_dict("records")
     except Exception:
+        logger.debug("Failed to load job sites; returning empty list", exc_info=True)
         return []
 
 
@@ -1695,6 +1703,7 @@ def _coerce_float(value: Any) -> float:
             return 0.0
         return float(value)
     except Exception:
+        logger.debug("Failed to coerce float in report helper; defaulting to 0.0", exc_info=True)
         return 0.0
 
 
@@ -1733,41 +1742,49 @@ def _build_report_draft_context(job_id: int, template_key: str | None = None) ->
     try:
         scope_totals = get_scope_totals(job_id)
     except Exception:
+        logger.warning("Failed to load scope totals for job %s; using zero totals", job_id, exc_info=True)
         scope_totals = _safe_totals()
 
     try:
         categories = get_emissions_by_category(job_id)
     except Exception:
+        logger.warning("Failed to load emissions by category for job %s; using empty list", job_id, exc_info=True)
         categories = []
 
     try:
         benchmark_totals = get_benchmark_emissions(job_id, job_data.get("benchmark_year"))
     except Exception:
+        logger.warning("Failed to load benchmark totals for job %s; using zero totals", job_id, exc_info=True)
         benchmark_totals = _safe_totals()
 
     try:
         benchmark_job_id = _resolve_benchmark_reference_job(job_id, job_data.get("benchmark_year"))
     except Exception:
+        logger.debug("Failed to resolve benchmark reference for job %s; continuing without benchmark", job_id, exc_info=True)
         benchmark_job_id = None
 
     try:
         previous_job_data = get_job_data(benchmark_job_id) if benchmark_job_id else None
     except Exception:
+        logger.debug("Failed to load previous-year job data for job %s; continuing without comparison context", job_id, exc_info=True)
         previous_job_data = None
 
     try:
         previous_categories = get_emissions_by_category(benchmark_job_id) if benchmark_job_id else []
     except Exception:
+        logger.debug("Failed to load previous-year emissions categories for job %s; continuing without comparison data", job_id, exc_info=True)
         previous_categories = []
 
     try:
         job_actions = get_job_report_actions_payload(job_id)
     except Exception:
+        logger.debug("Failed to load report actions payload for job %s; continuing with empty actions", job_id, exc_info=True)
         job_actions = {"items": [], "term_counts": {}}
 
     try:
         selected_template = _get_job_assigned_template_selection(int(job_id))
     except Exception:
+        logger.debug("Failed to load selected report template for job %s; continuing without assignment details", job_id, exc_info=True)
         selected_template = None
 
     current_total = _coerce_float(scope_totals.get("Total"))
@@ -1832,6 +1849,7 @@ def _serialize_report_draft_row(row: dict[str, Any]) -> dict[str, Any]:
             if isinstance(maybe, dict):
                 parsed_json = maybe
         except Exception:
+            logger.debug("Failed to parse draft JSON payload; continuing without structured draft", exc_info=True)
             parsed_json = None
 
     return {
@@ -2092,6 +2110,7 @@ def get_emissions_by_category(job_id: int):
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
             rows = _load_reporting_rows(con, int(job_id))
         except Exception:
+            logger.warning("Failed to load reporting rows for job %s; returning empty emissions breakdown", job_id, exc_info=True)
             return []
 
         if not rows:
@@ -2104,6 +2123,7 @@ def get_emissions_by_category(job_id: int):
                 qty_val = float(metrics.get("display_qty") or 0.0)
                 emissions = float(metrics.get("calc_tco2e") or 0.0)
             except Exception:
+                logger.debug("Skipping malformed emissions row for job %s", job_id, exc_info=True)
                 continue
 
             categories.append({
@@ -2306,7 +2326,7 @@ def get_intensity_metrics(job_id: int):
                     if row and row[0] is not None:
                         employee_number = float(row[0])
                 except Exception:
-                    pass
+                    logger.debug("Legacy employee_number lookup from job_report_metadata failed; trying fallback source", exc_info=True)
                 
                 # Fall back to crp_job_details
                 if employee_number is None:
@@ -2319,7 +2339,7 @@ def get_intensity_metrics(job_id: int):
                         if row and row[0] is not None:
                             employee_number = float(row[0])
                     except Exception:
-                        pass
+                        logger.debug("Legacy employee_number lookup from crp_job_details failed; continuing without FTE metric", exc_info=True)
                 
                 # If we have an employee number, add it as FTE metric
                 if employee_number is not None and employee_number > 0:
@@ -2332,7 +2352,7 @@ def get_intensity_metrics(job_id: int):
             
             return result
     except Exception:
-        # Table doesn't exist or other error - return empty list
+        logger.debug("Failed to build intensity metrics; returning empty list", exc_info=True)
         return []
 
 
@@ -2371,6 +2391,7 @@ def get_job_sites(job_id: int):
                 })
             return result
     except Exception:
+        logger.debug("Failed to load job sites for report; returning empty list", exc_info=True)
         return []
 
 
@@ -2399,7 +2420,7 @@ def get_emissions_by_site(job_id: int):
             
             return sites
     except Exception:
-        # Table doesn't exist or other error - return empty dict
+        logger.debug("Failed to load emissions by site; returning empty dict", exc_info=True)
         return {}
 
 
@@ -2764,6 +2785,7 @@ def _parse_legacy_glossary_terms(raw: Any) -> list[dict[str, str]]:
         try:
             data = json.loads(txt)
         except Exception:
+            logger.debug("Failed to parse legacy glossary payload; returning empty list", exc_info=True)
             return []
     if not isinstance(data, list):
         return []
@@ -3031,7 +3053,7 @@ def _apply_docx_brand_styles(doc) -> None:
         normal.paragraph_format.space_after = Pt(4)
 
     except Exception:
-        pass  # If styling fails for any reason, continue with unstyled doc
+        logger.warning("DOCX brand styling failed; continuing with unstyled document", exc_info=True)
 
 
 def _docx_shade_table_header(table) -> None:
@@ -3064,7 +3086,7 @@ def _docx_shade_table_header(table) -> None:
                     run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
                     run.font.bold = True
     except Exception:
-        pass
+        logger.warning("DOCX table header shading failed; continuing without header styling", exc_info=True)
 
 
 def _docx_add_cover_page(doc, job_data: dict, generation_date: str, template_name: str, report_metadata: dict) -> None:
@@ -3146,7 +3168,7 @@ def _docx_add_cover_page(doc, job_data: dict, generation_date: str, template_nam
         doc.add_page_break()
 
     except Exception:
-        # Cover creation failed â€” continue with body content
+        logger.warning("DOCX cover creation failed; continuing with body content", exc_info=True)
         doc.add_page_break()
 
 
@@ -3166,7 +3188,7 @@ def _docx_embed_chart(doc, base64_str: str, title: str = "", width_cm: float = 1
             p.runs[0].bold = True if p.runs else None
         doc.add_picture(img_stream, width=Cm(width_cm))
     except Exception:
-        pass
+        logger.warning("Chart embed failed for report section '%s'; continuing without image", title, exc_info=True)
 
 
 def _resolve_selected_template(job_id: int, payload: GenerateReportPayload | None):
@@ -3271,6 +3293,7 @@ def get_emissions_by_activity(job_id: int, _user: dict[str, str] = Depends(_curr
         categories = get_emissions_by_category(job_id)
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
     except Exception:
+        logger.warning("Failed to build activity grouping for job %s; using empty categories", job_id, exc_info=True)
         categories = []
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
 
@@ -4193,7 +4216,7 @@ def generate_html_report(
         intensity_metrics = get_intensity_metrics(job_id)
         
         # Generate ALL chart assets using the comprehensive function
-        print(f"[DEBUG] Generating report assets for job {job_id}...")
+        logger.debug("Generating report assets for job %s", job_id)
         assets = generate_report_assets(
             job_data=job_data,
             scope_totals=scope_totals,
@@ -4202,13 +4225,13 @@ def generate_html_report(
             intensity_metrics=intensity_metrics,
             target_data=target_data
         )
-        print(f"[DEBUG] Generated assets keys: {list(assets.keys())}")
+        logger.debug("Generated report asset keys: %s", list(assets.keys()))
         
         # Extract chart images from assets for template compatibility
         scope_chart_base64 = assets.get('scope_breakdown', '')
         activity_chart_base64 = assets.get('activity_breakdown', '')
-        print(f"[DEBUG] scope_chart_base64 length: {len(scope_chart_base64)}")
-        print(f"[DEBUG] activity_chart_base64 length: {len(activity_chart_base64)}")
+        logger.debug("scope_chart_base64 length: %s", len(scope_chart_base64))
+        logger.debug("activity_chart_base64 length: %s", len(activity_chart_base64))
         
         # Setup Jinja2 template environment
         template_dir = os.path.join(os.path.dirname(__file__), 'templates')
