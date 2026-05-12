@@ -914,13 +914,7 @@ export default function JobReportNew({
 
   async function assignProfile(profile: ReportProfile) {
     const template = templates.find((item) => item.template_key === profile.templateKey);
-    if (!template) {
-      setSelectedKey(profile.key);
-      setStatus("This profile is not seeded yet. It is ready for the next reporting phase.");
-      return;
-    }
-
-    setSavingTemplateId(template.template_id);
+    setSavingTemplateId(template?.template_id ?? -1);
     setStatus("");
     setError("");
 
@@ -930,8 +924,9 @@ export default function JobReportNew({
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          template_id: template.template_id,
-          version_id: template.latest_version_id ?? null,
+          template_id: template?.template_id ?? null,
+          template_key: profile.templateKey,
+          version_id: template?.latest_version_id ?? null,
         }),
       }, 1);
 
@@ -943,12 +938,12 @@ export default function JobReportNew({
       const data = await res.json();
       setAssignment({
         job_id: jobId,
-        template_id: template.template_id,
-        version_id: data?.version_id ?? template.latest_version_id ?? null,
-        template_key: template.template_key,
-        template_name: template.template_name,
-        template_type: template.template_type,
-        version_number: template.latest_version_number ?? null,
+        template_id: data?.template_id ?? template?.template_id ?? null,
+        version_id: data?.version_id ?? template?.latest_version_id ?? null,
+        template_key: template?.template_key ?? profile.templateKey,
+        template_name: template?.template_name ?? profile.title,
+        template_type: template?.template_type ?? "carbon_reduction_plan",
+        version_number: template?.latest_version_number ?? null,
       });
       setSelectedKey(profile.key);
       setStatus(`${profile.title} - ${profile.subtitle} assigned to this job.`);
@@ -1111,7 +1106,6 @@ export default function JobReportNew({
             <div className="grid gap-4 md:grid-cols-2">
               {PROFILE_LIBRARY.map((profile) => {
                 const template = templates.find((item) => item.template_key === profile.templateKey);
-                const isAvailable = Boolean(template);
                 const isSelected = selectedProfile.key === profile.key;
                 return (
                   <div
@@ -1148,18 +1142,17 @@ export default function JobReportNew({
                       <Button
                         size="sm"
                         className="gap-2"
-                        disabled={loading || !isAvailable || savingTemplateId === template?.template_id}
+                        disabled={loading || savingTemplateId === template?.template_id}
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          if (!isAvailable) return;
                           void assignProfile(profile);
                         }}
                       >
-                        {savingTemplateId === template?.template_id ? "Assigning..." : isAvailable ? "Use this profile" : "Not seeded yet"}
-                        {isAvailable ? <ArrowRight className="h-4 w-4" /> : null}
+                        {savingTemplateId === template?.template_id ? "Assigning..." : "Use this profile"}
+                        <ArrowRight className="h-4 w-4" />
                       </Button>
-                      {isAvailable && template?.latest_version_number ? (
+                      {template?.latest_version_number ? (
                         <Badge variant="outline">v{template.latest_version_number}</Badge>
                       ) : null}
                     </div>

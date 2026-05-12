@@ -405,7 +405,8 @@ class SaveJobVariablesPayload(BaseModel):
 
 
 class AssignTemplatePayload(BaseModel):
-    template_id: int
+    template_id: int | None = None
+    template_key: str | None = None
     version_id: Optional[int] = None
 
 
@@ -3231,17 +3232,45 @@ def upsert_job_report_template_assignment(
         client_db_id = _get_job_client_id(con, int(job_id))
         org_id = _get_job_org_id(con, int(job_id))
 
-        template = con.execute(
-            """
-            SELECT template_id, is_active, COALESCE(is_global, TRUE) AS is_global,
-                   client_db_id
-            FROM report_templates
-            WHERE template_id = %s
-            """,
-            [int(payload.template_id)],
-        ).fetchone()
+        template = None
+        if payload.template_id is not None:
+            template = con.execute(
+                """
+                SELECT template_id, is_active, COALESCE(is_global, TRUE) AS is_global,
+                       client_db_id
+                FROM report_templates
+                WHERE template_id = %s
+                """,
+                [int(payload.template_id)],
+            ).fetchone()
+
+        template_key = str(payload.template_key or "").strip().lower()
+        if not template and template_key:
+            template = con.execute(
+                """
+                SELECT template_id, is_active, COALESCE(is_global, TRUE) AS is_global,
+                       client_db_id
+                FROM report_templates
+                WHERE LOWER(template_key) = %s
+                """,
+                [template_key],
+            ).fetchone()
+
+        if not template and template_key in {"crp_standard", "annual_carbon_report"}:
+            _seed_default_report_templates(con)
+            template = con.execute(
+                """
+                SELECT template_id, is_active, COALESCE(is_global, TRUE) AS is_global,
+                       client_db_id
+                FROM report_templates
+                WHERE LOWER(template_key) = %s
+                """,
+                [template_key],
+            ).fetchone()
+
         if not template:
-            raise HTTPException(status_code=404, detail="Template not found")
+            missing_ref = template_key or (str(payload.template_id) if payload.template_id is not None else "")
+            raise HTTPException(status_code=404, detail=f"Template not found: {missing_ref or 'unknown'}")
         if not bool(template[1]):
             raise HTTPException(status_code=400, detail="Template is inactive")
 
