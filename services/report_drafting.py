@@ -186,7 +186,27 @@ def _build_section_fallback_draft(context: dict[str, Any], section_key: str) -> 
                 paragraph_2 += "."
         else:
             paragraph_2 = "The report should focus on the main emissions drivers and the practical reduction themes most likely to move the footprint."
-        return f"{paragraph_1} {paragraph_2}"
+        commitment_year = _text(job_data.get("net_zero_year") or "")
+        interim_year = _text(job_data.get("interim_year") or "")
+        intensity_bits: list[str] = []
+        if _as_float(job_data.get("no_of_staff")) > 0:
+            intensity_bits.append(f"the organisation reports an average headcount of {_as_float(job_data.get('no_of_staff')):.0f}")
+        if any(_as_float(job_data.get(field)) > 0 for field in ("no_premises_owned", "no_premises_leased", "no_vehicles_owned", "no_vehicles_leased")):
+            intensity_bits.append("the operational footprint spans premises and vehicle activity")
+        if commitment_year:
+            intensity_bits.append(
+                "the wider Net Zero programme targets "
+                f"{commitment_year}{f' with an interim milestone in {interim_year}' if interim_year else ''}"
+            )
+        extra_sentence = ""
+        if intensity_bits:
+            extra_sentence = " " + " ".join(
+                [
+                    "Additional context:",
+                    "; ".join(intensity_bits).strip().capitalize() + ".",
+                ]
+            )
+        return f"{paragraph_1} {paragraph_2}{extra_sentence}".strip()
 
     if section_key == "emissions_overview":
         paragraph_1 = (
@@ -418,6 +438,9 @@ def _build_context_lines(context: dict[str, Any]) -> list[str]:
         f"Section: {_get_section_config(str(context.get('section_key') or '')).get('title')}",
         f"Job: {_text(job_data.get('job_number') or context.get('job_id'))} | {_text(job_data.get('client_name') or 'Client')} | Reporting year {_text(job_data.get('reporting_year') or 'N/A')}",
         f"Client: {_text(job_data.get('industry') or 'Unknown industry')} | {_text(job_data.get('country') or 'Unknown country')}",
+        f"Company context: Net Zero target year {_text(job_data.get('net_zero_year') or 'N/A')} | Interim year {_text(job_data.get('interim_year') or 'N/A')} | Benchmark year {_text(job_data.get('benchmark_year') or 'N/A')}",
+        f"Operational context: {_text(job_data.get('description') or 'No company description provided.')}",
+        f"Workforce context: Headcount {_text(job_data.get('no_of_staff') or 'N/A')} | Premises owned {_text(job_data.get('no_premises_owned') or 'N/A')} | Premises leased {_text(job_data.get('no_premises_leased') or 'N/A')} | Vehicles owned {_text(job_data.get('no_vehicles_owned') or 'N/A')} | Vehicles leased {_text(job_data.get('no_vehicles_leased') or 'N/A')}",
         f"Current totals: {_scope_total_text(scope_totals)}",
         f"Benchmark totals: {_scope_total_text(benchmark_totals)}",
     ]
@@ -505,6 +528,9 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
             "Write the draft_text as finished report prose, not as a prompt, note, or placeholder sentence.",
             "Do not write phrases like 'draft the section' or 'use the supplied evidence' in the draft_text field.",
             f"{config['length']} {config['style']}",
+            "For Executive Summary, write a more complete board-ready narrative: start with the total emissions story, then explain the year-on-year movement, the main drivers, what it means for the business, and the practical direction of travel.",
+            "Where the evidence supports it, mention the Net Zero target year, interim milestone, workforce scale, and intensity context so the summary feels more strategic and less like a numbers-only note.",
+            "Keep the tone confident, professional, and company-specific. Do not overstate claims that are not evidenced.",
             "Round emissions values to 1 decimal place in the prose unless a source value is explicitly shown with a different precision.",
             "The draft_text should read naturally in a report and should be specific to the evidence pack.",
             "Return ONLY valid JSON with this schema:",
@@ -513,6 +539,7 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
             f"Client name: {client_name or 'Client'}",
             f"Section purpose: {config['purpose']}",
             f"Section focus: {config['focus']}",
+            "Style note: the executive summary should read like a polished narrative overview, not a short summary sentence.",
             "",
             "Evidence pack:",
             *[f"- {line}" for line in lines],
