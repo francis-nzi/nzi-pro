@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, FileText, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, CircleX, FileText, Sparkles, Target } from "lucide-react";
 import { apiUrl } from "@/lib/auth-client";
 
 type ReportTemplate = {
@@ -1345,15 +1345,40 @@ export default function JobReportNew({
                   { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
                   { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
                   { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
-                ].map((item) => (
-                  <div key={item.label} className="flex gap-2 rounded-lg border p-2.5">
-                    <CheckCircle2 className={`mt-0.5 h-4 w-4 ${item.done ? "text-emerald-600" : "text-slate-300"}`} />
-                    <div>
-                      <div className="text-sm font-medium text-slate-900">{item.label}</div>
-                      <div className="text-xs text-muted-foreground">{item.note}</div>
+                ].map((item) => {
+                  const passed = item.done;
+                  return (
+                    <div
+                      key={item.label}
+                      className={`flex gap-2 rounded-lg border p-2.5 ${
+                        passed ? "border-emerald-200 bg-emerald-50/70" : "border-rose-200 bg-rose-50/70"
+                      }`}
+                    >
+                      <div
+                        className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border ${
+                          passed ? "border-emerald-500 bg-emerald-500 text-white" : "border-rose-500 bg-rose-500 text-white"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {passed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <CircleX className="h-3.5 w-3.5" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-medium text-slate-900">{item.label}</div>
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] uppercase tracking-[0.18em] ${
+                              passed ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-rose-200 bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {passed ? "Passed" : "Needs attention"}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{item.note}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="rounded-xl border bg-slate-50 p-3">
