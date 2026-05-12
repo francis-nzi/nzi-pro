@@ -9,6 +9,7 @@ from api.auth import _current_user
 from api.client_route_helpers import ensure_client_org_columns
 from api.permissions import assert_client_access, assert_permission
 from core.database import db_backend, get_conn
+from services.emissions_reporting import exact_job_total_emissions
 from services.tenancy import require_org
 
 router = APIRouter()
@@ -379,38 +380,11 @@ def client_jobs(
                                j.job_type, j.is_crp, j.reporting_period_end,
                                jp.data_collection_due, jp.data_collection_completed_at,
                                jp.first_draft_due, jp.first_draft_completed_at,
-                               jp.final_report_due, jp.final_report_completed_at,
-                               COALESCE(SUM(
-                                   CASE
-                                       WHEN LOWER(COALESCE(jsr.ghg_unit, 'kgCO2e')) LIKE '%%kg%%'
-                                       THEN (COALESCE(jsr.qty,
-                                               COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                               COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                               COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                               COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                               COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                               COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                           ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0) / 1000.0
-                                       ELSE (COALESCE(jsr.qty,
-                                               COALESCE(jsr.month_1, 0) + COALESCE(jsr.month_2, 0) +
-                                               COALESCE(jsr.month_3, 0) + COALESCE(jsr.month_4, 0) +
-                                               COALESCE(jsr.month_5, 0) + COALESCE(jsr.month_6, 0) +
-                                               COALESCE(jsr.month_7, 0) + COALESCE(jsr.month_8, 0) +
-                                               COALESCE(jsr.month_9, 0) + COALESCE(jsr.month_10, 0) +
-                                               COALESCE(jsr.month_11, 0) + COALESCE(jsr.month_12, 0), 0
-                                           ) * COALESCE(jsr.factor, 0) * COALESCE(jsr.apply_pct, 100) / 100.0)
-                                   END
-                               ), 0) as total_emissions
+                               jp.final_report_due, jp.final_report_completed_at
                         FROM jobs j
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        LEFT JOIN job_scope_rows jsr ON jsr.job_id = j.job_id AND jsr.enabled = TRUE
                         WHERE j.client_db_id = ?
                           AND j.org_id = ?
-                        GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                                 j.job_type, j.is_crp, j.reporting_period_end,
-                                 jp.data_collection_due, jp.data_collection_completed_at,
-                                 jp.first_draft_due, jp.first_draft_completed_at,
-                                 jp.final_report_due, jp.final_report_completed_at
                         ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                         LIMIT ? OFFSET ?
                         """,
@@ -518,7 +492,10 @@ def client_jobs(
             # Calculate overall status
             overall_milestone_status = get_overall_status(milestone_statuses) if milestone_statuses else None
 
-            total_emissions = _float_or_zero(r.get("total_emissions", 0))
+            try:
+                total_emissions = _float_or_zero(exact_job_total_emissions(con, job_id))
+            except Exception:
+                total_emissions = 0.0
 
             items.append(
                 {

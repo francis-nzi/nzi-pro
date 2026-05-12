@@ -142,10 +142,16 @@ from api.quotes_routes import router as quotes_router
 from api.xero_routes import router as xero_router
 from api.dataset_import_routes import router as dataset_import_router
 from api.auth import _current_user
+from api.auth_routes import _current_org_summary
 from api.auth_routes import router as auth_router
 from api.client_management_routes import router as client_management_router
 from api.permissions import assert_client_access, assert_job_access, assert_permission
 from services.tenancy import require_org
+import api.client_index_routes as client_index_routes
+import api.client_management_routes as client_management_routes
+import api.job_management_routes as job_management_routes
+import api.job_setup_routes as job_setup_routes
+import api.support_feedback_routes as support_feedback_routes
 
 try:
     import sentry_sdk
@@ -321,6 +327,73 @@ app.include_router(onedrive_router)
 app.include_router(dataset_import_router)
 _safe_startup_log("OK", f"Custom fields router registered with {len(custom_fields_router.routes)} routes")
 _safe_startup_log("OK", f"Feedback router registered with {len(feedback_router.routes)} routes")
+
+
+def _sync_compat_dependencies(module) -> None:
+    """Keep legacy test entrypoints working after route extraction."""
+    for name in (
+        "get_conn",
+        "db_backend",
+        "assert_permission",
+        "assert_client_access",
+        "assert_job_access",
+        "require_org",
+        "record_audit_event",
+        "_current_org_summary",
+        "exact_job_total_emissions",
+    ):
+        if hasattr(module, name) and name in globals():
+            setattr(module, name, globals()[name])
+
+
+def list_clients(*args, **kwargs):
+    _sync_compat_dependencies(client_index_routes)
+    return client_index_routes.list_clients(*args, **kwargs)
+
+
+def client_jobs(*args, **kwargs):
+    _sync_compat_dependencies(client_index_routes)
+    return client_index_routes.client_jobs(*args, **kwargs)
+
+
+def create_client(*args, **kwargs):
+    _sync_compat_dependencies(client_management_routes)
+    return client_management_routes.create_client(*args, **kwargs)
+
+
+def get_client(*args, **kwargs):
+    _sync_compat_dependencies(client_management_routes)
+    return client_management_routes.get_client(*args, **kwargs)
+
+
+def get_job(*args, **kwargs):
+    _sync_compat_dependencies(job_management_routes)
+    return job_management_routes.get_job(*args, **kwargs)
+
+
+def job_excel_import(*args, **kwargs):
+    _sync_compat_dependencies(job_setup_routes)
+    return job_setup_routes.job_excel_import(*args, **kwargs)
+
+
+def support_database_fingerprint(*args, **kwargs):
+    _sync_compat_dependencies(support_feedback_routes)
+    return support_feedback_routes.support_database_fingerprint(*args, **kwargs)
+
+
+def support_diagnostics(*args, **kwargs):
+    _sync_compat_dependencies(support_feedback_routes)
+    return support_feedback_routes.support_diagnostics(*args, **kwargs)
+
+
+def health(*args, **kwargs):
+    _sync_compat_dependencies(support_feedback_routes)
+    return support_feedback_routes.health(*args, **kwargs)
+
+
+def debug_env(*args, **kwargs):
+    _sync_compat_dependencies(support_feedback_routes)
+    return support_feedback_routes.debug_env(*args, **kwargs)
 
 
 @app.on_event("startup")
