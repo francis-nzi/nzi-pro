@@ -1002,11 +1002,33 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
 
 
 def _render_html_to_pdf_bytes(html_content: str) -> bytes:
+    # Render prefers DocRaptor in production so the web process doesn't have to
+    # launch Chromium under memory pressure. Keep a local Playwright fallback for
+    # developer machines where DocRaptor may not be configured.
+    render_env = str(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID") or "").strip()
+    if render_env:
+        import docraptor
+
+        doc_api = docraptor.DocApi()
+        doc_api.api_client.configuration.username = DOCRAPTOR_API_KEY
+        return doc_api.create_doc(
+            {
+                "test": _DOCRAPTOR_TEST_MODE,
+                "document_content": html_content,
+                "document_type": "pdf",
+                "name": "job-report.pdf",
+                "prince_options": {
+                    "media": "print",
+                    "javascript": False,
+                },
+            }
+        )
+
     from playwright.sync_api import sync_playwright
 
     ensure_playwright_browser()
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"])
         page = browser.new_page()
         page.set_content(html_content)
         pdf_bytes = page.pdf(

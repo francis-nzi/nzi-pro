@@ -72,7 +72,6 @@ from services.dataset_selector import (
 )
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.kaleido_browser import ensure_kaleido_browser
-from services.playwright_browser import ensure_playwright_browser
 from services.emissions_reporting import exact_job_total_emissions
 from services.rate_limiter import build_default_rate_limiter
 from api.admin_routes import router as admin_router
@@ -398,7 +397,7 @@ def debug_env(*args, **kwargs):
 
 @app.on_event("startup")
 async def startup_event():
-    """Run migrations on startup and keep optional browser warmups alive."""
+    """Run migrations on startup and warm only the lightweight local browser."""
     try:
         from core.migrations import run_migrations
         run_migrations()
@@ -410,11 +409,6 @@ async def startup_event():
         _safe_startup_log("OK", f"Kaleido browser ready at {browser_path}")
     except Exception as e:
         _safe_startup_log("WARN", f"Kaleido browser setup failed: {e}")
-    try:
-        browser_root = ensure_playwright_browser()
-        _safe_startup_log("OK", f"Playwright Chromium ready in {browser_root}")
-    except Exception as e:
-        _safe_startup_log("WARN", f"Playwright Chromium setup failed: {e}")
 
 
 
