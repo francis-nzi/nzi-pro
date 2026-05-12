@@ -304,9 +304,29 @@ def _coerce_readable_draft_text(
         return rich_fallback.strip()
 
     if section_key == "executive_summary":
-        return (
-            f"{section_title}: open with the key story, the direction of travel, and the most important headline points."
-        )
+        company_name = _text((context.get("job_data") or {}).get("client_name") or "the client")
+        report_year = _text((context.get("job_data") or {}).get("reporting_year") or "the reporting period")
+        commitment_year = _text((context.get("job_data") or {}).get("net_zero_year") or "")
+        interim_year = _text((context.get("job_data") or {}).get("interim_year") or "")
+        paragraphs = [
+            f"{company_name} recorded {current_total:.1f} tCO₂e in {report_year}. {change_sentence}",
+            (
+                f"The main drivers are { _text(top.get('category')) if top else 'the leading operational hotspots' }"
+                + (
+                    f", with {len(items)} actions already in motion"
+                    if items
+                    else ", with the reduction programme still focused on the key hotspots"
+                )
+                + "."
+            ),
+            (
+                "This is a strategic baseline that should be read alongside the company’s operational scale, "
+                f"workforce context, and any Net Zero programme targets"
+                + (f" ({commitment_year}" + (f", interim {interim_year}" if interim_year else "") + ")" if commitment_year else "")
+                + "."
+            ),
+        ]
+        return " ".join(paragraphs).strip()
     if section_key == "emissions_overview":
         return (
             f"{section_title}: summarise the current emissions totals, the scope split, and the main drivers of change."
@@ -528,8 +548,10 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
             "Write the draft_text as finished report prose, not as a prompt, note, or placeholder sentence.",
             "Do not write phrases like 'draft the section' or 'use the supplied evidence' in the draft_text field.",
             f"{config['length']} {config['style']}",
-            "For Executive Summary, write a more complete board-ready narrative: start with the total emissions story, then explain the year-on-year movement, the main drivers, what it means for the business, and the practical direction of travel.",
-            "Where the evidence supports it, mention the Net Zero target year, interim milestone, workforce scale, and intensity context so the summary feels more strategic and less like a numbers-only note.",
+            "For Executive Summary, write a fuller board-ready narrative in 3-4 short paragraphs: paragraph 1 should open with the emissions headline and year-on-year movement; paragraph 2 should explain the key drivers and what changed; paragraph 3 should describe what the numbers mean for the business, operational focus, and intensity; paragraph 4 is optional and can mention targets, governance, momentum, and the practical direction of travel.",
+            "Avoid opening with generic boilerplate such as 'recorded total greenhouse gas emissions'. Start with the client story, the change, and the business meaning in natural prose.",
+            "Do not sound generic. Do not write a terse numbers-only recap. The summary should feel strategic, specific, and decision-useful.",
+            "Where the evidence supports it, mention the Net Zero target year, interim milestone, workforce scale, operational footprint, and intensity context so the summary reads like a real executive brief rather than a dashboard note.",
             "Keep the tone confident, professional, and company-specific. Do not overstate claims that are not evidenced.",
             "Round emissions values to 1 decimal place in the prose unless a source value is explicitly shown with a different precision.",
             "The draft_text should read naturally in a report and should be specific to the evidence pack.",
@@ -546,6 +568,23 @@ def _build_prompt(context: dict[str, Any], section_key: str) -> str:
         ]
     )
     return prompt
+
+
+def _build_system_prompt(section_key: str) -> str:
+    if section_key == "executive_summary":
+        return (
+            "You are a senior carbon reporting strategist and executive ghostwriter. "
+            "Write polished, board-ready prose that is specific, evidence-led, and commercially useful. "
+            "For executive summaries, produce a narrative that sounds like a real leadership briefing: opening headline, main drivers, business meaning, and future direction. "
+            "Never invent facts or rename the client. Never mention another company or organisation name. "
+            "Avoid generic boilerplate and avoid language that reads like a template."
+        )
+    return (
+        "You are a senior carbon reporting strategist and technical editor. "
+        "Write polished, client-ready prose that is specific, evidence-led, and commercially useful. "
+        "Never invent facts or rename the client. Never mention another company or organisation name. "
+        "Avoid generic boilerplate and avoid language that reads like a template."
+    )
 
 
 def _fallback_payload(context: dict[str, Any], section_key: str, *, reason: str) -> dict[str, Any]:
@@ -638,17 +677,22 @@ def generate_report_section_draft(
         raise ValueError(f"Unsupported draft section: {section_key}")
 
     prompt = _build_prompt(context, section_key)
+    system_prompt = _build_system_prompt(section_key)
     provider_key = (provider or "anthropic").strip().lower()
     raw_text = ""
     model_name = model or (DEFAULT_OPENAI_MODEL if provider_key == "openai" else DEFAULT_ANTHROPIC_MODEL)
+    temperature = 0.1 if section_key == "executive_summary" else 0.2
 
     if provider_key == "openai":
         try:
             client = _get_openai_client()
             response = client.chat.completions.create(
                 model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=temperature,
                 max_tokens=1200,
             )
             raw_text = (response.choices[0].message.content or "").strip() if response.choices else ""
@@ -660,8 +704,9 @@ def generate_report_section_draft(
             client = _get_anthropic_client()
             response = client.messages.create(
                 model=model_name,
+                system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
+                temperature=temperature,
                 max_tokens=1200,
             )
             if response.content and hasattr(response.content[0], "text"):

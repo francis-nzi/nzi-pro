@@ -65,6 +65,7 @@ type ReportProfile = {
 
 type DraftNotes = Record<string, string>;
 type DraftOrigins = Record<string, "starter" | "local" | "ai">;
+type DraftProviders = Record<string, "starter" | "manual" | "anthropic" | "openai" | "rule-based">;
 
 type DraftWorkspaceContext = {
   job_id?: number;
@@ -94,6 +95,7 @@ type ReportDraftRow = {
 type DraftStoragePayload = {
   draft_notes?: DraftNotes;
   draft_origins?: DraftOrigins;
+  draft_providers?: DraftProviders;
 } | DraftNotes;
 
 type JobReportNewProps = {
@@ -245,6 +247,25 @@ function buildInitialDraftOrigins(profile: ReportProfile): DraftOrigins {
   }, {} as DraftOrigins);
 }
 
+function buildInitialDraftProviders(profile: ReportProfile): DraftProviders {
+  return profile.sections.reduce((acc, section) => {
+    acc[section] = "starter";
+    return acc;
+  }, {} as DraftProviders);
+}
+
+function getDraftProviderLabel(provider: string | null | undefined, origin: DraftOrigins[string]): string {
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (normalized === "anthropic") return "Claude";
+  if (normalized === "openai") return "OpenAI";
+  if (normalized === "rule-based") return "Fallback";
+  if (normalized === "manual") return "Manual";
+  if (normalized === "starter") return "Starter prompt";
+  if (origin === "ai") return "AI drafted";
+  if (origin === "local") return "Drafted";
+  return "Starter prompt";
+}
+
 function getDraftSectionKey(section: string): string {
   const normalized = SECTION_LABEL_ALIASES[section] || section;
   if (normalized === "Executive Summary") return "executive_summary";
@@ -341,11 +362,16 @@ function coerceReadableDraftText(value: unknown, fallback = ""): string {
   return "Draft the section using the supplied evidence.";
 }
 
-function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { notes: DraftNotes; origins: DraftOrigins } {
+function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): {
+  notes: DraftNotes;
+  origins: DraftOrigins;
+  providers: DraftProviders;
+} {
   const notes = buildInitialDraftNotes(profile);
   const origins = buildInitialDraftOrigins(profile);
+  const providers = buildInitialDraftProviders(profile);
   if (!raw) {
-    return { notes, origins };
+    return { notes, origins, providers };
   }
 
   try {
@@ -359,6 +385,10 @@ function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { no
     const parsedOrigins =
       parsed && typeof parsed === "object" && "draft_origins" in parsed && parsed.draft_origins && typeof parsed.draft_origins === "object"
         ? parsed.draft_origins
+        : {};
+    const parsedProviders =
+      parsed && typeof parsed === "object" && "draft_providers" in parsed && parsed.draft_providers && typeof parsed.draft_providers === "object"
+        ? parsed.draft_providers
         : {};
 
     profile.sections.forEach((section) => {
@@ -379,13 +409,32 @@ function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): { no
       if (storedValue !== null) {
         notes[section] = storedValue;
         origins[section] = storedOrigin === "ai" || storedOrigin === "local" ? storedOrigin : "local";
+        const storedProvider =
+          typeof parsedProviders?.[section] === "string"
+            ? parsedProviders[section]
+            : typeof parsedProviders?.[alias] === "string"
+              ? parsedProviders[alias]
+              : null;
+        const normalizedProvider = String(storedProvider || "").trim().toLowerCase();
+        providers[section] =
+          normalizedProvider === "anthropic" ||
+          normalizedProvider === "openai" ||
+          normalizedProvider === "rule-based" ||
+          normalizedProvider === "manual" ||
+          normalizedProvider === "starter"
+            ? (normalizedProvider as DraftProviders[string])
+            : storedOrigin === "ai"
+              ? "anthropic"
+              : storedOrigin === "local"
+                ? "manual"
+                : "starter";
       }
     });
   } catch {
     // Fall back to the starter canvas when the saved payload cannot be parsed.
   }
 
-  return { notes, origins };
+  return { notes, origins, providers };
 }
 
 export default function JobReportNew({
@@ -402,6 +451,7 @@ export default function JobReportNew({
   const [reportVersions, setReportVersions] = useState<ReportVersion[]>([]);
   const [draftNotes, setDraftNotes] = useState<DraftNotes>(() => buildInitialDraftNotes(PROFILE_LIBRARY[0]));
   const [draftOrigins, setDraftOrigins] = useState<DraftOrigins>(() => buildInitialDraftOrigins(PROFILE_LIBRARY[0]));
+  const [draftProviders, setDraftProviders] = useState<DraftProviders>(() => buildInitialDraftProviders(PROFILE_LIBRARY[0]));
   const [draftContext, setDraftContext] = useState<DraftWorkspaceContext | null>(null);
   const [serverDraftCount, setServerDraftCount] = useState(0);
   const [draftSyncReady, setDraftSyncReady] = useState(false);
@@ -562,6 +612,7 @@ export default function JobReportNew({
       const stored = loadStoredDraftCanvas(raw, selectedProfile);
       setDraftNotes(stored.notes);
       setDraftOrigins(stored.origins);
+      setDraftProviders(stored.providers);
       setDraftDirty(false);
       return;
     } catch {
@@ -569,16 +620,20 @@ export default function JobReportNew({
     }
     setDraftNotes(initialDraftNotes);
     setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
+    setDraftProviders(buildInitialDraftProviders(selectedProfile));
     setDraftDirty(false);
   }, [draftStorageKey, initialDraftNotes, selectedProfile]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(draftStorageKey, JSON.stringify({ draft_notes: draftNotes, draft_origins: draftOrigins }));
+      window.localStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({ draft_notes: draftNotes, draft_origins: draftOrigins, draft_providers: draftProviders })
+      );
     } catch {
       // Ignore storage failures in private/incognito contexts.
     }
-  }, [draftNotes, draftOrigins, draftStorageKey]);
+  }, [draftNotes, draftOrigins, draftProviders, draftStorageKey]);
 
   const syncReportDrafts = useCallback(async () => {
     if (!draftSyncReady || !draftDirty || !selectedProfile.templateKey) {
@@ -590,6 +645,7 @@ export default function JobReportNew({
         const draftText = String(draftNotes[section] || "").trim();
         const starterText = String(initialDraftNotes[section] || "").trim();
         const origin = draftOrigins[section] || "starter";
+        const provider = draftProviders[section] || (origin === "ai" ? "anthropic" : origin === "local" ? "manual" : "starter");
         if (!draftText) {
           return null;
         }
@@ -605,10 +661,11 @@ export default function JobReportNew({
             section_title: section,
             draft_text: draftText,
             origin,
+            provider,
           },
-          provider: origin === "ai" ? "anthropic" : "manual",
-          model: origin === "ai" ? "draft-generation" : "manual-edit",
-          confidence: origin === "ai" ? "medium" : "low",
+          provider,
+          model: provider === "anthropic" || provider === "openai" ? "draft-generation" : provider === "rule-based" ? "fallback" : "manual-edit",
+          confidence: provider === "anthropic" || provider === "openai" ? "medium" : "low",
           origin,
         };
       })
@@ -638,7 +695,7 @@ export default function JobReportNew({
       setServerDraftCount(payload.items.length);
     }
     setDraftDirty(false);
-  }, [baseUrl, draftDirty, draftNotes, draftOrigins, draftSyncReady, initialDraftNotes, jobId, selectedProfile.sections, selectedProfile.templateKey, serverDraftCount]);
+  }, [baseUrl, draftDirty, draftNotes, draftOrigins, draftProviders, draftSyncReady, initialDraftNotes, jobId, selectedProfile.sections, selectedProfile.templateKey, serverDraftCount]);
 
   useEffect(() => {
     if (!draftSyncReady) {
@@ -654,7 +711,7 @@ export default function JobReportNew({
     return () => {
       window.clearTimeout(handle);
     };
-  }, [draftNotes, draftOrigins, draftSyncReady, syncReportDrafts]);
+  }, [draftNotes, draftOrigins, draftProviders, draftSyncReady, syncReportDrafts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -742,6 +799,35 @@ export default function JobReportNew({
                     ? "ai"
                     : "local";
                 next[sectionLabel] = origin === "ai" ? "ai" : "local";
+              }
+            });
+            return next;
+          });
+          setDraftProviders((prev) => {
+            const next = { ...prev };
+            items.forEach((item) => {
+              const sectionKey = String(item.section_key || "").trim();
+              if (!sectionKey) return;
+              const sectionLabel =
+                selectedProfile.sections.find((label) => getDraftSectionKey(label) === sectionKey) ||
+                item.section_title ||
+                sectionKey;
+              if (!sectionLabel) return;
+              const draftJsonProvider =
+                item.draft_json && typeof item.draft_json === "object" && typeof item.draft_json.provider === "string"
+                  ? String(item.draft_json.provider)
+                  : "";
+              const provider = String(draftJsonProvider || item.provider || "").trim().toLowerCase();
+              if (
+                provider === "anthropic" ||
+                provider === "openai" ||
+                provider === "rule-based" ||
+                provider === "manual" ||
+                provider === "starter"
+              ) {
+                next[sectionLabel] = provider as DraftProviders[string];
+              } else {
+                next[sectionLabel] = item.provider === "anthropic" || item.provider === "openai" ? "anthropic" : "manual";
               }
             });
             return next;
@@ -965,6 +1051,19 @@ export default function JobReportNew({
   function updateDraftNote(section: string, value: string) {
     setDraftNotes((prev) => ({ ...prev, [section]: value }));
     setDraftOrigins((prev) => ({ ...prev, [section]: value.trim() ? "local" : "starter" }));
+    setDraftProviders((prev) => {
+      const next = { ...prev };
+      if (!value.trim()) {
+        next[section] = "starter";
+        return next;
+      }
+      const current = next[section];
+      if (current === "anthropic" || current === "openai" || current === "rule-based") {
+        return next;
+      }
+      next[section] = "manual";
+      return next;
+    });
     setDraftDirty(true);
     setDraftError("");
   }
@@ -972,6 +1071,7 @@ export default function JobReportNew({
   function clearDraftNotes() {
     setDraftNotes(initialDraftNotes);
     setDraftOrigins(buildInitialDraftOrigins(selectedProfile));
+    setDraftProviders(buildInitialDraftProviders(selectedProfile));
     setDraftDirty(true);
     setStatus("Draft canvas reset to the starter prompts.");
     setDraftError("");
@@ -1029,6 +1129,14 @@ export default function JobReportNew({
 
         setDraftNotes((prev) => ({ ...prev, [section]: readableDraftText }));
         setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
+        const provider = String(payload?.draft?.provider || payload?.saved_draft?.provider || "anthropic").trim().toLowerCase();
+        setDraftProviders((prev) => ({
+          ...prev,
+          [section]:
+            provider === "anthropic" || provider === "openai" || provider === "rule-based"
+              ? (provider as DraftProviders[string])
+              : "anthropic",
+        }));
         setDraftDirty(true);
         setStatus(`Generated an AI draft for ${section}.`);
       } catch (err) {
@@ -1200,6 +1308,9 @@ export default function JobReportNew({
                     ? "AI drafting enabled"
                     : "AI drafting ready"}
                 </Badge>
+                <Badge variant="outline" className="bg-white">
+                  {getDraftProviderLabel(draftProviders[activeDraftSection], draftOrigins[activeDraftSection])}
+                </Badge>
               </div>
               <p className="mt-2 text-sm text-slate-600">
                 Draft one section at a time, keep the others as quick navigation, and move to preview/export when the narrative feels coherent.
@@ -1229,8 +1340,7 @@ export default function JobReportNew({
                   {selectedProfile.sections.map((section) => {
                     const isActive = activeDraftSection === section;
                     const origin = draftOrigins[section];
-                    const originLabel =
-                      origin === "ai" ? "AI drafted" : origin === "local" ? "Drafted" : "Starter prompt";
+                    const originLabel = getDraftProviderLabel(draftProviders[section], origin);
                     const meta = getDraftSectionMeta(section);
                     return (
                       <button
@@ -1282,11 +1392,7 @@ export default function JobReportNew({
 
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" className="bg-slate-50">
-                    {draftOrigins[activeDraftSection] === "ai"
-                      ? "AI drafted"
-                      : draftOrigins[activeDraftSection] === "local"
-                        ? "Drafted"
-                        : "Starter prompt"}
+                    {getDraftProviderLabel(draftProviders[activeDraftSection], draftOrigins[activeDraftSection])}
                   </Badge>
                   <Badge variant="outline" className="bg-white">
                     {getDraftSectionMeta(activeDraftSection).badge}
