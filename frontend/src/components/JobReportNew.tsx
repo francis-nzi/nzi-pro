@@ -534,16 +534,6 @@ export default function JobReportNew({
     () => PROFILE_LIBRARY.find((profile) => profile.key === selectedKey) || PROFILE_LIBRARY[0],
     [selectedKey]
   );
-  const stage4Checks = useMemo(
-    () => [
-      { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
-      { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
-      { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
-      { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
-    ],
-    [assignment?.template_id, draftReady, draftStarted, selectedActions]
-  );
-  const stage4MissingChecks = stage4Checks.filter((item) => !item.done);
   const initialDraftNotes = useMemo(() => buildInitialDraftNotes(selectedProfile), [selectedProfile]);
 
   useEffect(() => {
@@ -793,6 +783,16 @@ export default function JobReportNew({
     return note.length > 0 && note !== starter;
   }).length;
   const draftStarted = draftedSectionCount > 0;
+  const stage4Checks = useMemo(
+    () => [
+      { label: "Profile assigned", done: Boolean(assignment?.template_id), note: "A report family is selected for this job." },
+      { label: "Actions saved", done: selectedActions > 0, note: "The action plan will flow into the report section." },
+      { label: "Draft content started", done: draftStarted, note: "At least one section has working draft text." },
+      { label: "Ready to preview", done: draftReady, note: "You can now open the preview/export flow." },
+    ],
+    [assignment?.template_id, draftReady, draftStarted, selectedActions]
+  );
+  const stage4MissingChecks = stage4Checks.filter((item) => !item.done);
   const latestReportVersion = reportVersions[0] || null;
 
   const downloadReportVersion = useCallback(
