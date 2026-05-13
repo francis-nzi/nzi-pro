@@ -1048,6 +1048,10 @@ def update_job_communication(
     try:
         with get_conn() as con:
             _ensure_tables(con)
+            job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            if not job_row:
+                raise HTTPException(status_code=404, detail="Job not found")
+            client_db_id = int(job_row[0]) if job_row[0] is not None else None
             exists = con.execute(
                 "SELECT 1 FROM job_communications WHERE job_id = %s AND communication_id = %s",
                 [int(job_id), int(communication_id)],

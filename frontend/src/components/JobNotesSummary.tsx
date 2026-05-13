@@ -171,13 +171,13 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const noteScopeOptions = useMemo(() => {
     const seen = new Set<string>(availableScopes);
-    if (editingNote?.scope) seen.add(editingNote.scope);
+    if (editingNote?.scope && editingNote.scope.toLowerCase() !== "nan") seen.add(editingNote.scope);
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [availableScopes, editingNote?.scope]);
 
   const noteCategoryOptions = useMemo(() => {
     const seen = new Set<string>(availableCategories);
-    if (editingNote?.category) seen.add(editingNote.category);
+    if (editingNote?.category && editingNote.category.toLowerCase() !== "nan") seen.add(editingNote.category);
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [availableCategories, editingNote?.category]);
 
@@ -234,10 +234,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
 
   const resetNoteForm = useCallback((note?: JobNote | null) => {
     if (note && note.source_type === "job-communication") {
+      const noteScopeValue = note.scope && note.scope.toLowerCase() !== "nan" ? note.scope : "";
+      const noteCategoryValue = note.category && note.category.toLowerCase() !== "nan" ? note.category : "";
       setEditingNote(note);
       setNoteSubject(note.note_subject || "");
-      setNoteScope(note.scope || "__none__");
-      setNoteCategory(note.category || "__none__");
+      setNoteScope(noteScopeValue || "__none__");
+      setNoteCategory(noteCategoryValue || "__none__");
       setNoteSiteId(note.site_id != null ? String(note.site_id) : resolvedDefaultSiteId);
       setNoteText(note.note_text || "");
       return;

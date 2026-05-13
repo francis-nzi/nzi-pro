@@ -181,7 +181,17 @@ def _safe_float(value):
 
 
 def _safe_text(value: Any) -> str:
-    return str(value or "").strip()
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        logger.debug("Failed to normalize text value", exc_info=True)
+    text = str(value).strip()
+    if text.lower() in {"nan", "none", "null"}:
+        return ""
+    return text
 
 
 def _json_safe(value):
