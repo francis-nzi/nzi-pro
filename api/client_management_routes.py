@@ -83,6 +83,7 @@ def create_client(
                     company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
                     crm_owner, currency, status, net_zero_year, benchmark_year,
+                    benchmark_period_start, benchmark_period_end,
                     benchmark_scope_1_tco2e, benchmark_scope_2_tco2e,
                     benchmark_scope_3_tco2e, benchmark_total_tco2e,
                     target_s1_year, target_s1_pct, target_s2_year, target_s2_pct,
@@ -91,7 +92,7 @@ def create_client(
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -118,6 +119,8 @@ def create_client(
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
                     body.get("benchmark_year"),
+                    body.get("benchmark_period_start"),
+                    body.get("benchmark_period_end"),
                     body.get("benchmark_scope_1_tco2e"),
                     body.get("benchmark_scope_2_tco2e"),
                     body.get("benchmark_scope_3_tco2e"),
@@ -446,6 +449,12 @@ def update_client(
                 "interim_s3_pct": "interim_s3_pct",
                 "portfolio": "portfolio",
                 "benchmark_year": "benchmark_year",
+                "benchmark_period_start": "benchmark_period_start",
+                "benchmark_period_end": "benchmark_period_end",
+                "benchmark_scope_1_tco2e": "benchmark_scope_1_tco2e",
+                "benchmark_scope_2_tco2e": "benchmark_scope_2_tco2e",
+                "benchmark_scope_3_tco2e": "benchmark_scope_3_tco2e",
+                "benchmark_total_tco2e": "benchmark_total_tco2e",
                 "currency": "currency",
                 "billing_same_as_main": "billing_same_as_main",
                 "billing_company": "billing_company",

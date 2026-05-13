@@ -6,7 +6,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.admin_routes as admin_routes
+import api.client_management_routes as client_routes
 import api.main as main
+import api.job_management_routes as job_routes
 import api.time_routes as time_routes
 
 
@@ -56,6 +58,23 @@ class _ContractConn:
             return _FakeRow(7, True)
         if "FROM clients" in sql and "benchmark_period_start" in sql:
             return _FakeRow(None, None, 12, None, None, 12)
+        if "SELECT" in sql and "FROM clients" in sql and "billing_same_as_main" in sql and "LIMIT 1" in sql:
+            return _FakeRow(
+                "org-a",
+                "1 Main St",
+                None,
+                "London",
+                None,
+                "SW1A 1AA",
+                "UK",
+                True,
+                "1 Main St",
+                None,
+                "London",
+                None,
+                "SW1A 1AA",
+                "UK",
+            )
         if "INSERT INTO jobs" in sql and "RETURNING job_id" in sql:
             return _FakeRow(640)
         if "SELECT 1 FROM jobs WHERE job_id = ?" in sql and "AND org_id = ?" in sql:
@@ -131,15 +150,15 @@ def test_invite_accept_switch_contract(monkeypatch):
 
 def test_create_job_contract(monkeypatch):
     fake = _ContractConn()
-    monkeypatch.setattr(main, "get_conn", lambda: fake)
-    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(main, "require_org", lambda _user: "org-a")
-    monkeypatch.setattr(main, "_require_org_plan_active", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main, "_job_audit_snapshot", lambda con, job_id: {"job_id": job_id, "org_id": "org-a"})
-    monkeypatch.setattr(main, "record_audit_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(job_routes, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(job_routes, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(job_routes, "require_org", lambda _user: "org-a")
+    monkeypatch.setattr(job_routes, "_require_org_plan_active", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_routes, "_job_audit_snapshot", lambda con, job_id: {"job_id": job_id, "org_id": "org-a"})
+    monkeypatch.setattr(job_routes, "record_audit_event", lambda *args, **kwargs: None)
 
-    result = main.create_job(
+    result = job_routes.create_job(
         request=None,
         body={
             "client_db_id": 58,
@@ -161,6 +180,44 @@ def test_create_job_contract(monkeypatch):
     insert_sql, insert_params = next((sql, params) for sql, params in fake.executed if "INSERT INTO jobs" in sql)
     assert "org_id" in insert_sql
     assert insert_params is not None and insert_params[1] == "org-a"
+
+
+def test_update_client_benchmark_contract(monkeypatch):
+    fake = _ContractConn()
+    monkeypatch.setattr(client_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(client_routes, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(client_routes, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(client_routes, "require_org", lambda _user: "org-a")
+    monkeypatch.setattr(client_routes, "_client_audit_snapshot", lambda con, client_db_id, org_id: {"client_db_id": client_db_id, "org_id": org_id})
+    monkeypatch.setattr(client_routes, "record_audit_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_routes, "_ensure_client_org_columns", lambda con: None)
+    monkeypatch.setattr(client_routes, "_ensure_client_billing_columns", lambda con: None)
+
+    result = client_routes.update_client(
+        request=None,
+        client_db_id=58,
+        body={
+            "benchmark_year": 2024,
+            "benchmark_period_start": "2024-01-01",
+            "benchmark_period_end": "2024-12-31",
+            "benchmark_scope_1_tco2e": 12.3,
+            "benchmark_scope_2_tco2e": 0.0,
+            "benchmark_scope_3_tco2e": 45.6,
+            "benchmark_total_tco2e": 57.9,
+        },
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["ok"] is True
+    update_sql, update_params = next((sql, params) for sql, params in fake.executed if sql.strip().startswith("UPDATE clients"))
+    assert "benchmark_year" in update_sql
+    assert "benchmark_period_start" in update_sql
+    assert "benchmark_period_end" in update_sql
+    assert "benchmark_scope_1_tco2e" in update_sql
+    assert "benchmark_scope_2_tco2e" in update_sql
+    assert "benchmark_scope_3_tco2e" in update_sql
+    assert "benchmark_total_tco2e" in update_sql
+    assert update_params is not None
 
 
 def test_create_time_log_contract(monkeypatch):

@@ -17,7 +17,7 @@ from api.job_management_helpers import (
     _next_job_number,
     _table_exists,
 )
-from api.permissions import assert_job_access, assert_permission
+from api.permissions import assert_client_access, assert_job_access, assert_permission
 from core.database import db_backend, get_conn
 from services.audit_log import record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns

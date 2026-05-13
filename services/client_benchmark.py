@@ -14,6 +14,8 @@ CLIENT_BENCHMARK_COLUMNS = (
 def ensure_client_benchmark_columns(con) -> None:
     """Ensure client benchmark emissions columns exist."""
     statements = [
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_period_start DATE",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_period_end DATE",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_1_tco2e DOUBLE PRECISION",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_2_tco2e DOUBLE PRECISION",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_3_tco2e DOUBLE PRECISION",
