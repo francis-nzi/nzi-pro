@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ClientLogoUpload from "@/components/ClientLogoUpload";
 import PageHeader from "@/components/PageHeader";
@@ -144,7 +144,7 @@ export default function EditClientPage() {
   const router = useRouter();
   const clientId = Number(params?.clientId);
 
-  const [client, setClient] = useState<Client | null>(null);
+  const [, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
@@ -212,12 +212,7 @@ export default function EditClientPage() {
     is_registered_office: false,
   });
 
-  useEffect(() => {
-    loadLookups();
-    loadSites();
-  }, [baseUrl, clientId]);
-
-  async function loadSites() {
+  const loadSites = useCallback(async () => {
     if (!Number.isFinite(clientId) || clientId <= 0) return;
     try {
       const res = await fetch(`${baseUrl}/clients/${clientId}/sites`, {
@@ -230,11 +225,11 @@ export default function EditClientPage() {
         setVacatedSites(data.vacated_sites || []);
       }
     } catch (e) {
-      console.error('Failed to load sites:', e);
+      console.error("Failed to load sites:", e);
     }
-  }
+  }, [baseUrl, clientId]);
 
-  async function loadLookups() {
+  const loadLookups = useCallback(async () => {
     try {
       const lookupInit = { credentials: "include", cache: "no-store" } as RequestInit;
       const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.allSettled([
@@ -272,7 +267,7 @@ export default function EditClientPage() {
           .filter((u) => u.email || u.full_name);
         const uniqueUsers = Array.from(
           new Map(userList.map((u) => [u.email || u.full_name, u] as const)).values()
-        ) as Array<{email: string, full_name: string}>;
+        ) as Array<{ email: string; full_name: string }>;
         setUsers(uniqueUsers);
       }
 
@@ -290,9 +285,14 @@ export default function EditClientPage() {
         setCurrencies(lookupCurrencies);
       }
     } catch (e) {
-      console.error('Failed to load lookups:', e);
+      console.error("Failed to load lookups:", e);
     }
-  }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    loadLookups();
+    loadSites();
+  }, [loadLookups, loadSites]);
 
   useEffect(() => {
     let cancelled = false;
@@ -585,7 +585,7 @@ export default function EditClientPage() {
                 <Link href={`/clients/${clientId}`}>Cancel</Link>
               </Button>
               <Button onClick={saveClient} disabled={saving || loading}>
-                Save Changes
+                Save All
               </Button>
             </>
           }
@@ -598,7 +598,12 @@ export default function EditClientPage() {
         <div className="grid gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>Basic Information</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>Basic Information</CardTitle>
+                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
+                  Save Section
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
@@ -778,7 +783,12 @@ export default function EditClientPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Net Zero Targets</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>Net Zero Targets</CardTitle>
+                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
+                  Save Section
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -972,13 +982,18 @@ export default function EditClientPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Address</CardTitle>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>Address</CardTitle>
+                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
+                  Save Section
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <h3 className="text-sm font-semibold">Main address</h3>
+                <h3 className="text-sm font-semibold">Registered / trading address</h3>
                 <p className="text-xs text-muted-foreground">
-                  This is the client&apos;s primary registered or trading address.
+                  This is the client&apos;s primary registered or trading address, and can also be used to create a site.
                 </p>
               </div>
               <div className="space-y-2">
@@ -1044,13 +1059,45 @@ export default function EditClientPage() {
               <div className="flex items-center space-x-2 border-t pt-2">
                 <input
                   type="checkbox"
+                  id="createSiteFromAddress"
+                  checked={createSiteFromAddress}
+                  onChange={(e) => setCreateSiteFromAddress(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="createSiteFromAddress" className="font-normal cursor-pointer">
+                  Create site from this registered address
+                </Label>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <CardTitle>Billing Address</CardTitle>
+                <Button size="sm" onClick={saveClient} disabled={saving || loading}>
+                  Save Section
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <h3 className="text-sm font-semibold">Billing details</h3>
+                <p className="text-xs text-muted-foreground">
+                  Use this only if invoices should go to a different address.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 border-t pt-2">
+                <input
+                  type="checkbox"
                   id="billingSameAsMain"
                   checked={billingSameAsMain}
                   onChange={(e) => setBillingSameAsMain(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300"
                 />
                 <Label htmlFor="billingSameAsMain" className="font-normal cursor-pointer">
-                  Billing address same as main address
+                  Billing address same as registered address
                 </Label>
               </div>
 
@@ -1069,12 +1116,6 @@ export default function EditClientPage() {
 
               {!billingSameAsMain && (
                 <div className="space-y-4 rounded-md border bg-muted/30 p-4">
-                  <div>
-                    <h3 className="text-sm font-semibold">Billing address</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Use this only if invoices should go to a different address.
-                    </p>
-                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
                     <Input
@@ -1136,28 +1177,15 @@ export default function EditClientPage() {
                   </div>
                 </div>
               )}
-
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="createSiteFromAddress"
-                  checked={createSiteFromAddress}
-                  onChange={(e) => setCreateSiteFromAddress(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="createSiteFromAddress" className="font-normal cursor-pointer">
-                  Create site from this address (Registered Office)
-                </Label>
-              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <CardTitle>Active Sites ({activeSites.length})</CardTitle>
-                <Button 
-                  size="sm" 
+                <Button
+                  size="sm"
                   onClick={() => {
                     setShowAddSite(true);
                     setEditingSite(null);
