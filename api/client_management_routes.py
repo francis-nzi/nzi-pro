@@ -18,6 +18,7 @@ from api.client_management_helpers import (
 from api.permissions import assert_client_access, assert_permission
 from core.database import get_conn
 from services.audit_log import record_audit_event
+from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_capacity
 
