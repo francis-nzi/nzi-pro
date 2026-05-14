@@ -371,19 +371,17 @@ function CoverPage({ data }: { data: LiveData }) {
     year: "numeric",
   });
 
-  const periodFrom = job_data.reporting_period_start
-    ? formatDate(job_data.reporting_period_start)
-    : (job_data.reporting_year != null ? String(job_data.reporting_year) : null);
-
-  const periodTo = job_data.reporting_period_end
-    ? formatDate(job_data.reporting_period_end)
-    : null;
+  const reportingPeriod = (() => {
+    if (job_data.reporting_period_start && job_data.reporting_period_end) {
+      return `${formatDate(job_data.reporting_period_start)} - ${formatDate(job_data.reporting_period_end)}`;
+    }
+    return job_data.reporting_year != null ? String(job_data.reporting_year) : null;
+  })();
 
   const params: [string, string | null | undefined][] = [
     ["Client", job_data.client_name],
     ["Report Title", reportTitle],
-    ["Reporting Period From", periodFrom],
-    ["Reporting Period To", periodTo],
+    ["Reporting Period", reportingPeriod],
     ["Job Number", job_data.job_number],
     ["Report Generated", generatedDate],
   ];
