@@ -901,8 +901,26 @@ def update_job(
                 params.append(bool(job_type_row[1]) if job_type_row[1] is not None else False)
 
             if "milestone_template_id" in body:
+                milestone_template_id = body.get("milestone_template_id")
+                if milestone_template_id in ("", "__none__", None):
+                    resolved_milestone_template_id = None
+                else:
+                    try:
+                        resolved_milestone_template_id = int(milestone_template_id)
+                    except Exception:
+                        raise HTTPException(status_code=400, detail="milestone_template_id must be an integer")
+                    template_exists = con.execute(
+                        "SELECT 1 FROM milestone_templates WHERE template_id = ? LIMIT 1",
+                        [resolved_milestone_template_id],
+                    ).fetchone()
+                    if not template_exists:
+                        default_template = con.execute(
+                            "SELECT template_id FROM milestone_templates WHERE is_default = TRUE LIMIT 1"
+                        ).fetchone()
+                        resolved_milestone_template_id = int(default_template[0]) if default_template else None
+
                 updates.append("milestone_template_id = ?")
-                params.append(body["milestone_template_id"])
+                params.append(resolved_milestone_template_id)
             
             if not updates:
                 return {"ok": True, "message": "No fields to update"}

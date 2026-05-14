@@ -19,6 +19,7 @@ type JobSetupOverviewSectionProps = {
   includePrevYear: boolean;
   selectedSiteId: string;
   selectedTemplateId: string;
+  selectedMilestoneTemplateId: string;
   jobTitle: string;
   jobStatus: string;
   jobType: string;
@@ -33,6 +34,7 @@ type JobSetupOverviewSectionProps = {
   periodEndMonthMismatch: boolean;
   sites: Array<{ site_id: number | null; site_name: string | null }>;
   templates: Array<{ job_template_id: number; template_name: string | null; template_key: string | null; is_active: boolean }>;
+  milestoneTemplates: Array<{ template_id: number; template_name: string | null; is_default?: boolean | null }>;
   jobStatuses: Array<{ status_id: number; name: string }>;
   jobTypes: Array<{ job_type_id: number; name: string }>;
   portfolios: string[];
@@ -42,6 +44,7 @@ type JobSetupOverviewSectionProps = {
   onJobTypeChange: (value: string) => void;
   onOriginalPortfolioChange: (value: string) => void;
   onCrmNameChange: (value: string) => void;
+  onJobTemplateChange: (value: string) => void;
   onMilestoneTemplateChange: (value: string) => void;
   onJobStartDateChange: (value: string) => void;
   onJobEndDateChange: (value: string) => void;
@@ -63,6 +66,7 @@ export default function JobSetupOverviewSection({
   includePrevYear,
   selectedSiteId,
   selectedTemplateId,
+  selectedMilestoneTemplateId,
   jobTitle,
   jobStatus,
   jobType,
@@ -77,6 +81,7 @@ export default function JobSetupOverviewSection({
   periodEndMonthMismatch,
   sites,
   templates,
+  milestoneTemplates,
   jobStatuses,
   jobTypes,
   portfolios,
@@ -86,6 +91,7 @@ export default function JobSetupOverviewSection({
   onJobTypeChange,
   onOriginalPortfolioChange,
   onCrmNameChange,
+  onJobTemplateChange,
   onMilestoneTemplateChange,
   onJobStartDateChange,
   onJobEndDateChange,
@@ -183,15 +189,15 @@ export default function JobSetupOverviewSection({
 
             <div className="space-y-2">
               <Label htmlFor="milestoneTemplate">Milestone Template</Label>
-              <Select value={selectedTemplateId || "__none__"} onValueChange={onMilestoneTemplateChange}>
+              <Select value={selectedMilestoneTemplateId || "__none__"} onValueChange={onMilestoneTemplateChange}>
                 <SelectTrigger id="milestoneTemplate">
                   <SelectValue placeholder="Select milestone template..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">None</SelectItem>
-                  {templates.map((template) => (
-                    <SelectItem key={template.job_template_id} value={String(template.job_template_id)}>
-                      {template.template_name}
+                  {milestoneTemplates.map((template) => (
+                    <SelectItem key={template.template_id} value={String(template.template_id)}>
+                      {template.template_name || `Template ${template.template_id}`}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -269,7 +275,7 @@ export default function JobSetupOverviewSection({
 
             <div className="space-y-2">
               <Label htmlFor="jobTemplate">Job Template</Label>
-              <Select value={selectedTemplateId} onValueChange={onMilestoneTemplateChange}>
+              <Select value={selectedTemplateId} onValueChange={onJobTemplateChange}>
                 <SelectTrigger id="jobTemplate" className="w-full">
                   <SelectValue placeholder="Select a template..." />
                 </SelectTrigger>

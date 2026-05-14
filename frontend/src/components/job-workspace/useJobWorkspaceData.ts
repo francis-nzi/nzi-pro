@@ -440,15 +440,20 @@ export default function useJobWorkspaceData({
         if (cancelled) return;
         if (mtRes.ok) {
           const mtJson = (await mtRes.json()) as MilestoneTemplatesResponse;
-          setters.setMilestoneTemplates(Array.isArray(mtJson.templates) ? mtJson.templates : []);
-          if (!selectedMilestoneTemplateId) {
-            if (job?.milestone_template_id) {
+          const templates = Array.isArray(mtJson.templates) ? mtJson.templates : [];
+          setters.setMilestoneTemplates(templates);
+          const selectedExists = selectedMilestoneTemplateId
+            ? templates.some((template) => String(template.template_id) === String(selectedMilestoneTemplateId))
+            : false;
+          const jobTemplateExists = job?.milestone_template_id
+            ? templates.some((template) => Number(template.template_id) === Number(job.milestone_template_id))
+            : false;
+          if (!selectedExists) {
+            if (job?.milestone_template_id && jobTemplateExists) {
               setters.setSelectedMilestoneTemplateId(String(job.milestone_template_id));
             } else {
-              const defaultTemplate = mtJson.templates?.find((t) => t.is_default);
-              if (defaultTemplate) {
-                setters.setSelectedMilestoneTemplateId(String(defaultTemplate.template_id));
-              }
+              const defaultTemplate = templates.find((t) => t.is_default);
+              setters.setSelectedMilestoneTemplateId(defaultTemplate ? String(defaultTemplate.template_id) : "");
             }
           }
         }

@@ -789,7 +789,8 @@ export default function JobDetailPage() {
                 status={status}
                 includePrevYear={includePrevYear}
                 selectedSiteId={selectedSiteId}
-                selectedTemplateId={selectedMilestoneTemplateId}
+                selectedTemplateId={selectedTemplateId}
+                selectedMilestoneTemplateId={selectedMilestoneTemplateId}
                 jobTitle={jobTitle}
                 jobStatus={jobStatus}
                 jobType={jobType}
@@ -804,6 +805,7 @@ export default function JobDetailPage() {
                 periodEndMonthMismatch={periodEndMonthMismatch}
                 sites={sites}
                 templates={templates}
+                milestoneTemplates={milestoneTemplates}
                 jobStatuses={jobStatuses}
                 jobTypes={jobTypes}
                 portfolios={portfolios}
@@ -813,6 +815,7 @@ export default function JobDetailPage() {
                 onJobTypeChange={setJobType}
                 onOriginalPortfolioChange={setOriginalPortfolio}
                 onCrmNameChange={setCrmName}
+                onJobTemplateChange={setSelectedTemplateId}
                 onMilestoneTemplateChange={setSelectedMilestoneTemplateId}
                 onJobStartDateChange={setJobStartDate}
                 onJobEndDateChange={setJobEndDate}
