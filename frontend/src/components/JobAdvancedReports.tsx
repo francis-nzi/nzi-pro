@@ -203,58 +203,85 @@ function boolLabel(v: boolean | null | undefined): string {
   return v ? "Yes" : "No";
 }
 
-function buildPathwayPoints(
-  baselineYear: number,
-  netZeroYear: number,
-  scope1: number,
-  scope2: number,
-  scope3: number,
-  targetPct: number,
-) {
-  const span = netZeroYear - baselineYear;
-  return Array.from({ length: span + 1 }, (_, i) => {
-    const year = baselineYear + i;
-    const factor = span > 0 ? (i / span) * (targetPct / 100) : 0;
-    return {
-      year,
-      s1: Math.max(0, scope1 * (1 - factor)),
-      s2: Math.max(0, scope2 * (1 - factor)),
-      s3: Math.max(0, scope3 * (1 - factor)),
-    };
-  });
-}
-
 // ─── NetZeroTrendChart ────────────────────────────────────────────────────────
 
-type PathwayPoint = { year: number; s1: number; s2: number; s3: number };
-
 function NetZeroTrendChart({
-  points,
+  yearlyEmissions,
   baselineYear,
   endYear,
   interimYear,
-  hasScope2,
+  interimPct,
+  targetPct,
+  scope1Fallback,
+  scope2Fallback,
+  scope3Fallback,
 }: {
-  points: PathwayPoint[];
+  yearlyEmissions: YearlyEmission[];
   baselineYear: number;
   endYear: number;
   interimYear?: number | null;
-  hasScope2?: boolean;
+  interimPct?: number;
+  targetPct?: number;
+  scope1Fallback: number;
+  scope2Fallback: number;
+  scope3Fallback: number;
 }) {
-  const chartData = useMemo(() =>
-    points.map(p => ({
-      ...p,
-      actual: p.year === baselineYear ? p.s1 + p.s2 + p.s3 : null,
-      s2: hasScope2 ? p.s2 : undefined,
-    })),
-    [points, baselineYear, hasScope2],
-  );
+  const chartData = useMemo(() => {
+    const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
+    const bYear = baselineYear > 1900 ? baselineYear : (firstHistoricalYear ?? new Date().getFullYear() - 1);
+    const benchmarkRow = yearlyEmissions.find(r => r.year === bYear);
+    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : scope1Fallback;
+    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : scope2Fallback;
+    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : scope3Fallback;
+    const finalFactor = (100 - (targetPct ?? 100)) / 100;
+    const iYear = interimYear && interimYear > bYear && interimYear < endYear ? interimYear : null;
+    const iPct = interimPct ?? 50;
+
+    const forecastScope = (bench: number, year: number): number => {
+      if (year <= bYear) return bench;
+      const finalTarget = bench * finalFactor;
+      const iTarget = iYear != null ? bench * (1 - iPct / 100) : null;
+      if (iYear != null && iTarget != null && year <= iYear) {
+        const span = iYear - bYear;
+        const t = span > 0 ? (year - bYear) / span : 1;
+        return bench + (iTarget - bench) * t;
+      }
+      const segStart = iYear ?? bYear;
+      const segVal = iTarget ?? bench;
+      const span = endYear - segStart;
+      const t = span > 0 ? (year - segStart) / span : 1;
+      return Math.max(segVal + (finalTarget - segVal) * t, 0);
+    };
+
+    const yearSet = new Set<number>();
+    for (let y = bYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach(r => { if (r.year <= endYear) yearSet.add(r.year); });
+    const years = Array.from(yearSet).sort((a, b) => a - b);
+
+    return years.map(year => {
+      const actual = yearlyEmissions.find(r => r.year === year);
+      return {
+        year,
+        actual_total: actual ? actual.total : null,
+        actual_s1: actual ? actual.scope1 : null,
+        actual_s2: actual ? actual.scope2 : null,
+        actual_s3: actual ? actual.scope3 : null,
+        target_total: forecastScope(benchS1, year) + forecastScope(benchS2, year) + forecastScope(benchS3, year),
+        target_s1: forecastScope(benchS1, year),
+        target_s2: benchS2 > 0 ? forecastScope(benchS2, year) : undefined,
+        target_s3: forecastScope(benchS3, year),
+      };
+    });
+  }, [yearlyEmissions, baselineYear, endYear, interimYear, interimPct, targetPct,
+      scope1Fallback, scope2Fallback, scope3Fallback]);
+
+  const hasScope2 = (chartData[0]?.target_s2 ?? 0) > 0;
 
   const tickYears = useMemo(() =>
-    points
-      .filter(d => d.year === baselineYear || d.year === endYear || d.year % 5 === 0)
+    chartData
+      .filter(d => d.year === chartData[0]?.year || d.year === endYear || d.year % 5 === 0)
       .map(d => d.year),
-    [points, baselineYear, endYear],
+    [chartData, endYear],
   );
 
   return (
@@ -273,10 +300,7 @@ function NetZeroTrendChart({
             tick={{ fontSize: 10 }}
           />
           <Tooltip
-            formatter={(value: number | undefined, name: string | undefined) => [
-              value != null ? `${fmt(value)} tCO₂e` : "—",
-              name ?? "",
-            ]}
+            formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCO₂e` : "—", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
           <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
@@ -288,16 +312,26 @@ function NetZeroTrendChart({
           <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3"
             label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
 
-          <Line type="monotone" dataKey="actual" name="Actual"
+          <Line type="monotone" dataKey="actual_total" name="Total (actual)"
             stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-          <Line type="monotone" dataKey="s1" name="Scope 1 target"
-            stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+          <Line type="monotone" dataKey="actual_s1" name="Scope 1 (actual)"
+            stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
           {hasScope2 && (
-            <Line type="monotone" dataKey="s2" name="Scope 2 target"
-              stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+            <Line type="monotone" dataKey="actual_s2" name="Scope 2 (actual)"
+              stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
           )}
-          <Line type="monotone" dataKey="s3" name="Scope 3 target"
-            stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+          <Line type="monotone" dataKey="actual_s3" name="Scope 3 (actual)"
+            stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+          <Line type="monotone" dataKey="target_total" name="Total (target)"
+            stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} />
+          <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)"
+            stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+          {hasScope2 && (
+            <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)"
+              stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+          )}
+          <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)"
+            stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -600,14 +634,6 @@ export default function JobAdvancedReports({
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
   const targetPct = toNum(target_data?.target_pct) || 100;
   const interimPct = toNum(target_data?.interim_pct) || 50;
-
-  const pathway2050 = buildPathwayPoints(
-    baselineYear, netZeroYear, scope1, scope2, scope3, targetPct,
-  );
-  const pathwayInterim =
-    interimYear && interimYear > baselineYear
-      ? buildPathwayPoints(baselineYear, interimYear, scope1, scope2, scope3, interimPct)
-      : null;
 
   const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({
     name: s,
@@ -987,11 +1013,15 @@ export default function JobAdvancedReports({
                   Emissions Reduction Pathway to {netZeroYear}
                 </p>
                 <NetZeroTrendChart
-                  points={pathway2050}
+                  yearlyEmissions={effectiveYearlyEmissions}
                   baselineYear={baselineYear}
                   endYear={netZeroYear}
                   interimYear={interimYear}
-                  hasScope2={scope2 > 0}
+                  interimPct={interimPct}
+                  targetPct={targetPct}
+                  scope1Fallback={scope1}
+                  scope2Fallback={scope2}
+                  scope3Fallback={scope3}
                 />
               </div>
             )}
