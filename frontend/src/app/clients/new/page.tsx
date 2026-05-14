@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ClientLogoUpload from "@/components/ClientLogoUpload";
 import PageHeader from "@/components/PageHeader";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
@@ -115,7 +115,7 @@ export default function NewClientPage() {
 
   // Targets
   const [netZeroYear, setNetZeroYear] = useState("2050");
-  const [benchmarkYear, setBenchmarkYear] = useState("");
+  const [netZeroTargetReductionPct, setNetZeroTargetReductionPct] = useState("90");
   const [benchmarkPeriodStart, setBenchmarkPeriodStart] = useState("");
   const [benchmarkPeriodEnd, setBenchmarkPeriodEnd] = useState("");
   const [benchmarkScope1, setBenchmarkScope1] = useState("");
@@ -148,8 +148,8 @@ export default function NewClientPage() {
     },
     {
       id: 3,
-      title: "Targets & benchmark",
-      description: "Net zero goals and reporting period",
+      title: "Interim Targets",
+      description: "Net zero goals, interim targets, and reporting period",
     },
   ];
 
@@ -205,7 +205,7 @@ export default function NewClientPage() {
     ].some((value) => value.trim().length > 0) || createSiteFromAddress;
 
   const stepThreeComplete =
-    [netZeroYear, benchmarkYear, targetS1Year, targetS2Year, targetS3Year].some(
+    [netZeroYear, netZeroTargetReductionPct, targetS1Year, targetS2Year, targetS3Year].some(
       (value) => value.trim().length > 0
     ) ||
     [targetS1Pct, targetS2Pct, targetS3Pct].some(
@@ -296,11 +296,7 @@ export default function NewClientPage() {
     setShowValidationSummary(false);
   }
 
-  useEffect(() => {
-    loadLookups();
-  }, [baseUrl]);
-
-  async function loadLookups() {
+  const loadLookups = useCallback(async () => {
     try {
       const [portfoliosRes, industriesRes, usersRes, currenciesRes] = await Promise.all([
         fetch(`${baseUrl}/admin/lookups/portfolios_lookup`),
@@ -364,7 +360,11 @@ export default function NewClientPage() {
     } catch (e) {
       console.error("Failed to load lookups:", e);
     }
-  }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    loadLookups();
+  }, [loadLookups]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -425,7 +425,9 @@ export default function NewClientPage() {
             status: "Active",
             create_site_from_address: createSiteFromAddress,
             net_zero_year: netZeroYear ? Number(netZeroYear) : null,
-            benchmark_year: benchmarkYear ? Number(benchmarkYear) : null,
+            net_zero_target_reduction_pct: netZeroTargetReductionPct
+              ? Number(netZeroTargetReductionPct)
+              : 90,
             benchmark_scope_1_tco2e: benchmarkScope1 ? Number(benchmarkScope1) : null,
             benchmark_scope_2_tco2e: benchmarkScope2 ? Number(benchmarkScope2) : null,
             benchmark_scope_3_tco2e: benchmarkScope3 ? Number(benchmarkScope3) : null,
@@ -1052,12 +1054,13 @@ export default function NewClientPage() {
           {currentStep === 3 && (
             <Card>
               <CardHeader>
-                <CardTitle>Targets & benchmark</CardTitle>
+                <CardTitle>Interim Targets</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Capture net zero goals and the baseline reporting period. These
-                  values guide job reporting and target tracking.
+                  Capture the net zero goal, interim targets, and the baseline
+                  reporting period. These values guide job reporting and target
+                  tracking.
                 </p>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1072,18 +1075,18 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="benchmarkYear">Benchmark Year (Legacy)</Label>
+                    <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
                     <Input
-                      id="benchmarkYear"
+                      id="netZeroTargetReductionPct"
                       type="number"
-                      value={benchmarkYear}
-                      onChange={(e) => setBenchmarkYear(e.target.value)}
-                      min="2000"
-                      max="2100"
-                      placeholder="e.g., 2024"
+                      value={netZeroTargetReductionPct}
+                      onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
+                      min="0"
+                      max="100"
+                      placeholder="90"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Use benchmark period dates below for new clients
+                      Default 90% in line with Net Zero requirements.
                     </p>
                 </div>
               </div>
@@ -1192,7 +1195,7 @@ export default function NewClientPage() {
 
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="targetS1Year">Scope 1 Target Year</Label>
+                  <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
                     <Input
                       id="targetS1Year"
                       type="number"
@@ -1203,7 +1206,7 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="targetS1Pct">Scope 1 Reduction %</Label>
+                    <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
                     <div className="relative">
                       <Input
                         id="targetS1Pct"
@@ -1220,7 +1223,7 @@ export default function NewClientPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="targetS2Year">Scope 2 Target Year</Label>
+                    <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
                     <Input
                       id="targetS2Year"
                       type="number"
@@ -1234,7 +1237,7 @@ export default function NewClientPage() {
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
-                    <Label htmlFor="targetS2Pct">Scope 2 Reduction %</Label>
+                    <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
                     <div className="relative">
                       <Input
                         id="targetS2Pct"
@@ -1251,7 +1254,7 @@ export default function NewClientPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="targetS3Year">Scope 3 Target Year</Label>
+                    <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
                     <Input
                       id="targetS3Year"
                       type="number"
@@ -1262,7 +1265,7 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="targetS3Pct">Scope 3 Reduction %</Label>
+                    <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
                     <div className="relative">
                       <Input
                         id="targetS3Pct"

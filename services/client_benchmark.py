@@ -8,6 +8,7 @@ CLIENT_BENCHMARK_COLUMNS = (
     "benchmark_scope_2_tco2e",
     "benchmark_scope_3_tco2e",
     "benchmark_total_tco2e",
+    "net_zero_target_reduction_pct",
 )
 
 
@@ -20,6 +21,7 @@ def ensure_client_benchmark_columns(con) -> None:
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_2_tco2e DOUBLE PRECISION",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_scope_3_tco2e DOUBLE PRECISION",
         "ALTER TABLE clients ADD COLUMN IF NOT EXISTS benchmark_total_tco2e DOUBLE PRECISION",
+        "ALTER TABLE clients ADD COLUMN IF NOT EXISTS net_zero_target_reduction_pct INTEGER DEFAULT 90",
     ]
     for statement in statements:
         con.execute(statement)
@@ -45,6 +47,7 @@ def get_client_benchmark_metrics(con, client_db_id: int) -> dict[str, Any] | Non
         """
         SELECT
             benchmark_year,
+            net_zero_target_reduction_pct,
             benchmark_scope_1_tco2e,
             benchmark_scope_2_tco2e,
             benchmark_scope_3_tco2e,
@@ -59,10 +62,11 @@ def get_client_benchmark_metrics(con, client_db_id: int) -> dict[str, Any] | Non
         return None
 
     benchmark_year = int(row[0]) if row[0] is not None else None
-    scope1 = _as_float(row[1])
-    scope2 = _as_float(row[2])
-    scope3 = _as_float(row[3])
-    total = _as_float(row[4])
+    net_zero_target_reduction_pct = int(row[1]) if row[1] is not None else 90
+    scope1 = _as_float(row[2])
+    scope2 = _as_float(row[3])
+    scope3 = _as_float(row[4])
+    total = _as_float(row[5])
 
     if all(value is None for value in (scope1, scope2, scope3, total)):
         return None
@@ -72,6 +76,7 @@ def get_client_benchmark_metrics(con, client_db_id: int) -> dict[str, Any] | Non
 
     return {
         "benchmark_year": benchmark_year,
+        "net_zero_target_reduction_pct": net_zero_target_reduction_pct,
         "scope1": scope1,
         "scope2": scope2,
         "scope3": scope3,

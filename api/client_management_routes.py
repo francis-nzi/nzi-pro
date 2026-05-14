@@ -82,7 +82,7 @@ def create_client(
                     org_id, client_name, billing_company, industry, description_long, website, year_end_month,
                     company_reg, sic_code, headquarters, addr_line1, addr_line2, addr_city,
                     addr_region, addr_postcode, addr_country, logo_url, portfolio,
-                    crm_owner, currency, status, net_zero_year, benchmark_year,
+                    crm_owner, currency, status, net_zero_year, net_zero_target_reduction_pct, benchmark_year,
                     benchmark_period_start, benchmark_period_end,
                     benchmark_scope_1_tco2e, benchmark_scope_2_tco2e,
                     benchmark_scope_3_tco2e, benchmark_total_tco2e,
@@ -92,7 +92,7 @@ def create_client(
                     billing_addr_region, billing_addr_postcode, billing_addr_country,
                     create_site_from_address
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING db_id
                 """,
                 [
@@ -118,6 +118,7 @@ def create_client(
                     str(body.get("currency") or "GBP").upper(),
                     body.get("status", "Active"),
                     body.get("net_zero_year"),
+                    body.get("net_zero_target_reduction_pct", 90),
                     body.get("benchmark_year"),
                     body.get("benchmark_period_start"),
                     body.get("benchmark_period_end"),
@@ -288,8 +289,8 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
                    c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
             c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
             c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-            c.interim_s3_pct, c.portfolio, c.benchmark_year,
-            c.benchmark_period_start, c.benchmark_period_end, c.currency,
+            c.interim_s3_pct, c.portfolio, c.net_zero_target_reduction_pct,
+            c.benchmark_year, c.benchmark_period_start, c.benchmark_period_end, c.currency,
             COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
                    c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
                    c.billing_addr_postcode, c.billing_addr_country,
@@ -332,25 +333,26 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
         "interim_s2_pct": (int(row[21]) if row[21] is not None else None),
         "interim_s3_pct": (int(row[22]) if row[22] is not None else None),
         "portfolio": row[23],
-        "benchmark_year": (int(row[24]) if row[24] is not None else None),
-        "benchmark_period_start": str(row[25]) if row[25] is not None else None,
-        "benchmark_period_end": str(row[26]) if row[26] is not None else None,
-        "currency": row[27] if row[27] is not None else "GBP",
-        "billing_same_as_main": bool(row[28]) if row[28] is not None else True,
-        "billing_addr_line1": row[29],
-        "billing_addr_line2": row[30],
-        "billing_addr_city": row[31],
-        "billing_addr_region": row[32],
-        "billing_addr_postcode": row[33],
-        "billing_addr_country": row[34],
-        "create_site_from_address": bool(row[35]) if row[35] is not None else bool(
+        "net_zero_target_reduction_pct": int(row[24]) if row[24] is not None else 90,
+        "benchmark_year": (int(row[25]) if row[25] is not None else None),
+        "benchmark_period_start": str(row[26]) if row[26] is not None else None,
+        "benchmark_period_end": str(row[27]) if row[27] is not None else None,
+        "currency": row[28] if row[28] is not None else "GBP",
+        "billing_same_as_main": bool(row[29]) if row[29] is not None else True,
+        "billing_addr_line1": row[30],
+        "billing_addr_line2": row[31],
+        "billing_addr_city": row[32],
+        "billing_addr_region": row[33],
+        "billing_addr_postcode": row[34],
+        "billing_addr_country": row[35],
+        "create_site_from_address": bool(row[36]) if row[36] is not None else bool(
             row[10] or row[11] or row[12] or row[13] or row[14] or row[15]
         ),
-        "benchmark_scope_1_tco2e": float(row[36]) if row[36] is not None else None,
-        "benchmark_scope_2_tco2e": float(row[37]) if row[37] is not None else None,
-        "benchmark_scope_3_tco2e": float(row[38]) if row[38] is not None else None,
-        "benchmark_total_tco2e": float(row[39]) if row[39] is not None else None,
-        "billing_company": row[40] if len(row) > 40 else row[1],
+        "benchmark_scope_1_tco2e": float(row[37]) if row[37] is not None else None,
+        "benchmark_scope_2_tco2e": float(row[38]) if row[38] is not None else None,
+        "benchmark_scope_3_tco2e": float(row[39]) if row[39] is not None else None,
+        "benchmark_total_tco2e": float(row[40]) if row[40] is not None else None,
+        "billing_company": row[41] if len(row) > 41 else row[1],
         }
 
 
@@ -448,6 +450,7 @@ def update_client(
                 "interim_s2_pct": "interim_s2_pct",
                 "interim_s3_pct": "interim_s3_pct",
                 "portfolio": "portfolio",
+                "net_zero_target_reduction_pct": "net_zero_target_reduction_pct",
                 "benchmark_year": "benchmark_year",
                 "benchmark_period_start": "benchmark_period_start",
                 "benchmark_period_end": "benchmark_period_end",

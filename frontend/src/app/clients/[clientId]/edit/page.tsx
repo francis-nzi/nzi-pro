@@ -94,6 +94,7 @@ type Client = {
   interim_s3_pct: number | null;
   portfolio: string | null;
   benchmark_year: number | null;
+  net_zero_target_reduction_pct: number | null;
   target_s1_year: number | null;
   target_s1_pct: number | null;
   target_s2_year: number | null;
@@ -183,7 +184,7 @@ export default function EditClientPage() {
   const [clientStatus, setClientStatus] = useState<string>("Active");
   const [netZeroYear, setNetZeroYear] = useState<string>("2050");
   const [interimYear, setInterimYear] = useState<string>("2035");
-  const [benchmarkYear, setBenchmarkYear] = useState<string>("");
+  const [netZeroTargetReductionPct, setNetZeroTargetReductionPct] = useState<string>("90");
   const [targetS1Year, setTargetS1Year] = useState<string>("2035");
   const [targetS1Pct, setTargetS1Pct] = useState<string>("50");
   const [targetS2Year, setTargetS2Year] = useState<string>("2035");
@@ -355,7 +356,9 @@ export default function EditClientPage() {
         setClientStatus(json.status || "Active");
         setNetZeroYear(json.net_zero_year ? String(json.net_zero_year) : "2050");
         setInterimYear(json.interim_year ? String(json.interim_year) : "2035");
-        setBenchmarkYear(json.benchmark_year ? String(json.benchmark_year) : "");
+        setNetZeroTargetReductionPct(
+          json.net_zero_target_reduction_pct ? String(json.net_zero_target_reduction_pct) : "90"
+        );
         setTargetS1Year(json.target_s1_year ? String(json.target_s1_year) : "2035");
         setTargetS1Pct(json.target_s1_pct ? String(json.target_s1_pct) : "50");
         setTargetS2Year(json.target_s2_year ? String(json.target_s2_year) : "2035");
@@ -532,7 +535,7 @@ export default function EditClientPage() {
           status: clientStatus || null,
           net_zero_year: netZeroYear ? Number(netZeroYear) : null,
           interim_year: interimYear ? Number(interimYear) : null,
-          benchmark_year: benchmarkYear ? Number(benchmarkYear) : null,
+          net_zero_target_reduction_pct: netZeroTargetReductionPct ? Number(netZeroTargetReductionPct) : null,
           target_s1_year: targetS1Year ? Number(targetS1Year) : null,
           target_s1_pct: targetS1Pct ? Number(targetS1Pct) : null,
           target_s2_year: targetS2Year ? Number(targetS2Year) : null,
@@ -804,17 +807,17 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="benchmarkYear">Benchmark Year (Legacy)</Label>
+                  <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
                   <Input
-                    id="benchmarkYear"
+                    id="netZeroTargetReductionPct"
                     type="number"
-                    value={benchmarkYear}
-                    onChange={(e) => setBenchmarkYear(e.target.value)}
-                    min="2000"
-                    max="2100"
-                    placeholder="e.g. 2024"
+                    value={netZeroTargetReductionPct}
+                    onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
+                    min="0"
+                    max="100"
+                    placeholder="90"
                   />
-                  <p className="text-xs text-muted-foreground">Use benchmark period dates below for new clients</p>
+                  <p className="text-xs text-muted-foreground">Default 90% in line with Net Zero requirements.</p>
                 </div>
               </div>
 
@@ -906,9 +909,16 @@ export default function EditClientPage() {
                 </div>
               </div>
 
+              <div>
+                <h3 className="text-sm font-semibold">Interim Targets</h3>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Scope 1, 2 and 3 interim target years and reduction percentages.
+                </p>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="targetS1Year">Scope 1 Target Year</Label>
+                  <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
                   <Input
                     id="targetS1Year"
                     type="number"
@@ -919,7 +929,7 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="targetS1Pct">Scope 1 Reduction %</Label>
+                  <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
                   <Input
                     id="targetS1Pct"
                     type="number"
@@ -930,7 +940,7 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="targetS2Year">Scope 2 Target Year</Label>
+                  <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
                   <Input
                     id="targetS2Year"
                     type="number"
@@ -944,7 +954,7 @@ export default function EditClientPage() {
 
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="targetS2Pct">Scope 2 Reduction %</Label>
+                  <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
                   <Input
                     id="targetS2Pct"
                     type="number"
@@ -955,7 +965,7 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="targetS3Year">Scope 3 Target Year</Label>
+                  <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
                   <Input
                     id="targetS3Year"
                     type="number"
@@ -966,7 +976,7 @@ export default function EditClientPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="targetS3Pct">Scope 3 Reduction %</Label>
+                  <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
                   <Input
                     id="targetS3Pct"
                     type="number"
