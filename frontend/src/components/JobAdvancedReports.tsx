@@ -224,134 +224,80 @@ function buildPathwayPoints(
   });
 }
 
-// ─── PathwayChart ─────────────────────────────────────────────────────────────
+// ─── NetZeroTrendChart ────────────────────────────────────────────────────────
 
 type PathwayPoint = { year: number; s1: number; s2: number; s3: number };
 
-function PathwayChart({
+function NetZeroTrendChart({
   points,
   baselineYear,
   endYear,
   interimYear,
+  hasScope2,
 }: {
   points: PathwayPoint[];
   baselineYear: number;
   endYear: number;
   interimYear?: number | null;
+  hasScope2?: boolean;
 }) {
-  const tickYears = useMemo(
-    () =>
-      points
-        .filter(d => d.year === baselineYear || d.year === endYear || d.year % 5 === 0)
-        .map(d => d.year),
+  const chartData = useMemo(() =>
+    points.map(p => ({
+      ...p,
+      actual: p.year === baselineYear ? p.s1 + p.s2 + p.s3 : null,
+      s2: hasScope2 ? p.s2 : undefined,
+    })),
+    [points, baselineYear, hasScope2],
+  );
+
+  const tickYears = useMemo(() =>
+    points
+      .filter(d => d.year === baselineYear || d.year === endYear || d.year % 5 === 0)
+      .map(d => d.year),
     [points, baselineYear, endYear],
   );
 
-  const dot = { r: 3, strokeWidth: 1.5, stroke: "white" };
-  const activeDot = { r: 5 };
-
   return (
-    <div className="h-[300px] w-full">
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={points} margin={{ top: 8, right: 48, left: 16, bottom: 36 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" />
+    <div className="h-[320px]">
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={chartData} margin={{ top: 5, right: 24, left: 8, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey="year"
             ticks={tickYears}
             tickFormatter={(v: number) => String(v)}
             tick={{ fontSize: 10 }}
-            angle={-45}
-            textAnchor="end"
-            height={48}
           />
           <YAxis
-            tickFormatter={(v: number) =>
-              v.toLocaleString(undefined, { maximumFractionDigits: 0 })
-            }
+            tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
             tick={{ fontSize: 10 }}
-            label={{
-              value: "Emissions (tCO₂e)",
-              angle: -90,
-              position: "insideLeft",
-              offset: 12,
-              style: { fontSize: 10, fill: "#666" },
-            }}
           />
           <Tooltip
             formatter={(value: number | undefined, name: string | undefined) => [
               value != null ? `${fmt(value)} tCO₂e` : "—",
               name ?? "",
             ]}
-            labelFormatter={(label: unknown) => `Year ${label}`}
+            labelFormatter={(label: unknown) => `Year: ${label}`}
           />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
+          <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
 
-          <ReferenceLine
-            x={baselineYear}
-            stroke="#555"
-            strokeDasharray="5 3"
-            strokeWidth={1.5}
-            label={{
-              value: `Baseline ${baselineYear}`,
-              position: "insideTopLeft",
-              fontSize: 9,
-              fill: "#555",
-            }}
-          />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
-            <ReferenceLine
-              x={interimYear}
-              stroke="#888"
-              strokeDasharray="5 3"
-              strokeWidth={1.5}
-              label={{
-                value: `Interim ${interimYear}`,
-                position: "insideTop",
-                fontSize: 9,
-                fill: "#888",
-              }}
-            />
+            <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
+              label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
           )}
-          <ReferenceLine
-            x={endYear}
-            stroke="#70AD47"
-            strokeDasharray="5 3"
-            strokeWidth={1.5}
-            label={{
-              value: `Net Zero ${endYear}`,
-              position: "insideBottomRight",
-              fontSize: 9,
-              fill: "#2d7a2d",
-            }}
-          />
+          <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3"
+            label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
 
-          <Line
-            type="monotone"
-            dataKey="s1"
-            name="Scope 1"
-            stroke="#4472C4"
-            strokeWidth={2.5}
-            dot={dot}
-            activeDot={activeDot}
-          />
-          <Line
-            type="monotone"
-            dataKey="s2"
-            name="Scope 2"
-            stroke="#ED7D31"
-            strokeWidth={2.5}
-            dot={dot}
-            activeDot={activeDot}
-          />
-          <Line
-            type="monotone"
-            dataKey="s3"
-            name="Scope 3"
-            stroke="#70AD47"
-            strokeWidth={2.5}
-            dot={dot}
-            activeDot={activeDot}
-          />
+          <Line type="monotone" dataKey="actual" name="Actual"
+            stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
+          <Line type="monotone" dataKey="s1" name="Scope 1 target"
+            stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+          {hasScope2 && (
+            <Line type="monotone" dataKey="s2" name="Scope 2 target"
+              stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+          )}
+          <Line type="monotone" dataKey="s3" name="Scope 3 target"
+            stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -979,7 +925,86 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 3. Background & Organisation ───────────────────────────────── */}
+        {/* ── 3. Net Zero Commitment ─────────────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Net Zero Commitment" />
+          </CardHeader>
+          <CardContent className="space-y-5">
+
+            {/* Commitment statement */}
+            {(() => {
+              const stmt = String(template_variables?.commitment_statement ?? "").trim();
+              const fallback = `${data.job_data.client_name ?? "This organisation"} is committed to achieving net zero greenhouse gas emissions by ${netZeroYear}. This commitment demonstrates our dedication to environmental sustainability.`;
+              return (
+                <p className="text-sm text-gray-700 leading-relaxed">{stmt || fallback}</p>
+              );
+            })()}
+
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-2">We commit to the following:</p>
+              <ul className="list-disc list-outside ml-5 space-y-1 text-sm text-gray-700">
+                <li>To achieve target reductions in greenhouse gas emissions, as set out below.</li>
+                <li>To set realistic short- and long-term targets designed to achieve our Net Zero commitments.</li>
+                <li>To report total Greenhouse Gas emissions of our business, at a minimum, on an annual basis.</li>
+              </ul>
+            </div>
+
+            {/* Reduction Targets table */}
+            {(interimYear || netZeroYear) && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Reduction Targets</p>
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                    <span className="text-xs font-semibold text-gray-500">Target Type</span>
+                    <span className="text-center text-xs font-semibold text-gray-500">Year</span>
+                    <span className="text-center text-xs font-semibold text-gray-500">Reduction</span>
+                    <span className="text-xs font-semibold text-gray-500">Scope</span>
+                  </div>
+                  {interimYear && (
+                    <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
+                      <span className="text-xs text-gray-700">Interim Target</span>
+                      <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                      <span className="text-center text-xs text-gray-700">{interimPct}%</span>
+                      <span className="text-xs text-gray-700">Scope 1, 2 &amp; 3</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-[1fr_80px_100px_120px] bg-gray-50 px-3 py-2">
+                    <span className="text-xs font-semibold text-gray-700">Net Zero Target</span>
+                    <span className="text-center text-xs font-semibold text-gray-700">{netZeroYear}</span>
+                    <span className="text-center text-xs font-semibold text-gray-700">{targetPct}%</span>
+                    <span className="text-xs font-semibold text-gray-700">Scope 1, 2 &amp; 3</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Emissions Reduction Pathway chart */}
+            {hasPathway && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                  Emissions Reduction Pathway to {netZeroYear}
+                </p>
+                <NetZeroTrendChart
+                  points={pathway2050}
+                  baselineYear={baselineYear}
+                  endYear={netZeroYear}
+                  interimYear={interimYear}
+                  hasScope2={scope2 > 0}
+                />
+              </div>
+            )}
+
+            {report_metadata?.emissions_reduction_targets_commentary && (
+              <p className="text-sm text-gray-600 leading-relaxed">
+                {report_metadata.emissions_reduction_targets_commentary}
+              </p>
+            )}
+
+          </CardContent>
+        </Card>
+
+        {/* ── 4. Background & Organisation ───────────────────────────────── */}
         <Card className="live-report-section">
           <CardHeader className="pb-3">
             <SectionHeader title="Background & Organisation" />
@@ -1041,45 +1066,7 @@ export default function JobAdvancedReports({
         </Card>
 
 
-        {/* ── 5. Emissions Reduction Pathway to net-zero ─────────────────── */}
-        {hasPathway && (
-          <Card className="live-report-section">
-            <CardHeader className="pb-3">
-              <SectionHeader title={`Emissions Reduction Pathway to ${netZeroYear}`} />
-            </CardHeader>
-            <CardContent>
-              <PathwayChart
-                points={pathway2050}
-                baselineYear={baselineYear}
-                endYear={netZeroYear}
-                interimYear={interimYear}
-              />
-              {report_metadata?.emissions_reduction_targets_commentary && (
-                <p className="mt-4 text-sm text-gray-600 leading-relaxed">
-                  {report_metadata.emissions_reduction_targets_commentary}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── 6. Pathway to interim target ───────────────────────────────── */}
-        {pathwayInterim && interimYear && (
-          <Card className="live-report-section">
-            <CardHeader className="pb-3">
-              <SectionHeader title={`Pathway to Interim Target (${interimYear})`} />
-            </CardHeader>
-            <CardContent>
-              <PathwayChart
-                points={pathwayInterim}
-                baselineYear={baselineYear}
-                endYear={interimYear}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── 7. Emissions by activity ───────────────────────────────────── */}
+        {/* ── 5. Emissions by activity ───────────────────────────────────── */}
         {activityBarData.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
