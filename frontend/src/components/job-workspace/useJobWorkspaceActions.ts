@@ -522,8 +522,20 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     }
   }
 
-  async function downloadTemplate(selectedSiteName: string, includePrevYear: boolean, periodStartLabel: string, periodEndLabel: string, jobNumberLabel: string, clientLabel: string) {
+  async function downloadTemplate(
+    selectedTemplateId: string,
+    selectedSiteName: string,
+    includePrevYear: boolean,
+    periodStartLabel: string,
+    periodEndLabel: string,
+    jobNumberLabel: string,
+    clientLabel: string
+  ) {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
+    if (!selectedTemplateId || selectedTemplateId === "__none__") {
+      setStatus("Please select a Job Template before downloading.");
+      return;
+    }
     if (!selectedSiteName.trim()) {
       setStatus("Please select a site.");
       return;

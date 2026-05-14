@@ -623,7 +623,13 @@ def job_excel_template(
         with get_conn() as con:
             job_row = con.execute(
                 """
-                SELECT j.job_number, j.reporting_year, j.reporting_period_start, j.reporting_period_end, c.client_name
+                SELECT
+                    j.job_number,
+                    j.reporting_year,
+                    j.reporting_period_start,
+                    j.reporting_period_end,
+                    c.client_name,
+                    j.job_template_id
                 FROM jobs j
                 LEFT JOIN clients c ON c.db_id = j.client_db_id
                 WHERE j.job_id = ?
@@ -635,6 +641,24 @@ def job_excel_template(
         reporting_period_start = job_row[2] if job_row and len(job_row) > 2 else None
         reporting_period_end = job_row[3] if job_row and len(job_row) > 3 else None
         client_name = str(job_row[4] or "Client") if job_row and len(job_row) > 4 else "Client"
+        job_template_id = int(job_row[5]) if job_row and len(job_row) > 5 and job_row[5] is not None else None
+
+        if job_template_id is None:
+            raise HTTPException(status_code=400, detail="Please select a Job Template before downloading.")
+
+        with get_conn() as con:
+            template_exists = con.execute(
+                """
+                SELECT 1
+                FROM job_templates
+                WHERE job_template_id = ?
+                  AND COALESCE(is_active, TRUE) = TRUE
+                LIMIT 1
+                """,
+                [int(job_template_id)],
+            ).fetchone()
+        if not template_exists:
+            raise HTTPException(status_code=400, detail="Please select a valid Job Template before downloading.")
 
         def _fmt_period_part(val):
             if not val:

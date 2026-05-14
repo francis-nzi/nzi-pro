@@ -829,6 +829,7 @@ export default function JobDetailPage() {
                 onSaveTemplate={workspaceActions.saveTemplate}
                 onDownloadTemplate={() =>
                   void workspaceActions.downloadTemplate(
+                    selectedTemplateId,
                     selectedSiteName(),
                     includePrevYear,
                     periodStartLabel,

@@ -314,13 +314,18 @@ export default function JobSetupOverviewSection({
             </div>
 
             <div className="flex flex-col gap-2 md:flex-row">
-              <Button onClick={onDownloadTemplate} disabled={busy}>
+              <Button onClick={onDownloadTemplate} disabled={busy || !selectedTemplateId}>
                 Download Excel template
               </Button>
               <Button variant={includePrevYear ? "default" : "outline"} onClick={() => onIncludePrevYearChange(!includePrevYear)} disabled={busy}>
                 Include previous year: {includePrevYear ? "On" : "Off"}
               </Button>
             </div>
+            {!selectedTemplateId ? (
+              <p className="text-xs text-muted-foreground">
+                Select a Job Template before downloading the Excel template.
+              </p>
+            ) : null}
 
             {status ? <div className="text-sm text-muted-foreground">{status}</div> : null}
           </CardContent>
