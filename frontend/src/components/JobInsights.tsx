@@ -182,7 +182,8 @@ export default function JobInsights({
           scope_2: Number.isFinite(Number(clientJson?.interim_s2_pct)) ? Number(clientJson?.interim_s2_pct) : null,
           scope_3: Number.isFinite(Number(clientJson?.interim_s3_pct)) ? Number(clientJson?.interim_s3_pct) : null,
         });
-        setBenchmarkYear(Number.isFinite(Number(clientJson?.benchmark_year)) ? Number(clientJson?.benchmark_year) : null);
+        const by = Number(clientJson?.benchmark_year);
+        setBenchmarkYear(Number.isFinite(by) && by > 1900 ? by : null);
         setIntensityMetrics(
           intensityJson && intensityJson.metrics && typeof intensityJson.metrics === "object" ? intensityJson.metrics : {},
         );
@@ -285,9 +286,10 @@ export default function JobInsights({
 
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
-    const endYear = targetYear && targetYear >= currentYear ? targetYear : Math.max(currentYear + 1, 2050);
-    const years = Array.from({ length: Math.max(1, endYear - currentYear + 1) }, (_, index) => currentYear + index);
-    const interimPoint = interimYear && interimYear > currentYear && interimYear < endYear ? interimYear : null;
+    const startYear = benchmarkYear ?? currentYear;
+    const endYear = targetYear && targetYear > startYear ? targetYear : Math.max(startYear + 1, 2050);
+    const years = Array.from({ length: Math.max(1, endYear - startYear + 1) }, (_, index) => startYear + index);
+    const interimPoint = interimYear && interimYear > startYear && interimYear < endYear ? interimYear : null;
     const interimTotal =
       currentTotal > 0
         ? Number(scopeTotals?.scope_1 || 0) * (1 - Math.max(0, Number(interimTargets.scope_1 ?? 0)) / 100) +
@@ -315,7 +317,7 @@ export default function JobInsights({
       forecast: valueForYear(year),
       target: valueForYear(year),
     }));
-  }, [currentYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, interimYear, scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3, scopeTotals?.total, targetYear]);
+  }, [benchmarkYear, currentYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, interimYear, scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3, scopeTotals?.total, targetYear]);
 
   const scopePathwayData = useMemo(() => {
     if (!scopeTotals) return [];
@@ -682,48 +684,46 @@ export default function JobInsights({
           </CardContent>
         </Card>
 
-        {scopePathwayData.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[320px]">
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={scopePathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="year" tick={{ fontSize: 11 }}
-                      ticks={scopePathwayData
-                        .filter(d => d.year === scopePathwayData[0].year || d.year === (targetYear ?? 2050) || d.year % 5 === 0)
-                        .map(d => d.year)} />
-                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
-                    <Tooltip formatter={(v: unknown) => [`${formatTco2e(Number(v || 0))} tCO₂e`, ""]} labelFormatter={(v) => `Year: ${v}`} />
-                    <Legend iconType="circle" />
-                    {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
-                      <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
-                        label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
-                    )}
-                    {targetYear && (
-                      <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
-                        label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
-                    )}
-                    <Line type="monotone" dataKey="actual" name="Actual"
-                      stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-                    <Line type="monotone" dataKey="s1" name="Scope 1 target"
-                      stroke={SCOPE_COLORS[0]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
-                    {Number(scopeTotals?.scope_2 || 0) > 0 && (
-                      <Line type="monotone" dataKey="s2" name="Scope 2 target"
-                        stroke={SCOPE_COLORS[1]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
-                    )}
-                    <Line type="monotone" dataKey="s3" name="Scope 3 target"
-                      stroke={SCOPE_COLORS[2]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </div>
+
+      {scopePathwayData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[360px]">
+              <ResponsiveContainer width="100%" height={360}>
+                <LineChart data={scopePathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
+                  <Tooltip formatter={(v: unknown) => [`${formatTco2e(Number(v || 0))} tCO₂e`, ""]} labelFormatter={(v) => `Year: ${v}`} />
+                  <Legend iconType="circle" />
+                  {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
+                    <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
+                      label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
+                  )}
+                  {targetYear && (
+                    <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
+                      label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
+                  )}
+                  <Line type="monotone" dataKey="actual" name="Actual"
+                    stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
+                  <Line type="monotone" dataKey="s1" name="Scope 1 target"
+                    stroke={SCOPE_COLORS[0]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  {Number(scopeTotals?.scope_2 || 0) > 0 && (
+                    <Line type="monotone" dataKey="s2" name="Scope 2 target"
+                      stroke={SCOPE_COLORS[1]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  )}
+                  <Line type="monotone" dataKey="s3" name="Scope 3 target"
+                    stroke={SCOPE_COLORS[2]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {intensityTrend.length > 0 ? (
         <Card>
