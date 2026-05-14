@@ -2753,48 +2753,54 @@ def get_job_target_data(job_id: int) -> dict:
                    c.net_zero_year, c.interim_year,
                    c.interim_s1_pct, c.interim_s2_pct, c.interim_s3_pct,
                    c.target_s1_year, c.target_s2_year, c.target_s3_year,
-                   c.target_s1_pct, c.target_s2_pct, c.target_s3_pct
+                   c.target_s1_pct, c.target_s2_pct, c.target_s3_pct,
+                   c.net_zero_target_reduction_pct
             FROM jobs j
             LEFT JOIN clients c ON c.db_id = j.client_db_id
             WHERE j.job_id = %s
         """, [int(job_id)]).fetchone()
-        
+
         if not job_row:
             return {}
-        
+
         # Job-specific values (may be None)
         baseline_year = job_row[0]
         net_zero_target_year = job_row[1]
         glossary_terms = job_row[2]
         interim_target_year = job_row[3]
-        
+
         # Client-level fallback values
         client_net_zero_year = job_row[4] or 2050
         client_interim_year = job_row[5] or 2035
-        
+
         # Use job-specific if set, otherwise fall back to client values
         if net_zero_target_year is None:
             net_zero_target_year = client_net_zero_year
         if interim_target_year is None:
             interim_target_year = client_interim_year
         if baseline_year is None:
-            # Default to reporting year - 1 if not set
             baseline_year = None
-        
-        # Get interim percentages (use client values)
-        interim_pct = job_row[6] or 50  # Default 50% reduction
-        
-        # Get target percentages
-        target_pct = job_row[12] or 100  # Default 100% (net zero)
-        
+
+        # Per-scope interim percentages
+        interim_s1_pct = job_row[6] or 50
+        interim_s2_pct = job_row[7] or 50
+        interim_s3_pct = job_row[8] or 50
+
+        # Net Zero target reduction % from client (e.g. 90 means reduce by 90%)
+        net_zero_target_reduction_pct = job_row[15] or 90
+
         return {
             'baseline_year': baseline_year,
             'net_zero_target_year': net_zero_target_year,
             'glossary_terms': glossary_terms,
             'interim_target_year': interim_target_year,
             'interim_year': interim_target_year,
-            'interim_pct': interim_pct,
-            'target_pct': target_pct,
+            'interim_pct': interim_s1_pct,
+            'interim_s1_pct': interim_s1_pct,
+            'interim_s2_pct': interim_s2_pct,
+            'interim_s3_pct': interim_s3_pct,
+            'target_pct': net_zero_target_reduction_pct,
+            'net_zero_target_reduction_pct': net_zero_target_reduction_pct,
         }
 
 

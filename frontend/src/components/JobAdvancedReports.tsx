@@ -632,8 +632,11 @@ export default function JobAdvancedReports({
   const netZeroYear = toNum(target_data?.net_zero_target_year) || 2050;
   const interimYear =
     toNum(target_data?.interim_target_year ?? target_data?.interim_year) || null;
-  const targetPct = toNum(target_data?.target_pct) || 100;
-  const interimPct = toNum(target_data?.interim_pct) || 50;
+  const targetPct = toNum(target_data?.net_zero_target_reduction_pct ?? target_data?.target_pct) || 90;
+  const interimS1Pct = toNum(target_data?.interim_s1_pct ?? target_data?.interim_pct) || 50;
+  const interimS2Pct = toNum(target_data?.interim_s2_pct ?? target_data?.interim_pct) || 50;
+  const interimS3Pct = toNum(target_data?.interim_s3_pct ?? target_data?.interim_pct) || 50;
+  const interimPct = interimS1Pct;
 
   const scopeDonutData = SCOPE_LABELS.filter(s => toNum(scope_totals?.[s]) > 0).map(s => ({
     name: s,
@@ -989,12 +992,26 @@ export default function JobAdvancedReports({
                     <span className="text-xs font-semibold text-gray-500">Scope</span>
                   </div>
                   {interimYear && (
-                    <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
-                      <span className="text-xs text-gray-700">Interim Target</span>
-                      <span className="text-center text-xs text-gray-700">{interimYear}</span>
-                      <span className="text-center text-xs text-gray-700">{interimPct}%</span>
-                      <span className="text-xs text-gray-700">Scope 1, 2 &amp; 3</span>
-                    </div>
+                    <>
+                      <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
+                        <span className="text-xs text-gray-700">Interim Target</span>
+                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{interimS1Pct}%</span>
+                        <span className="text-xs text-gray-700">Scope 1</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
+                        <span className="text-xs text-gray-700">Interim Target</span>
+                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{interimS2Pct}%</span>
+                        <span className="text-xs text-gray-700">Scope 2</span>
+                      </div>
+                      <div className="grid grid-cols-[1fr_80px_100px_120px] border-b border-gray-100 bg-gray-50 px-3 py-2">
+                        <span className="text-xs text-gray-700">Interim Target</span>
+                        <span className="text-center text-xs text-gray-700">{interimYear}</span>
+                        <span className="text-center text-xs text-gray-700">{interimS3Pct}%</span>
+                        <span className="text-xs text-gray-700">Scope 3</span>
+                      </div>
+                    </>
                   )}
                   <div className="grid grid-cols-[1fr_80px_100px_120px] bg-gray-50 px-3 py-2">
                     <span className="text-xs font-semibold text-gray-700">Net Zero Target</span>
