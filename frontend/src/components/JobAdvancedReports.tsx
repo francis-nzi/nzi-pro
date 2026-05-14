@@ -877,35 +877,36 @@ export default function JobAdvancedReports({
                 </div>
               </div>
 
-              {/* Scope table — 3 columns: name | tCO₂e | % */}
-              <div className="overflow-hidden rounded-lg border border-gray-200">
-                {/* Header */}
-                <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
-                  <span className="text-xs font-semibold text-gray-500">Scope</span>
-                  <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
-                  <div className="text-right text-xs font-semibold text-gray-500">%</div>
-                </div>
-                {SCOPE_LABELS.map(s => {
-                  const v = toNum(scope_totals?.[s]);
-                  const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
-                  return (
-                    <div key={s} className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                        <span className="text-xs text-gray-500">{s}</span>
+              {/* Right column: scope table + benchmark */}
+              <div className="space-y-2">
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  {/* Header */}
+                  <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                    <span className="text-xs font-semibold text-gray-500">Scope</span>
+                    <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
+                    <div className="text-right text-xs font-semibold text-gray-500">%</div>
+                  </div>
+                  {SCOPE_LABELS.map(s => {
+                    const v = toNum(scope_totals?.[s]);
+                    const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
+                    return (
+                      <div key={s} className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
+                          <span className="text-xs text-gray-500">{s}</span>
+                        </div>
+                        <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">{fmt(v)}</div>
+                        <div className="text-right text-xs text-gray-500 tabular-nums">{pct.toFixed(1)}%</div>
                       </div>
-                      <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">{fmt(v)}</div>
-                      <div className="text-right text-xs text-gray-500 tabular-nums">{pct.toFixed(1)}%</div>
-                    </div>
-                  );
-                })}
-                {/* Total row */}
-                <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
-                  <span className="text-xs font-semibold text-gray-600">Total</span>
-                  <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                  <div className="text-right text-xs text-gray-500">100.0%</div>
+                    );
+                  })}
+                  {/* Total row */}
+                  <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                    <span className="text-xs font-semibold text-gray-600">Total</span>
+                    <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
+                    <div className="text-right text-xs text-gray-500">100.0%</div>
+                  </div>
                 </div>
-              </div>
                 {/* Benchmark comparison */}
                 {(() => {
                   const bTotal = toNum(summary?.benchmark_total);
@@ -914,7 +915,7 @@ export default function JobAdvancedReports({
                   const pct = Math.abs((delta / bTotal) * 100);
                   const down = delta < 0;
                   return (
-                    <div className={`mt-1 rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    <div className={`rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                       {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark ({fmt(bTotal)} tCO₂e)
                     </div>
                   );
