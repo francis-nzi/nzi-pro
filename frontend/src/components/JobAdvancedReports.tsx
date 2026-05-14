@@ -365,25 +365,25 @@ function CoverPage({ data }: { data: LiveData }) {
 
   const reportTitle = String(job_data.title || "Carbon Report").trim();
 
-  const periodLabel = (() => {
-    if (job_data.reporting_period_start && job_data.reporting_period_end) {
-      return `${formatDate(job_data.reporting_period_start)} to ${formatDate(job_data.reporting_period_end)}`;
-    }
-    return null;
-  })();
-
   const generatedDate = new Date().toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "long",
     year: "numeric",
   });
 
-  const reportingPeriodValue = periodLabel ?? (job_data.reporting_year != null ? String(job_data.reporting_year) : null);
+  const periodFrom = job_data.reporting_period_start
+    ? formatDate(job_data.reporting_period_start)
+    : (job_data.reporting_year != null ? String(job_data.reporting_year) : null);
+
+  const periodTo = job_data.reporting_period_end
+    ? formatDate(job_data.reporting_period_end)
+    : null;
 
   const params: [string, string | null | undefined][] = [
     ["Client", job_data.client_name],
     ["Report Title", reportTitle],
-    ["Reporting Period", reportingPeriodValue],
+    ["Reporting Period From", periodFrom],
+    ["Reporting Period To", periodTo],
     ["Job Number", job_data.job_number],
     ["Report Generated", generatedDate],
   ];
@@ -404,12 +404,6 @@ function CoverPage({ data }: { data: LiveData }) {
       <h1 className="mt-8 text-2xl font-bold leading-snug" style={{ color: "#1e3a5f" }}>
         {reportTitle}
       </h1>
-
-      {/* "for" */}
-      <p className="mt-5 text-sm italic text-gray-400">for</p>
-
-      {/* Client name */}
-      <p className="mt-3 text-xl font-bold text-gray-800">{job_data.client_name}</p>
 
       {/* Client logo */}
       {job_data.logo_url && (
