@@ -64,6 +64,15 @@ type ClientInfo = {
   interim_s3_pct?: number | null;
   client_name?: string | null;
   benchmark_year?: number | null;
+  net_zero_target_reduction_pct?: number | null;
+};
+
+type YearlyEmission = {
+  year: number;
+  scope1: number;
+  scope2: number;
+  scope3: number;
+  total: number;
 };
 
 type IntensityMetric = {
@@ -138,6 +147,8 @@ export default function JobInsights({
   const [error, setError] = useState("");
   const [refreshIndex, setRefreshIndex] = useState(0);
   const [benchmarkYear, setBenchmarkYear] = useState<number | null>(null);
+  const [yearlyEmissions, setYearlyEmissions] = useState<YearlyEmission[]>([]);
+  const [targetReductionPct, setTargetReductionPct] = useState<number>(90);
   const [whatIfScope1, setWhatIfScope1] = useState("0");
   const [whatIfScope2, setWhatIfScope2] = useState("0");
   const [whatIfScope3, setWhatIfScope3] = useState("0");
@@ -156,6 +167,7 @@ export default function JobInsights({
           credentials: "include",
         });
         const intensityRes = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" });
+        const yearlyEmissionsRes = await fetch(`${baseUrl}/jobs/${jobId}/yearly-emissions`, { credentials: "include" });
         const clientRes =
           clientId != null && Number.isFinite(Number(clientId)) && Number(clientId) > 0
             ? await fetch(`${baseUrl}/clients/${clientId}`, { credentials: "include" })
@@ -171,6 +183,7 @@ export default function JobInsights({
         const scopeDataJson = (await scopeDataRes.json()) as ScopeDataResponse;
         const intensityJson = intensityRes.ok ? ((await intensityRes.json()) as IntensityMetricsResponse) : { metrics: {} };
         const clientJson = clientRes && clientRes.ok ? ((await clientRes.json()) as ClientInfo) : null;
+        const yearlyEmissionsJson = yearlyEmissionsRes.ok ? ((await yearlyEmissionsRes.json()) as YearlyEmission[]) : [];
 
         if (cancelled) return;
         setScopeTotals(totalsJson);
@@ -184,6 +197,9 @@ export default function JobInsights({
         });
         const by = Number(clientJson?.benchmark_year);
         setBenchmarkYear(Number.isFinite(by) && by > 1900 ? by : null);
+        const trp = Number(clientJson?.net_zero_target_reduction_pct);
+        setTargetReductionPct(Number.isFinite(trp) && trp > 0 ? trp : 90);
+        setYearlyEmissions(Array.isArray(yearlyEmissionsJson) ? yearlyEmissionsJson : []);
         setIntensityMetrics(
           intensityJson && intensityJson.metrics && typeof intensityJson.metrics === "object" ? intensityJson.metrics : {},
         );
@@ -196,6 +212,8 @@ export default function JobInsights({
         setInterimYear(null);
         setInterimTargets({ scope_1: null, scope_2: null, scope_3: null });
         setBenchmarkYear(null);
+        setYearlyEmissions([]);
+        setTargetReductionPct(90);
         setIntensityMetrics({});
       } finally {
         if (!cancelled) setLoading(false);
@@ -321,24 +339,59 @@ export default function JobInsights({
 
   const scopePathwayData = useMemo(() => {
     if (!scopeTotals) return [];
-    const s1 = Number(scopeTotals.scope_1 || 0);
-    const s2 = Number(scopeTotals.scope_2 || 0);
-    const s3 = Number(scopeTotals.scope_3 || 0);
+
     const startYear = benchmarkYear ?? currentYear;
     const endYear = targetYear && targetYear > startYear ? targetYear : Math.max(startYear + 1, 2050);
-    const span = endYear - startYear;
-    return Array.from({ length: span + 1 }, (_, i) => {
-      const year = startYear + i;
-      const factor = i / span;
+
+    // Benchmark emissions: use historical data for benchmark year if available, else current job totals
+    const benchmarkRow = yearlyEmissions.find((r) => r.year === startYear);
+    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : Number(scopeTotals.scope_1 || 0);
+    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : Number(scopeTotals.scope_2 || 0);
+    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : Number(scopeTotals.scope_3 || 0);
+
+    const finalFactor = (100 - targetReductionPct) / 100;
+    const iYear = interimYear && interimYear > startYear && interimYear < endYear ? interimYear : null;
+
+    const forecastScope = (bench: number, interimPct: number | null, year: number): number => {
+      if (year <= startYear) return bench;
+      const finalTarget = bench * finalFactor;
+      const iTarget = iYear != null && interimPct != null ? bench * (1 - interimPct / 100) : null;
+      if (iYear != null && iTarget != null && year <= iYear) {
+        const span = iYear - startYear;
+        const t = span > 0 ? (year - startYear) / span : 1;
+        return bench + (iTarget - bench) * t;
+      }
+      const segStart = iYear ?? startYear;
+      const segVal = iTarget ?? bench;
+      const span = endYear - segStart;
+      const t = span > 0 ? (year - segStart) / span : 1;
+      return Math.max(segVal + (finalTarget - segVal) * t, 0);
+    };
+
+    // Collect all years to plot
+    const yearSet = new Set<number>();
+    for (let y = startYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach((r) => { if (r.year >= startYear && r.year <= endYear) yearSet.add(r.year); });
+    const years = Array.from(yearSet).sort((a, b) => a - b);
+
+    return years.map((year) => {
+      const actual = yearlyEmissions.find((r) => r.year === year);
       return {
         year,
-        actual: year === startYear ? s1 + s2 + s3 : null,
-        s1: Math.max(0, s1 * (1 - factor)),
-        s2: s2 > 0 ? Math.max(0, s2 * (1 - factor)) : undefined,
-        s3: Math.max(0, s3 * (1 - factor)),
+        actual_total: actual ? actual.total : null,
+        actual_s1: actual ? actual.scope1 : null,
+        actual_s2: actual ? actual.scope2 : null,
+        actual_s3: actual ? actual.scope3 : null,
+        target_total: forecastScope(benchS1, interimTargets.scope_1, year) +
+                      forecastScope(benchS2, interimTargets.scope_2, year) +
+                      forecastScope(benchS3, interimTargets.scope_3, year),
+        target_s1: forecastScope(benchS1, interimTargets.scope_1, year),
+        target_s2: benchS2 > 0 ? forecastScope(benchS2, interimTargets.scope_2, year) : undefined,
+        target_s3: forecastScope(benchS3, interimTargets.scope_3, year),
       };
     });
-  }, [scopeTotals, benchmarkYear, currentYear, targetYear]);
+  }, [scopeTotals, benchmarkYear, currentYear, targetYear, yearlyEmissions, targetReductionPct,
+      interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3]);
 
   const intensityTrend = useMemo(() => {
     const metricEntries = Object.entries(intensityMetrics)
@@ -708,16 +761,26 @@ export default function JobInsights({
                     <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
                       label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
                   )}
-                  <Line type="monotone" dataKey="actual" name="Actual"
+                  <Line type="monotone" dataKey="actual_total" name="Total (actual)"
                     stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="s1" name="Scope 1 target"
-                    stroke={SCOPE_COLORS[0]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  <Line type="monotone" dataKey="actual_s1" name="Scope 1 (actual)"
+                    stroke={SCOPE_COLORS[0]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                   {Number(scopeTotals?.scope_2 || 0) > 0 && (
-                    <Line type="monotone" dataKey="s2" name="Scope 2 target"
-                      stroke={SCOPE_COLORS[1]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                    <Line type="monotone" dataKey="actual_s2" name="Scope 2 (actual)"
+                      stroke={SCOPE_COLORS[1]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
                   )}
-                  <Line type="monotone" dataKey="s3" name="Scope 3 target"
-                    stroke={SCOPE_COLORS[2]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  <Line type="monotone" dataKey="actual_s3" name="Scope 3 (actual)"
+                    stroke={SCOPE_COLORS[2]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
+                  <Line type="monotone" dataKey="target_total" name="Total (target)"
+                    stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)"
+                    stroke={SCOPE_COLORS[0]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+                  {Number(scopeTotals?.scope_2 || 0) > 0 && (
+                    <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)"
+                      stroke={SCOPE_COLORS[1]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+                  )}
+                  <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)"
+                    stroke={SCOPE_COLORS[2]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

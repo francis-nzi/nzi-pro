@@ -175,6 +175,19 @@ def _build_yearly_emissions(con, client_db_id: int) -> list[dict[str, Any]]:
     return yearly_emissions
 
 
+@router.get("/jobs/{job_id}/yearly-emissions")
+def get_job_yearly_emissions(job_id: int, _user: dict[str, str] = Depends(_current_user)) -> list[dict[str, Any]]:
+    """Return yearly emissions history for all jobs belonging to this job's client."""
+    job_data = get_job_data(int(job_id))
+    if not job_data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    client_db_id = job_data.get("client_db_id")
+    if not client_db_id:
+        return []
+    with get_conn() as con:
+        return _build_yearly_emissions(con, int(client_db_id))
+
+
 @router.get("/jobs/{job_id}/live-report-data")
 def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_current_user)) -> dict[str, Any]:
     """Return the live report payload for the browser report page."""
