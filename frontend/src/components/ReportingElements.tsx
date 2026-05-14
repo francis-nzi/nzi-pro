@@ -73,6 +73,22 @@ export default function ReportingElements({
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const handleIntensityMetricsSaved = (event: Event) => {
+      const customEvent = event as CustomEvent<{ jobId?: number; employeeNumber?: number }>;
+      if (customEvent.detail?.jobId !== jobId) return;
+      const nextEmployee = customEvent.detail.employeeNumber;
+      if (nextEmployee != null && !Number.isNaN(nextEmployee)) {
+        setFields(prev => ({ ...prev, employee_number: String(nextEmployee) }));
+      }
+    };
+
+    window.addEventListener("intensity-metrics-saved", handleIntensityMetricsSaved as EventListener);
+    return () => {
+      window.removeEventListener("intensity-metrics-saved", handleIntensityMetricsSaved as EventListener);
+    };
+  }, [jobId]);
+
   const save = async () => {
     setSaving(true);
     setSaved(false);

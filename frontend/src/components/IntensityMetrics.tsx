@@ -63,6 +63,12 @@ function ensureRequiredEmployeeMetric(source: IntensityMetrics, fallbackValue = 
   return normalized;
 }
 
+function getEmployeeMetricValue(metrics: IntensityMetrics): number {
+  const raw = metrics[REQUIRED_METRIC_KEY]?.value;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, currency = "GBP" }: IntensityMetricsProps) {
   const confirmAction = useConfirmDialog();
   const [metrics, setMetrics] = useState<IntensityMetrics>({});
@@ -123,6 +129,16 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       });
 
       if (!res.ok) throw new Error("Failed to save intensity metrics");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("intensity-metrics-saved", {
+            detail: {
+              jobId,
+              employeeNumber: getEmployeeMetricValue(payloadMetrics),
+            },
+          })
+        );
+      }
     } catch (e) {
       setError((e as Error).message || "Failed to save intensity metrics");
     } finally {
