@@ -45,12 +45,20 @@ export default function ReportingElements({
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-metadata`, { credentials: "include" });
-      if (!res.ok) return;
-      const data = await res.json() as { metadata?: Record<string, unknown> };
+      const [metaRes, intensityRes] = await Promise.all([
+        fetch(`${baseUrl}/jobs/${jobId}/report-metadata`, { credentials: "include" }),
+        fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, { credentials: "include" }),
+      ]);
+      if (!metaRes.ok) return;
+      const data = await metaRes.json() as { metadata?: Record<string, unknown> };
       const meta = data.metadata ?? {};
+      const intensityData = intensityRes.ok ? await intensityRes.json() as { metrics?: Record<string, { value?: unknown }> } : {};
+      const employeeMetricValue = intensityData.metrics?.employees?.value;
+      const employeeNumberFromIntensity = employeeMetricValue != null && employeeMetricValue !== ""
+        ? String(employeeMetricValue)
+        : "";
       setFields({
-        employee_number: meta.employee_number != null ? String(meta.employee_number) : "",
+        employee_number: employeeNumberFromIntensity || (meta.employee_number != null ? String(meta.employee_number) : ""),
         premises_owned:  meta.premises_owned  != null ? String(meta.premises_owned)  : "",
         premises_leased: meta.premises_leased != null ? String(meta.premises_leased) : "",
         vehicles_owned:  meta.vehicles_owned  != null ? String(meta.vehicles_owned)  : "",

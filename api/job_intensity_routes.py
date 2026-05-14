@@ -12,6 +12,64 @@ from api.auth import _current_user
 
 router = APIRouter()
 
+EMPLOYEE_METRIC_KEY = "employees"
+EMPLOYEE_METRIC_LABEL = "Employee"
+
+
+def _safe_int(value: Any, default: int | None = None) -> int | None:
+    try:
+        if value is None:
+            return default
+        text = str(value).strip()
+        if text == "":
+            return default
+        return int(float(text))
+    except Exception:
+        return default
+
+
+def _load_employee_fallback(con, job_id: int) -> int:
+    row = con.execute(
+        """
+        SELECT
+            COALESCE(rm.employee_number, d.num_employees, 0)
+        FROM jobs j
+        LEFT JOIN job_report_metadata rm ON rm.job_id = j.job_id
+        LEFT JOIN crp_job_details d ON d.job_id = j.job_id
+        WHERE j.job_id = %s
+        """,
+        [int(job_id)],
+    ).fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def _normalize_intensity_metrics(con, job_id: int, metrics: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    raw_metrics = metrics if isinstance(metrics, dict) else {}
+    employee_entry = raw_metrics.get(EMPLOYEE_METRIC_KEY) if isinstance(raw_metrics, dict) else None
+
+    employee_value = None
+    employee_divider = 1
+    if isinstance(employee_entry, dict):
+        employee_value = _safe_int(employee_entry.get("value"))
+        employee_divider = _safe_int(employee_entry.get("divider"), 1) or 1
+
+    if employee_value is None or employee_value <= 0:
+        employee_value = _load_employee_fallback(con, job_id)
+
+    normalized[EMPLOYEE_METRIC_KEY] = {
+        "label": EMPLOYEE_METRIC_LABEL,
+        "value": int(employee_value or 0),
+        "divider": int(employee_divider or 1),
+    }
+
+    for key, value in raw_metrics.items():
+        if key == EMPLOYEE_METRIC_KEY:
+            continue
+        normalized[key] = value
+
+    return normalized
+
 
 def _load_job_intensity_metrics(job_id: int, *, con=None) -> dict:
     """Load the JSONB intensity_metrics payload for a job."""
@@ -71,8 +129,13 @@ def get_job_intensity_metrics(job_id: int, _user: dict[str, str] = Depends(_curr
             ).fetchone()
             if not result:
                 raise HTTPException(status_code=404, detail="Job not found")
-            metrics = _load_job_intensity_metrics(int(job_id), con=con)
+            metrics = _normalize_intensity_metrics(
+                con,
+                int(job_id),
+                _load_job_intensity_metrics(int(job_id), con=con),
+            )
             defaults = _load_global_intensity_metric_defaults(con)
+            defaults = _normalize_intensity_metrics(con, int(job_id), defaults)
             return {
                 "job_id": int(job_id),
                 "metrics": metrics,
@@ -123,13 +186,23 @@ def update_job_intensity_metrics(
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="Job not found")
                 
-                metrics = body.get("metrics", {})
+                metrics = _normalize_intensity_metrics(con, int(job_id), body.get("metrics", {}))
                 
                 # Convert to JSON string and use CAST for JSONB column
                 metrics_json = json.dumps(metrics)
                 cur.execute(
                     "UPDATE jobs SET intensity_metrics = CAST(%s AS JSONB) WHERE job_id = %s",
                     [metrics_json, int(job_id)]
+                )
+                employee_value = _safe_int(metrics.get(EMPLOYEE_METRIC_KEY, {}).get("value"), 0) or 0
+                cur.execute(
+                    """
+                    INSERT INTO job_report_metadata (job_id, employee_number)
+                    VALUES (%s, %s)
+                    ON CONFLICT (job_id)
+                    DO UPDATE SET employee_number = EXCLUDED.employee_number
+                    """,
+                    [int(job_id), int(employee_value)],
                 )
                 conn.commit()
             

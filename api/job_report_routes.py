@@ -2368,7 +2368,7 @@ def get_intensity_metrics(job_id: int):
                 # If we have an employee number, add it as FTE metric
                 if employee_number is not None and employee_number > 0:
                     result.append({
-                        'name': 'Employees',
+                        'name': 'Employee',
                         'value': employee_number,
                         'unit': 'employees',
                         'emissions': total_emissions

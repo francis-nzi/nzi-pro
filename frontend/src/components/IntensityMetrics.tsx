@@ -41,6 +41,28 @@ const DIVIDER_OPTIONS = [
   { value: 1000000, label: "Per 1,000,000" },
 ];
 
+const REQUIRED_METRIC_KEY = "employees";
+const REQUIRED_METRIC_LABEL = "Employee";
+
+function ensureRequiredEmployeeMetric(source: IntensityMetrics, fallbackValue = 0): IntensityMetrics {
+  const employeeMetric = source[REQUIRED_METRIC_KEY];
+  const employeeValue = Number(employeeMetric?.value ?? fallbackValue) || 0;
+  const employeeDivider = Number(employeeMetric?.divider ?? 1) || 1;
+  const normalized: IntensityMetrics = {
+    [REQUIRED_METRIC_KEY]: {
+      label: REQUIRED_METRIC_LABEL,
+      value: employeeValue,
+      divider: employeeDivider,
+    },
+  };
+
+  for (const [key, metric] of Object.entries(source)) {
+    if (key === REQUIRED_METRIC_KEY) continue;
+    normalized[key] = metric;
+  }
+  return normalized;
+}
+
 export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, currency = "GBP" }: IntensityMetricsProps) {
   const confirmAction = useConfirmDialog();
   const [metrics, setMetrics] = useState<IntensityMetrics>({});
@@ -61,13 +83,13 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       const data = await res.json();
       const jobMetrics = data.metrics && typeof data.metrics === "object" ? data.metrics : {};
       const globalDefaults = data.defaults && typeof data.defaults === "object" ? data.defaults : {};
-      setDefaultMetrics(globalDefaults);
+      setDefaultMetrics(ensureRequiredEmployeeMetric(globalDefaults));
       if (jobMetrics && Object.keys(jobMetrics).length > 0) {
-        setMetrics(jobMetrics);
+        setMetrics(ensureRequiredEmployeeMetric(jobMetrics));
       } else if (globalDefaults && Object.keys(globalDefaults).length > 0) {
-        setMetrics(globalDefaults);
+        setMetrics(ensureRequiredEmployeeMetric(globalDefaults));
       } else {
-        setMetrics({});
+        setMetrics(ensureRequiredEmployeeMetric({}));
       }
     } catch (e) {
       console.error("Failed to load intensity metrics:", e);
@@ -89,7 +111,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
         typeof metricsOverride === "object" &&
         metricsOverride !== null &&
         !Array.isArray(metricsOverride);
-      const payloadMetrics = isPlainMetricsObject ? metricsOverride : metrics;
+      const payloadMetrics = ensureRequiredEmployeeMetric(isPlainMetricsObject ? metricsOverride : metrics);
       const res = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -119,12 +141,17 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       alert("No global defaults have been defined yet.");
       return;
     }
-    setMetrics(defaultMetrics);
+    setMetrics(ensureRequiredEmployeeMetric(defaultMetrics));
   }, [defaultMetrics]);
 
   const addMetric = useCallback(() => {
     if (!newMetricKey || !newMetricLabel) {
       alert("Please provide both a key and label for the metric");
+      return;
+    }
+
+    if (newMetricKey === REQUIRED_METRIC_KEY) {
+      alert("Employee is required and already built into the intensity metrics.");
       return;
     }
 
@@ -150,6 +177,10 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   }, [newMetricKey, newMetricLabel, newMetricValue, newMetricDivider, metrics]);
 
   const removeMetric = useCallback(async (key: string) => {
+    if (key === REQUIRED_METRIC_KEY) {
+      alert("Employee is required and cannot be deleted.");
+      return;
+    }
     const label = metrics[key]?.label || key;
     const confirmed = await confirmAction({
       title: "Delete intensity metric?",
@@ -279,6 +310,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
             {Object.entries(metrics).map(([key, metric]) => {
               const intensity = calculateIntensity(metric.value, metric.divider);
               const dividerLabel = DIVIDER_OPTIONS.find(d => d.value === metric.divider)?.label || `Per ${metric.divider}`;
+              const displayLabel = key === REQUIRED_METRIC_KEY ? REQUIRED_METRIC_LABEL : metric.label;
               
               return (
                 <div key={key} className="rounded-md border p-4">
@@ -288,7 +320,8 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                       <Input
                         id={`label-${key}`}
                         value={metric.label}
-                        onChange={(e) => updateMetric(key, "label", e.target.value)}
+                        onChange={(e) => updateMetric(key, "label", key === REQUIRED_METRIC_KEY ? REQUIRED_METRIC_LABEL : e.target.value)}
+                        disabled={key === REQUIRED_METRIC_KEY}
                         className="h-9"
                         placeholder="Metric wording"
                       />
@@ -323,8 +356,8 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                       <div className="font-bold text-lg">
                         {formatIntensity(intensity)} <span className="text-sm font-normal text-muted-foreground">tCO₂e</span>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {dividerLabel} {key === "turnover" ? getCurrencySymbol(currency) : metric.label}
+                        <div className="text-xs text-muted-foreground">
+                        {dividerLabel} {key === "turnover" ? getCurrencySymbol(currency) : displayLabel}
                       </div>
                     </div>
                     <div className="col-span-1 flex justify-end">
@@ -332,6 +365,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
                         size="sm"
                         variant="destructive"
                         onClick={() => removeMetric(key)}
+                        disabled={key === REQUIRED_METRIC_KEY}
                         title={`Delete ${metric.label}`}
                         aria-label={`Delete ${metric.label}`}
                       >

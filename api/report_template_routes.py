@@ -1848,7 +1848,7 @@ def _sync_reporting_elements_from_intensity_metrics(con, job_id: int, meta: dict
     
     Intensity Metrics JSONB structure expected:
     {
-        "employees": {"value": 100, "label": "Employees", "divider": 1},
+        "employees": {"value": 100, "label": "Employee", "divider": 1},
         "premises_owned": {"value": 5, "label": "Premises Owned", "divider": 1},
         "premises_leased": {"value": 3, "label": "Premises Leased", "divider": 1},
         "vehicles_owned": {"value": 10, "label": "Vehicles Owned", "divider": 1},

@@ -41,7 +41,7 @@ type IntensityMetricDefaults = Record<string, {
 }>;
 
 const DEFAULT_INTENSITY_METRICS: IntensityMetricDefaults = {
-  employees: { label: "Employees", value: 0, divider: 1 },
+  employees: { label: "Employee", value: 0, divider: 1 },
   turnover: { label: "Turnover", value: 0, divider: 1 },
   premises_owned: { label: "Premises Owned", value: 0, divider: 1 },
   premises_leased: { label: "Premises Leased", value: 0, divider: 1 },
