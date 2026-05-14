@@ -69,6 +69,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   const [defaultMetrics, setDefaultMetrics] = useState<IntensityMetrics>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showAddMetric, setShowAddMetric] = useState(false);
   const [newMetricKey, setNewMetricKey] = useState("");
   const [newMetricLabel, setNewMetricLabel] = useState("");
@@ -78,6 +79,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   const loadMetrics = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`);
       if (!res.ok) throw new Error("Failed to load intensity metrics");
       const data = await res.json();
@@ -95,6 +97,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
       console.error("Failed to load intensity metrics:", e);
       setMetrics({});
       setDefaultMetrics({});
+      setError((e as Error).message || "Failed to load intensity metrics");
     } finally {
       setLoading(false);
     }
@@ -107,6 +110,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   const saveMetrics = useCallback(async (metricsOverride?: IntensityMetrics) => {
     try {
       setSaving(true);
+      setError(null);
       const isPlainMetricsObject =
         typeof metricsOverride === "object" &&
         metricsOverride !== null &&
@@ -120,7 +124,7 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
       if (!res.ok) throw new Error("Failed to save intensity metrics");
     } catch (e) {
-      alert((e as Error).message);
+      setError((e as Error).message || "Failed to save intensity metrics");
     } finally {
       setSaving(false);
     }
@@ -138,28 +142,30 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
   const useGlobalDefaults = useCallback(() => {
     if (Object.keys(defaultMetrics).length === 0) {
-      alert("No global defaults have been defined yet.");
+      setError("No global defaults have been defined yet.");
       return;
     }
+    setError(null);
     setMetrics(ensureRequiredEmployeeMetric(defaultMetrics));
   }, [defaultMetrics]);
 
   const addMetric = useCallback(() => {
     if (!newMetricKey || !newMetricLabel) {
-      alert("Please provide both a key and label for the metric");
+      setError("Please provide both a key and label for the metric");
       return;
     }
 
     if (newMetricKey === REQUIRED_METRIC_KEY) {
-      alert("Employee is required and already built into the intensity metrics.");
+      setError("Employee is required and already built into the intensity metrics.");
       return;
     }
 
     if (metrics[newMetricKey]) {
-      alert("A metric with this key already exists");
+      setError("A metric with this key already exists");
       return;
     }
 
+    setError(null);
     setMetrics(prev => ({
       ...prev,
       [newMetricKey]: {
@@ -178,9 +184,10 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
 
   const removeMetric = useCallback(async (key: string) => {
     if (key === REQUIRED_METRIC_KEY) {
-      alert("Employee is required and cannot be deleted.");
+      setError("Employee is required and cannot be deleted.");
       return;
     }
+    setError(null);
     const label = metrics[key]?.label || key;
     const confirmed = await confirmAction({
       title: "Delete intensity metric?",
@@ -223,27 +230,40 @@ export default function IntensityMetrics({ jobId, baseUrl, totalEmissions, curre
   }
 
   return (
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Intensity Metrics</CardTitle>
-            <div className="flex gap-2">
-              {Object.keys(defaultMetrics).length > 0 ? (
-                <Button size="sm" variant="outline" onClick={useGlobalDefaults} disabled={saving}>
-                  Use Global Defaults
-                </Button>
-              ) : null}
-              <Button size="sm" variant="outline" onClick={() => setShowAddMetric(!showAddMetric)}>
-                + Add Metric
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Intensity Metrics</CardTitle>
+          <div className="flex gap-2">
+            {Object.keys(defaultMetrics).length > 0 ? (
+              <Button size="sm" variant="outline" onClick={useGlobalDefaults} disabled={saving}>
+                Use Global Defaults
               </Button>
-              <Button size="sm" onClick={() => saveMetrics()} disabled={saving}>
-                {saving ? "Saving..." : "Save"}
+            ) : null}
+            <Button size="sm" variant="outline" onClick={() => setShowAddMetric(!showAddMetric)}>
+              + Add Metric
+            </Button>
+            <Button size="sm" onClick={() => saveMetrics()} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          {error ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-start justify-between gap-3">
+              <div>{error}</div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-red-700 hover:bg-red-100 hover:text-red-800"
+                onClick={() => setError(null)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
           {Object.keys(defaultMetrics).length > 0 ? (
             <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
               Global defaults are available for this job. Use them as a starting point, then edit the wording, values, or dividers before saving.

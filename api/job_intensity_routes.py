@@ -4,6 +4,7 @@ Manages intensity metrics for jobs (employees, turnover, etc.)
 """
 
 import json
+import logging
 from typing import Any
 from fastapi import APIRouter, HTTPException, Depends, Body
 from psycopg.types.json import Jsonb
@@ -11,6 +12,7 @@ from core.database import get_conn
 from api.auth import _current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 EMPLOYEE_METRIC_KEY = "employees"
 EMPLOYEE_METRIC_LABEL = "Employee"
@@ -186,7 +188,7 @@ def update_job_intensity_metrics(
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="Job not found")
                 
-                metrics = _normalize_intensity_metrics(con, int(job_id), body.get("metrics", {}))
+                metrics = _normalize_intensity_metrics(conn, int(job_id), body.get("metrics", {}))
                 
                 # Convert to JSON string and use CAST for JSONB column
                 metrics_json = json.dumps(metrics)
@@ -194,16 +196,24 @@ def update_job_intensity_metrics(
                     "UPDATE jobs SET intensity_metrics = CAST(%s AS JSONB) WHERE job_id = %s",
                     [metrics_json, int(job_id)]
                 )
-                employee_value = _safe_int(metrics.get(EMPLOYEE_METRIC_KEY, {}).get("value"), 0) or 0
-                cur.execute(
-                    """
-                    INSERT INTO job_report_metadata (job_id, employee_number)
-                    VALUES (%s, %s)
-                    ON CONFLICT (job_id)
-                    DO UPDATE SET employee_number = EXCLUDED.employee_number
-                    """,
-                    [int(job_id), int(employee_value)],
-                )
+                try:
+                    employee_value = _safe_int(metrics.get(EMPLOYEE_METRIC_KEY, {}).get("value"), 0) or 0
+                    cur.execute(
+                        """
+                        INSERT INTO job_report_metadata (job_id, employee_number)
+                        VALUES (%s, %s)
+                        ON CONFLICT (job_id)
+                        DO UPDATE SET employee_number = EXCLUDED.employee_number
+                        """,
+                        [int(job_id), int(employee_value)],
+                    )
+                except Exception as sync_exc:
+                    logger.warning(
+                        "Intensity metrics saved but report metadata sync failed for job %s: %s",
+                        job_id,
+                        sync_exc,
+                        exc_info=True,
+                    )
                 conn.commit()
             
             return {"ok": True, "message": "Intensity metrics updated successfully"}
