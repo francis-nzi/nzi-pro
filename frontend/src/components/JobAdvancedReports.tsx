@@ -888,75 +888,74 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-5">
 
-            {/* AI narrative or placeholder */}
+            {/* AI narrative — rendered as distinct paragraphs */}
             {execSummaryText ? (
-              <p className="text-sm text-gray-700 leading-relaxed">{execSummaryText}</p>
+              <div className="space-y-3">
+                {execSummaryText.split(/\n\n+/).map((para, i) => (
+                  <p key={i} className="text-sm text-gray-700 leading-relaxed">{para.trim()}</p>
+                ))}
+              </div>
             ) : (
               <p className="text-sm text-gray-400 italic">
                 Executive summary not yet drafted. Generate AI content in Reporting → AI Drafts.
               </p>
             )}
 
-            {/* Donut + scope tiles side by side */}
-            <div className="grid grid-cols-2 gap-4 items-center">
+            {/* Donut + scope table */}
+            <div className="grid grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
 
-              {/* Donut chart */}
-              {scopeDonutData.length > 0 && (
-                <div className="relative h-[200px]">
-                  <ResponsiveContainer width="100%" height={200}>
-                    <PieChart>
-                      <Pie
-                        data={scopeDonutData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="62%"
-                        outerRadius="82%"
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {scopeDonutData.map(entry => (
-                          <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
-                      <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  {/* Total in centre */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ paddingBottom: "28px" }}>
-                    <span className="text-xl font-bold text-gray-800">{fmt(totalEmissions)}</span>
-                    <span className="text-xs text-gray-400">tCO₂e</span>
+              {/* Donut — Insights style */}
+              <div className="relative mx-auto aspect-square w-full max-w-[300px]">
+                <ResponsiveContainer width="100%" aspect={1}>
+                  <PieChart>
+                    <Pie
+                      data={scopeDonutData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius="72%"
+                      outerRadius="94%"
+                      paddingAngle={2}
+                    >
+                      {scopeDonutData.map(entry => (
+                        <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
+                    <div className="text-xs text-gray-400">tCO₂e total</div>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Scope tiles + total */}
-              <div className="space-y-2">
+              {/* Scope table — 3 columns: name | value | % */}
+              <div className="space-y-1.5">
                 {SCOPE_LABELS.map(s => {
                   const v = toNum(scope_totals?.[s]);
-                  if (v <= 0) return null;
                   const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
                   return (
-                    <div key={s} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <div key={s} className="grid grid-cols-[1fr_70px_46px] items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
+                        <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
                         <span className="text-xs text-gray-500">{s}</span>
                       </div>
-                      <div className="text-right">
-                        <span className="text-sm font-semibold text-gray-800">{fmt(v)}</span>
-                        <span className="ml-1 text-xs text-gray-400">tCO₂e</span>
-                        <span className="ml-2 text-xs text-gray-400">({pct.toFixed(1)}%)</span>
+                      <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">
+                        {fmt(v)} <span className="text-xs font-normal text-gray-400">tCO₂e</span>
                       </div>
+                      <div className="text-right text-xs text-gray-400 tabular-nums">{pct.toFixed(1)}%</div>
                     </div>
                   );
                 })}
                 {/* Total row */}
-                <div className="flex items-center justify-between rounded-lg border px-3 py-2" style={{ backgroundColor: `${BRAND}0d`, borderColor: `${BRAND}30` }}>
+                <div className="grid grid-cols-[1fr_70px_46px] items-center gap-2 rounded-lg border px-3 py-2" style={{ backgroundColor: `${BRAND}0d`, borderColor: `${BRAND}30` }}>
                   <span className="text-xs font-semibold text-gray-600">Total</span>
-                  <div className="text-right">
-                    <span className="text-sm font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</span>
-                    <span className="ml-1 text-xs text-gray-400">tCO₂e</span>
+                  <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>
+                    {fmt(totalEmissions)} <span className="text-xs font-normal text-gray-400">tCO₂e</span>
                   </div>
+                  <div className="text-right text-xs text-gray-400">100.0%</div>
                 </div>
                 {/* Benchmark comparison */}
                 {(() => {
@@ -966,7 +965,7 @@ export default function JobAdvancedReports({
                   const pct = Math.abs((delta / bTotal) * 100);
                   const down = delta < 0;
                   return (
-                    <div className={`rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    <div className={`mt-1 rounded-full px-3 py-1 text-xs font-semibold text-center ${down ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                       {down ? "▼" : "▲"} {fmt(pct, 1)}% vs benchmark ({fmt(bTotal)} tCO₂e)
                     </div>
                   );
