@@ -63,6 +63,7 @@ type ClientInfo = {
   interim_s2_pct?: number | null;
   interim_s3_pct?: number | null;
   client_name?: string | null;
+  benchmark_year?: number | null;
 };
 
 type IntensityMetric = {
@@ -136,6 +137,7 @@ export default function JobInsights({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshIndex, setRefreshIndex] = useState(0);
+  const [benchmarkYear, setBenchmarkYear] = useState<number | null>(null);
   const [whatIfScope1, setWhatIfScope1] = useState("0");
   const [whatIfScope2, setWhatIfScope2] = useState("0");
   const [whatIfScope3, setWhatIfScope3] = useState("0");
@@ -180,6 +182,7 @@ export default function JobInsights({
           scope_2: Number.isFinite(Number(clientJson?.interim_s2_pct)) ? Number(clientJson?.interim_s2_pct) : null,
           scope_3: Number.isFinite(Number(clientJson?.interim_s3_pct)) ? Number(clientJson?.interim_s3_pct) : null,
         });
+        setBenchmarkYear(Number.isFinite(Number(clientJson?.benchmark_year)) ? Number(clientJson?.benchmark_year) : null);
         setIntensityMetrics(
           intensityJson && intensityJson.metrics && typeof intensityJson.metrics === "object" ? intensityJson.metrics : {},
         );
@@ -191,6 +194,7 @@ export default function JobInsights({
         setTargetYear(2050);
         setInterimYear(null);
         setInterimTargets({ scope_1: null, scope_2: null, scope_3: null });
+        setBenchmarkYear(null);
         setIntensityMetrics({});
       } finally {
         if (!cancelled) setLoading(false);
@@ -312,6 +316,27 @@ export default function JobInsights({
       target: valueForYear(year),
     }));
   }, [currentYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, interimYear, scopeTotals?.scope_1, scopeTotals?.scope_2, scopeTotals?.scope_3, scopeTotals?.total, targetYear]);
+
+  const scopePathwayData = useMemo(() => {
+    if (!scopeTotals) return [];
+    const s1 = Number(scopeTotals.scope_1 || 0);
+    const s2 = Number(scopeTotals.scope_2 || 0);
+    const s3 = Number(scopeTotals.scope_3 || 0);
+    const startYear = benchmarkYear ?? currentYear;
+    const endYear = targetYear && targetYear > startYear ? targetYear : Math.max(startYear + 1, 2050);
+    const span = endYear - startYear;
+    return Array.from({ length: span + 1 }, (_, i) => {
+      const year = startYear + i;
+      const factor = i / span;
+      return {
+        year,
+        actual: year === startYear ? s1 + s2 + s3 : null,
+        s1: Math.max(0, s1 * (1 - factor)),
+        s2: s2 > 0 ? Math.max(0, s2 * (1 - factor)) : undefined,
+        s3: Math.max(0, s3 * (1 - factor)),
+      };
+    });
+  }, [scopeTotals, benchmarkYear, currentYear, targetYear]);
 
   const intensityTrend = useMemo(() => {
     const metricEntries = Object.entries(intensityMetrics)
@@ -656,6 +681,48 @@ export default function JobInsights({
             </div>
           </CardContent>
         </Card>
+
+        {scopePathwayData.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={scopePathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="year" tick={{ fontSize: 11 }}
+                      ticks={scopePathwayData
+                        .filter(d => d.year === scopePathwayData[0].year || d.year === (targetYear ?? 2050) || d.year % 5 === 0)
+                        .map(d => d.year)} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 0 })} />
+                    <Tooltip formatter={(v: unknown) => [`${formatTco2e(Number(v || 0))} tCO₂e`, ""]} labelFormatter={(v) => `Year: ${v}`} />
+                    <Legend iconType="circle" />
+                    {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
+                      <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
+                        label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
+                    )}
+                    {targetYear && (
+                      <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
+                        label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
+                    )}
+                    <Line type="monotone" dataKey="actual" name="Actual"
+                      stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
+                    <Line type="monotone" dataKey="s1" name="Scope 1 target"
+                      stroke={SCOPE_COLORS[0]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                    {Number(scopeTotals?.scope_2 || 0) > 0 && (
+                      <Line type="monotone" dataKey="s2" name="Scope 2 target"
+                        stroke={SCOPE_COLORS[1]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                    )}
+                    <Line type="monotone" dataKey="s3" name="Scope 3 target"
+                      stroke={SCOPE_COLORS[2]} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {intensityTrend.length > 0 ? (
