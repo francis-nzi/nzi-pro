@@ -340,38 +340,40 @@ export default function JobInsights({
   const scopePathwayData = useMemo(() => {
     if (!scopeTotals) return [];
 
-    const startYear = benchmarkYear ?? currentYear;
-    const endYear = targetYear && targetYear > startYear ? targetYear : Math.max(startYear + 1, 2050);
+    // Use benchmark year setting, earliest historical year, or current year as fallback
+    const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
+    const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
+    const endYear = targetYear && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
 
-    // Benchmark emissions: use historical data for benchmark year if available, else current job totals
-    const benchmarkRow = yearlyEmissions.find((r) => r.year === startYear);
+    // Benchmark emissions: from the baseline year row if available, else current job totals
+    const benchmarkRow = yearlyEmissions.find((r) => r.year === baselineYear);
     const benchS1 = benchmarkRow ? benchmarkRow.scope1 : Number(scopeTotals.scope_1 || 0);
     const benchS2 = benchmarkRow ? benchmarkRow.scope2 : Number(scopeTotals.scope_2 || 0);
     const benchS3 = benchmarkRow ? benchmarkRow.scope3 : Number(scopeTotals.scope_3 || 0);
 
     const finalFactor = (100 - targetReductionPct) / 100;
-    const iYear = interimYear && interimYear > startYear && interimYear < endYear ? interimYear : null;
+    const iYear = interimYear && interimYear > baselineYear && interimYear < endYear ? interimYear : null;
 
     const forecastScope = (bench: number, interimPct: number | null, year: number): number => {
-      if (year <= startYear) return bench;
+      if (year <= baselineYear) return bench;
       const finalTarget = bench * finalFactor;
       const iTarget = iYear != null && interimPct != null ? bench * (1 - interimPct / 100) : null;
       if (iYear != null && iTarget != null && year <= iYear) {
-        const span = iYear - startYear;
-        const t = span > 0 ? (year - startYear) / span : 1;
+        const span = iYear - baselineYear;
+        const t = span > 0 ? (year - baselineYear) / span : 1;
         return bench + (iTarget - bench) * t;
       }
-      const segStart = iYear ?? startYear;
+      const segStart = iYear ?? baselineYear;
       const segVal = iTarget ?? bench;
       const span = endYear - segStart;
       const t = span > 0 ? (year - segStart) / span : 1;
       return Math.max(segVal + (finalTarget - segVal) * t, 0);
     };
 
-    // Collect all years to plot
+    // Include all historical years (no lower-bound filter) + full forecast range
     const yearSet = new Set<number>();
-    for (let y = startYear; y <= endYear; y++) yearSet.add(y);
-    yearlyEmissions.forEach((r) => { if (r.year >= startYear && r.year <= endYear) yearSet.add(r.year); });
+    for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
     const years = Array.from(yearSet).sort((a, b) => a - b);
 
     return years.map((year) => {
