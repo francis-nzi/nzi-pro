@@ -274,9 +274,16 @@ export default function JobSetupOverviewSection({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="jobTemplate">Job Template</Label>
+              <Label htmlFor="jobTemplate" className="flex items-center gap-1">
+                Job Template
+                <span className="text-destructive">*</span>
+              </Label>
               <Select value={selectedTemplateId} onValueChange={onJobTemplateChange}>
-                <SelectTrigger id="jobTemplate" className="w-full">
+                <SelectTrigger
+                  id="jobTemplate"
+                  className={`w-full ${selectedTemplateId ? "" : "border-destructive/50 ring-1 ring-destructive/10"}`}
+                  aria-required="true"
+                >
                   <SelectValue placeholder="Select a template..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -287,6 +294,15 @@ export default function JobSetupOverviewSection({
                   ))}
                 </SelectContent>
               </Select>
+              {!selectedTemplateId ? (
+                <p className="text-xs text-destructive">
+                  A Job Template is required before downloading the Excel template.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Select the report workbook that should be used for downloads and exports.
+                </p>
+              )}
               <div className="flex justify-end">
                 <Button onClick={() => onSaveTemplate(selectedTemplateId)} disabled={busy || !selectedTemplateId}>
                   Save template
