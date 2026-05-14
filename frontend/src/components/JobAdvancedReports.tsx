@@ -43,6 +43,8 @@ type ReportJob = {
   no_of_staff?: number | null;
   city?: string | null;
   country?: string | null;
+  benchmark_period_start?: string | null;
+  benchmark_period_end?: string | null;
 };
 
 type ReportMetadata = {
@@ -1057,56 +1059,111 @@ export default function JobAdvancedReports({
           <CardHeader className="pb-3">
             <SectionHeader title="Background & Organisation" />
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-6">
 
-            {/* Narrative description */}
+            {/* Narrative description — split into paragraphs */}
             {data.job_data.description && (
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {data.job_data.description}
-              </p>
+              <div className="space-y-3">
+                {data.job_data.description.split(/\r?\n\r?\n|\r?\n/).filter(p => p.trim()).map((para, i) => (
+                  <p key={i} className="text-sm text-gray-700 leading-relaxed">{para.trim()}</p>
+                ))}
+              </div>
             )}
 
-            {/* Organisation details */}
+            {/* Organisation Details */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
-                Organisation Details
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Organisation Details</p>
               <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
                 <MetaRow label="Organisation" value={data.job_data.client_name} />
                 <MetaRow label="Industry" value={data.job_data.industry} />
                 <MetaRow label="Location" value={[data.job_data.city, data.job_data.country].filter(Boolean).join(", ")} />
-                <MetaRow label="Employees (job)" value={data.job_data.no_of_staff} />
                 <MetaRow label="Company Number" value={report_metadata?.company_number} />
                 <MetaRow label="Registered Address" value={report_metadata?.registered_address} />
-                <MetaRow label="Employees (reported)" value={report_metadata?.employee_number} />
-                <MetaRow label="Premises Owned" value={report_metadata?.premises_owned} />
-                <MetaRow label="Premises Leased" value={report_metadata?.premises_leased} />
-                <MetaRow label="Vehicles Owned" value={report_metadata?.vehicles_owned} />
-                <MetaRow label="Vehicles Leased" value={report_metadata?.vehicles_leased} />
               </div>
             </div>
 
-            {/* Organisational boundary */}
+            {/* Reporting Elements */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
-                Organisational Boundary
-              </p>
-              <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2">
-                <MetaRow label="Operational Control" value={boolLabel(report_metadata?.operational_control)} />
-                <MetaRow label="Financial Control" value={boolLabel(report_metadata?.financial_control)} />
-                <MetaRow label="Equity Share" value={boolLabel(report_metadata?.equity_share)} />
+              <p className="text-sm font-semibold text-gray-700 mb-2">Reporting Elements</p>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                {([
+                  ["No. of Staff", report_metadata?.employee_number ?? data.job_data.no_of_staff],
+                  ["No. of Premises Owned", report_metadata?.premises_owned],
+                  ["No. of Premises Leased", report_metadata?.premises_leased],
+                  ["No. of Vehicles Owned", report_metadata?.vehicles_owned],
+                  ["No. of Vehicles Leased", report_metadata?.vehicles_leased],
+                ] as [string, number | null | undefined][]).map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-[200px_1fr] border-b border-gray-100 last:border-0">
+                    <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50">{label}</div>
+                    <div className="px-3 py-2 text-xs text-gray-700">{value != null ? String(value) : "N/A"}</div>
+                  </div>
+                ))}
               </div>
+            </div>
+
+            {/* Organisational Boundary */}
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-2">Organisational Boundary</p>
+              <p className="text-sm text-gray-700 leading-relaxed mb-3">
+                The organisational boundary defines the operations over which the organisation has control or financial responsibility for GHG emissions.
+              </p>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                <div className="grid grid-cols-[160px_1fr_110px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white">Approach</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white">Approach Taken</span>
+                </div>
+                {([
+                  {
+                    label: "Operational Control",
+                    desc: "The organisation has operational control over an operation if it or one of its subsidiaries has the full authority to introduce and implement its operating policies at the operation.",
+                    value: report_metadata?.operational_control,
+                  },
+                  {
+                    label: "Financial Control",
+                    desc: "The organisation has financial control over the operation if it has the ability to direct the financial and operating policies of the organisation with a view to gaining economic benefits from its activities.",
+                    value: report_metadata?.financial_control,
+                  },
+                  {
+                    label: "Equity Share",
+                    desc: "The organisation accounts for GHG emissions from operations according to its share of equity in the operation.",
+                    value: report_metadata?.equity_share,
+                  },
+                ]).map((row, i) => (
+                  <div key={row.label}
+                    className={`grid grid-cols-[160px_1fr_110px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                    <span className="text-xs font-medium text-gray-700 pr-2">{row.label}</span>
+                    <span className="text-xs text-gray-600 pr-4">{row.desc}</span>
+                    <span className="text-xs font-medium text-gray-700">{boolLabel(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Benchmark Year */}
+            {(data.job_data.benchmark_period_start || data.job_data.benchmark_period_end) && (
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-1">Benchmark Year</p>
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  The organisation&apos;s benchmark year is from {formatDate(data.job_data.benchmark_period_start ?? "")} to {formatDate(data.job_data.benchmark_period_end ?? "")}.
+                </p>
+              </div>
+            )}
+
+            {/* Methodologies Used */}
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-1">Methodologies Used</p>
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {String(report_metadata?.methodologies_used ?? "").trim() ||
+                  "Throughout this report all methodologies used are explained within the relevant sections."}
+              </p>
             </div>
 
             {/* Commitment commentary */}
             {report_metadata?.commitment_commentary && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">
-                  Commitment
-                </p>
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  {report_metadata.commitment_commentary}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Commitment</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{report_metadata.commitment_commentary}</p>
               </div>
             )}
 
