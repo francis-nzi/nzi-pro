@@ -1672,6 +1672,8 @@ def get_job_data(job_id: int, org_id: str | None = None):
             'status': job_row[6],
             'period_start': job_row[7],
             'period_end': job_row[8],
+            'reporting_period_start': job_row[7],
+            'reporting_period_end': job_row[8],
             'client_name': job_row[9],
             'crm_owner': job_row[10],
             'industry': job_row[11],
