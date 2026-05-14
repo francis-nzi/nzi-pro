@@ -19,6 +19,7 @@ import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMi
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
+import ReportingElements from "@/components/ReportingElements";
 import type { WorkspaceBreadcrumb, WorkspaceTab } from "@/components/job-workspace/types";
 import {
   JOB_WORKSPACE_GROUPS,
@@ -947,13 +948,16 @@ export default function JobDetailPage() {
 
               {/* Intensity Metrics */}
               <div>
-                <IntensityMetrics 
-                  jobId={jobId} 
-                  baseUrl={baseUrl} 
+                <IntensityMetrics
+                  jobId={jobId}
+                  baseUrl={baseUrl}
                   totalEmissions={totalEmissions}
                   currency={clientCurrency}
                 />
               </div>
+
+              {/* Reporting Elements */}
+              <ReportingElements jobId={jobId} baseUrl={baseUrl} />
 
             </div>
           </TabsContent>
