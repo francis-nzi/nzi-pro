@@ -793,35 +793,37 @@ export default function EditClientPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
-                  <Input
-                    id="netZeroYear"
-                    type="number"
-                    value={netZeroYear}
-                    onChange={(e) => setNetZeroYear(e.target.value)}
-                    min="2025"
-                    max="2100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
-                  <Input
-                    id="netZeroTargetReductionPct"
-                    type="number"
-                    value={netZeroTargetReductionPct}
-                    onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
-                    min="0"
-                    max="100"
-                    placeholder="90"
-                  />
-                  <p className="text-xs text-muted-foreground">Default 90% in line with Net Zero requirements.</p>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg border bg-background/70 p-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
+                    <Input
+                      id="netZeroYear"
+                      type="number"
+                      value={netZeroYear}
+                      onChange={(e) => setNetZeroYear(e.target.value)}
+                      min="2025"
+                      max="2100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
+                    <Input
+                      id="netZeroTargetReductionPct"
+                      type="number"
+                      value={netZeroTargetReductionPct}
+                      onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
+                      min="0"
+                      max="100"
+                      placeholder="90"
+                    />
+                    <p className="text-xs text-muted-foreground">Default 90% in line with Net Zero requirements.</p>
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded-md border bg-orange-50 p-4 space-y-4">
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-4">
                 <div>
                   <h3 className="font-semibold text-sm mb-1">Benchmark Period (Financial Year)</h3>
                   <p className="text-xs text-muted-foreground">Define the benchmark reporting period. This should align with the client&apos;s financial year. All subsequent annual jobs will automatically follow this period structure.</p>
@@ -852,7 +854,7 @@ export default function EditClientPage() {
                 </div>
               </div>
 
-              <div className="rounded-md border bg-slate-50 p-4 space-y-4">
+              <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
                 <div>
                   <h3 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h3>
                   <p className="text-xs text-muted-foreground">Capture third-party benchmark values for Scope 1, 2, 3 and total so reports can compare against the client&apos;s own baseline.</p>
@@ -909,82 +911,83 @@ export default function EditClientPage() {
                 </div>
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold">Interim Targets</h3>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Scope 1, 2 and 3 interim target years and reduction percentages.
-                </p>
-              </div>
+              <div className="rounded-lg border bg-background/70 p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Interim Targets</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Scope 1, 2 and 3 interim target years and reduction percentages.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
+                    <Input
+                      id="targetS1Year"
+                      type="number"
+                      value={targetS1Year}
+                      onChange={(e) => setTargetS1Year(e.target.value)}
+                      min="2025"
+                      max="2100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
+                    <Input
+                      id="targetS1Pct"
+                      type="number"
+                      value={targetS1Pct}
+                      onChange={(e) => setTargetS1Pct(e.target.value)}
+                      min="0"
+                      max="100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
+                    <Input
+                      id="targetS2Year"
+                      type="number"
+                      value={targetS2Year}
+                      onChange={(e) => setTargetS2Year(e.target.value)}
+                      min="2025"
+                      max="2100"
+                    />
+                  </div>
+                </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
-                  <Input
-                    id="targetS1Year"
-                    type="number"
-                    value={targetS1Year}
-                    onChange={(e) => setTargetS1Year(e.target.value)}
-                    min="2025"
-                    max="2100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
-                  <Input
-                    id="targetS1Pct"
-                    type="number"
-                    value={targetS1Pct}
-                    onChange={(e) => setTargetS1Pct(e.target.value)}
-                    min="0"
-                    max="100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
-                  <Input
-                    id="targetS2Year"
-                    type="number"
-                    value={targetS2Year}
-                    onChange={(e) => setTargetS2Year(e.target.value)}
-                    min="2025"
-                    max="2100"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
-                  <Input
-                    id="targetS2Pct"
-                    type="number"
-                    value={targetS2Pct}
-                    onChange={(e) => setTargetS2Pct(e.target.value)}
-                    min="0"
-                    max="100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
-                  <Input
-                    id="targetS3Year"
-                    type="number"
-                    value={targetS3Year}
-                    onChange={(e) => setTargetS3Year(e.target.value)}
-                    min="2025"
-                    max="2100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
-                  <Input
-                    id="targetS3Pct"
-                    type="number"
-                    value={targetS3Pct}
-                    onChange={(e) => setTargetS3Pct(e.target.value)}
-                    min="0"
-                    max="100"
-                  />
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
+                    <Input
+                      id="targetS2Pct"
+                      type="number"
+                      value={targetS2Pct}
+                      onChange={(e) => setTargetS2Pct(e.target.value)}
+                      min="0"
+                      max="100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
+                    <Input
+                      id="targetS3Year"
+                      type="number"
+                      value={targetS3Year}
+                      onChange={(e) => setTargetS3Year(e.target.value)}
+                      min="2025"
+                      max="2100"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
+                    <Input
+                      id="targetS3Pct"
+                      type="number"
+                      value={targetS3Pct}
+                      onChange={(e) => setTargetS3Pct(e.target.value)}
+                      min="0"
+                      max="100"
+                    />
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -999,71 +1002,73 @@ export default function EditClientPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h3 className="text-sm font-semibold">Registered / trading address</h3>
-                <p className="text-xs text-muted-foreground">
-                  This is the client&apos;s primary registered or trading address, and can also be used to create a site.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="addrLine1">Address Line 1</Label>
-                <Input
-                  id="addrLine1"
-                  value={addrLine1}
-                  onChange={(e) => setAddrLine1(e.target.value)}
-                  placeholder="123 Business Street"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="addrLine2">Address Line 2</Label>
-                <Input
-                  id="addrLine2"
-                  value={addrLine2}
-                  onChange={(e) => setAddrLine2(e.target.value)}
-                  placeholder="Suite 100"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="addrCity">City</Label>
-                  <Input
-                    id="addrCity"
-                    value={addrCity}
-                    onChange={(e) => setAddrCity(e.target.value)}
-                    placeholder="London"
-                  />
+            <CardContent className="space-y-6">
+              <div className="rounded-lg border bg-background/70 p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Registered / trading address</h3>
+                  <p className="text-xs text-muted-foreground">
+                    This is the client&apos;s primary registered or trading address, and can also be used to create a site.
+                  </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="addrRegion">Region/County</Label>
+                  <Label htmlFor="addrLine1">Address Line 1</Label>
                   <Input
-                    id="addrRegion"
-                    value={addrRegion}
-                    onChange={(e) => setAddrRegion(e.target.value)}
-                    placeholder="Greater London"
+                    id="addrLine1"
+                    value={addrLine1}
+                    onChange={(e) => setAddrLine1(e.target.value)}
+                    placeholder="123 Business Street"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrPostcode">Postcode</Label>
-                  <Input
-                    id="addrPostcode"
-                    value={addrPostcode}
-                    onChange={(e) => setAddrPostcode(e.target.value)}
-                    placeholder="SW1A 1AA"
-                  />
-                </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="addrCountry">Country</Label>
-                <Input
-                  id="addrCountry"
-                  value={addrCountry}
-                  onChange={(e) => setAddrCountry(e.target.value)}
-                  placeholder="United Kingdom"
-                />
+                <div className="space-y-2">
+                  <Label htmlFor="addrLine2">Address Line 2</Label>
+                  <Input
+                    id="addrLine2"
+                    value={addrLine2}
+                    onChange={(e) => setAddrLine2(e.target.value)}
+                    placeholder="Suite 100"
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="addrCity">City</Label>
+                    <Input
+                      id="addrCity"
+                      value={addrCity}
+                      onChange={(e) => setAddrCity(e.target.value)}
+                      placeholder="London"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="addrRegion">Region/County</Label>
+                    <Input
+                      id="addrRegion"
+                      value={addrRegion}
+                      onChange={(e) => setAddrRegion(e.target.value)}
+                      placeholder="Greater London"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="addrPostcode">Postcode</Label>
+                    <Input
+                      id="addrPostcode"
+                      value={addrPostcode}
+                      onChange={(e) => setAddrPostcode(e.target.value)}
+                      placeholder="SW1A 1AA"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="addrCountry">Country</Label>
+                  <Input
+                    id="addrCountry"
+                    value={addrCountry}
+                    onChange={(e) => setAddrCountry(e.target.value)}
+                    placeholder="United Kingdom"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center space-x-2 border-t pt-2">

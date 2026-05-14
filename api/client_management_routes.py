@@ -17,12 +17,30 @@ from api.client_management_helpers import (
 )
 from api.permissions import assert_client_access, assert_permission
 from core.database import get_conn
-from services.audit_log import record_audit_event
+from services.audit_log import fetch_row_dict, record_audit_event
 from services.client_benchmark import ensure_client_benchmark_columns
 from services.tenancy import require_org
 from api.org_admin_helpers import _require_org_capacity
 
 router = APIRouter()
+
+
+def _client_column_names(con) -> set[str]:
+    rows = con.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'clients'
+        """
+    ).fetchall()
+    return {str(row[0]) for row in rows if row and row[0] is not None}
+
+
+def _client_select_expr(columns: set[str], source: str, alias: str | None = None, fallback: str = "NULL") -> str:
+    target = alias or source
+    if source in columns:
+        return f"c.{source} AS {target}"
+    return f"{fallback} AS {target}"
 
 
 @router.post("/clients")
@@ -282,77 +300,110 @@ def get_client(client_db_id: int, _user: dict[str, str] = Depends(_current_user)
     require_org(_user)
     with get_conn() as con:
         assert_client_access(_user, int(client_db_id))
-        row = con.execute(
-            """
-            SELECT c.db_id, c.client_name, c.industry, c.description_long, c.status,
-                   c.website, c.year_end_month, c.company_reg, c.sic_code, c.headquarters,
-                   c.addr_line1, c.addr_line2, c.addr_city, c.addr_region,
-            c.addr_postcode, c.addr_country, c.logo_url, c.crm_owner,
-            c.net_zero_year, c.interim_year, c.interim_s1_pct, c.interim_s2_pct,
-            c.interim_s3_pct, c.portfolio, c.net_zero_target_reduction_pct,
-            c.benchmark_year, c.benchmark_period_start, c.benchmark_period_end, c.currency,
-            COALESCE(c.billing_same_as_main, TRUE), c.billing_addr_line1,
-                   c.billing_addr_line2, c.billing_addr_city, c.billing_addr_region,
-                   c.billing_addr_postcode, c.billing_addr_country,
-            c.create_site_from_address,
-            c.benchmark_scope_1_tco2e, c.benchmark_scope_2_tco2e,
-            c.benchmark_scope_3_tco2e, c.benchmark_total_tco2e,
-            COALESCE(c.billing_company, c.client_name)
+        columns = _client_column_names(con)
+        select_parts = [
+            _client_select_expr(columns, "db_id", "client_db_id", "c.db_id"),
+            _client_select_expr(columns, "client_name", "client_name", "c.client_name"),
+            _client_select_expr(columns, "industry", "industry"),
+            _client_select_expr(columns, "description_long", "description_long"),
+            _client_select_expr(columns, "status", "status"),
+            _client_select_expr(columns, "website", "website"),
+            _client_select_expr(columns, "year_end_month", "year_end_month"),
+            _client_select_expr(columns, "company_reg", "company_reg"),
+            _client_select_expr(columns, "sic_code", "sic_code"),
+            _client_select_expr(columns, "headquarters", "headquarters"),
+            _client_select_expr(columns, "addr_line1", "addr_line1"),
+            _client_select_expr(columns, "addr_line2", "addr_line2"),
+            _client_select_expr(columns, "addr_city", "addr_city"),
+            _client_select_expr(columns, "addr_region", "addr_region"),
+            _client_select_expr(columns, "addr_postcode", "addr_postcode"),
+            _client_select_expr(columns, "addr_country", "addr_country"),
+            _client_select_expr(columns, "logo_url", "logo_url"),
+            _client_select_expr(columns, "crm_owner", "crm_owner"),
+            _client_select_expr(columns, "net_zero_year", "net_zero_year"),
+            _client_select_expr(columns, "interim_year", "interim_year"),
+            _client_select_expr(columns, "interim_s1_pct", "interim_s1_pct"),
+            _client_select_expr(columns, "interim_s2_pct", "interim_s2_pct"),
+            _client_select_expr(columns, "interim_s3_pct", "interim_s3_pct"),
+            _client_select_expr(columns, "portfolio", "portfolio"),
+            _client_select_expr(columns, "net_zero_target_reduction_pct", "net_zero_target_reduction_pct", "90"),
+            _client_select_expr(columns, "benchmark_year", "benchmark_year"),
+            _client_select_expr(columns, "benchmark_period_start", "benchmark_period_start"),
+            _client_select_expr(columns, "benchmark_period_end", "benchmark_period_end"),
+            _client_select_expr(columns, "currency", "currency", "'GBP'"),
+            _client_select_expr(columns, "billing_same_as_main", "billing_same_as_main", "TRUE"),
+            _client_select_expr(columns, "billing_addr_line1", "billing_addr_line1"),
+            _client_select_expr(columns, "billing_addr_line2", "billing_addr_line2"),
+            _client_select_expr(columns, "billing_addr_city", "billing_addr_city"),
+            _client_select_expr(columns, "billing_addr_region", "billing_addr_region"),
+            _client_select_expr(columns, "billing_addr_postcode", "billing_addr_postcode"),
+            _client_select_expr(columns, "billing_addr_country", "billing_addr_country"),
+            _client_select_expr(columns, "create_site_from_address", "create_site_from_address", "FALSE"),
+            _client_select_expr(columns, "benchmark_scope_1_tco2e", "benchmark_scope_1_tco2e"),
+            _client_select_expr(columns, "benchmark_scope_2_tco2e", "benchmark_scope_2_tco2e"),
+            _client_select_expr(columns, "benchmark_scope_3_tco2e", "benchmark_scope_3_tco2e"),
+            _client_select_expr(columns, "benchmark_total_tco2e", "benchmark_total_tco2e"),
+            _client_select_expr(columns, "billing_company", "billing_company", "c.client_name"),
+        ]
+        row = fetch_row_dict(
+            con,
+            f"""
+            SELECT {", ".join(select_parts)}
             FROM clients c
-            WHERE c.db_id=?
+            WHERE c.db_id = ?
             LIMIT 1
             """,
             [int(client_db_id)],
-        ).fetchone()
+        )
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Client not found")
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
 
-    return {
-        "client_db_id": int(row[0]),
-        "client_name": row[1],
-        "industry": row[2],
-        "description_long": row[3],
-        "status": row[4],
-        "website": row[5],
-        "year_end_month": row[6],
-        "company_reg": row[7],
-        "sic_code": row[8],
-        "headquarters": row[9],
-        "addr_line1": row[10],
-        "addr_line2": row[11],
-        "addr_city": row[12],
-        "addr_region": row[13],
-        "addr_postcode": row[14],
-        "addr_country": row[15],
-        "logo_url": row[16],
-        "crm_owner": row[17],
-        "net_zero_year": (int(row[18]) if row[18] is not None else None),
-        "interim_year": (int(row[19]) if row[19] is not None else None),
-        "interim_s1_pct": (int(row[20]) if row[20] is not None else None),
-        "interim_s2_pct": (int(row[21]) if row[21] is not None else None),
-        "interim_s3_pct": (int(row[22]) if row[22] is not None else None),
-        "portfolio": row[23],
-        "net_zero_target_reduction_pct": int(row[24]) if row[24] is not None else 90,
-        "benchmark_year": (int(row[25]) if row[25] is not None else None),
-        "benchmark_period_start": str(row[26]) if row[26] is not None else None,
-        "benchmark_period_end": str(row[27]) if row[27] is not None else None,
-        "currency": row[28] if row[28] is not None else "GBP",
-        "billing_same_as_main": bool(row[29]) if row[29] is not None else True,
-        "billing_addr_line1": row[30],
-        "billing_addr_line2": row[31],
-        "billing_addr_city": row[32],
-        "billing_addr_region": row[33],
-        "billing_addr_postcode": row[34],
-        "billing_addr_country": row[35],
-        "create_site_from_address": bool(row[36]) if row[36] is not None else bool(
-            row[10] or row[11] or row[12] or row[13] or row[14] or row[15]
+        return {
+        "client_db_id": int(row["client_db_id"]),
+        "client_name": row["client_name"],
+        "industry": row.get("industry"),
+        "description_long": row.get("description_long"),
+        "status": row.get("status"),
+        "website": row.get("website"),
+        "year_end_month": row.get("year_end_month"),
+        "company_reg": row.get("company_reg"),
+        "sic_code": row.get("sic_code"),
+        "headquarters": row.get("headquarters"),
+        "addr_line1": row.get("addr_line1"),
+        "addr_line2": row.get("addr_line2"),
+        "addr_city": row.get("addr_city"),
+        "addr_region": row.get("addr_region"),
+        "addr_postcode": row.get("addr_postcode"),
+        "addr_country": row.get("addr_country"),
+        "logo_url": row.get("logo_url"),
+        "crm_owner": row.get("crm_owner"),
+        "net_zero_year": (int(row["net_zero_year"]) if row.get("net_zero_year") is not None else None),
+        "interim_year": (int(row["interim_year"]) if row.get("interim_year") is not None else None),
+        "interim_s1_pct": (int(row["interim_s1_pct"]) if row.get("interim_s1_pct") is not None else None),
+        "interim_s2_pct": (int(row["interim_s2_pct"]) if row.get("interim_s2_pct") is not None else None),
+        "interim_s3_pct": (int(row["interim_s3_pct"]) if row.get("interim_s3_pct") is not None else None),
+        "portfolio": row.get("portfolio"),
+        "net_zero_target_reduction_pct": int(row["net_zero_target_reduction_pct"]) if row.get("net_zero_target_reduction_pct") is not None else 90,
+        "benchmark_year": (int(row["benchmark_year"]) if row.get("benchmark_year") is not None else None),
+        "benchmark_period_start": str(row["benchmark_period_start"]) if row.get("benchmark_period_start") is not None else None,
+        "benchmark_period_end": str(row["benchmark_period_end"]) if row.get("benchmark_period_end") is not None else None,
+        "currency": row.get("currency") or "GBP",
+        "billing_same_as_main": bool(row["billing_same_as_main"]) if row.get("billing_same_as_main") is not None else True,
+        "billing_addr_line1": row.get("billing_addr_line1"),
+        "billing_addr_line2": row.get("billing_addr_line2"),
+        "billing_addr_city": row.get("billing_addr_city"),
+        "billing_addr_region": row.get("billing_addr_region"),
+        "billing_addr_postcode": row.get("billing_addr_postcode"),
+        "billing_addr_country": row.get("billing_addr_country"),
+        "create_site_from_address": bool(row["create_site_from_address"]) if row.get("create_site_from_address") is not None else bool(
+            row.get("addr_line1") or row.get("addr_line2") or row.get("addr_city") or row.get("addr_region") or row.get("addr_postcode") or row.get("addr_country")
         ),
-        "benchmark_scope_1_tco2e": float(row[37]) if row[37] is not None else None,
-        "benchmark_scope_2_tco2e": float(row[38]) if row[38] is not None else None,
-        "benchmark_scope_3_tco2e": float(row[39]) if row[39] is not None else None,
-        "benchmark_total_tco2e": float(row[40]) if row[40] is not None else None,
-        "billing_company": row[41] if len(row) > 41 else row[1],
+        "benchmark_scope_1_tco2e": float(row["benchmark_scope_1_tco2e"]) if row.get("benchmark_scope_1_tco2e") is not None else None,
+        "benchmark_scope_2_tco2e": float(row["benchmark_scope_2_tco2e"]) if row.get("benchmark_scope_2_tco2e") is not None else None,
+        "benchmark_scope_3_tco2e": float(row["benchmark_scope_3_tco2e"]) if row.get("benchmark_scope_3_tco2e") is not None else None,
+        "benchmark_total_tco2e": float(row["benchmark_total_tco2e"]) if row.get("benchmark_total_tco2e") is not None else None,
+        "billing_company": row.get("billing_company") or row.get("client_name"),
         }
 
 

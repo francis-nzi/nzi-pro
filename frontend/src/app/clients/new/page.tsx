@@ -784,111 +784,112 @@ export default function NewClientPage() {
               <CardHeader>
                 <CardTitle>Address & sites</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold">Main address</h3>
-                  <p className="text-xs text-muted-foreground">
-                    This is the client&apos;s primary registered or trading address.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrLine1">Address Line 1</Label>
-                  <Input
-                    id="addrLine1"
-                    value={addrLine1}
-                    onChange={(e) => setAddrLine1(e.target.value)}
-                    placeholder="123 Business Street"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrLine2">Address Line 2</Label>
-                  <Input
-                    id="addrLine2"
-                    value={addrLine2}
-                    onChange={(e) => setAddrLine2(e.target.value)}
-                    placeholder="Suite 100"
-                  />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
+              <CardContent className="space-y-6">
+                <div className="rounded-lg border bg-background/70 p-4 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Main address</h3>
+                    <p className="text-xs text-muted-foreground">
+                      This is the client&apos;s primary registered or trading address.
+                    </p>
+                  </div>
                   <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
+                    <Label htmlFor="addrLine1">Address Line 1</Label>
                     <Input
-                      id="city"
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                      placeholder="London"
+                      id="addrLine1"
+                      value={addrLine1}
+                      onChange={(e) => setAddrLine1(e.target.value)}
+                      placeholder="123 Business Street"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="region">Region/State</Label>
+                    <Label htmlFor="addrLine2">Address Line 2</Label>
                     <Input
-                      id="region"
-                      value={region}
-                      onChange={(e) => setRegion(e.target.value)}
-                      placeholder="Greater London"
+                      id="addrLine2"
+                      value={addrLine2}
+                      onChange={(e) => setAddrLine2(e.target.value)}
+                      placeholder="Suite 100"
                     />
                   </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="postcode">Postcode/ZIP</Label>
-                    <Input
-                      id="postcode"
-                      value={postcode}
-                      onChange={(e) => setPostcode(e.target.value)}
-                      placeholder="SW1A 1AA"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="country">Country</Label>
-                    <div className="relative">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="city">City</Label>
                       <Input
-                        id="country"
-                        value={country}
-                        onChange={(e) => {
-                          setCountry(e.target.value);
-                          setCountrySearchStarted(true);
-                          setCountryMenuOpen(true);
-                        }}
-                        onFocus={() => {
-                          setCountrySearchStarted(false);
-                          setCountryMenuOpen(true);
-                        }}
-                        onBlur={() => {
-                          setTimeout(() => setCountryMenuOpen(false), 120);
-                        }}
-                        placeholder="Search country..."
+                        id="city"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="London"
                       />
-                      {countryMenuOpen && (
-                        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
-                          {filteredCountryOptions.length === 0 ? (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">
-                              No countries found
-                            </div>
-                          ) : (
-                            filteredCountryOptions.map((countryOption) => (
-                              <button
-                                key={countryOption}
-                                type="button"
-                                className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setCountry(countryOption);
-                                  setCountrySearchStarted(false);
-                                  setCountryMenuOpen(false);
-                                }}
-                              >
-                                {countryOption}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="region">Region/State</Label>
+                      <Input
+                        id="region"
+                        value={region}
+                        onChange={(e) => setRegion(e.target.value)}
+                        placeholder="Greater London"
+                      />
                     </div>
                   </div>
-                </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="postcode">Postcode/ZIP</Label>
+                      <Input
+                        id="postcode"
+                        value={postcode}
+                        onChange={(e) => setPostcode(e.target.value)}
+                        placeholder="SW1A 1AA"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="country">Country</Label>
+                      <div className="relative">
+                        <Input
+                          id="country"
+                          value={country}
+                          onChange={(e) => {
+                            setCountry(e.target.value);
+                            setCountrySearchStarted(true);
+                            setCountryMenuOpen(true);
+                          }}
+                          onFocus={() => {
+                            setCountrySearchStarted(false);
+                            setCountryMenuOpen(true);
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => setCountryMenuOpen(false), 120);
+                          }}
+                          placeholder="Search country..."
+                        />
+                        {countryMenuOpen && (
+                          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
+                            {filteredCountryOptions.length === 0 ? (
+                              <div className="px-3 py-2 text-sm text-muted-foreground">
+                                No countries found
+                              </div>
+                            ) : (
+                              filteredCountryOptions.map((countryOption) => (
+                                <button
+                                  key={countryOption}
+                                  type="button"
+                                  className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setCountry(countryOption);
+                                    setCountrySearchStarted(false);
+                                    setCountryMenuOpen(false);
+                                  }}
+                                >
+                                  {countryOption}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-                <div className="flex items-center space-x-2 border-t pt-2">
+                  <div className="flex items-center space-x-2 border-t pt-2">
                   <input
                     type="checkbox"
                     id="billingSameAsMain"
@@ -902,133 +903,134 @@ export default function NewClientPage() {
                   >
                     Billing address same as main address
                   </Label>
-                </div>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="billingCompany">Billing Company</Label>
-                  <Input
-                    id="billingCompany"
-                    value={billingCompany}
-                    onChange={(e) => {
-                      setBillingCompany(e.target.value);
-                      setBillingCompanyTouched(true);
-                    }}
-                    placeholder={clientName || "Client name"}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Defaults to the client name, but you can override it for invoicing.
-                  </p>
-                </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="billingCompany">Billing Company</Label>
+                    <Input
+                      id="billingCompany"
+                      value={billingCompany}
+                      onChange={(e) => {
+                        setBillingCompany(e.target.value);
+                        setBillingCompanyTouched(true);
+                      }}
+                      placeholder={clientName || "Client name"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Defaults to the client name, but you can override it for invoicing.
+                    </p>
+                  </div>
 
-                {!billingSameAsMain && (
-                  <div className="space-y-4 rounded-md border bg-muted/30 p-4">
-                    <div>
-                      <h3 className="text-sm font-semibold">Billing address</h3>
-                      <p className="text-xs text-muted-foreground">
-                        Use this only if invoices should go to a different address.
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
-                      <Input
-                        id="billingAddrLine1"
-                        value={billingAddrLine1}
-                        onChange={(e) => setBillingAddrLine1(e.target.value)}
-                        placeholder="123 Finance Street"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
-                      <Input
-                        id="billingAddrLine2"
-                        value={billingAddrLine2}
-                        onChange={(e) => setBillingAddrLine2(e.target.value)}
-                        placeholder="Suite 200"
-                      />
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
+                  {!billingSameAsMain && (
+                    <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+                      <div>
+                        <h3 className="text-sm font-semibold">Billing address</h3>
+                        <p className="text-xs text-muted-foreground">
+                          Use this only if invoices should go to a different address.
+                        </p>
+                      </div>
                       <div className="space-y-2">
-                        <Label htmlFor="billingCity">Billing City</Label>
+                        <Label htmlFor="billingAddrLine1">Billing Address Line 1</Label>
                         <Input
-                          id="billingCity"
-                          value={billingCity}
-                          onChange={(e) => setBillingCity(e.target.value)}
-                          placeholder="London"
+                          id="billingAddrLine1"
+                          value={billingAddrLine1}
+                          onChange={(e) => setBillingAddrLine1(e.target.value)}
+                          placeholder="123 Finance Street"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="billingRegion">Billing Region/State</Label>
+                        <Label htmlFor="billingAddrLine2">Billing Address Line 2</Label>
                         <Input
-                          id="billingRegion"
-                          value={billingRegion}
-                          onChange={(e) => setBillingRegion(e.target.value)}
-                          placeholder="Greater London"
+                          id="billingAddrLine2"
+                          value={billingAddrLine2}
+                          onChange={(e) => setBillingAddrLine2(e.target.value)}
+                          placeholder="Suite 200"
                         />
                       </div>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="billingPostcode">Billing Postcode/ZIP</Label>
-                        <Input
-                          id="billingPostcode"
-                          value={billingPostcode}
-                          onChange={(e) => setBillingPostcode(e.target.value)}
-                          placeholder="SW1A 1AA"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="billingCountry">Billing Country</Label>
-                        <div className="relative">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="billingCity">Billing City</Label>
                           <Input
-                            id="billingCountry"
-                            value={billingCountry}
-                            onChange={(e) => {
-                              setBillingCountry(e.target.value);
-                              setBillingCountrySearchStarted(true);
-                              setBillingCountryMenuOpen(true);
-                            }}
-                            onFocus={() => {
-                              setBillingCountrySearchStarted(false);
-                              setBillingCountryMenuOpen(true);
-                            }}
-                            onBlur={() => {
-                              setTimeout(
-                                () => setBillingCountryMenuOpen(false),
-                                120
-                              );
-                            }}
-                            placeholder="Search country..."
+                            id="billingCity"
+                            value={billingCity}
+                            onChange={(e) => setBillingCity(e.target.value)}
+                            placeholder="London"
                           />
-                          {billingCountryMenuOpen && (
-                            <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
-                              {filteredBillingCountryOptions.length === 0 ? (
-                                <div className="px-3 py-2 text-sm text-muted-foreground">
-                                  No countries found
-                                </div>
-                              ) : (
-                                filteredBillingCountryOptions.map((countryOption) => (
-                                  <button
-                                    key={`billing-${countryOption}`}
-                                    type="button"
-                                    className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setBillingCountry(countryOption);
-                                      setBillingCountrySearchStarted(false);
-                                      setBillingCountryMenuOpen(false);
-                                    }}
-                                  >
-                                    {countryOption}
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billingRegion">Billing Region/State</Label>
+                          <Input
+                            id="billingRegion"
+                            value={billingRegion}
+                            onChange={(e) => setBillingRegion(e.target.value)}
+                            placeholder="Greater London"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="billingPostcode">Billing Postcode/ZIP</Label>
+                          <Input
+                            id="billingPostcode"
+                            value={billingPostcode}
+                            onChange={(e) => setBillingPostcode(e.target.value)}
+                            placeholder="SW1A 1AA"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billingCountry">Billing Country</Label>
+                          <div className="relative">
+                            <Input
+                              id="billingCountry"
+                              value={billingCountry}
+                              onChange={(e) => {
+                                setBillingCountry(e.target.value);
+                                setBillingCountrySearchStarted(true);
+                                setBillingCountryMenuOpen(true);
+                              }}
+                              onFocus={() => {
+                                setBillingCountrySearchStarted(false);
+                                setBillingCountryMenuOpen(true);
+                              }}
+                              onBlur={() => {
+                                setTimeout(
+                                  () => setBillingCountryMenuOpen(false),
+                                  120
+                                );
+                              }}
+                              placeholder="Search country..."
+                            />
+                            {billingCountryMenuOpen && (
+                              <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-background shadow-sm">
+                                {filteredBillingCountryOptions.length === 0 ? (
+                                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                                    No countries found
+                                  </div>
+                                ) : (
+                                  filteredBillingCountryOptions.map((countryOption) => (
+                                    <button
+                                      key={`billing-${countryOption}`}
+                                      type="button"
+                                      className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setBillingCountry(countryOption);
+                                        setBillingCountrySearchStarted(false);
+                                        setBillingCountryMenuOpen(false);
+                                      }}
+                                    >
+                                      {countryOption}
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div className="flex items-center space-x-2">
                   <input
@@ -1062,49 +1064,52 @@ export default function NewClientPage() {
                   reporting period. These values guide job reporting and target
                   tracking.
                 </p>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
-                    <Input
-                      id="netZeroYear"
-                      type="number"
-                      value={netZeroYear}
-                      onChange={(e) => setNetZeroYear(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
-                    <Input
-                      id="netZeroTargetReductionPct"
-                      type="number"
-                      value={netZeroTargetReductionPct}
-                      onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
-                      min="0"
-                      max="100"
-                      placeholder="90"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Default 90% in line with Net Zero requirements.
-                    </p>
-                </div>
-              </div>
 
-              <div className="rounded-md border border-orange-200 bg-orange-50 p-4">
-                <h4 className="font-semibold text-sm mb-3">
-                    Benchmark Period (Financial Year)
-                  </h4>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Define the benchmark reporting period. This should align with
-                    the client&apos;s financial year. All subsequent annual jobs will
-                    automatically follow this period structure.
-                  </p>
+                <div className="rounded-lg border bg-background/70 p-4 space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkPeriodStart">
-                        Benchmark Period Start
-                      </Label>
+                      <Label htmlFor="netZeroYear">Net Zero Target Year</Label>
+                      <Input
+                        id="netZeroYear"
+                        type="number"
+                        value={netZeroYear}
+                        onChange={(e) => setNetZeroYear(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="netZeroTargetReductionPct">Net Zero Target Reduction %</Label>
+                      <Input
+                        id="netZeroTargetReductionPct"
+                        type="number"
+                        value={netZeroTargetReductionPct}
+                        onChange={(e) => setNetZeroTargetReductionPct(e.target.value)}
+                        min="0"
+                        max="100"
+                        placeholder="90"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Default 90% in line with Net Zero requirements.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">
+                      Benchmark Period (Financial Year)
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Define the benchmark reporting period. This should align with
+                      the client&apos;s financial year. All subsequent annual jobs will
+                      automatically follow this period structure.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkPeriodStart">Benchmark Period Start</Label>
                       <Input
                         id="benchmarkPeriodStart"
                         type="date"
@@ -1115,9 +1120,7 @@ export default function NewClientPage() {
                       <p className="text-xs text-muted-foreground">e.g., 01/08/2022</p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="benchmarkPeriodEnd">
-                        Benchmark Period End
-                      </Label>
+                      <Label htmlFor="benchmarkPeriodEnd">Benchmark Period End</Label>
                       <Input
                         id="benchmarkPeriodEnd"
                         type="date"
@@ -1126,159 +1129,165 @@ export default function NewClientPage() {
                         placeholder="YYYY-MM-DD"
                       />
                       <p className="text-xs text-muted-foreground">e.g., 31/07/2023</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-md border bg-slate-50 p-4 space-y-4">
-                <div>
-                  <h4 className="font-semibold text-sm mb-1">
-                    Historical Benchmark Emissions
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Capture the third-party benchmark as provided. We recommend
-                    filling the scope values and the total so report comparisons
-                    can use the client baseline directly.
-                  </p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
-                    <Input
-                      id="benchmarkScope1"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope1}
-                      onChange={(e) => setBenchmarkScope1(e.target.value)}
-                      placeholder="e.g., 123.4"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
-                    <Input
-                      id="benchmarkScope2"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope2}
-                      onChange={(e) => setBenchmarkScope2(e.target.value)}
-                      placeholder="e.g., 456.7"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
-                    <Input
-                      id="benchmarkScope3"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkScope3}
-                      onChange={(e) => setBenchmarkScope3(e.target.value)}
-                      placeholder="e.g., 789.0"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
-                    <Input
-                      id="benchmarkTotal"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={benchmarkTotal}
-                      onChange={(e) => setBenchmarkTotal(e.target.value)}
-                      placeholder="e.g., 1369.1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
-                    <Input
-                      id="targetS1Year"
-                      type="number"
-                      value={targetS1Year}
-                      onChange={(e) => setTargetS1Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
-                    <div className="relative">
-                      <Input
-                        id="targetS1Pct"
-                        type="number"
-                        value={targetS1Pct}
-                        onChange={(e) => setTargetS1Pct(e.target.value)}
-                        min="0"
-                        max="100"
-                        className="pr-10"
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        %
-                      </span>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
-                    <Input
-                      id="targetS2Year"
-                      type="number"
-                      value={targetS2Year}
-                      onChange={(e) => setTargetS2Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
+                </div>
+
+                <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Historical Benchmark Emissions</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Capture the third-party benchmark as provided. We recommend
+                      filling the scope values and the total so report comparisons
+                      can use the client baseline directly.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope1">Benchmark Scope 1</Label>
+                      <Input
+                        id="benchmarkScope1"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope1}
+                        onChange={(e) => setBenchmarkScope1(e.target.value)}
+                        placeholder="e.g., 123.4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope2">Benchmark Scope 2</Label>
+                      <Input
+                        id="benchmarkScope2"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope2}
+                        onChange={(e) => setBenchmarkScope2(e.target.value)}
+                        placeholder="e.g., 456.7"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkScope3">Benchmark Scope 3</Label>
+                      <Input
+                        id="benchmarkScope3"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkScope3}
+                        onChange={(e) => setBenchmarkScope3(e.target.value)}
+                        placeholder="e.g., 789.0"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="benchmarkTotal">Benchmark Total</Label>
+                      <Input
+                        id="benchmarkTotal"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={benchmarkTotal}
+                        onChange={(e) => setBenchmarkTotal(e.target.value)}
+                        placeholder="e.g., 1369.1"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
-                    <div className="relative">
+                <div className="rounded-lg border bg-background/70 p-4 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">Interim Targets</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Scope 1, 2 and 3 interim target years and reduction percentages.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS1Year">Scope 1 Interim Target Year</Label>
                       <Input
-                        id="targetS2Pct"
+                        id="targetS1Year"
                         type="number"
-                        value={targetS2Pct}
-                        onChange={(e) => setTargetS2Pct(e.target.value)}
-                        min="0"
-                        max="100"
-                        className="pr-10"
+                        value={targetS1Year}
+                        onChange={(e) => setTargetS1Year(e.target.value)}
+                        min="2025"
+                        max="2100"
                       />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        %
-                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS1Pct">Scope 1 Interim Reduction %</Label>
+                      <div className="relative">
+                        <Input
+                          id="targetS1Pct"
+                          type="number"
+                          value={targetS1Pct}
+                          onChange={(e) => setTargetS1Pct(e.target.value)}
+                          min="0"
+                          max="100"
+                          className="pr-10"
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          %
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS2Year">Scope 2 Interim Target Year</Label>
+                      <Input
+                        id="targetS2Year"
+                        type="number"
+                        value={targetS2Year}
+                        onChange={(e) => setTargetS2Year(e.target.value)}
+                        min="2025"
+                        max="2100"
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
-                    <Input
-                      id="targetS3Year"
-                      type="number"
-                      value={targetS3Year}
-                      onChange={(e) => setTargetS3Year(e.target.value)}
-                      min="2025"
-                      max="2100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
-                    <div className="relative">
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS2Pct">Scope 2 Interim Reduction %</Label>
+                      <div className="relative">
+                        <Input
+                          id="targetS2Pct"
+                          type="number"
+                          value={targetS2Pct}
+                          onChange={(e) => setTargetS2Pct(e.target.value)}
+                          min="0"
+                          max="100"
+                          className="pr-10"
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          %
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS3Year">Scope 3 Interim Target Year</Label>
                       <Input
-                        id="targetS3Pct"
+                        id="targetS3Year"
                         type="number"
-                        value={targetS3Pct}
-                        onChange={(e) => setTargetS3Pct(e.target.value)}
-                        min="0"
-                        max="100"
-                        className="pr-10"
+                        value={targetS3Year}
+                        onChange={(e) => setTargetS3Year(e.target.value)}
+                        min="2025"
+                        max="2100"
                       />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        %
-                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="targetS3Pct">Scope 3 Interim Reduction %</Label>
+                      <div className="relative">
+                        <Input
+                          id="targetS3Pct"
+                          type="number"
+                          value={targetS3Pct}
+                          onChange={(e) => setTargetS3Pct(e.target.value)}
+                          min="0"
+                          max="100"
+                          className="pr-10"
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          %
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
