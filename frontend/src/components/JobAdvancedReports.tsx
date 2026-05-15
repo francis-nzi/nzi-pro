@@ -1672,7 +1672,107 @@ export default function JobAdvancedReports({
           );
         })()}
 
-        {/* ── 8. Historical emissions trend ──────────────────────────────── */}
+        {/* ── 8. Intensity Metric Analysis ───────────────────────────────── */}
+        {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
+          const periodLabel = (() => {
+            const s = data.job_data.reporting_period_start;
+            const e = data.job_data.reporting_period_end;
+            if (!s && !e) return "";
+            const sYear = s ? new Date(s).getFullYear() : null;
+            const eYear = e ? new Date(e).getFullYear() : null;
+            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
+            return String(sYear ?? eYear ?? "");
+          })();
+
+          const calcIntensity = (m: { value?: number | null; divider?: number | null }) => {
+            const v = toNum(m.value);
+            const d = toNum(m.divider) || 1;
+            return v > 0 ? (totalEmissions * d) / v : null;
+          };
+
+          const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
+            const label = m.label?.trim() || key;
+            const d = toNum(m.divider) || 1;
+            return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
+          };
+
+          const MetricIcon = ({ metricKey }: { metricKey: string }) => {
+            if (metricKey === "employees") return (
+              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+              </svg>
+            );
+            return (
+              <span className="text-2xl font-bold" style={{ color: BRAND }}>£</span>
+            );
+          };
+
+          const summaryParts = Object.entries(intensity_metrics).map(([key, m]) => {
+            const intensity = calcIntensity(m);
+            if (intensity == null) return null;
+            const label = m.label?.trim() || key;
+            const d = toNum(m.divider) || 1;
+            const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
+            return `${fmt(intensity, 2)} tCO₂e ${perStr}`;
+          }).filter(Boolean);
+
+          const employeeCount = toNum(intensity_metrics.employees?.value);
+
+          return (
+            <Card className="live-report-section">
+              <CardHeader className="pb-3">
+                <SectionHeader title="Intensity Metric Analysis" />
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  Intensity metrics help normalise emissions data, taking into account variations in
+                  production levels or activity volumes. This allows for a more accurate assessment
+                  of emission trends over time, regardless of changes in business operations. The
+                  initial intensity metrics for the company are below and will be used for
+                  comparative purposes in following years.
+                </p>
+                <div>
+                  <p className="text-sm font-semibold text-center text-gray-700 mb-2">
+                    Intensity Metrics (tonnes CO₂e)
+                  </p>
+                  <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <div className="grid grid-cols-[56px_1fr_160px_120px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
+                      <span /><span /><span />
+                      <div className="text-center">
+                        <p className="text-xs font-semibold text-gray-600">Benchmark Year</p>
+                        {periodLabel && <p className="text-xs text-gray-500">{periodLabel}</p>}
+                      </div>
+                    </div>
+                    {Object.entries(intensity_metrics).map(([key, m], i) => {
+                      const intensity = calcIntensity(m);
+                      return (
+                        <div key={key} className={`grid grid-cols-[56px_1fr_160px_120px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                          <div className="flex items-center justify-center"><MetricIcon metricKey={key} /></div>
+                          <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
+                          <span className="text-xs text-gray-500">Scopes 1, 2 and 3</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{intensity != null ? fmt(intensity, 2) : "—"}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {summaryParts.length > 0 && (
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    The chosen intensity metrics shows a carbon emissions value of{" "}
+                    {summaryParts.map((part, i) => (
+                      <React.Fragment key={i}>{i > 0 && " and "}<strong>{part}</strong></React.Fragment>
+                    ))}.
+                    {employeeCount > 0 && (
+                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>
+                    )}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        {/* ── 9. Historical emissions trend ──────────────────────────────── */}
         {effectiveYearlyEmissions.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
@@ -1823,132 +1923,7 @@ export default function JobAdvancedReports({
           </CardContent>
         </Card>
 
-        {/* ── 10. Intensity Metric Analysis ──────────────────────────────── */}
-        {intensity_metrics && Object.keys(intensity_metrics).length > 0 && (() => {
-          const periodLabel = (() => {
-            const s = data.job_data.reporting_period_start;
-            const e = data.job_data.reporting_period_end;
-            if (!s && !e) return "";
-            const sYear = s ? new Date(s).getFullYear() : null;
-            const eYear = e ? new Date(e).getFullYear() : null;
-            if (sYear && eYear && sYear !== eYear) return `${sYear}-${eYear}`;
-            return String(sYear ?? eYear ?? "");
-          })();
-
-          // intensity = totalEmissions * divider / value
-          const calcIntensity = (m: { value?: number | null; divider?: number | null }) => {
-            const v = toNum(m.value);
-            const d = toNum(m.divider) || 1;
-            return v > 0 ? (totalEmissions * d) / v : null;
-          };
-
-          const perLabel = (key: string, m: { label?: string | null; divider?: number | null }) => {
-            const label = m.label?.trim() || key;
-            const d = toNum(m.divider) || 1;
-            return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
-          };
-
-          const MetricIcon = ({ metricKey }: { metricKey: string }) => {
-            if (metricKey === "employees") return (
-              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-              </svg>
-            );
-            return (
-              <span className="text-2xl font-bold" style={{ color: BRAND }}>£</span>
-            );
-          };
-
-          // Build summary sentence fragments
-          const summaryParts = Object.entries(intensity_metrics).map(([key, m]) => {
-            const intensity = calcIntensity(m);
-            if (intensity == null) return null;
-            const label = m.label?.trim() || key;
-            const d = toNum(m.divider) || 1;
-            const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity, 2)} tCO₂e ${perStr}`;
-          }).filter(Boolean);
-
-          const employeeCount = toNum(intensity_metrics.employees?.value);
-
-          return (
-            <Card className="live-report-section">
-              <CardHeader className="pb-3">
-                <SectionHeader title="Intensity Metric Analysis" />
-              </CardHeader>
-              <CardContent className="space-y-5">
-
-                {/* Intro paragraph */}
-                <p className="text-sm text-gray-700 leading-relaxed">
-                  Intensity metrics help normalise emissions data, taking into account variations in
-                  production levels or activity volumes. This allows for a more accurate assessment
-                  of emission trends over time, regardless of changes in business operations. The
-                  initial intensity metrics for the company are below and will be used for
-                  comparative purposes in following years.
-                </p>
-
-                {/* Intensity table */}
-                <div>
-                  <p className="text-sm font-semibold text-center text-gray-700 mb-2">
-                    Intensity Metrics (tonnes CO₂e)
-                  </p>
-                  <div className="overflow-hidden rounded-lg border border-gray-200">
-                    {/* Column header */}
-                    <div className="grid grid-cols-[56px_1fr_160px_120px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
-                      <span />
-                      <span />
-                      <span />
-                      <div className="text-center">
-                        <p className="text-xs font-semibold text-gray-600">Benchmark Year</p>
-                        {periodLabel && <p className="text-xs text-gray-500">{periodLabel}</p>}
-                      </div>
-                    </div>
-                    {/* Metric rows */}
-                    {Object.entries(intensity_metrics).map(([key, m], i) => {
-                      const intensity = calcIntensity(m);
-                      return (
-                        <div
-                          key={key}
-                          className={`grid grid-cols-[56px_1fr_160px_120px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
-                        >
-                          <div className="flex items-center justify-center">
-                            <MetricIcon metricKey={key} />
-                          </div>
-                          <span className="text-sm font-medium text-gray-700">
-                            {perLabel(key, m)}
-                          </span>
-                          <span className="text-xs text-gray-500">Scopes 1, 2 and 3</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">
-                            {intensity != null ? fmt(intensity, 2) : "—"}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Summary paragraph */}
-                {summaryParts.length > 0 && (
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    The chosen intensity metrics shows a carbon emissions value of{" "}
-                    {summaryParts.map((part, i) => (
-                      <React.Fragment key={i}>
-                        {i > 0 && " and "}
-                        <strong>{part}</strong>
-                      </React.Fragment>
-                    ))}.
-                    {employeeCount > 0 && (
-                      <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>
-                    )}
-                  </p>
-                )}
-
-              </CardContent>
-            </Card>
-          );
-        })()}
-
-        {/* ── 11. Carbon reduction actions ───────────────────────────────── */}
+        {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
         {(job_actions?.grouped?.length ?? 0) > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
