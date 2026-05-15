@@ -104,6 +104,8 @@ export default function JobSetupOverviewSection({
   onSaveTemplate,
   onDownloadTemplate,
 }: JobSetupOverviewSectionProps) {
+  const hasValidTemplateSelection = Number(selectedTemplateId) > 0;
+
   return (
     <div className={`space-y-6 ${hidden ? "hidden" : ""}`}>
       <div className="grid gap-6 md:grid-cols-2">
@@ -278,10 +280,10 @@ export default function JobSetupOverviewSection({
                 Job Template
                 <span className="text-destructive">*</span>
               </Label>
-              <Select value={selectedTemplateId} onValueChange={onJobTemplateChange}>
+              <Select value={hasValidTemplateSelection ? selectedTemplateId : ""} onValueChange={onJobTemplateChange}>
                 <SelectTrigger
                   id="jobTemplate"
-                  className={`w-full ${selectedTemplateId ? "" : "border-destructive/50 ring-1 ring-destructive/10"}`}
+                  className={`w-full ${hasValidTemplateSelection ? "" : "border-destructive/50 ring-1 ring-destructive/10"}`}
                   aria-required="true"
                 >
                   <SelectValue placeholder="Select a template..." />
@@ -294,7 +296,7 @@ export default function JobSetupOverviewSection({
                   ))}
                 </SelectContent>
               </Select>
-              {!selectedTemplateId ? (
+              {!hasValidTemplateSelection ? (
                 <p className="text-xs text-destructive">
                   A Job Template is required before downloading the Excel template.
                 </p>
@@ -304,7 +306,7 @@ export default function JobSetupOverviewSection({
                 </p>
               )}
               <div className="flex justify-end">
-                <Button onClick={() => onSaveTemplate(selectedTemplateId)} disabled={busy || !selectedTemplateId}>
+                <Button onClick={() => onSaveTemplate(selectedTemplateId)} disabled={busy || !hasValidTemplateSelection}>
                   Save template
                 </Button>
               </div>
@@ -330,14 +332,14 @@ export default function JobSetupOverviewSection({
             </div>
 
             <div className="flex flex-col gap-2 md:flex-row">
-              <Button onClick={onDownloadTemplate} disabled={busy || !selectedTemplateId}>
+              <Button onClick={onDownloadTemplate} disabled={busy || !hasValidTemplateSelection}>
                 Download Excel template
               </Button>
               <Button variant={includePrevYear ? "default" : "outline"} onClick={() => onIncludePrevYearChange(!includePrevYear)} disabled={busy}>
                 Include previous year: {includePrevYear ? "On" : "Off"}
               </Button>
             </div>
-            {!selectedTemplateId ? (
+            {!hasValidTemplateSelection ? (
               <p className="text-xs text-muted-foreground">
                 Select a Job Template before downloading the Excel template.
               </p>

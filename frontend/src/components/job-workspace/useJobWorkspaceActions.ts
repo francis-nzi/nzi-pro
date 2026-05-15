@@ -139,6 +139,11 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     selectedMilestoneTemplateId,
   } = deps;
 
+  function isValidTemplateSelection(value: string): boolean {
+    const templateId = Number(value);
+    return Number.isFinite(templateId) && templateId > 0;
+  }
+
   async function saveReportMetadata() {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
     if (reportMetadataFieldsForSetup.length === 0) return;
@@ -256,7 +261,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
 
   async function saveTemplate(jobTemplateId: string) {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
-    if (!jobTemplateId) {
+    if (!isValidTemplateSelection(jobTemplateId)) {
       setStatus("Please select a template.");
       return;
     }
@@ -532,7 +537,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     clientLabel: string
   ) {
     if (!Number.isFinite(jobId) || jobId <= 0) return;
-    if (!selectedTemplateId || selectedTemplateId === "__none__") {
+    if (!isValidTemplateSelection(selectedTemplateId)) {
       setStatus("Please select a Job Template before downloading.");
       return;
     }

@@ -97,10 +97,17 @@ type AppendixRow = {
   emissions?: number | null;
 };
 
+type SiteOverallRow = {
+  site_name?: string | null;
+  total?: number | null;
+  pct_total?: number | null;
+};
+
 type SiteBreakdowns = {
   show_site_tables?: boolean;
   show_appendix?: boolean;
   site_count?: number;
+  overall?: SiteOverallRow[];
   appendix_rows?: AppendixRow[];
 };
 
@@ -1164,6 +1171,74 @@ export default function JobAdvancedReports({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Commitment</p>
                 <p className="text-sm text-gray-700 leading-relaxed">{report_metadata.commitment_commentary}</p>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+
+
+        {/* ── 4b. Carbon Emissions Overview ──────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Carbon Emissions Overview" />
+          </CardHeader>
+          <CardContent className="space-y-6">
+
+            {/* Reporting period + total box */}
+            <div className="flex justify-center">
+              <div className="rounded-xl border border-gray-200 bg-white px-8 py-6 text-center shadow-sm w-full max-w-sm">
+                <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: BRAND }}>
+                  Reporting Period
+                </p>
+                <p className="text-sm text-gray-700">
+                  {formatDate(data.job_data.reporting_period_start ?? "")} to {formatDate(data.job_data.reporting_period_end ?? "")}
+                </p>
+                <hr className="my-4 border-gray-200" />
+                <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: BRAND }}>
+                  Total Carbon Emissions
+                </p>
+                <p className="text-5xl font-bold" style={{ color: BRAND }}>
+                  {fmt(totalEmissions, 2)}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">tCO₂e</p>
+              </div>
+            </div>
+
+            {/* Disclaimer */}
+            <p className="text-sm italic leading-relaxed" style={{ color: "#b45309" }}>
+              The calculated emissions are based on the most up to date emissions factors at the time
+              of the publication of this report. It should be noted that emissions factors are updated
+              regularly and will be retrospectively applied. As such, emissions values may change when
+              calculated in future years.
+            </p>
+
+            {/* Emissions by Site (Overview) */}
+            {(site_breakdowns?.overall?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-2">Emissions by Site (Overview)</p>
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-[1fr_120px_120px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">tCO₂e</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">% of Total</span>
+                  </div>
+                  {site_breakdowns?.overall?.map((row, i) => (
+                    <div
+                      key={i}
+                      className={`grid grid-cols-[1fr_120px_120px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                    >
+                      <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{toNum(row.pct_total).toFixed(2)}%</span>
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-[1fr_120px_120px] border-t border-gray-200 px-3 py-2 bg-gray-50">
+                    <span className="text-xs font-semibold text-gray-700">Total</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
+                  </div>
+                </div>
               </div>
             )}
 

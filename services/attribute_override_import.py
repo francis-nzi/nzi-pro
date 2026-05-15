@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import io
 from datetime import date, datetime
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 import pandas as pd
 from openpyxl import Workbook
 from core.database import get_conn
+
+logger = logging.getLogger(__name__)
 
 CLIENT_FIELDS: dict[str, dict[str, str]] = {
     "industry": {"type": "text", "column": "industry"},
@@ -57,8 +60,8 @@ def _clean(value: Any) -> str:
             whole = float(s)
             if whole.is_integer():
                 return str(int(whole))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Unable to normalize integer-like text value %r: %s", s, exc)
     return s
 
 
@@ -84,7 +87,8 @@ def _parse_date(value: Any) -> str | None:
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%d.%m.%Y"):
         try:
             return datetime.strptime(s, fmt).date().isoformat()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Date parser did not match %r with format %s: %s", s, fmt, exc)
             continue
     return None
 
@@ -95,7 +99,8 @@ def _parse_int(value: Any) -> int | None:
         return None
     try:
         return int(float(s))
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to parse integer value %r: %s", s, exc)
         return None
 
 
@@ -116,7 +121,8 @@ def _column_exists(con, table_name: str, column_name: str) -> bool:
             [str(table_name), str(column_name)],
         ).fetchone()
         return bool(row)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to inspect column existence for %s.%s: %s", table_name, column_name, exc)
         return True
 
 
@@ -232,7 +238,8 @@ def _build_reference_data(con) -> dict[str, Any]:
             """
         ).fetchall()
         industry_names = {_clean(row[0]).lower() for row in industry_rows if _clean(row[0])}
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to load industries_lookup reference names: %s", exc)
         industry_names = set()
 
     has_crp_job_details = False
@@ -246,7 +253,8 @@ def _build_reference_data(con) -> dict[str, Any]:
             """
         ).fetchone()
         has_crp_job_details = bool(table_row)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Unable to inspect crp_job_details table existence: %s", exc)
         has_crp_job_details = False
 
     return {
@@ -575,8 +583,13 @@ def commit_override_rows(rows: list[dict[str, Any]], actor: str = "") -> dict[st
                     try:
                         assignments.append("reporting_year = ?")
                         params.append(int(str(reporting_period_end)[:4]))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Unable to derive reporting_year from reporting_period_end=%r for job override run %r: %s",
+                            reporting_period_end,
+                            run_id,
+                            exc,
+                        )
 
             params.append(int(target_id))
             table_name = "clients" if entity == "client" else "jobs"
@@ -596,8 +609,13 @@ def commit_override_rows(rows: list[dict[str, Any]], actor: str = "") -> dict[st
                     try:
                         crp_assignments.append("reporting_year = ?")
                         crp_params.append(int(str(update_fields.get("reporting_period_end"))[:4]))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Unable to derive CRP reporting_year from reporting_period_end=%r for override run %r: %s",
+                            update_fields.get("reporting_period_end"),
+                            run_id,
+                            exc,
+                        )
                 if crp_assignments:
                     crp_assignments.append("updated_at = NOW()")
                     crp_params.append(int(target_id))
@@ -627,14 +645,16 @@ def build_override_template_workbook() -> bytes:
     for wfm_id, record in refs["client_by_wfm"].items():
         try:
             client_wfm_by_id[int(record["db_id"])] = _clean(wfm_id)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Skipping invalid client WFM mapping %r: %s", wfm_id, exc)
             continue
 
     job_wfm_by_id: dict[int, str] = {}
     for wfm_id, record in refs["job_by_wfm"].items():
         try:
             job_wfm_by_id[int(record["job_id"])] = _clean(wfm_id)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Skipping invalid job WFM mapping %r: %s", wfm_id, exc)
             continue
 
     wb = Workbook()

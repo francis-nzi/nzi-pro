@@ -205,6 +205,11 @@ export default function useJobWorkspaceData({
   jobType,
   setters,
 }: JobWorkspaceDataEffectArgs) {
+  function isValidTemplateId(value: unknown): value is number {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0;
+  }
+
   useEffect(() => {
     const tabParam = searchParams.get("tab");
     if (!tabParam) return;
@@ -331,7 +336,11 @@ export default function useJobWorkspaceData({
         const tItems = tJson?.items ?? [];
         setters.setTemplates(tItems);
         const jt = jJson.job_template_id;
-        setters.setSelectedTemplateId(jt != null ? String(jt) : "");
+        const validJobTemplateId =
+          isValidTemplateId(jt) && tItems.some((template) => template.is_active && template.job_template_id === Number(jt))
+            ? String(jt)
+            : "";
+        setters.setSelectedTemplateId(validJobTemplateId);
 
         const s = sJson?.sites ?? [];
         setters.setSites(s);
