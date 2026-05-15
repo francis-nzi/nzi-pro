@@ -430,6 +430,73 @@ export default function JobInsights({
     });
   }, [currentYear, intensityMetrics, scopeTotals?.total, targetPath, targetYear]);
 
+  const intensityPathwayData = useMemo(() => {
+    if (!scopeTotals || Object.keys(intensityMetrics).length === 0) return [];
+
+    const metricEntries = Object.entries(intensityMetrics)
+      .map(([key, metric]) => {
+        const value = Number(metric?.value ?? 0);
+        const divider = Number(metric?.divider ?? 1) || 1;
+        return { key, label: metric?.label?.trim() || key, value, divider };
+      })
+      .filter((e) => e.value > 0)
+      .slice(0, 4);
+
+    if (metricEntries.length === 0) return [];
+
+    const firstHistoricalYear = yearlyEmissions.length > 0 ? yearlyEmissions[0].year : null;
+    const baselineYear = benchmarkYear ?? firstHistoricalYear ?? currentYear;
+    const endYear = targetYear && targetYear > baselineYear ? targetYear : Math.max(baselineYear + 1, 2050);
+
+    const benchmarkRow = yearlyEmissions.find((r) => r.year === baselineYear);
+    const benchS1 = benchmarkRow ? benchmarkRow.scope1 : Number(scopeTotals.scope_1 || 0);
+    const benchS2 = benchmarkRow ? benchmarkRow.scope2 : Number(scopeTotals.scope_2 || 0);
+    const benchS3 = benchmarkRow ? benchmarkRow.scope3 : Number(scopeTotals.scope_3 || 0);
+
+    const finalFactor = (100 - targetReductionPct) / 100;
+    const iYear = interimYear && interimYear > baselineYear && interimYear < endYear ? interimYear : null;
+
+    const forecastScope = (bench: number, iPct: number | null, year: number): number => {
+      if (year <= baselineYear) return bench;
+      const finalTarget = bench * finalFactor;
+      const iTarget = iYear != null && iPct != null ? bench * (1 - iPct / 100) : null;
+      if (iYear != null && iTarget != null && year <= iYear) {
+        const span = iYear - baselineYear;
+        const t = span > 0 ? (year - baselineYear) / span : 1;
+        return bench + (iTarget - bench) * t;
+      }
+      const segStart = iYear ?? baselineYear;
+      const segVal = iTarget ?? bench;
+      const span = endYear - segStart;
+      const t = span > 0 ? (year - segStart) / span : 1;
+      return Math.max(segVal + (finalTarget - segVal) * t, 0);
+    };
+
+    const forecastTotal = (year: number): number =>
+      forecastScope(benchS1, interimTargets.scope_1, year) +
+      forecastScope(benchS2, interimTargets.scope_2, year) +
+      forecastScope(benchS3, interimTargets.scope_3, year);
+
+    const yearSet = new Set<number>();
+    for (let y = baselineYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
+    const years = Array.from(yearSet).sort((a, b) => a - b);
+
+    return years.map((year) => {
+      const actual = yearlyEmissions.find((r) => r.year === year);
+      const forecast = forecastTotal(year);
+      const row: Record<string, number | string | null> = { year };
+      metricEntries.forEach((entry) => {
+        row[`${entry.label}_actual`] = actual
+          ? Number(((actual.total * entry.divider) / entry.value).toFixed(3))
+          : null;
+        row[`${entry.label}_target`] = Number(((forecast * entry.divider) / entry.value).toFixed(3));
+      });
+      return row;
+    });
+  }, [scopeTotals, benchmarkYear, currentYear, targetYear, yearlyEmissions, targetReductionPct,
+      interimYear, interimTargets.scope_1, interimTargets.scope_2, interimTargets.scope_3, intensityMetrics]);
+
   const whatIf = useMemo(() => {
     const current = Number(scopeTotals?.total || 0);
     const s1 = Number(scopeTotals?.scope_1 || 0) * (1 - Math.max(0, Math.min(100, Number(whatIfScope1) || 0)) / 100);
@@ -783,6 +850,52 @@ export default function JobInsights({
                   )}
                   <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)"
                     stroke={SCOPE_COLORS[2]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {intensityPathwayData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050} for Intensity Metrics</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[360px]">
+              <ResponsiveContainer width="100%" height={360}>
+                <LineChart data={intensityPathwayData} margin={{ top: 5, right: 24, left: 6, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => v.toFixed(2)} />
+                  <Tooltip
+                    formatter={(v: unknown) => [`${Number(v || 0).toFixed(3)} tCO₂e`, ""]}
+                    labelFormatter={(v) => `Year: ${v}`}
+                  />
+                  <Legend iconType="circle" />
+                  {interimYear && interimYear > (benchmarkYear ?? currentYear) && (
+                    <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
+                      label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 10 }} />
+                  )}
+                  {targetYear && (
+                    <ReferenceLine x={targetYear} stroke="#16a34a" strokeDasharray="3 3"
+                      label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 10 }} />
+                  )}
+                  {Object.entries(intensityMetrics)
+                    .map(([key, metric]) => ({ key, label: metric?.label?.trim() || key, value: Number(metric?.value ?? 0) }))
+                    .filter((e) => e.value > 0)
+                    .slice(0, 4)
+                    .flatMap((entry, index) => [
+                      <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`}
+                        name={`${entry.label} (actual)`}
+                        stroke={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]} strokeWidth={2.5}
+                        dot={{ r: 4 }} connectNulls={false} />,
+                      <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`}
+                        name={`${entry.label} (target)`}
+                        stroke={ACTIVITY_COLORS[index % ACTIVITY_COLORS.length]} strokeWidth={1.5}
+                        strokeDasharray="5 4" dot={false} />,
+                    ])}
                 </LineChart>
               </ResponsiveContainer>
             </div>

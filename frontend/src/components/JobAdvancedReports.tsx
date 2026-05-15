@@ -378,6 +378,154 @@ function NetZeroTrendChart({
   );
 }
 
+// ─── IntensityPathwayChart ────────────────────────────────────────────────────
+
+const INTENSITY_COLORS = ["#0ea5e9", "#14b8a6", "#f97316", "#8b5cf6"];
+
+function IntensityPathwayChart({
+  yearlyEmissions,
+  baselineYear,
+  endYear,
+  interimYear,
+  interimS1Pct,
+  interimS2Pct,
+  interimS3Pct,
+  targetPct,
+  scope1Fallback,
+  scope2Fallback,
+  scope3Fallback,
+  intensityMetrics,
+}: {
+  yearlyEmissions: YearlyEmission[];
+  baselineYear: number;
+  endYear: number;
+  interimYear?: number | null;
+  interimS1Pct?: number;
+  interimS2Pct?: number;
+  interimS3Pct?: number;
+  targetPct?: number;
+  scope1Fallback: number;
+  scope2Fallback: number;
+  scope3Fallback: number;
+  intensityMetrics: Record<string, { label?: string; value?: number | null; divider?: number | null }>;
+}) {
+  const metricEntries = useMemo(() =>
+    Object.entries(intensityMetrics)
+      .map(([key, m]) => {
+        const value = toNum(m.value);
+        const divider = toNum(m.divider) || 1;
+        return { key, label: m.label?.trim() || key, value, divider };
+      })
+      .filter((e) => e.value > 0)
+      .slice(0, 4),
+    [intensityMetrics],
+  );
+
+  const chartData = useMemo(() => {
+    if (metricEntries.length === 0) return [];
+
+    const bYear = baselineYear > 1900 ? baselineYear : (yearlyEmissions[0]?.year ?? new Date().getFullYear() - 1);
+    const benchmarkRow = yearlyEmissions.find((r) => r.year === bYear);
+    const bS1 = benchmarkRow ? benchmarkRow.scope1 : scope1Fallback;
+    const bS2 = benchmarkRow ? benchmarkRow.scope2 : scope2Fallback;
+    const bS3 = benchmarkRow ? benchmarkRow.scope3 : scope3Fallback;
+
+    const finalFactor = (100 - (targetPct ?? 100)) / 100;
+    const iYear = interimYear && interimYear > bYear && interimYear < endYear ? interimYear : null;
+
+    const forecastScope = (bench: number, iPct: number, year: number): number => {
+      if (year <= bYear) return bench;
+      const finalTarget = bench * finalFactor;
+      const iTarget = iYear != null ? bench * (1 - iPct / 100) : null;
+      if (iYear != null && iTarget != null && year <= iYear) {
+        const span = iYear - bYear;
+        const t = span > 0 ? (year - bYear) / span : 1;
+        return bench + (iTarget - bench) * t;
+      }
+      const segStart = iYear ?? bYear;
+      const segVal = iTarget ?? bench;
+      const span = endYear - segStart;
+      const t = span > 0 ? (year - segStart) / span : 1;
+      return Math.max(segVal + (finalTarget - segVal) * t, 0);
+    };
+
+    const forecastTotal = (year: number): number =>
+      forecastScope(bS1, interimS1Pct ?? 50, year) +
+      forecastScope(bS2, interimS2Pct ?? 50, year) +
+      forecastScope(bS3, interimS3Pct ?? 50, year);
+
+    const yearSet = new Set<number>();
+    for (let y = bYear; y <= endYear; y++) yearSet.add(y);
+    yearlyEmissions.forEach((r) => { if (r.year <= endYear) yearSet.add(r.year); });
+    const years = Array.from(yearSet).sort((a, b) => a - b);
+
+    return years.map((year) => {
+      const actual = yearlyEmissions.find((r) => r.year === year);
+      const forecast = forecastTotal(year);
+      const row: Record<string, number | string | null> = { year };
+      metricEntries.forEach((entry) => {
+        row[`${entry.label}_actual`] = actual
+          ? parseFloat(((actual.total * entry.divider) / entry.value).toFixed(3))
+          : null;
+        row[`${entry.label}_target`] = parseFloat(((forecast * entry.divider) / entry.value).toFixed(3));
+      });
+      return row;
+    });
+  }, [metricEntries, yearlyEmissions, baselineYear, endYear, interimYear,
+      interimS1Pct, interimS2Pct, interimS3Pct, targetPct,
+      scope1Fallback, scope2Fallback, scope3Fallback]);
+
+  const tickYears = useMemo(() =>
+    chartData
+      .filter((d) => d.year === chartData[0]?.year || d.year === endYear || Number(d.year) % 5 === 0)
+      .map((d) => Number(d.year)),
+    [chartData, endYear],
+  );
+
+  if (chartData.length === 0 || metricEntries.length === 0) return null;
+
+  return (
+    <div className="h-[320px]">
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={chartData} margin={{ top: 5, right: 24, left: 8, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis
+            dataKey="year"
+            ticks={tickYears}
+            tickFormatter={(v: number) => String(v)}
+            tick={{ fontSize: 10 }}
+          />
+          <YAxis
+            tickFormatter={(v: number) => v.toFixed(2)}
+            tick={{ fontSize: 10 }}
+          />
+          <Tooltip
+            formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", ""]}
+            labelFormatter={(label: unknown) => `Year: ${label}`}
+          />
+          <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+          {interimYear && interimYear > baselineYear && interimYear < endYear && (
+            <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
+              label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
+          )}
+          <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3"
+            label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
+          {metricEntries.flatMap((entry, index) => [
+            <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`}
+              name={`${entry.label} (actual)`}
+              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={2.5}
+              dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />,
+            <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`}
+              name={`${entry.label} (target)`}
+              stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={1.5}
+              strokeDasharray="5 4" dot={false} />,
+          ])}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 // ─── CoverPage ────────────────────────────────────────────────────────────────
 
 function CoverPage({ data }: { data: LiveData }) {
@@ -1766,6 +1914,27 @@ export default function JobAdvancedReports({
                       <> The business headcount averaged {employeeCount} {employeeCount === 1 ? "person" : "people"} during the benchmark period.</>
                     )}
                   </p>
+                )}
+                {hasPathway && effectiveYearlyEmissions.length > 0 && (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700 mb-3">
+                      Emissions Reduction Pathway to {netZeroYear} for Intensity Metrics
+                    </p>
+                    <IntensityPathwayChart
+                      yearlyEmissions={effectiveYearlyEmissions}
+                      baselineYear={baselineYear}
+                      endYear={netZeroYear}
+                      interimYear={interimYear}
+                      interimS1Pct={interimS1Pct}
+                      interimS2Pct={interimS2Pct}
+                      interimS3Pct={interimS3Pct}
+                      targetPct={targetPct}
+                      scope1Fallback={scope1}
+                      scope2Fallback={scope2}
+                      scope3Fallback={scope3}
+                      intensityMetrics={intensity_metrics}
+                    />
+                  </div>
                 )}
               </CardContent>
             </Card>
