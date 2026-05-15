@@ -2150,11 +2150,18 @@ def get_emissions_by_category(job_id: int):
                 logger.debug("Skipping malformed emissions row for job %s", job_id, exc_info=True)
                 continue
 
+            scope_val = row.get('scope', '')
+            cat_val = _dataset_category_label(row)
+            report_label_val = row.get('report_label', '')
+            activity_group_val = _classify_activity_group(
+                str(scope_val), str(cat_val), str(report_label_val)
+            )
             categories.append({
-                'scope': row.get('scope', ''),
-                'category': _dataset_category_label(row),
-                'dataset_category': _dataset_category_label(row),
-                'report_label': row.get('report_label', ''),
+                'scope': scope_val,
+                'category': cat_val,
+                'dataset_category': cat_val,
+                'report_label': report_label_val,
+                'activity_group': activity_group_val,
                 'qty': qty_val,
                 'uom': metrics.get('display_uom') or '',
                 'emissions': emissions,

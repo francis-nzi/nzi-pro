@@ -135,6 +135,7 @@ type EmissionCategory = {
   scope?: string | null;
   category?: string | null;
   report_label?: string | null;
+  activity_group?: string | null;
   emissions?: number | null;
 };
 
@@ -1560,11 +1561,11 @@ export default function JobAdvancedReports({
 
         {/* ── 7. Emissions by Scope and Category ─────────────────────────── */}
         {(categories?.length ?? 0) > 0 && (() => {
-          // Aggregate current-year categories by (scope, label)
+          // Aggregate current-year categories by (scope, activity_group)
           const aggMap = new Map<string, { scope: string; label: string; current: number; benchmark: number }>();
           for (const row of (categories ?? [])) {
             const scope = row.scope ?? "";
-            const label = row.report_label?.trim() || row.category?.trim() || "Other";
+            const label = row.activity_group?.trim() || "Other Emissions";
             const key = `${scope}||${label}`;
             const existing = aggMap.get(key);
             if (existing) {
@@ -1575,7 +1576,7 @@ export default function JobAdvancedReports({
           }
           for (const row of (benchmark_categories ?? [])) {
             const scope = row.scope ?? "";
-            const label = row.report_label?.trim() || row.category?.trim() || "Other";
+            const label = row.activity_group?.trim() || "Other Emissions";
             const key = `${scope}||${label}`;
             const existing = aggMap.get(key);
             if (existing) {
