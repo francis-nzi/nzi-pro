@@ -1262,19 +1262,19 @@ export default function JobAdvancedReports({
           </CardHeader>
           <CardContent className="space-y-6">
 
-            {/* Emissions by Scope: donut + legend */}
+            {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="flex gap-10 items-center justify-center">
-                <div className="relative w-[220px] h-[220px] flex-shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
+              <div className="grid grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
+                <div className="relative mx-auto aspect-square w-full max-w-[300px]">
+                  <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
                       <Pie
                         data={scopeDonutData}
                         dataKey="value"
                         nameKey="name"
-                        innerRadius="65%"
-                        outerRadius="90%"
+                        innerRadius="72%"
+                        outerRadius="94%"
                         paddingAngle={2}
                       >
                         {scopeDonutData.map(entry => (
@@ -1286,22 +1286,38 @@ export default function JobAdvancedReports({
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-gray-800">{fmt(totalEmissions, 2)}</div>
-                      <div className="text-xs text-gray-400">tCO₂e</div>
+                      <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
+                      <div className="text-xs text-gray-400">tCO₂e total</div>
                     </div>
                   </div>
                 </div>
-                <div className="space-y-3">
-                  {SCOPE_LABELS.map(s => {
-                    const v = toNum(scope_totals?.[s]);
-                    const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
-                    return (
-                      <div key={s} className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-sm flex-shrink-0" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                        <span className="text-sm text-gray-700">{s}: {fmt(v, 2)} tCO₂e ({pct.toFixed(1)}%)</span>
-                      </div>
-                    );
-                  })}
+                <div className="space-y-2">
+                  <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                      <span className="text-xs font-semibold text-gray-500">Scope</span>
+                      <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
+                      <div className="text-right text-xs font-semibold text-gray-500">%</div>
+                    </div>
+                    {SCOPE_LABELS.map(s => {
+                      const v = toNum(scope_totals?.[s]);
+                      const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
+                      return (
+                        <div key={s} className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
+                            <span className="text-xs text-gray-500">{s}</span>
+                          </div>
+                          <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">{fmt(v)}</div>
+                          <div className="text-right text-xs text-gray-500 tabular-nums">{pct.toFixed(1)}%</div>
+                        </div>
+                      );
+                    })}
+                    <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                      <span className="text-xs font-semibold text-gray-600">Total</span>
+                      <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
+                      <div className="text-right text-xs text-gray-500">100.0%</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
