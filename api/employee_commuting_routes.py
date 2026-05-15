@@ -41,6 +41,7 @@ router = APIRouter()
 COMMUTING_DATA_SOURCE = "Employee Commuting Template"
 DIRECT_COMMUTING_DATA_SOURCE = "Employee Commuting Direct Entry"
 TEMPLATE_VERSION = "Employee Commuting Template v2"
+WEEKS_PER_YEAR_DEFAULT = 48
 COMMUTING_SHEET = "Employee Commuting"
 WFH_SHEET = "Working From Home"
 LOOKUPS_SHEET = "Lookups"
@@ -413,6 +414,16 @@ def _job_employee_count(con, job_id: int) -> int | None:
     return None
 
 
+def _effective_employee_count(
+    con,
+    job_id: int,
+    override_employee_count: int | None,
+) -> int | None:
+    if override_employee_count is not None and override_employee_count > 0:
+        return int(override_employee_count)
+    return _job_employee_count(con, int(job_id))
+
+
 def _job_site_label(con, job_id: int, site_id: int | None) -> tuple[int | None, str]:
     if site_id is None:
         return None, "All_Staff"
@@ -564,7 +575,7 @@ def _build_template_workbook(meta: dict[str, Any], site_label: str) -> bytes:
     _add_list_validation(ws, f"D{DATA_START_ROW}:D{commute_end_row}", f"={LOOKUPS_SHEET}!$C$2:$C${len(UNIT_OPTIONS) + 1}")
 
     for row_num in range(DATA_START_ROW, commute_end_row + 1):
-        ws.cell(row=row_num, column=7, value=46)
+        ws.cell(row=row_num, column=7, value=WEEKS_PER_YEAR_DEFAULT)
         ws.cell(
             row=row_num,
             column=8,
@@ -882,15 +893,23 @@ def _calc_commuting_tco2e(quantity: Any, factor: Any, apply_pct: Any, ghg_unit: 
     return float(value)
 
 
-def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _resolve_preview_rows(
+    con,
+    job_id: int,
+    site_id: int | None,
+    parsed_rows: list[dict[str, Any]],
+    employee_count_override: int | None = None,
+) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
-    employee_headcount = _job_employee_count(con, int(job_id))
-    commuting_response_count = sum(
-        1
+    job_employee_headcount = _job_employee_count(con, int(job_id))
+    employee_headcount = _effective_employee_count(con, int(job_id), employee_count_override)
+    responding_employees = {
+        _safe_str(row.get("employee_name")).strip().lower()
         for row in parsed_rows
-        if row.get("row_type") == "commuting" and (_safe_float(row.get("annual_quantity")) or 0.0) > 0
-    )
+        if (_safe_float(row.get("annual_quantity")) or 0.0) > 0 and _safe_str(row.get("employee_name")).strip()
+    }
+    commuting_response_count = len(responding_employees)
     commuting_scale_factor = 1.0
     if employee_headcount and commuting_response_count and commuting_response_count < employee_headcount:
         commuting_scale_factor = float(employee_headcount) / float(commuting_response_count)
@@ -968,7 +987,7 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
             if commuting_scale_factor > 1.0:
                 notes = (
                     f"{notes} | Scaled to full workforce: "
-                    f"{commuting_response_count}/{employee_headcount} survey responses "
+                    f"{commuting_response_count}/{employee_headcount} distinct employees "
                     f"({commuting_scale_factor:.2f}x)"
                 )
             ready_rows.append(
@@ -1089,6 +1108,7 @@ def _resolve_preview_rows(con, job_id: int, site_id: int | None, parsed_rows: li
         "unresolved_count": len(unresolved_rows),
         "total_tco2e": round(sum(float(row["calc_tco2e"] or 0.0) for row in ready_rows), 6),
         "employee_headcount": employee_headcount,
+        "job_employee_headcount": job_employee_headcount,
         "commuting_response_count": commuting_response_count,
         "commuting_scale_factor": round(float(commuting_scale_factor), 6),
         "ready_rows": ready_rows,
@@ -1694,6 +1714,7 @@ def employee_commuting_summary(
         _ensure_job_scope_rows_schema(con)
         _ensure_emission_register_schema(con)
         _job_meta(con, int(job_id))
+        employee_headcount = _job_employee_count(con, int(job_id))
         row = con.execute(
             """
             SELECT
@@ -1730,6 +1751,7 @@ def employee_commuting_summary(
         "row_count": int(row[0] or 0) if row else 0,
         "total_tco2e": float(row[1] or 0.0) if row else 0.0,
         "site_count": int(row[2] or 0) if row else 0,
+        "employee_headcount": employee_headcount,
         "data_source": COMMUTING_DATA_SOURCE,
     }
 
@@ -1738,6 +1760,7 @@ def employee_commuting_summary(
 async def preview_employee_commuting_upload(
     job_id: int,
     site_id: int | None = Query(None),
+    employee_count: int | None = Query(None, ge=1),
     file: UploadFile = File(...),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -1750,7 +1773,7 @@ async def preview_employee_commuting_upload(
         _job_meta(con, int(job_id))
         validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
         parsed_rows = _parse_template(raw)
-        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
+        preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count)
 
     return {
         "job_id": int(job_id),
@@ -1767,6 +1790,7 @@ async def commit_employee_commuting_upload(
     job_id: int,
     site_id: int | None = Query(None),
     replace_existing: bool = Query(True),
+    employee_count: int | None = Query(None, ge=1),
     file: UploadFile = File(...),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -1786,7 +1810,7 @@ async def commit_employee_commuting_upload(
             meta = _job_meta(con, int(job_id))
             validated_site_id, site_label = _job_site_label(con, int(job_id), site_id)
             parsed_rows = _parse_template(raw)
-            preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows)
+            preview = _resolve_preview_rows(con, int(job_id), validated_site_id, parsed_rows, employee_count)
 
             if preview["unresolved_count"] > 0:
                 raise HTTPException(
@@ -1834,8 +1858,10 @@ async def commit_employee_commuting_upload(
                     "unresolved_count": int(preview.get("unresolved_count") or 0),
                     "total_tco2e": float(preview.get("total_tco2e") or 0.0),
                     "employee_headcount": preview.get("employee_headcount"),
+                    "job_employee_headcount": preview.get("job_employee_headcount"),
                     "commuting_response_count": preview.get("commuting_response_count"),
                     "commuting_scale_factor": preview.get("commuting_scale_factor"),
+                    "employee_count": employee_count,
                     "data_source": COMMUTING_DATA_SOURCE,
                 },
             )
@@ -1864,8 +1890,10 @@ async def commit_employee_commuting_upload(
         "disabled": int(disabled),
         "total_tco2e": float(preview["total_tco2e"]),
         "employee_headcount": preview.get("employee_headcount"),
+        "job_employee_headcount": preview.get("job_employee_headcount"),
         "commuting_response_count": preview.get("commuting_response_count"),
         "commuting_scale_factor": preview.get("commuting_scale_factor"),
+        "employee_count": employee_count,
         "data_source": COMMUTING_DATA_SOURCE,
     }
 

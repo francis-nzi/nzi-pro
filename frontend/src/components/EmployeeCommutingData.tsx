@@ -31,6 +31,7 @@ type CommutingSummary = {
   row_count: number;
   total_tco2e: number;
   site_count: number;
+  employee_headcount?: number | null;
   data_source: string;
 };
 
@@ -126,6 +127,7 @@ export default function EmployeeCommutingData({
   const [summary, setSummary] = useState<CommutingSummary | null>(null);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>("__none__");
+  const [employeeCount, setEmployeeCount] = useState<string>("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadPhase, setUploadPhase] = useState("");
@@ -186,6 +188,13 @@ export default function EmployeeCommutingData({
     manualHoursPerDay,
     manualNotes,
   ]);
+
+  useEffect(() => {
+    if (employeeCount.trim()) return;
+    if (summary?.employee_headcount && summary.employee_headcount > 0) {
+      setEmployeeCount(String(summary.employee_headcount));
+    }
+  }, [employeeCount, summary?.employee_headcount]);
 
   const selectedSiteLabel = useMemo(() => {
     if (selectedSiteId === "__none__") return "All_Staff";
@@ -354,6 +363,18 @@ export default function EmployeeCommutingData({
     return `?site_id=${encodeURIComponent(selectedSiteId)}`;
   }
 
+  function buildEmployeeCommuteQuery() {
+    const params = new URLSearchParams();
+    if (selectedSiteId !== "__none__") {
+      params.set("site_id", selectedSiteId);
+    }
+    const parsedEmployeeCount = Number(employeeCount);
+    if (Number.isFinite(parsedEmployeeCount) && parsedEmployeeCount > 0) {
+      params.set("employee_count", String(Math.floor(parsedEmployeeCount)));
+    }
+    return params.toString() ? `?${params.toString()}` : "";
+  }
+
   async function downloadTemplate() {
     setLoading(true);
     setError("");
@@ -415,11 +436,11 @@ export default function EmployeeCommutingData({
     setError("");
     setStatus("");
     setUploadProgress(0);
-    setUploadPhase("Uploading workbook for preview...");
+      setUploadPhase("Uploading workbook for preview...");
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/employee-commuting/upload-preview${siteQuery()}`, {
+      const res = await uploadFormDataWithProgress(`${baseUrl}/jobs/${jobId}/employee-commuting/upload-preview${buildEmployeeCommuteQuery()}`, {
         method: "POST",
         body: fd,
         onProgress: ({ percent }) => setUploadProgress(percent),
@@ -432,7 +453,7 @@ export default function EmployeeCommutingData({
       setPreview(data);
       const scalingNote =
         data.employee_headcount && data.commuting_response_count && data.commuting_scale_factor
-          ? ` Scaled to ${data.employee_headcount} employees from ${data.commuting_response_count} responses (${data.commuting_scale_factor.toFixed(2)}x).`
+          ? ` Scaled to ${data.employee_headcount} employees from ${data.commuting_response_count} distinct employees (${data.commuting_scale_factor.toFixed(2)}x).`
           : "";
       setStatus(
         `Preview complete: ${data.ready_count} ready, ${data.unresolved_count} unresolved, ${data.total_tco2e.toFixed(4)} tCO₂e.${scalingNote}`
@@ -459,9 +480,9 @@ export default function EmployeeCommutingData({
     try {
       const fd = new FormData();
       fd.append("file", uploadFile);
-        const siteSuffix = selectedSiteId === "__none__" ? "" : `site_id=${encodeURIComponent(selectedSiteId)}&`;
+        const queryString = buildEmployeeCommuteQuery().replace(/^\?/, "");
         const res = await uploadFormDataWithProgress(
-          `${baseUrl}/jobs/${jobId}/employee-commuting/upload-commit?${siteSuffix}replace_existing=${
+          `${baseUrl}/jobs/${jobId}/employee-commuting/upload-commit?${queryString}${queryString ? "&" : ""}replace_existing=${
             replaceExisting ? "true" : "false"
           }`,
           {
@@ -678,6 +699,27 @@ export default function EmployeeCommutingData({
             <div className="text-xs uppercase text-muted-foreground">Sites Covered</div>
             <div className="mt-1 text-2xl font-semibold">{summary?.site_count ?? 0}</div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Scaling Basis</CardTitle>
+        </CardHeader>
+          <CardContent className="space-y-2">
+          <Label htmlFor="employee-count">Employees to scale to</Label>
+          <Input
+            id="employee-count"
+            type="number"
+            min="1"
+            step="1"
+            value={employeeCount}
+            onChange={(e) => setEmployeeCount(e.target.value)}
+            placeholder="Enter employee count"
+          />
+          <p className="text-xs text-muted-foreground">
+            This is the full workforce count used for pro-rata scaling. Each person is counted once even if they have multiple commute rows or commute by more than one mode.
+          </p>
         </CardContent>
       </Card>
 
@@ -1121,7 +1163,7 @@ export default function EmployeeCommutingData({
 
             {preview.employee_headcount && preview.commuting_response_count && preview.commuting_scale_factor && preview.commuting_scale_factor > 1 ? (
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} responses.
+                Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} distinct employees.
                 Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.
               </div>
             ) : null}

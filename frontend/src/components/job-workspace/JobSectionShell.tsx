@@ -43,7 +43,6 @@ function buildSetupCompletion(job: JobShellJob): {
   const setupSteps = [
     { complete: Boolean((job.title || "").trim()) && Boolean((job.status || "").trim()) },
     { complete: Boolean((job.reporting_period_start || "").trim() && (job.reporting_period_end || "").trim()) },
-    { complete: Boolean(job.job_template_id) },
     { complete: Boolean(job.milestone_template_id) },
   ];
   const completedCount = setupSteps.filter((step) => step.complete).length;

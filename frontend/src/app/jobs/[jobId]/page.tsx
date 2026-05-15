@@ -466,6 +466,7 @@ export default function JobDetailPage() {
     jobTitle,
     jobStatus,
     clientOwnerLabel,
+    crmName,
     clientBenchmarkPeriodLabel,
     reportingPeriodStart,
     reportingPeriodEnd,
@@ -484,7 +485,6 @@ export default function JobDetailPage() {
     scopeAutoResolution,
     scopeConfigWarnings,
     scopeConfigMode,
-    selectedTemplateId,
     selectedMilestoneTemplateId,
   });
 

@@ -11,7 +11,6 @@ import {
   type ReportMetadataField,
   type ScopeKey,
 } from "@/lib/job-workspace";
-import type { WorkspaceTab } from "@/components/job-workspace/types";
 
 type JobLike = {
   job_number?: string | null;
@@ -50,6 +49,7 @@ type DerivedDeps = {
   jobTitle: string;
   jobStatus: string;
   clientOwnerLabel: string;
+  crmName: string;
   clientBenchmarkPeriodLabel: string;
   reportingPeriodStart: string;
   reportingPeriodEnd: string;
@@ -68,7 +68,6 @@ type DerivedDeps = {
   scopeAutoResolution: JobScopeAutoResolution | null;
   scopeConfigWarnings: string[];
   scopeConfigMode: string;
-  selectedTemplateId: string;
   selectedMilestoneTemplateId: string;
 };
 
@@ -145,6 +144,7 @@ export default function useJobWorkspaceDerivedState({
   jobTitle,
   jobStatus,
   clientOwnerLabel,
+  crmName,
   clientBenchmarkPeriodLabel,
   reportingPeriodStart,
   reportingPeriodEnd,
@@ -163,7 +163,6 @@ export default function useJobWorkspaceDerivedState({
   scopeAutoResolution,
   scopeConfigWarnings,
   scopeConfigMode,
-  selectedTemplateId,
   selectedMilestoneTemplateId,
 }: DerivedDeps) {
   const statusLabel = (jobStatus || job?.status || "Draft").trim() || "Draft";
@@ -196,17 +195,12 @@ export default function useJobWorkspaceDerivedState({
         complete: Boolean(periodStartLabel && periodEndLabel),
       },
       {
-        key: "template",
-        label: "Template",
-        complete: Boolean(selectedTemplateId),
-      },
-      {
         key: "milestones",
         label: "Milestones",
         complete: Boolean(selectedMilestoneTemplateId && selectedMilestoneTemplateId !== "__none__"),
       },
     ],
-    [jobTitle, jobStatus, periodStartLabel, periodEndLabel, selectedTemplateId, selectedMilestoneTemplateId]
+    [jobTitle, jobStatus, periodStartLabel, periodEndLabel, selectedMilestoneTemplateId]
   );
 
   const setupCompletedCount = setupSteps.filter((step) => step.complete).length;
@@ -412,7 +406,7 @@ export default function useJobWorkspaceDerivedState({
       reportingPeriodLabel,
       statusLabel,
       ownerLabel,
-      crmLabel: clientOwnerLabel || job?.crm_owner || undefined,
+      crmLabel: crmName.trim() || job?.crm_name || undefined,
       setupCompletionLabel,
       setupCompletionClassName: setupCompletionBadgeClassName,
     },
