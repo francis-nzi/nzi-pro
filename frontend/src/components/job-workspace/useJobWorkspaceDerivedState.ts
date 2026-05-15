@@ -17,6 +17,7 @@ type JobLike = {
   title?: string | null;
   client_name?: string | null;
   crm_owner?: string | null;
+  crm_name?: string | null;
   reporting_year?: number | null;
   status?: string | null;
   reporting_period_start?: string | null;
