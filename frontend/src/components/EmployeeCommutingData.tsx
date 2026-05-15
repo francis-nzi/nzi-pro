@@ -105,6 +105,22 @@ type DirectEntryRow = {
   updated_at: string | null;
 };
 
+type ImportedScopeRow = {
+  row_id: number;
+  site_id: number | null;
+  site_name: string | null;
+  employee_name: string | null;
+  original_id: string | null;
+  report_label: string | null;
+  qty: number | null;
+  uom: string | null;
+  calc_tco2e: number;
+  data_source: string | null;
+  notes: string | null;
+  unit_warning?: string | null;
+  uses_emissions_fallback?: boolean;
+};
+
 export default function EmployeeCommutingData({
   jobId,
   baseUrl,
@@ -136,6 +152,7 @@ export default function EmployeeCommutingData({
   const [replaceExisting, setReplaceExisting] = useState(true);
   const [manualEntries, setManualEntries] = useState<DirectEntryDraft[]>([]);
   const [directEntries, setDirectEntries] = useState<DirectEntryRow[]>([]);
+  const [importedRows, setImportedRows] = useState<ImportedScopeRow[]>([]);
   const [manualRowType, setManualRowType] = useState<"commuting" | "wfh">("commuting");
   const [manualEmployeeName, setManualEmployeeName] = useState("");
   const [manualModeValue, setManualModeValue] = useState("Car - Petrol");
@@ -296,6 +313,7 @@ export default function EmployeeCommutingData({
   useEffect(() => {
     void loadSummary();
     void loadSites();
+    void loadImportedRows();
     void loadDirectEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId, baseUrl]);
@@ -352,6 +370,46 @@ export default function EmployeeCommutingData({
           enabled: Boolean(row.enabled),
           data_source: row.data_source ? String(row.data_source) : null,
           updated_at: row.updated_at ? String(row.updated_at) : null,
+        }))
+      );
+    } catch {
+      // non-fatal
+    }
+  }
+
+  async function loadImportedRows() {
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/scope-data?scope=Scope 3&include_disabled=false`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      const filtered = rows.filter((row: Record<string, unknown>) => {
+        const dataSource = String(row.data_source || "").toLowerCase();
+        const reportLabel = String(row.report_label || "").toLowerCase();
+        const originalId = String(row.original_id || "").toLowerCase();
+        const category = String(row.category || "").toLowerCase();
+        return (
+          dataSource.includes("employee commuting") ||
+          reportLabel.includes("employee commuting") ||
+          originalId.includes("employee commuting") ||
+          category.includes("employee commuting")
+        );
+      });
+      setImportedRows(
+        filtered.map((row: Record<string, unknown>) => ({
+          row_id: Number(row.row_id ?? 0),
+          site_id: row.site_id === null || row.site_id === undefined ? null : Number(row.site_id),
+          site_name: row.site_name ? String(row.site_name) : null,
+          employee_name: row.employee_name ? String(row.employee_name) : null,
+          original_id: row.original_id ? String(row.original_id) : null,
+          report_label: row.report_label ? String(row.report_label) : null,
+          qty: row.qty === null || row.qty === undefined ? null : Number(row.qty),
+          uom: row.uom ? String(row.uom) : null,
+          calc_tco2e: Number(row.calc_tco2e ?? 0),
+          data_source: row.data_source ? String(row.data_source) : null,
+          notes: row.notes ? String(row.notes) : null,
+          unit_warning: row.unit_warning ? String(row.unit_warning) : null,
+          uses_emissions_fallback: Boolean(row.uses_emissions_fallback),
         }))
       );
     } catch {
@@ -512,6 +570,7 @@ export default function EmployeeCommutingData({
       );
       setPreview(null);
       await loadSummary();
+      await loadImportedRows();
       dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Import failed");
@@ -585,6 +644,7 @@ export default function EmployeeCommutingData({
       setEditingDirectSourceId(null);
       clearManualForm();
       await loadSummary();
+      await loadImportedRows();
       await loadDirectEntries();
       dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
@@ -635,6 +695,7 @@ export default function EmployeeCommutingData({
       );
       setManualEntries([]);
       await loadSummary();
+      await loadImportedRows();
       await loadDirectEntries();
       dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
@@ -667,6 +728,7 @@ export default function EmployeeCommutingData({
       }
       setStatus("Direct entry archived.");
       await loadSummary();
+      await loadImportedRows();
       await loadDirectEntries();
       dispatchJobScopeRefresh("employee-commuting");
     } catch (e: unknown) {
@@ -1121,6 +1183,51 @@ export default function EmployeeCommutingData({
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">No direct entries saved yet.</div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="font-medium">Imported Workbook Rows</div>
+            {importedRows.length > 0 ? (
+              <div className="rounded-md border">
+                <div className="max-h-64 overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-background">
+                      <tr className="border-b text-left">
+                        <th className="px-3 py-2">Employee / Team</th>
+                        <th className="px-3 py-2">Site</th>
+                        <th className="px-3 py-2">Factor ID</th>
+                        <th className="px-3 py-2">Report Label</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2">Unit</th>
+                        <th className="px-3 py-2 text-right">tCO₂e</th>
+                        <th className="px-3 py-2">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importedRows.map((row) => (
+                        <tr key={row.row_id} className="border-b align-top">
+                          <td className="px-3 py-2">{row.employee_name || "-"}</td>
+                          <td className="px-3 py-2">{row.site_name || "Organisation-wide / No site"}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{row.original_id || "-"}</td>
+                          <td className="px-3 py-2">{row.report_label || "-"}</td>
+                          <td className="px-3 py-2 text-right">{row.qty != null ? formatNumber(row.qty, 4) : "-"}</td>
+                          <td className="px-3 py-2">{row.uom || "-"}</td>
+                          <td className="px-3 py-2 text-right">{formatNumber(row.calc_tco2e, 4)}</td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">
+                            {row.data_source ? <div>{row.data_source}</div> : null}
+                            {row.unit_warning ? <div className="text-amber-700">{row.unit_warning}</div> : null}
+                            {row.uses_emissions_fallback ? <div className="text-blue-700">Emissions fallback used</div> : null}
+                            {row.notes ? <div>{row.notes}</div> : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No imported workbook rows found yet.</div>
             )}
           </div>
           </div>
