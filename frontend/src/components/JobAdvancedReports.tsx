@@ -1206,7 +1206,7 @@ export default function JobAdvancedReports({
             </div>
 
             {/* Disclaimer */}
-            <p className="text-sm italic leading-relaxed" style={{ color: "#b45309" }}>
+            <p className="text-sm leading-relaxed text-gray-700">
               The calculated emissions are based on the most up to date emissions factors at the time
               of the publication of this report. It should be noted that emissions factors are updated
               regularly and will be retrospectively applied. As such, emissions values may change when
