@@ -2093,50 +2093,83 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
-        {(job_actions?.grouped?.length ?? 0) > 0 && (
-          <Card className="live-report-section">
-            <CardHeader className="pb-3">
-              <SectionHeader title="Carbon Reduction Actions" />
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {job_actions?.grouped?.map((group, gi) => (
-                <div key={gi}>
-                  <div className="mb-2 flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-                      {group.label ?? group.term}
-                    </span>
-                    {group.count != null && (
-                      <Badge variant="secondary" className="text-xs">
-                        {group.count}
-                      </Badge>
-                    )}
-                  </div>
-                  <ul className="space-y-1 pl-3">
-                    {(group.items ?? []).slice(0, 6).map((item, ii) => (
-                      <li
-                        key={ii}
-                        className="flex items-start gap-2 text-sm text-gray-700"
-                      >
-                        <span className="mt-0.5 text-green-600">•</span>
-                        <span>{String(item.action_name ?? item.title ?? item.action ?? "")}</span>
-                      </li>
-                    ))}
-                  </ul>
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Carbon Reduction Actions" />
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm text-gray-700 leading-relaxed">
+              To achieve our net zero commitment, {data.job_data.client_name ?? "the organisation"} has
+              identified the following key areas for emissions reduction. These actions will be implemented
+              in phases over the coming years.
+            </p>
+
+            <div>
+              <p className="text-sm font-bold text-gray-800 mb-3">Planned Initiatives</p>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                {/* Table header */}
+                <div
+                  className="grid items-center px-3 py-2.5"
+                  style={{
+                    gridTemplateColumns: "140px 1fr 140px 2fr",
+                    backgroundColor: "#8abb8a",
+                  }}
+                >
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Term</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Action</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Category</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">Description</span>
                 </div>
-              ))}
-              {report_metadata?.data_confidence_commentary && (
-                <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">
-                    Data Confidence
-                  </p>
-                  <p className="text-sm text-gray-700 leading-relaxed">
-                    {report_metadata.data_confidence_commentary}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+
+                {/* Action rows */}
+                {(job_actions?.total_actions ?? 0) > 0
+                  ? (job_actions?.grouped ?? []).flatMap((group) =>
+                      (group.items ?? []).map((item, ii) => (
+                        <div
+                          key={`${group.term}-${ii}`}
+                          className="grid items-start border-t border-gray-100 px-3 py-3"
+                          style={{ gridTemplateColumns: "140px 1fr 140px 2fr" }}
+                        >
+                          <div className="pt-0.5">
+                            <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                              {group.label ?? group.term}
+                            </span>
+                          </div>
+                          <span className="pr-4 text-sm font-semibold text-gray-800">
+                            {String(item.action_name ?? "")}
+                          </span>
+                          <span className="pr-4 text-sm text-gray-600">
+                            {String(item.action_category ?? "")}
+                          </span>
+                          <span className="text-sm text-gray-600">
+                            {String(item.description ?? "")}
+                          </span>
+                        </div>
+                      ))
+                    )
+                  : (
+                    <div
+                      className="grid items-start border-t border-gray-100 px-3 py-3"
+                      style={{ gridTemplateColumns: "140px 1fr 140px 2fr" }}
+                    >
+                      <div className="pt-0.5">
+                        <span className="inline-flex items-center rounded-full border border-green-400 bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                          Short term
+                        </span>
+                      </div>
+                      <span className="pr-4 text-sm font-semibold text-gray-800">
+                        Action plan in development
+                      </span>
+                      <span className="pr-4 text-sm text-gray-600">General</span>
+                      <span className="text-sm text-gray-600">
+                        Suggested and custom actions can be selected in the job Actions section before final issue.
+                      </span>
+                    </div>
+                  )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* ── 12. Standards & Methodology ────────────────────────────────── */}
         <Card className="live-report-section">
