@@ -24,6 +24,7 @@ type JobFile = {
   external_item_id?: string | null;
   external_web_url?: string | null;
   external_path?: string | null;
+  notes?: string | null;
 };
 
 type JobFileType = {
@@ -62,6 +63,11 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   const [selectedFileType, setSelectedFileType] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<number | "">("");
   const [description, setDescription] = useState("");
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editingFileId, setEditingFileId] = useState<number | null>(null);
+  const [editRowId, setEditRowId] = useState<number | "">("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -219,6 +225,42 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     }
   }
 
+  function startEditFile(file: JobFile) {
+    setEditingFileId(file.file_id);
+    setEditRowId(file.row_id ?? "");
+    setEditDescription(file.description ?? "");
+    setEditNotes("");
+    setIsEditOpen(true);
+  }
+
+  async function saveEditFile() {
+    if (!editingFileId) return;
+    try {
+      const payload: Record<string, string | number | null> = {
+        row_id: editRowId === "" ? null : editRowId,
+        description: editDescription.trim(),
+        notes: editNotes.trim(),
+      };
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/files/${editingFileId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || "Failed to update file");
+      }
+      setIsEditOpen(false);
+      setEditingFileId(null);
+      setEditRowId("");
+      setEditDescription("");
+      setEditNotes("");
+      await loadFiles();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   function formatFileSize(bytes: number | null): string {
     if (!bytes) return "-";
     if (bytes < 1024) return `${bytes} B`;
@@ -245,6 +287,10 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
 
   function getStorageLabel(file: JobFile): string {
     return file.storage_provider === "onedrive" ? "SharePoint / OneDrive" : "Local server";
+  }
+
+  function getEditRowValue(): string {
+    return editRowId === "" ? "" : String(editRowId);
   }
 
   const fileTypeLookup = useMemo(() => {
@@ -421,6 +467,11 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                               <span> • Linked to: {getRowLabel(file.row_id)}</span>
                             )}
                           </div>
+                          {file.notes && (
+                            <div className="text-xs text-muted-foreground">
+                              Notes: {file.notes}
+                            </div>
+                          )}
                           <div className="text-xs text-muted-foreground">
                             Uploaded by {file.uploaded_by || "unknown"} on {file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : "unknown"}
                           </div>
@@ -439,6 +490,13 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => startEditFile(file)}
+                        >
+                          Edit
+                        </Button>
                         {file.external_web_url ? (
                           <Button
                             variant="outline"
@@ -471,7 +529,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
           )}
         </TabsContent>
 
-        {visibleFileTypes.map((type) => {
+      {visibleFileTypes.map((type) => {
           const typeFiles = getFileTypeFiles(type.file_type_key);
           return (
             <TabsContent key={type.file_type_key} value={type.file_type_key} className="space-y-4">
@@ -503,6 +561,11 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                                   <span> • Linked to: {getRowLabel(file.row_id)}</span>
                                 )}
                               </div>
+                              {file.notes && (
+                                <div className="text-xs text-muted-foreground">
+                                  Notes: {file.notes}
+                                </div>
+                              )}
                               <div className="text-xs text-muted-foreground">
                                 Uploaded by {file.uploaded_by || "unknown"} on {file.uploaded_at ? new Date(file.uploaded_at).toLocaleDateString() : "unknown"}
                               </div>
@@ -521,6 +584,13 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                             </div>
                           </div>
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => startEditFile(file)}
+                            >
+                              Edit
+                            </Button>
                             {file.external_web_url ? (
                               <Button
                                 variant="outline"
@@ -555,6 +625,76 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
           );
         })}
       </Tabs>
+
+      <Card>
+        <CardContent className="py-8">
+          <div className="text-sm text-muted-foreground">
+            File information can be updated with the Edit button on each file card.
+          </div>
+        </CardContent>
+      </Card>
+
+      {editingFileId !== null && (
+        <div className={isEditOpen ? "" : "hidden"}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Edit File Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Link to Data Row</label>
+                  <select
+                    value={getEditRowValue()}
+                    onChange={(e) => setEditRowId(e.target.value ? parseInt(e.target.value) : "")}
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  >
+                    <option value="">Not linked to specific row</option>
+                    {scopeRows.map((row) => (
+                      <option key={row.row_id} value={row.row_id}>
+                        {getRowLabel(row.row_id)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Description</label>
+                  <input
+                    type="text"
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Notes</label>
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  className="min-h-24 w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder="Optional internal notes"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={saveEditFile}>Save changes</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditOpen(false);
+                    setEditingFileId(null);
+                    setEditRowId("");
+                    setEditDescription("");
+                    setEditNotes("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
