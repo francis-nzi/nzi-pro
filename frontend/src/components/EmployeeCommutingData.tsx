@@ -66,6 +66,7 @@ type PreviewPayload = {
   employee_headcount?: number | null;
   commuting_response_count?: number | null;
   commuting_scale_factor?: number | null;
+  unit_fallback_count?: number | null;
   ready_rows: PreviewRow[];
   unresolved_rows: UnresolvedRow[];
 };
@@ -1165,6 +1166,13 @@ export default function EmployeeCommutingData({
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                 Scaled to {preview.employee_headcount} employees from {preview.commuting_response_count} distinct employees.
                 Applied factor: {preview.commuting_scale_factor.toFixed(2)}x.
+              </div>
+            ) : null}
+
+            {preview.unit_fallback_count && preview.unit_fallback_count > 0 ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Unit fallback applied to {preview.unit_fallback_count} row{preview.unit_fallback_count === 1 ? "" : "s"}.
+                This usually means the workbook unit and the factor lookup unit differed, so the alternate distance unit was used.
               </div>
             ) : null}
 

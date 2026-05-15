@@ -832,25 +832,30 @@ def _convert_quantity(quantity: float, from_unit: str, to_unit: str) -> float | 
     return None
 
 
-def _resolve_commuting_original_id(mode_value: str, service_value: str, unit_value: str) -> tuple[str | None, str | None, str | None, str | None]:
+def _resolve_commuting_original_id(
+    mode_value: str,
+    service_value: str,
+    unit_value: str,
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     mode = _canonical_mode(mode_value)
     if not mode:
-        return None, None, None, "Commute Mode is required or not recognised"
+        return None, None, None, "Commute Mode is required or not recognised", None
 
     variant = _canonical_variant(service_value)
     if service_value and not variant:
-        return None, None, None, "Vehicle / Service Type is not recognised"
+        return None, None, None, "Vehicle / Service Type is not recognised", None
 
     if not service_value:
         variant = _default_variant_for_mode(mode) or ""
 
     unit = _canonical_unit(unit_value)
     if unit_value and not unit:
-        return None, None, None, "Distance Unit is not recognised"
+        return None, None, None, "Distance Unit is not recognised", None
     if not unit:
         unit = _default_unit_for_mode(mode) or ""
 
     candidate_keys = [(mode, variant, unit)]
+    matched_unit = unit
     if mode in {"taxis", "bus", "rail", "ferry", "walking", "cycling"} and unit in {"miles", "km"}:
         alternate_unit = "km" if unit == "miles" else "miles"
         candidate_keys.append((mode, variant, alternate_unit))
@@ -859,12 +864,13 @@ def _resolve_commuting_original_id(mode_value: str, service_value: str, unit_val
     for candidate_key in candidate_keys:
         original_id = COMMUTE_FACTOR_MAP.get(candidate_key)
         if original_id:
+            matched_unit = candidate_key[2]
             break
 
     if not original_id:
-        return None, mode, variant, "This commute mode/service combination does not match an emissions factor"
+        return None, mode, variant, "This commute mode/service combination does not match an emissions factor", None
 
-    return original_id, mode, variant, None
+    return original_id, mode, variant, None, matched_unit
 
 
 def _build_commuting_notes(parsed_row: dict[str, Any], mode: str, variant: str) -> str:
@@ -912,6 +918,7 @@ def _resolve_preview_rows(
 ) -> dict[str, Any]:
     ready_rows: list[dict[str, Any]] = []
     unresolved_rows: list[dict[str, Any]] = []
+    unit_fallback_count = 0
     job_employee_headcount = _job_employee_count(con, int(job_id))
     employee_headcount = _effective_employee_count(con, int(job_id), employee_count_override)
     responding_employees = {
@@ -941,7 +948,7 @@ def _resolve_preview_rows(
             continue
 
         if parsed_row["row_type"] == "commuting":
-            original_id, mode, variant, error = _resolve_commuting_original_id(
+            original_id, mode, variant, error, matched_unit = _resolve_commuting_original_id(
                 parsed_row.get("mode_value"),
                 parsed_row.get("service_value"),
                 parsed_row.get("unit_value"),
@@ -987,6 +994,9 @@ def _resolve_preview_rows(
                 continue
 
             notes = _build_commuting_notes(parsed_row, mode, variant or "")
+            if matched_unit and input_unit and matched_unit != input_unit:
+                unit_fallback_count += 1
+                notes = f"{notes} | Unit fallback applied: resolved as {matched_unit}"
             scaled_qty = float(converted_qty) * float(commuting_scale_factor)
             calc_tco2e = _calc_commuting_tco2e(
                 scaled_qty,
@@ -1121,6 +1131,7 @@ def _resolve_preview_rows(
         "job_employee_headcount": job_employee_headcount,
         "commuting_response_count": commuting_response_count,
         "commuting_scale_factor": round(float(commuting_scale_factor), 6),
+        "unit_fallback_count": unit_fallback_count,
         "ready_rows": ready_rows,
         "unresolved_rows": unresolved_rows,
     }
@@ -1376,7 +1387,7 @@ def _resolve_manual_commuting_rows(
             continue
 
         if row_type == "commuting":
-            original_id, mode, variant, error = _resolve_commuting_original_id(
+            original_id, mode, variant, error, _matched_unit = _resolve_commuting_original_id(
                 parsed_row.get("mode_value"),
                 parsed_row.get("service_value"),
                 parsed_row.get("unit_value"),
