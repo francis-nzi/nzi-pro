@@ -30,6 +30,7 @@ from api.job_report_routes import (
     _safe_int,
     _serialize_report_version_row,
     _store_report_version_artifact,
+    _resolve_benchmark_reference_job,
     get_benchmark_emissions,
     get_emissions_by_category,
     get_job_data,
@@ -215,6 +216,14 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     except Exception as exc:
         benchmark_totals = {"Scope 1": 0, "Scope 2": 0, "Scope 3": 0, "Total": 0}
 
+    benchmark_categories: list[dict[str, Any]] = []
+    try:
+        bm_job_id = _resolve_benchmark_reference_job(int(job_id), job_data.get("benchmark_year"))
+        if bm_job_id and bm_job_id != int(job_id):
+            benchmark_categories = get_emissions_by_category(int(bm_job_id))
+    except Exception:
+        benchmark_categories = []
+
     try:
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
     except Exception as exc:
@@ -301,6 +310,7 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
         "scope_totals": scope_totals,
         "benchmark_totals": benchmark_totals,
         "categories": categories,
+        "benchmark_categories": benchmark_categories,
         "activity_groups": activity_groups,
         "activity_totals": activity_totals,
         "activity_details": activity_details,

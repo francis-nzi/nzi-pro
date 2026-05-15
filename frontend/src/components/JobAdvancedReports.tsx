@@ -111,13 +111,31 @@ type SiteScopeRow = {
   total?: number | null;
 };
 
+type SiteActivityRow = {
+  site_name?: string | null;
+  energy?: number | null;
+  business_travel?: number | null;
+  employee_commuting?: number | null;
+  pgs?: number | null;
+  other?: number | null;
+  total?: number | null;
+};
+
 type SiteBreakdowns = {
   show_site_tables?: boolean;
   show_appendix?: boolean;
   site_count?: number;
   overall?: SiteOverallRow[];
   scope?: SiteScopeRow[];
+  activity?: SiteActivityRow[];
   appendix_rows?: AppendixRow[];
+};
+
+type EmissionCategory = {
+  scope?: string | null;
+  category?: string | null;
+  report_label?: string | null;
+  emissions?: number | null;
 };
 
 type GlossaryCard = {
@@ -150,6 +168,9 @@ type ReactReportVersion = {
 type LiveData = {
   job_data: ReportJob;
   scope_totals?: Record<string, number | null | undefined>;
+  benchmark_totals?: Record<string, number | null | undefined>;
+  categories?: EmissionCategory[];
+  benchmark_categories?: EmissionCategory[];
   activity_totals?: Record<string, number | null>;
   activity_group_order?: string[];
   activity_group_colors?: Record<string, string>;
@@ -623,6 +644,9 @@ export default function JobAdvancedReports({
 
   const {
     scope_totals,
+    benchmark_totals,
+    categories,
+    benchmark_categories,
     activity_totals,
     activity_group_order,
     activity_group_colors,
@@ -1468,9 +1492,184 @@ export default function JobAdvancedReports({
                   {report_metadata.activity_commentary}
                 </p>
               )}
+
+              {/* Site Breakdown by Activity Group */}
+              {(site_breakdowns?.activity?.length ?? 0) > 0 && (() => {
+                const rows = site_breakdowns!.activity!;
+                const totals = {
+                  energy: rows.reduce((s, r) => s + toNum(r.energy), 0),
+                  business_travel: rows.reduce((s, r) => s + toNum(r.business_travel), 0),
+                  employee_commuting: rows.reduce((s, r) => s + toNum(r.employee_commuting), 0),
+                  pgs: rows.reduce((s, r) => s + toNum(r.pgs), 0),
+                  other: rows.reduce((s, r) => s + toNum(r.other), 0),
+                  total: rows.reduce((s, r) => s + toNum(r.total), 0),
+                };
+                return (
+                  <div className="mt-6">
+                    <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Activity Group</p>
+                    <div className="overflow-x-auto">
+                      <div className="overflow-hidden rounded-lg border border-gray-200 min-w-[640px]">
+                        <div className="grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Energy</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Business Travel</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Employee Commuting</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">PG&amp;S</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Other</span>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Total</span>
+                        </div>
+                        {rows.map((row, i) => (
+                          <div
+                            key={i}
+                            className={`grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                          >
+                            <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.energy), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.business_travel), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.employee_commuting), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.pgs), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.other), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
+                          </div>
+                        ))}
+                        <div className="grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-t border-gray-200 px-3 py-2 bg-gray-50">
+                          <span className="text-xs font-semibold text-gray-700">Total</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.energy, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.business_travel, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.employee_commuting, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.pgs, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.other, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.total, 2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Rounding note */}
+              <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
+                <p className="text-xs text-gray-700">
+                  <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.
+                </p>
+              </div>
+
             </CardContent>
           </Card>
         )}
+
+        {/* ── 7. Emissions by Scope and Category ─────────────────────────── */}
+        {(categories?.length ?? 0) > 0 && (() => {
+          // Aggregate current-year categories by (scope, label)
+          const aggMap = new Map<string, { scope: string; label: string; current: number; benchmark: number }>();
+          for (const row of (categories ?? [])) {
+            const scope = row.scope ?? "";
+            const label = row.report_label?.trim() || row.category?.trim() || "Other";
+            const key = `${scope}||${label}`;
+            const existing = aggMap.get(key);
+            if (existing) {
+              existing.current += toNum(row.emissions);
+            } else {
+              aggMap.set(key, { scope, label, current: toNum(row.emissions), benchmark: 0 });
+            }
+          }
+          for (const row of (benchmark_categories ?? [])) {
+            const scope = row.scope ?? "";
+            const label = row.report_label?.trim() || row.category?.trim() || "Other";
+            const key = `${scope}||${label}`;
+            const existing = aggMap.get(key);
+            if (existing) {
+              existing.benchmark += toNum(row.emissions);
+            } else {
+              aggMap.set(key, { scope, label, current: 0, benchmark: toNum(row.emissions) });
+            }
+          }
+          const scopeOrder = ["Scope 1", "Scope 2", "Scope 3"];
+          const allRows = Array.from(aggMap.values()).sort((a, b) => {
+            const si = scopeOrder.indexOf(a.scope) - scopeOrder.indexOf(b.scope);
+            return si !== 0 ? si : a.label.localeCompare(b.label);
+          });
+          const grandCurrentTotal = allRows.reduce((s, r) => s + r.current, 0);
+          const grandBenchmarkTotal = toNum(benchmark_totals?.Total);
+          const hasBenchmark = grandBenchmarkTotal > 0 || (benchmark_categories?.length ?? 0) > 0;
+
+          const tableRows: React.ReactElement[] = [];
+          let rowIdx = 0;
+          for (const scope of scopeOrder) {
+            const scopeRows = allRows.filter(r => r.scope === scope);
+            if (scopeRows.length === 0) continue;
+            const scopeCurrent = scopeRows.reduce((s, r) => s + r.current, 0);
+            const scopeBenchmark = hasBenchmark
+              ? scopeRows.reduce((s, r) => s + r.benchmark, 0)
+              : null;
+            scopeRows.forEach(r => {
+              const pct = grandCurrentTotal > 0 ? (r.current / grandCurrentTotal) * 100 : 0;
+              const bg = rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50";
+              tableRows.push(
+                <div key={`${r.scope}-${r.label}`} className={`grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-100 px-3 py-2 ${bg}`}>
+                  <span className="text-xs text-gray-500">{r.scope}</span>
+                  <span className="text-xs text-gray-700 pr-2">{r.label}</span>
+                  {hasBenchmark
+                    ? <span className="text-xs text-gray-700 text-right">{fmt(r.benchmark, 2)}</span>
+                    : <span className="text-xs text-gray-400 text-right">—</span>}
+                  <span className="text-xs text-gray-700 text-right">{fmt(r.current, 2)}</span>
+                  <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
+                </div>
+              );
+              rowIdx++;
+            });
+            // Scope sub-total
+            const scopePct = grandCurrentTotal > 0 ? (scopeCurrent / grandCurrentTotal) * 100 : 0;
+            tableRows.push(
+              <div key={`subtotal-${scope}`} className="grid grid-cols-[80px_1fr_120px_120px_60px] border-b border-gray-200 px-3 py-2" style={{ backgroundColor: `${BRAND}12` }}>
+                <span className="text-xs font-semibold text-gray-700">{scope}</span>
+                <span className="text-xs font-semibold text-gray-700">Sub-total</span>
+                {hasBenchmark
+                  ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark ?? 0, 2)}</span>
+                  : <span className="text-xs text-gray-400 text-right">—</span>}
+                <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent, 2)}</span>
+                <span className="text-xs font-semibold text-gray-700 text-right">{scopePct.toFixed(1)}%</span>
+              </div>
+            );
+          }
+
+          return (
+            <Card className="live-report-section">
+              <CardHeader className="pb-3">
+                <SectionHeader title="Emissions by Scope and Category" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-[80px_1fr_120px_120px_60px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">
+                      {hasBenchmark ? `${data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"} tCO₂e` : "Benchmark tCO₂e"}
+                    </span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Current Year tCO₂e</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
+                  </div>
+                  {tableRows}
+                  {/* Grand total */}
+                  <div className="grid grid-cols-[80px_1fr_120px_120px_60px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">
+                    <span className="text-xs font-bold text-gray-700 uppercase col-span-2">Total Emissions</span>
+                    {hasBenchmark
+                      ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal, 2)}</span>
+                      : <span className="text-xs text-gray-400 text-right">—</span>}
+                    <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal, 2)}</span>
+                    <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
+                  </div>
+                </div>
+                {/* Rounding note */}
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
+                  <p className="text-xs text-gray-700">
+                    <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* ── 8. Historical emissions trend ──────────────────────────────── */}
         {effectiveYearlyEmissions.length > 0 && (
