@@ -39,6 +39,7 @@ const LOOKUP_TABLES = [
   { key: "positions_lookup", label: "Positions", idCol: "position_id", nameCol: "name" },
   { key: "processes_lookup", label: "Processes", idCol: "process_id", nameCol: "name" },
   { key: "job_item_categories_lookup", label: "Job Item Categories", idCol: "category_id", nameCol: "name" },
+  { key: "job_file_types_lookup", label: "Job File Types", idCol: "file_type_id", nameCol: "display_name" },
   { key: "uom_lookup", label: "UoM", idCol: "uom_id", nameCol: "name" },
   { key: "bd_bin_reasons_lookup", label: "BD Bin Reasons", idCol: "bin_reason_id", nameCol: "name" },
   { key: "time_subjects", label: "Time Subjects", idCol: "subject_id", nameCol: "name" },
@@ -61,12 +62,19 @@ export default function LookupsPage() {
   const [vatRatePct, setVatRatePct] = useState("");
   const [currencyName, setCurrencyName] = useState("");
   const [currencySymbol, setCurrencySymbol] = useState("");
+  const [fileTypeKey, setFileTypeKey] = useState("");
+  const [fileTypeDisplayName, setFileTypeDisplayName] = useState("");
+  const [fileTypeStorageFolder, setFileTypeStorageFolder] = useState("client-provided");
+  const [fileTypeSortOrder, setFileTypeSortOrder] = useState("0");
   
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editRatePct, setEditRatePct] = useState("");
   const [editCurrencySymbol, setEditCurrencySymbol] = useState("");
+  const [editFileTypeKey, setEditFileTypeKey] = useState("");
+  const [editFileTypeStorageFolder, setEditFileTypeStorageFolder] = useState("");
+  const [editFileTypeSortOrder, setEditFileTypeSortOrder] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const activeTable = useMemo(
     () => LOOKUP_TABLES.find((table) => table.key === activeTab) ?? LOOKUP_TABLES[0],
@@ -279,16 +287,74 @@ export default function LookupsPage() {
 
   function startEdit(item: LookupItem, table: typeof LOOKUP_TABLES[0]) {
     setEditingId(itemIdValue(item, table.idCol));
-    setEditName(itemNameValue(item, table.nameCol));
     if (table.key === "vat_rates_lookup") {
+      setEditName(itemNameValue(item, table.nameCol));
       setEditRatePct(String(item.rate_pct ?? ""));
+    } else if (table.key === "currency_lookup") {
+      setEditName(itemNameValue(item, table.nameCol));
+      setEditCurrencySymbol(String(item.symbol ?? ""));
+    } else if (table.key === "job_file_types_lookup") {
+      setEditName(itemNameValue(item, table.nameCol));
+      setEditFileTypeKey(String(item.file_type_key ?? ""));
+      setEditFileTypeStorageFolder(String(item.storage_folder_key ?? "client-provided"));
+      setEditFileTypeSortOrder(String(item.sort_order ?? "0"));
     } else {
+      setEditName(itemNameValue(item, table.nameCol));
       setEditRatePct("");
     }
-    if (table.key === "currency_lookup") {
-      setEditCurrencySymbol(String(item.symbol ?? ""));
-    } else {
+    if (table.key !== "currency_lookup") {
       setEditCurrencySymbol("");
+    }
+    if (table.key !== "job_file_types_lookup") {
+      setEditFileTypeKey("");
+      setEditFileTypeStorageFolder("");
+      setEditFileTypeSortOrder("");
+    }
+  }
+
+  async function addJobFileType() {
+    const key = fileTypeKey.trim();
+    const displayName = fileTypeDisplayName.trim();
+    const storageFolderKey = fileTypeStorageFolder.trim() || "client-provided";
+    const sortOrder = parseInt(fileTypeSortOrder || "0", 10) || 0;
+
+    if (!key) {
+      setStatus("File type key is required");
+      return;
+    }
+    if (!displayName) {
+      setStatus("Display name is required");
+      return;
+    }
+
+    setStatus("Adding...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/lookups/job_file_types_lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_type_key: key,
+          display_name: displayName,
+          storage_folder_key: storageFolderKey,
+          sort_order: sortOrder,
+          is_active: true,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed: ${res.status}`);
+      }
+
+      setStatus("File type added!");
+      setFileTypeKey("");
+      setFileTypeDisplayName("");
+      setFileTypeStorageFolder("client-provided");
+      setFileTypeSortOrder("0");
+      setIsAddDialogOpen(false);
+      loadItems("job_file_types_lookup");
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`);
     }
   }
 
@@ -297,6 +363,9 @@ export default function LookupsPage() {
     setEditName("");
     setEditRatePct("");
     setEditCurrencySymbol("");
+    setEditFileTypeKey("");
+    setEditFileTypeStorageFolder("");
+    setEditFileTypeSortOrder("");
   }
 
   async function saveEdit(tableName: string, itemId: number) {
@@ -327,6 +396,19 @@ export default function LookupsPage() {
         return;
       }
 
+      if (tableName === "job_file_types_lookup") {
+        if (!editFileTypeKey.trim()) {
+          setStatus("File type key is required");
+          setSavingEdit(false);
+          return;
+        }
+        const sortOrder = parseInt(editFileTypeSortOrder || "0", 10) || 0;
+        payload.file_type_key = editFileTypeKey.trim();
+        payload.display_name = editName.trim();
+        payload.storage_folder_key = editFileTypeStorageFolder.trim() || "client-provided";
+        payload.sort_order = sortOrder;
+      }
+
       const res = await fetch(`${baseUrl}/admin/lookups/${tableName}/${itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -342,6 +424,9 @@ export default function LookupsPage() {
       setEditName("");
       setEditRatePct("");
       setEditCurrencySymbol("");
+      setEditFileTypeKey("");
+      setEditFileTypeStorageFolder("");
+      setEditFileTypeSortOrder("");
       loadItems(tableName);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) {
@@ -485,6 +570,31 @@ export default function LookupsPage() {
                               }}
                             />
                           )}
+                          {activeTable.key === "job_file_types_lookup" && (
+                            <>
+                              <Input
+                                value={editFileTypeStorageFolder}
+                                onChange={(e) => setEditFileTypeStorageFolder(e.target.value)}
+                                className="w-44"
+                                placeholder="Storage folder"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveEdit(activeTable.key, itemIdValue(item, activeTable.idCol));
+                                  if (e.key === "Escape") cancelEdit();
+                                }}
+                              />
+                              <Input
+                                type="number"
+                                value={editFileTypeSortOrder}
+                                onChange={(e) => setEditFileTypeSortOrder(e.target.value)}
+                                className="w-24"
+                                placeholder="Sort"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") saveEdit(activeTable.key, itemIdValue(item, activeTable.idCol));
+                                  if (e.key === "Escape") cancelEdit();
+                                }}
+                              />
+                            </>
+                          )}
                           <Button
                             size="sm"
                             onClick={() => saveEdit(activeTable.key, itemIdValue(item, activeTable.idCol))}
@@ -505,6 +615,11 @@ export default function LookupsPage() {
                         <>
                           <div className="flex-1">
                             <div className="font-medium">{itemNameValue(item, activeTable.nameCol)}</div>
+                            {activeTable.key === "job_file_types_lookup" && (
+                              <div className="text-sm text-muted-foreground">
+                                Key: {String(item.file_type_key ?? "-")} • Folder: {String(item.storage_folder_key ?? "-")} • Sort: {String(item.sort_order ?? 0)}
+                              </div>
+                            )}
                             {activeTable.key === "vat_rates_lookup" && (
                               <div className="text-sm text-muted-foreground">
                                 {Number(item.rate_pct ?? 0).toFixed(2)}%
@@ -585,7 +700,49 @@ export default function LookupsPage() {
                 Create a new active lookup value for {activeTable.label.toLowerCase()}.
               </DialogDescription>
             </DialogHeader>
-            {activeTable.key === "currency_lookup" ? (
+            {activeTable.key === "job_file_types_lookup" ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fileTypeKey">File Type Key</Label>
+                  <Input
+                    id="fileTypeKey"
+                    value={fileTypeKey}
+                    onChange={(e) => setFileTypeKey(e.target.value)}
+                    placeholder="client_feedback"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="fileTypeDisplayName">Display Name</Label>
+                  <Input
+                    id="fileTypeDisplayName"
+                    value={fileTypeDisplayName}
+                    onChange={(e) => setFileTypeDisplayName(e.target.value)}
+                    placeholder="Client Feedback"
+                  />
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="fileTypeStorageFolder">Storage Folder Key</Label>
+                    <Input
+                      id="fileTypeStorageFolder"
+                      value={fileTypeStorageFolder}
+                      onChange={(e) => setFileTypeStorageFolder(e.target.value)}
+                      placeholder="client-provided"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fileTypeSortOrder">Sort Order</Label>
+                    <Input
+                      id="fileTypeSortOrder"
+                      type="number"
+                      value={fileTypeSortOrder}
+                      onChange={(e) => setFileTypeSortOrder(e.target.value)}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : activeTable.key === "currency_lookup" ? (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="currencyName">Currency Label</Label>
@@ -658,14 +815,18 @@ export default function LookupsPage() {
               </Button>
               <Button
                 onClick={
-                  activeTable.key === "currency_lookup"
+                  activeTable.key === "job_file_types_lookup"
+                    ? addJobFileType
+                    : activeTable.key === "currency_lookup"
                     ? addCurrency
                     : activeTable.key === "vat_rates_lookup"
                       ? addVatRate
                       : addItem
                 }
               >
-                {activeTable.key === "currency_lookup"
+                {activeTable.key === "job_file_types_lookup"
+                  ? "Add File Type"
+                  : activeTable.key === "currency_lookup"
                   ? "Add Currency"
                   : activeTable.key === "vat_rates_lookup"
                     ? "Add VAT Rate"
@@ -689,6 +850,9 @@ export default function LookupsPage() {
             </div>
             <div>
               <span className="font-medium">Job Statuses:</span> Track job lifecycle (Open, Data Gathering, Reporting, Completed)
+            </div>
+            <div>
+              <span className="font-medium">Job File Types:</span> Configure job file upload categories and storage folders
             </div>
             <div>
               <span className="font-medium">VAT Rates:</span> Configure tax rates for invoicing

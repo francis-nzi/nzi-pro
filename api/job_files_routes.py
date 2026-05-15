@@ -17,6 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, 
 from fastapi.responses import FileResponse, StreamingResponse
 
 from api.auth import _current_user
+from api.admin_routes import _ensure_job_file_types_lookup_table
 from api.onedrive_routes import (
     _drive_base_path,
     _graph_download,
@@ -90,6 +91,13 @@ def _safe_storage_filename(job_id: int, filename: str) -> str:
     return f"{int(job_id)}_{cleaned}"
 
 
+def _safe_folder_key(folder_key: str | None) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._/-]+", "-", str(folder_key or "").strip())
+    cleaned = cleaned.replace("..", "-")
+    cleaned = cleaned.strip("/-") or "client-provided"
+    return cleaned
+
+
 def _onedrive_enabled() -> bool:
     required_auth = [
         str(os.getenv("MS_TENANT_ID") or "").strip(),
@@ -153,15 +161,15 @@ def _onedrive_ensure_folder(token: str, folder_path: str) -> None:
         _graph_request("POST", parent_target, token, body=payload, content_type="application/json")
 
 
-def _onedrive_job_folder(job_id: int, file_type: str) -> str:
-    suffix = "generated-reports" if file_type == "generated_report" else "client-provided"
+def _onedrive_job_folder(job_id: int, file_type: str, storage_folder_key: str | None = None) -> str:
+    suffix = _safe_folder_key(storage_folder_key) if storage_folder_key else ("generated-reports" if file_type == "generated_report" else "client-provided")
     return _joined_remote_path(f"job-{int(job_id)}/{suffix}")
 
 
-def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_type: str) -> dict[str, str | int | None]:
+def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_type: str, storage_folder_key: str | None = None) -> dict[str, str | int | None]:
     token = _graph_token()
     drive_base = _drive_base_path(token)
-    remote_folder = _onedrive_job_folder(job_id, file_type)
+    remote_folder = _onedrive_job_folder(job_id, file_type, storage_folder_key)
     _onedrive_ensure_folder(token, remote_folder)
 
     full_path = f"{remote_folder}/{filename}" if remote_folder else f"/{filename}"
@@ -224,7 +232,7 @@ def _onedrive_upload_bytes(*, filename: str, content: bytes, job_id: int, file_t
     }
 
 
-def _save_uploaded_file(file: UploadFile, job_id: int, file_type: str) -> tuple[dict[str, str | int | None], str]:
+def _save_uploaded_file(file: UploadFile, job_id: int, file_type: str, storage_folder_key: str | None = None) -> tuple[dict[str, str | int | None], str]:
     contents = file.file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Cannot upload empty file")
@@ -238,6 +246,7 @@ def _save_uploaded_file(file: UploadFile, job_id: int, file_type: str) -> tuple[
             content=contents,
             job_id=job_id,
             file_type=file_type,
+            storage_folder_key=storage_folder_key,
         ), mime_type
 
     file_path = UPLOAD_DIR / storage_name
@@ -254,10 +263,62 @@ def _save_uploaded_file(file: UploadFile, job_id: int, file_type: str) -> tuple[
     }, mime_type
 
 
+def _lookup_job_file_type_options(con) -> list[dict[str, object]]:
+    _ensure_job_file_types_lookup_table(con)
+    df = con.execute(
+        """
+        SELECT file_type_id, file_type_key, display_name, storage_folder_key, sort_order, is_active
+        FROM job_file_types_lookup
+        ORDER BY sort_order, display_name
+        """
+    ).df()
+    if df is None or df.empty:
+        return []
+    options: list[dict[str, object]] = []
+    for _, row in df.iterrows():
+        options.append(
+            {
+                "file_type_id": int(row["file_type_id"]),
+                "file_type_key": str(row["file_type_key"]),
+                "display_name": str(row["display_name"]),
+                "storage_folder_key": str(row["storage_folder_key"] or "client-provided"),
+                "sort_order": int(row["sort_order"]) if row["sort_order"] is not None else 0,
+                "is_active": bool(row["is_active"]) if row["is_active"] is not None else True,
+            }
+        )
+    return options
+
+
+def _resolve_job_file_type(con, file_type: str, *, active_only: bool = False) -> dict[str, object] | None:
+    _ensure_job_file_types_lookup_table(con)
+    row = con.execute(
+        """
+        SELECT file_type_id, file_type_key, display_name, storage_folder_key, sort_order, is_active
+        FROM job_file_types_lookup
+        WHERE lower(file_type_key) = lower(%s)
+        LIMIT 1
+        """,
+        [str(file_type or "").strip()],
+    ).fetchone()
+    if not row:
+        return None
+    resolved = {
+        "file_type_id": int(row[0]),
+        "file_type_key": str(row[1]),
+        "display_name": str(row[2]),
+        "storage_folder_key": str(row[3] or "client-provided"),
+        "sort_order": int(row[4]) if row[4] is not None else 0,
+        "is_active": bool(row[5]) if row[5] is not None else True,
+    }
+    if active_only and not resolved["is_active"]:
+        return None
+    return resolved
+
+
 @router.get("/jobs/{job_id}/files")
 def list_job_files(
     job_id: int,
-    file_type: Optional[str] = Query(None, description="Filter by file_type: 'client_provided' or 'generated_report'"),
+    file_type: Optional[str] = Query(None, description="Filter by file_type key"),
     row_id: Optional[int] = Query(None, description="Filter by linked row_id"),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -318,6 +379,25 @@ def list_job_files(
         raise HTTPException(status_code=500, detail=f"Failed to list files: {e}")
 
 
+@router.get("/jobs/{job_id}/files/types")
+def list_job_file_types(
+    job_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """List job file type lookup values."""
+    try:
+        with get_conn() as con:
+            _ensure_job_files_table(con)
+            job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
+            if not job_exists:
+                raise HTTPException(status_code=404, detail="Job not found")
+            return {"job_id": int(job_id), "file_types": _lookup_job_file_type_options(con)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list file types: {e}")
+
+
 @router.post("/jobs/{job_id}/files")
 async def upload_job_file(
     job_id: int,
@@ -330,14 +410,15 @@ async def upload_job_file(
 ):
     """Upload a file for a job."""
     try:
-        if file_type not in ["client_provided", "generated_report"]:
-            raise HTTPException(status_code=400, detail="file_type must be 'client_provided' or 'generated_report'")
-
         with get_conn() as con:
             _ensure_job_files_table(con)
+            _ensure_job_file_types_lookup_table(con)
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
+            resolved_file_type = _resolve_job_file_type(con, file_type, active_only=True)
+            if not resolved_file_type:
+                raise HTTPException(status_code=400, detail="file_type is not an active job file type")
 
             if row_id is not None:
                 row_exists = con.execute(
@@ -347,10 +428,14 @@ async def upload_job_file(
                 if not row_exists:
                     raise HTTPException(status_code=400, detail="row_id does not belong to this job")
 
-        file_meta, mime_type = _save_uploaded_file(file, int(job_id), file_type)
+            storage_folder_key = str(resolved_file_type.get("storage_folder_key") or "client-provided")
+
+        file_meta, mime_type = _save_uploaded_file(file, int(job_id), file_type, storage_folder_key)
+        uploaded_file_type = str(resolved_file_type.get("file_type_key") or file_type)
 
         with get_conn() as con:
             _ensure_job_files_table(con)
+            _ensure_job_file_types_lookup_table(con)
             result = con.execute(
                 """
                 INSERT INTO job_files (
@@ -364,7 +449,7 @@ async def upload_job_file(
                 [
                     int(job_id),
                     row_id,
-                    file_type,
+                    uploaded_file_type,
                     file.filename or "unknown",
                     file_meta.get("file_path"),
                     file_meta.get("file_size"),
@@ -384,7 +469,7 @@ async def upload_job_file(
             "ok": True,
             "file_id": file_id,
             "file_name": file.filename,
-            "file_type": file_type,
+            "file_type": uploaded_file_type,
             "row_id": row_id,
             "storage_provider": file_meta.get("storage_provider"),
             "external_web_url": file_meta.get("external_web_url"),

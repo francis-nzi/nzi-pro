@@ -67,6 +67,7 @@ _LOOKUP_BOOTSTRAPPED: set[str] = set()
 _ADMIN_USER_BOOTSTRAPPED = False
 _ADMIN_USER_BOOTSTRAP_LOCK = Lock()
 _ORG_SCOPED_LOOKUP_TABLES = {"job_types", "time_subjects", "portfolios_lookup"}
+_JOB_FILE_TYPE_CORE_KEYS = {"client_provided", "generated_report"}
 _ORG_ROLE_RANKS = {
     "owner": 40,
     "admin": 30,
@@ -154,7 +155,7 @@ def list_lookup_items(
         "payment_terms_lookup", "time_subjects", "portfolios_lookup",
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
-        "bd_bin_reasons_lookup"
+        "bd_bin_reasons_lookup", "job_file_types_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -218,6 +219,16 @@ def list_lookup_items(
                 , active_params).df()
             elif table_name in ("job_item_categories_lookup", "uom_lookup", "bd_bin_reasons_lookup"):
                 df = con.execute(f"SELECT * FROM {query_table} {active_filter} ORDER BY sort_order, name", active_params).df()
+            elif table_name == "job_file_types_lookup":
+                df = con.execute(
+                    f"""
+                    SELECT file_type_id, file_type_key, display_name, storage_folder_key, sort_order, is_active
+                    FROM {query_table}
+                    {active_filter}
+                    ORDER BY sort_order, display_name
+                    """,
+                    active_params,
+                ).df()
             else:
                 # Try to order by name, fallback to no ordering if column doesn't exist
                 try:
@@ -259,7 +270,7 @@ def permanently_delete_lookup_item(
         "payment_terms_lookup", "time_subjects", "portfolios_lookup",
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
-        "bd_bin_reasons_lookup"
+        "bd_bin_reasons_lookup", "job_file_types_lookup",
     ]
 
     if table_name not in allowed_tables:
@@ -279,6 +290,7 @@ def permanently_delete_lookup_item(
         "job_item_categories_lookup": "category_id",
         "uom_lookup": "uom_id",
         "bd_bin_reasons_lookup": "bin_reason_id",
+        "job_file_types_lookup": "file_type_id",
     }
     id_col = id_col_map.get(table_name)
     if not id_col:
@@ -288,6 +300,13 @@ def permanently_delete_lookup_item(
         with get_conn() as con:
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
             _ensure_lookup_table(con, table_name, org_id)
+            if table_name == "job_file_types_lookup":
+                key_row = con.execute(
+                    "SELECT file_type_key FROM job_file_types_lookup WHERE file_type_id = %s",
+                    [int(item_id)],
+                ).fetchone()
+                if key_row and str(key_row[0] or "").strip().lower() in _JOB_FILE_TYPE_CORE_KEYS:
+                    raise HTTPException(status_code=400, detail="System job file types cannot be deleted")
             where_clause = f"WHERE {id_col} = %s"
             params = [int(item_id)]
             if org_id is not None:
@@ -325,7 +344,7 @@ def create_lookup_item(
         "payment_terms_lookup", "time_subjects", "portfolios_lookup",
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
-        "bd_bin_reasons_lookup"
+        "bd_bin_reasons_lookup", "job_file_types_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -405,6 +424,28 @@ def create_lookup_item(
                         body.get("sort_order", 0)
                     ],
                 )
+            elif table_name == "job_file_types_lookup":
+                file_type_key = str(body.get("file_type_key", "")).strip()
+                display_name = str(body.get("display_name", "")).strip()
+                storage_folder_key = str(body.get("storage_folder_key", "")).strip() or "client-provided"
+                if not file_type_key:
+                    raise HTTPException(status_code=400, detail="File type key is required")
+                if not display_name:
+                    raise HTTPException(status_code=400, detail="Display name is required")
+                sort_order = int(body.get("sort_order", 0) or 0)
+                con.execute(
+                    """
+                    INSERT INTO job_file_types_lookup (file_type_key, display_name, storage_folder_key, sort_order, is_active)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    [
+                        file_type_key,
+                        display_name,
+                        storage_folder_key,
+                        sort_order,
+                        body.get("is_active", True),
+                    ],
+                )
             elif table_name in _ORG_SCOPED_LOOKUP_TABLES:
                 name = str(body.get("name", "")).strip()
                 if not name:
@@ -465,7 +506,7 @@ def update_lookup_item(
         "payment_terms_lookup", "time_subjects", "portfolios_lookup",
         "industries_lookup", "currency_lookup", "positions_lookup",
         "processes_lookup", "job_item_categories_lookup", "uom_lookup",
-        "bd_bin_reasons_lookup"
+        "bd_bin_reasons_lookup", "job_file_types_lookup",
     ]
     
     if table_name not in allowed_tables:
@@ -486,6 +527,7 @@ def update_lookup_item(
         "job_item_categories_lookup": "category_id",
         "uom_lookup": "uom_id",
         "bd_bin_reasons_lookup": "bin_reason_id",
+        "job_file_types_lookup": "file_type_id",
     }
     
     id_col = id_col_map.get(table_name)
@@ -497,6 +539,25 @@ def update_lookup_item(
             org_id = require_org(_user) if table_name in _ORG_SCOPED_LOOKUP_TABLES else None
             _ensure_lookup_table(con, table_name, org_id)
             org_match = str(org_id or "").strip()
+            current_row = None
+            if table_name == "job_file_types_lookup":
+                current_row = con.execute(
+                    """
+                    SELECT file_type_key, display_name, storage_folder_key, sort_order, is_active
+                    FROM job_file_types_lookup
+                    WHERE file_type_id = %s
+                    """,
+                    [int(item_id)],
+                ).fetchone()
+                if not current_row:
+                    raise HTTPException(status_code=404, detail="Lookup item not found")
+                current_key = str(current_row[0] or "").strip().lower()
+                if "file_type_key" in body:
+                    new_key = str(body["file_type_key"]).strip().lower()
+                    if new_key != current_key:
+                        raise HTTPException(status_code=400, detail="File type key cannot be changed after creation")
+                if body.get("is_active") is False and current_key in _JOB_FILE_TYPE_CORE_KEYS:
+                    raise HTTPException(status_code=400, detail="System job file types cannot be archived")
             # Build update query
             updates = []
             params = []
@@ -529,6 +590,17 @@ def update_lookup_item(
                 if "exchange_rate" in body:
                     updates.append("exchange_rate = %s")
                     params.append(float(body["exchange_rate"] or 1.0))
+
+            if table_name == "job_file_types_lookup":
+                if "display_name" in body:
+                    updates.append("display_name = %s")
+                    params.append(str(body["display_name"]).strip())
+                if "storage_folder_key" in body:
+                    updates.append("storage_folder_key = %s")
+                    params.append(str(body["storage_folder_key"]).strip() or "client-provided")
+                if "sort_order" in body:
+                    updates.append("sort_order = %s")
+                    params.append(int(body["sort_order"] or 0))
             
             # Allow updating estimated_hours for job_types
             if table_name == "job_types" and "estimated_hours" in body:
