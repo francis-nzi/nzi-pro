@@ -103,11 +103,20 @@ type SiteOverallRow = {
   pct_total?: number | null;
 };
 
+type SiteScopeRow = {
+  site_name?: string | null;
+  scope_1?: number | null;
+  scope_2?: number | null;
+  scope_3?: number | null;
+  total?: number | null;
+};
+
 type SiteBreakdowns = {
   show_site_tables?: boolean;
   show_appendix?: boolean;
   site_count?: number;
   overall?: SiteOverallRow[];
+  scope?: SiteScopeRow[];
   appendix_rows?: AppendixRow[];
 };
 
@@ -1246,7 +1255,153 @@ export default function JobAdvancedReports({
         </Card>
 
 
-        {/* ── 5. Emissions by activity ───────────────────────────────────── */}
+        {/* ── 5. Analysis by Scope ───────────────────────────────────────── */}
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Analysis by Scope" />
+          </CardHeader>
+          <CardContent className="space-y-6">
+
+            {/* Emissions by Scope: donut + legend */}
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
+              <div className="flex gap-10 items-center justify-center">
+                <div className="relative w-[220px] h-[220px] flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={scopeDonutData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius="65%"
+                        outerRadius="90%"
+                        paddingAngle={2}
+                      >
+                        {scopeDonutData.map(entry => (
+                          <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-gray-800">{fmt(totalEmissions, 2)}</div>
+                      <div className="text-xs text-gray-400">tCO₂e</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {SCOPE_LABELS.map(s => {
+                    const v = toNum(scope_totals?.[s]);
+                    const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
+                    return (
+                      <div key={s} className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-sm flex-shrink-0" style={{ backgroundColor: SCOPE_COLORS[s] }} />
+                        <span className="text-sm text-gray-700">{s}: {fmt(v, 2)} tCO₂e ({pct.toFixed(1)}%)</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Scope Descriptions table */}
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
+              <div className="overflow-hidden rounded-lg border border-gray-200">
+                <div className="grid grid-cols-[52px_1fr_90px_58px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white">Description</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">tCO₂e</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
+                </div>
+                {([
+                  {
+                    scope: "1",
+                    desc: "Scope 1 emissions includes fuels used at company premises and company vehicles.",
+                    value: scope1,
+                  },
+                  {
+                    scope: "2",
+                    desc: "Emissions in scope 2 includes electricity used at the company's premises.",
+                    value: scope2,
+                  },
+                  {
+                    scope: "3",
+                    desc: "Scope 3 emissions include Business Travel, Employee Commuting, Waste, Purchased Goods and Services and all other activities of a business",
+                    value: scope3,
+                  },
+                ] as { scope: string; desc: string; value: number }[]).map((row, i) => {
+                  const pct = totalEmissions > 0 ? (row.value / totalEmissions) * 100 : 0;
+                  return (
+                    <div
+                      key={row.scope}
+                      className={`grid grid-cols-[52px_1fr_90px_58px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                    >
+                      <span className="text-xs font-medium text-gray-700">{row.scope}</span>
+                      <span className="text-xs text-gray-700 pr-4">{row.desc}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(row.value, 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
+                    </div>
+                  );
+                })}
+                <div className="grid grid-cols-[52px_1fr_90px_58px] border-t border-gray-200 px-3 py-2 bg-gray-50">
+                  <span className="text-xs font-semibold uppercase text-gray-700">Total</span>
+                  <span />
+                  <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                  <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Site Breakdown by Scope */}
+            {(site_breakdowns?.scope?.length ?? 0) > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-gray-700 mb-2">Site Breakdown by Scope</p>
+                <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-[1fr_80px_80px_80px_80px] px-3 py-2" style={{ backgroundColor: BRAND }}>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white">Site</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Scope 1</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Scope 2</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Scope 3</span>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Total</span>
+                  </div>
+                  {site_breakdowns?.scope?.map((row, i) => (
+                    <div
+                      key={i}
+                      className={`grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
+                    >
+                      <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_1), 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_2), 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_3), 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-[1fr_80px_80px_80px_80px] border-t border-gray-200 px-3 py-2 bg-gray-50">
+                    <span className="text-xs font-semibold text-gray-700">Total</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope1, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope2, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope3, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Scope 3 note */}
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+              <p className="text-xs italic text-gray-600">
+                Reported Scope 3 emissions may increase in future years as more detailed data and information become available.
+              </p>
+            </div>
+
+          </CardContent>
+        </Card>
+
+
+        {/* ── 6. Emissions by activity ───────────────────────────────────── */}
         {activityBarData.length > 0 && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
