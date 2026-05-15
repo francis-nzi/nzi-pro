@@ -850,7 +850,17 @@ def _resolve_commuting_original_id(mode_value: str, service_value: str, unit_val
     if not unit:
         unit = _default_unit_for_mode(mode) or ""
 
-    original_id = COMMUTE_FACTOR_MAP.get((mode, variant, unit))
+    candidate_keys = [(mode, variant, unit)]
+    if mode in {"taxis", "bus", "rail", "ferry", "walking", "cycling"} and unit in {"miles", "km"}:
+        alternate_unit = "km" if unit == "miles" else "miles"
+        candidate_keys.append((mode, variant, alternate_unit))
+
+    original_id = None
+    for candidate_key in candidate_keys:
+        original_id = COMMUTE_FACTOR_MAP.get(candidate_key)
+        if original_id:
+            break
+
     if not original_id:
         return None, mode, variant, "This commute mode/service combination does not match an emissions factor"
 
