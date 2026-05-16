@@ -1127,10 +1127,10 @@ export default function JobAdvancedReports({
             )}
 
             {/* Donut + scope table */}
-            <div className="grid grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
+            <div className="grid grid-cols-[300px_minmax(0,1fr)] gap-8 items-start">
 
               {/* Donut — Insights style */}
-              <div className="relative mx-auto aspect-square w-full max-w-[300px]">
+              <div className="relative aspect-square w-[300px] flex-shrink-0">
                 <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
                     <Pie
@@ -1160,7 +1160,7 @@ export default function JobAdvancedReports({
               <div className="space-y-2">
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   {/* Header */}
-                  <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                  <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                     <span className="text-xs font-semibold text-gray-500">Scope</span>
                     <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
                     <div className="text-right text-xs font-semibold text-gray-500">%</div>
@@ -1169,7 +1169,7 @@ export default function JobAdvancedReports({
                     const v = toNum(scope_totals?.[s]);
                     const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
                     return (
-                      <div key={s} className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                      <div key={s} className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
                         <div className="flex items-center gap-2">
                           <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
                           <span className="text-xs text-gray-500">{s}</span>
@@ -1180,7 +1180,7 @@ export default function JobAdvancedReports({
                     );
                   })}
                   {/* Total row */}
-                  <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                  <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
                     <span className="text-xs font-semibold text-gray-600">Total</span>
                     <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
                     <div className="text-right text-xs text-gray-500">100.0%</div>
@@ -1497,8 +1497,8 @@ export default function JobAdvancedReports({
             {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="grid grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
-                <div className="relative mx-auto aspect-square w-full max-w-[300px]">
+              <div className="grid grid-cols-[300px_minmax(0,1fr)] gap-8 items-start">
+                <div className="relative aspect-square w-[300px] flex-shrink-0">
                   <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
                       <Pie
@@ -1525,7 +1525,7 @@ export default function JobAdvancedReports({
                 </div>
                 <div className="space-y-2">
                   <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                    <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                       <span className="text-xs font-semibold text-gray-500">Scope</span>
                       <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
                       <div className="text-right text-xs font-semibold text-gray-500">%</div>
@@ -1534,7 +1534,7 @@ export default function JobAdvancedReports({
                       const v = toNum(scope_totals?.[s]);
                       const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
                       return (
-                        <div key={s} className="grid grid-cols-[1fr_100px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                        <div key={s} className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
                           <div className="flex items-center gap-2">
                             <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
                             <span className="text-xs text-gray-500">{s}</span>
@@ -1544,7 +1544,7 @@ export default function JobAdvancedReports({
                         </div>
                       );
                     })}
-                    <div className="grid grid-cols-[1fr_100px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                    <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
                       <span className="text-xs font-semibold text-gray-600">Total</span>
                       <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
                       <div className="text-right text-xs text-gray-500">100.0%</div>
