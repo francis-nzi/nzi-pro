@@ -898,8 +898,6 @@ export default function JobAdvancedReports({
             font-weight: 600;
             color: #1c3a2c;
             font-family: Arial, sans-serif;
-            padding-bottom: 2mm;
-            border-bottom: 0.5pt solid #c8d8c8;
             vertical-align: bottom;
           }
           @bottom-left {
@@ -1127,7 +1125,7 @@ export default function JobAdvancedReports({
             )}
 
             {/* Donut + scope table */}
-            <div className="grid grid-cols-[300px_minmax(0,1fr)] gap-8 items-start">
+            <div className="grid grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
 
               {/* Donut — Insights style */}
               <div className="relative aspect-square w-[300px] flex-shrink-0">
@@ -1497,7 +1495,7 @@ export default function JobAdvancedReports({
             {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="grid grid-cols-[300px_minmax(0,1fr)] gap-8 items-start">
+              <div className="grid grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
                 <div className="relative aspect-square w-[300px] flex-shrink-0">
                   <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
