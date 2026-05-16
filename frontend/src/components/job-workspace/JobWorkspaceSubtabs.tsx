@@ -33,7 +33,7 @@ export default function JobWorkspaceSubtabs({ activeSubtab, subtabs, onSubtabCha
   };
 
   return (
-    <div className="border-b border-slate-200/80 pb-1">
+    <div className="border-b border-slate-200/80 pb-1 print:hidden">
       <div className="md:hidden">
         <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.22em] text-slate-500">
           Section

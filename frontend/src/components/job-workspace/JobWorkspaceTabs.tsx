@@ -13,7 +13,7 @@ type JobWorkspaceTabsProps = {
 
 export default function JobWorkspaceTabs({ activeTab, tabs, onTabChange }: JobWorkspaceTabsProps) {
   return (
-    <div className="border-b border-slate-200/80">
+    <div className="border-b border-slate-200/80 print:hidden">
       <div className="flex flex-nowrap items-end gap-5 overflow-x-auto px-1 pb-1">
         {tabs.map((tab) => {
           const active = activeTab === tab.key;

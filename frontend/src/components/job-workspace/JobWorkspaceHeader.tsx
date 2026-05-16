@@ -55,7 +55,7 @@ export default function JobWorkspaceHeader({
     : "";
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 print:hidden">
       <nav className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
         {breadcrumbs.map((crumb, index) => (
           <div key={`${crumb.label}-${index}`} className="flex items-center gap-2">
