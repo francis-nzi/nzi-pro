@@ -1125,7 +1125,7 @@ export default function JobAdvancedReports({
             )}
 
             {/* Donut + scope table */}
-            <div className="grid grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
+            <div className="mx-auto grid w-fit grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
 
               {/* Donut — Insights style */}
               <div className="relative aspect-square w-[300px] flex-shrink-0">
@@ -1495,7 +1495,7 @@ export default function JobAdvancedReports({
             {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="grid grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
+              <div className="mx-auto grid w-fit grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
                 <div className="relative aspect-square w-[300px] flex-shrink-0">
                   <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
