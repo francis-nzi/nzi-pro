@@ -871,28 +871,75 @@ export default function JobAdvancedReports({
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
+  const printClientName = String(data.job_data?.client_name ?? "").replace(/['"\\]/g, "");
+  const printPeriodStart = formatDate(data.job_data?.reporting_period_start ?? "");
+  const printPeriodEnd = formatDate(data.job_data?.reporting_period_end ?? "");
+  const printHeaderLine1 = printPeriodStart && printPeriodEnd
+    ? `Carbon Reduction Plan  ${printPeriodStart} – ${printPeriodEnd}`
+    : "Carbon Reduction Plan";
+  const printHeaderLine2 = printClientName;
+
   return (
     <>
       {/* Print CSS */}
       <style jsx global>{`
-        @media print {
-          @page {
-            size: A4;
-            margin: 20mm;
+        @page {
+          size: A4;
+          margin-top: 22mm;
+          margin-right: 15mm;
+          margin-bottom: 22mm;
+          margin-left: 15mm;
+        }
+        @page {
+          @top-left {
+            content: "${printHeaderLine1}\\A ${printHeaderLine2}";
+            white-space: pre;
+            font-size: 8.5pt;
+            font-weight: 600;
+            color: #1c3a2c;
+            font-family: Arial, sans-serif;
+            padding-bottom: 2mm;
+            border-bottom: 0.5pt solid #c8d8c8;
+            vertical-align: bottom;
           }
+          @bottom-left {
+            content: "\\00A9 Net Zero International";
+            font-size: 8pt;
+            color: #666;
+            font-family: Arial, sans-serif;
+            vertical-align: top;
+          }
+          @bottom-right {
+            content: counter(page);
+            font-size: 8pt;
+            color: #666;
+            font-family: Arial, sans-serif;
+            vertical-align: top;
+          }
+        }
+        @page :first {
+          @top-left {
+            content: none;
+            border-bottom: none;
+          }
+        }
+        @media print {
           .advanced-report-controls {
             display: none !important;
           }
           .live-report-section {
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-inside: auto;
+            page-break-inside: auto;
             width: 100% !important;
           }
-          .recharts-responsive-container,
-          .recharts-wrapper,
-          .recharts-surface,
-          svg {
+          .recharts-responsive-container {
+            overflow: visible !important;
             width: 100% !important;
+          }
+          .recharts-wrapper {
+            overflow: visible !important;
+          }
+          .recharts-surface {
             overflow: visible !important;
           }
         }
