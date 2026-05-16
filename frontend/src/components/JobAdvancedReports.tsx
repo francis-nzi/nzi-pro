@@ -885,9 +885,9 @@ export default function JobAdvancedReports({
       <style jsx global>{`
         @page {
           size: A4;
-          margin-top: 30mm;
+          margin-top: 18mm;
           margin-right: 15mm;
-          margin-bottom: 30mm;
+          margin-bottom: 18mm;
           margin-left: 15mm;
         }
         @page {
@@ -898,30 +898,33 @@ export default function JobAdvancedReports({
             font-weight: 600;
             color: #1c3a2c;
             font-family: Arial, sans-serif;
-            vertical-align: bottom;
+            vertical-align: top;
           }
           @bottom-left {
-            content: "\\00A9 Net Zero International";
+            content: "© Net Zero International";
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
-            vertical-align: top;
+            vertical-align: bottom;
           }
           @bottom-right {
             content: counter(page);
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
-            vertical-align: top;
+            vertical-align: bottom;
           }
         }
         @page :first {
           @top-left {
             content: none;
-            border-bottom: none;
           }
         }
         @media print {
+          * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           .advanced-report-controls {
             display: none !important;
           }
