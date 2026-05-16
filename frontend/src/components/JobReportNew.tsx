@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import ReportVariablesPanel from "@/components/job-workspace/ReportVariablesPanel";
 import { LiveDataPDFExport } from "@/components/LiveDataPDFExport";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, CheckCircle2, CircleX, FileText, Sparkles, Target } from "lucide-react";
@@ -1251,6 +1252,8 @@ export default function JobReportNew({
       </Card>
 
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
+
+      <ReportVariablesPanel jobId={jobId} baseUrl={baseUrl ?? "/api/backend"} />
 
       <div className="space-y-6">
         <div className="space-y-6">

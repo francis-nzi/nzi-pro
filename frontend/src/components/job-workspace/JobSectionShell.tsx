@@ -60,7 +60,6 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   setup: [
     { key: "setup-overview", label: "Setup Overview", href: "/jobs/__JOB_ID__/setup" },
     { key: "setup-custom-fields", label: "Custom Fields", href: "/jobs/__JOB_ID__/setup" },
-    { key: "setup-report-variables", label: "Job Report Variables", href: "/jobs/__JOB_ID__/setup" },
   ],
   data: [
     { key: "data-entry", label: "Data Entry", href: "/jobs/__JOB_ID__/data-entry" },
@@ -78,8 +77,8 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
     { key: "actions", label: "Actions", href: "/jobs/__JOB_ID__?tab=actions" },
   ],
   report: [
-    { key: "report-new",       label: "Report (New)",      href: "/jobs/__JOB_ID__/report-new" },
-    { key: "advanced-reports", label: "Advanced Reports",  href: "/jobs/__JOB_ID__/advanced-reports" },
+    { key: "report-new",       label: "Report Preparation", href: "/jobs/__JOB_ID__/report-new" },
+    { key: "advanced-reports", label: "Report Printing",    href: "/jobs/__JOB_ID__/advanced-reports" },
   ],
   analysis: [{ key: "lca", label: "Life Cycle Analysis", href: "/jobs/__JOB_ID__/lca" }],
   insights: [],

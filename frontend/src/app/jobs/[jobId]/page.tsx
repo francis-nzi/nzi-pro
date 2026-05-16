@@ -9,7 +9,6 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
 import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
 import JobWorkspaceSubtabs from "@/components/job-workspace/JobWorkspaceSubtabs";
-import JobReportVariablesSection from "@/components/job-workspace/JobReportVariablesSection";
 import JobSetupOverviewSection from "@/components/job-workspace/JobSetupOverviewSection";
 import JobScopeDatasetSection from "@/components/job-workspace/JobScopeDatasetSection";
 import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
@@ -715,6 +714,7 @@ export default function JobDetailPage() {
           "spend-data": `/jobs/${jobId}/data-entry/spend-data`,
           "notes": `/jobs/${jobId}/data-entry/notes`,
           "report-new": `/jobs/${jobId}/report-new`,
+          "advanced-reports": `/jobs/${jobId}/advanced-reports`,
           "communications-timeline": `/jobs/${jobId}/communications/timeline`,
           "communications-inbox": `/jobs/${jobId}/communications/inbox`,
           "communications-notes": `/jobs/${jobId}/communications/notes`,
@@ -893,21 +893,6 @@ export default function JobDetailPage() {
                   <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
                 </CardContent>
               </Card>
-
-              {/* Job Report Variables */}
-              <JobReportVariablesSection
-                fieldsBySection={reportMetadataFieldsBySection}
-                fieldValues={reportMetadataValues}
-                consultantOptions={consultantOptions}
-                apiUnavailable={reportMetadataApiUnavailable}
-                saving={savingReportMetadata}
-                status={reportMetadataStatus}
-                onValueChange={(fieldKey, nextValue) => {
-                  setReportMetadataValues((prev) => ({ ...prev, [fieldKey]: nextValue }));
-                }}
-                onSave={workspaceActions.saveReportMetadata}
-                hasFields={reportMetadataFieldsForSetup.length > 0}
-              />
 
               {/* Scope Dataset Configuration */}
               <JobScopeDatasetSection

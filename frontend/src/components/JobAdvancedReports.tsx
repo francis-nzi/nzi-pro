@@ -648,6 +648,7 @@ export default function JobAdvancedReports({
   const [versions, setVersions] = useState<ReactReportVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState<"crp" | "secr">("crp");
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -952,9 +953,26 @@ export default function JobAdvancedReports({
 
       {/* Control bar */}
       <div className="advanced-report-controls mb-1 rounded-lg border border-gray-200 bg-white shadow-sm">
+        {/* Template selector */}
+        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-2">
+          <span className="text-xs font-medium text-gray-500 mr-1">Template:</span>
+          {(["crp", "secr"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTemplate(t)}
+              className={`rounded-full px-3 py-0.5 text-xs font-semibold transition-colors ${
+                activeTemplate === t
+                  ? "bg-green-700 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {t === "crp" ? "Carbon Reduction Plan" : "SECR"}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center justify-between px-5 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-gray-700">Advanced Reports</h2>
+            <h2 className="text-sm font-semibold text-gray-700">Report Printing</h2>
             <p className="mt-0.5 text-xs text-gray-400">
               React / Playwright renderer · vector charts · A4 print layout
             </p>
@@ -1103,6 +1121,8 @@ export default function JobAdvancedReports({
 
       {/* Report preview */}
       <div className="advanced-report-preview space-y-6">
+
+        {activeTemplate === "crp" && <>
 
         {/* ── 1. Cover page ──────────────────────────────────────────────── */}
         <CoverPage data={data} />
@@ -2346,6 +2366,239 @@ export default function JobAdvancedReports({
             </CardContent>
           </Card>
         )}
+
+        </>}
+
+        {activeTemplate === "secr" && <>
+
+          {/* ── SECR: Cover page ───────────────────────────────────────────── */}
+          <CoverPage data={data} />
+
+          {/* ── SECR: Executive Summary ────────────────────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Executive Summary" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {execSummaryText ? (
+                <div className="space-y-3">
+                  {execSummaryText.split(/\n\n+/).map((para, i) => (
+                    <p key={i} className="text-sm text-gray-700 leading-relaxed">{para.trim()}</p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">
+                  Executive summary not yet drafted. Generate AI content in Report Preparation → AI Drafts.
+                </p>
+              )}
+              <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
+                  <div className="mt-1 text-xs text-gray-500">Total tCO₂e</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {fmt(toNum(report_metadata?.energy_consumption_uk_kwh) + toNum(report_metadata?.energy_consumption_non_uk_kwh))}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">Total kWh energy</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {fmt(toNum(report_metadata?.renewable_energy_kwh))}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">Renewable kWh</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── SECR: Energy Consumption & Emissions ───────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Energy Consumption and Emissions" />
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                The following table sets out {data.job_data?.client_name ?? "the organisation"}&apos;s energy consumption
+                and associated greenhouse gas emissions for the reporting period in accordance with the Streamlined Energy
+                and Carbon Reporting (SECR) requirements under the Companies Act 2006.
+              </p>
+              <div className="overflow-hidden rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="py-2.5 pl-4 text-left text-xs font-semibold text-gray-500">Category</th>
+                      <th className="py-2.5 pr-4 text-right text-xs font-semibold text-gray-500">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: "UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_uk_kwh)), unit: "kWh" },
+                      { label: "Non-UK Energy Consumption (kWh)", value: fmt(toNum(report_metadata?.energy_consumption_non_uk_kwh)), unit: "kWh" },
+                      { label: "Renewable Energy (kWh)", value: fmt(toNum(report_metadata?.renewable_energy_kwh)), unit: "kWh" },
+                      { label: "Energy Emissions — Location-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_tco2e)), unit: "tCO₂e" },
+                      { label: "Energy Emissions — Market-based (tCO₂e)", value: fmt(toNum(report_metadata?.energy_emissions_market_tco2e)), unit: "tCO₂e" },
+                      { label: "Total Scope 1 & 2 Emissions (tCO₂e)", value: fmt(toNum(scope_totals?.["Scope 1"]) + toNum(scope_totals?.["Scope 2"])), unit: "tCO₂e" },
+                      { label: "Total Greenhouse Gas Emissions (tCO₂e)", value: fmt(totalEmissions), unit: "tCO₂e" },
+                    ].map((row, i) => (
+                      <tr key={i} className="border-b border-gray-50 last:border-0">
+                        <td className="py-2.5 pl-4 text-xs text-gray-700">{row.label}</td>
+                        <td className="py-2.5 pr-4 text-right text-xs font-semibold text-gray-800 tabular-nums">
+                          {row.value} <span className="font-normal text-gray-400">{row.unit}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {report_metadata?.energy_reporting_basis ? (
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  <span className="font-semibold">Basis of energy reporting: </span>
+                  {report_metadata?.energy_reporting_basis}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {/* ── SECR: SECR Narrative ───────────────────────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Energy Efficiency and Carbon Reduction Narrative" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {data.job_data?.client_name ?? "The organisation"} has undertaken a review of its energy efficiency
+                measures and carbon reduction activities during the reporting period. The following narrative provides
+                a summary of the principal measures taken to improve energy efficiency.
+              </p>
+              {report_metadata?.emissions_reduction_targets_commentary ? (
+                <div>
+                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-gray-500">
+                    Emissions Reduction Targets
+                  </h4>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {report_metadata?.emissions_reduction_targets_commentary}
+                  </p>
+                </div>
+              ) : null}
+              {report_metadata?.methodologies_used ? (
+                <div>
+                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-gray-500">
+                    Methodologies Used
+                  </h4>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {report_metadata?.methodologies_used}
+                  </p>
+                </div>
+              ) : null}
+              {!report_metadata?.emissions_reduction_targets_commentary && !report_metadata?.methodologies_used && (
+                <p className="text-sm text-gray-400 italic">
+                  SECR narrative not yet completed. Fill in the report variables in Report Preparation.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── SECR: Carbon Reduction Actions ─────────────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Carbon Reduction Actions" />
+            </CardHeader>
+            <CardContent>
+              {(job_actions?.total_actions ?? 0) > 0 ? (
+                <div className="space-y-3">
+                  {(job_actions?.grouped ?? []).flatMap((group, gi) =>
+                    (group.items ?? []).map((item, ii) => (
+                      <div key={`${gi}-${ii}`} className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+                        <span className="mt-0.5 inline-flex flex-shrink-0 items-center rounded-full border border-green-400 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                          {group.label ?? group.term}
+                        </span>
+                        <div>
+                          <div className="text-sm font-medium text-gray-800">{String(item.action_name ?? "")}</div>
+                          {item.description ? (
+                            <div className="mt-0.5 text-xs text-gray-500">{String(item.description)}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">
+                  No carbon reduction actions recorded yet. Add actions in Data → Actions.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── SECR: Methodology & Standards ──────────────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Methodology and Standards" />
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                Greenhouse gas emissions have been calculated in accordance with the GHG Protocol Corporate Standard
+                and the UK Government&apos;s Environmental Reporting Guidelines (including Streamlined Energy and Carbon
+                Reporting guidance). Emission factors are sourced from the UK Government&apos;s GHG Conversion Factors
+                published by the Department for Energy Security and Net Zero (DESNZ).
+              </p>
+              {report_metadata?.datasets_names ? (
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  <span className="font-semibold">Datasets: </span>
+                  {report_metadata?.datasets_names}
+                </p>
+              ) : null}
+              {report_metadata?.data_confidence_commentary ? (
+                <p className="text-sm text-gray-700 leading-relaxed">
+                  <span className="font-semibold">Data confidence: </span>
+                  {report_metadata?.data_confidence_commentary}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {/* ── SECR: Declaration / Sign-off ───────────────────────────────── */}
+          <Card className="live-report-section">
+            <CardHeader className="pb-3">
+              <SectionHeader title="Declaration" />
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                This report has been prepared in accordance with the requirements of the Streamlined Energy and Carbon
+                Reporting (SECR) framework as set out in the Companies Act 2006 (Strategic Report and Directors&apos; Report)
+                Regulations 2018.
+              </p>
+              <div className="grid gap-8 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Prepared by</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.consultant_name ?? "—"}</div>
+                  <div className="text-xs text-gray-500">{report_metadata?.consultant_position ?? ""}</div>
+                  <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
+                  <div className="text-xs text-gray-400">Signature</div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Date: {report_metadata?.consultant_signature_date
+                      ? formatDate(String(report_metadata?.consultant_signature_date))
+                      : "—"}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Authorised by</div>
+                  <div className="text-sm font-medium text-gray-800">{report_metadata?.client_signee_name ?? "—"}</div>
+                  <div className="text-xs text-gray-500">{report_metadata?.client_signee_position ?? ""}</div>
+                  <div className="mt-3 h-px w-40 border-t border-dashed border-gray-300" />
+                  <div className="text-xs text-gray-400">Signature</div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Date: {report_metadata?.client_signature_date
+                      ? formatDate(String(report_metadata?.client_signature_date))
+                      : "—"}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+        </>}
 
       </div>
     </>

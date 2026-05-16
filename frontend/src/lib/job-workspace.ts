@@ -82,7 +82,6 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     subtabs: [
       { key: "setup-overview", label: "Setup Overview" },
       { key: "setup-custom-fields", label: "Custom Fields" },
-      { key: "setup-report-variables", label: "Job Report Variables" },
     ],
   },
   {
@@ -114,7 +113,10 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     key: "report",
     label: "Report",
     defaultTab: "report-new",
-    subtabs: [{ key: "report-new", label: "Report (New)" }],
+    subtabs: [
+      { key: "report-new", label: "Report Preparation" },
+      { key: "advanced-reports", label: "Report Printing" },
+    ],
   },
   {
     key: "analysis",
@@ -178,6 +180,7 @@ export const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
   "data-output": "outputs",
   actions: "outputs",
   "report-new": "report",
+  "advanced-reports": "report",
   reporting: "report",
   lca: "analysis",
   insights: "insights",

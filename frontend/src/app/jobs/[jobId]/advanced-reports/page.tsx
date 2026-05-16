@@ -36,7 +36,7 @@ function AdvancedReportsInner() {
     <JobSectionShell
       jobId={jobId}
       baseUrl={apiBaseUrl()}
-      sectionLabel="Advanced Reports"
+      sectionLabel="Report Printing"
       sectionHref={`/jobs/${jobId}/advanced-reports`}
       activeGroup="report"
       activeSubtab="advanced-reports"

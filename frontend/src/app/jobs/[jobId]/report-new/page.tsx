@@ -18,7 +18,7 @@ export default function JobReportNewPage() {
     <JobSectionShell
       jobId={jobId}
       baseUrl={apiBaseUrl()}
-      sectionLabel="Report (New)"
+      sectionLabel="Report Preparation"
       sectionHref={`/jobs/${jobId}/report-new`}
       activeGroup="report"
       activeSubtab="report-new"
