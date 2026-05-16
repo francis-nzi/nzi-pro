@@ -812,6 +812,7 @@ export default function JobAdvancedReports({
 
   const execSummaryText = String(template_variables?.executive_summary ?? "").trim();
   const footprintSummaryText = String(template_variables?.footprint_summary ?? "").trim();
+  const actionsNarrativeText = String(template_variables?.reduction_projects ?? "").trim();
 
   const totalEmissions = toNum(summary?.current_total ?? scope_totals?.Total);
   const scope1 = toNum(scope_totals?.["Scope 1"]);
@@ -2168,6 +2169,16 @@ export default function JobAdvancedReports({
                   )}
               </div>
             </div>
+
+            {actionsNarrativeText && (
+              <div className="space-y-2">
+                {actionsNarrativeText.split(/\n\n+/).map((para, i) => (
+                  <p key={i} className="text-sm text-gray-700 leading-relaxed">
+                    {para.trim()}
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
