@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import EmissionsSummary from "@/components/EmissionsSummary";
+import ReportingElements from "@/components/ReportingElements";
 import ReportVariablesPanel from "@/components/job-workspace/ReportVariablesPanel";
 import { LiveDataPDFExport } from "@/components/LiveDataPDFExport";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, CircleX, FileText, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Sparkles, Target } from "lucide-react";
 import { apiUrl } from "@/lib/auth-client";
 
 type ReportTemplate = {
@@ -438,6 +440,53 @@ function loadStoredDraftCanvas(raw: string | null, profile: ReportProfile): {
   return { notes, origins, providers };
 }
 
+function AccordionSection({
+  stageNum,
+  title,
+  description,
+  isOpen,
+  onToggle,
+  children,
+  id,
+}: {
+  stageNum: number;
+  title: string;
+  description?: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  id?: string;
+}) {
+  return (
+    <Card id={id}>
+      <CardHeader
+        className="cursor-pointer select-none"
+        onClick={onToggle}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              Stage {stageNum}
+            </Badge>
+            <CardTitle className="text-base">{title}</CardTitle>
+          </div>
+          <ChevronDown
+            className={`h-4 w-4 flex-shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+        {description ? (
+          <CardDescription className="mt-1">{description}</CardDescription>
+        ) : null}
+      </CardHeader>
+      {isOpen ? (
+        <CardContent className="space-y-4 pt-0">
+          {children}
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
 export default function JobReportNew({
   jobId,
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "",
@@ -469,6 +518,17 @@ export default function JobReportNew({
   const [reportVersionBusy, setReportVersionBusy] = useState<{ id: number; kind: "download" | "snapshot" } | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [openSections, setOpenSections] = useState<Set<string>>(
+    () => new Set(["stage-2", "stage-3", "stage-4", "stage-5", "stage-6"])
+  );
+  const toggleSection = useCallback((key: string) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -1222,12 +1282,12 @@ export default function JobReportNew({
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  document.getElementById("stage-2-profile")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  document.getElementById("stage-4-profile")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
                 className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white"
               >
                 <FileText className="h-4 w-4" />
-                Jump to stage 2
+                Jump to Stage 4
               </Button>
             </div>
           </div>
@@ -1253,23 +1313,37 @@ export default function JobReportNew({
 
       {showEmissionsSummary ? <EmissionsSummary jobId={jobId} baseUrl={baseUrl} /> : null}
 
-      <ReportVariablesPanel jobId={jobId} baseUrl={baseUrl ?? "/api/backend"} />
+      {/* ── Stage 2: Organisation Data ─────────────────────────────────── */}
+      <AccordionSection
+        stageNum={2}
+        title="Organisation Data"
+        description="Staff count, premises and vehicle numbers used in the Background &amp; Organisation section of the report."
+        isOpen={openSections.has("stage-2")}
+        onToggle={() => toggleSection("stage-2")}
+      >
+        <ReportingElements jobId={jobId} baseUrl={baseUrl ?? "/api/backend"} />
+      </AccordionSection>
 
-      <div className="space-y-6">
-        <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                Stage 2
-              </Badge>
-              <CardTitle>Choose report profile</CardTitle>
-            </div>
-            <CardDescription>
-              Start with the report family, then shape the draft and visuals around the profile.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* ── Stage 3: Report Variables ──────────────────────────────────── */}
+      <AccordionSection
+        stageNum={3}
+        title="Report Variables"
+        description="Boundary controls, energy figures, narrative commentary, sign-off details and other metadata used by report templates."
+        isOpen={openSections.has("stage-3")}
+        onToggle={() => toggleSection("stage-3")}
+      >
+        <ReportVariablesPanel jobId={jobId} baseUrl={baseUrl ?? "/api/backend"} />
+      </AccordionSection>
+
+      {/* ── Stage 4: Choose Report Profile ────────────────────────────── */}
+      <AccordionSection
+        stageNum={4}
+        title="Choose report profile"
+        description="Start with the report family, then shape the draft and visuals around the profile."
+        isOpen={openSections.has("stage-4")}
+        onToggle={() => toggleSection("stage-4")}
+        id="stage-4-profile"
+      >
             <div className="grid gap-4 md:grid-cols-2">
               {PROFILE_LIBRARY.map((profile) => {
                 const template = templates.find((item) => item.template_key === profile.templateKey);
@@ -1327,22 +1401,16 @@ export default function JobReportNew({
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
+      </AccordionSection>
 
-        <Card>
-          <CardHeader className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="bg-slate-50 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                Stage 3
-              </Badge>
-              <CardTitle>Draft Content</CardTitle>
-            </div>
-            <CardDescription>
-              Work one section at a time. The navigator keeps the other sections visible without forcing a long scroll.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* ── Stage 5: Draft Content ─────────────────────────────────────── */}
+      <AccordionSection
+        stageNum={5}
+        title="Draft Content"
+        description="Work one section at a time. The navigator keeps the other sections visible without forcing a long scroll."
+        isOpen={openSections.has("stage-5")}
+        onToggle={() => toggleSection("stage-5")}
+      >
             <div className="rounded-xl border bg-slate-50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="bg-white">
@@ -1465,27 +1533,26 @@ export default function JobReportNew({
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
-        </div>
+      </AccordionSection>
 
-        <div className="space-y-4 self-start">
-        <Card id="stage-4-preview-export">
-            <CardHeader className="space-y-2">
-              <CardTitle>Stage 4 Preview & Export</CardTitle>
-              <CardDescription>Quick review before you jump into preview/export.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
+      {/* ── Stage 6: Preview & Export ──────────────────────────────────── */}
+      <AccordionSection
+        stageNum={6}
+        title="Preview & Export"
+        description="Quick review before you jump into Report Printing."
+        isOpen={openSections.has("stage-6")}
+        onToggle={() => toggleSection("stage-6")}
+      >
               <div className="rounded-xl border bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="bg-white">
-                    Stage 4 checkpoint
+                    Stage 6 checkpoint
                   </Badge>
                   <Badge variant="outline" className="bg-white">
                     {draftReady ? "Done" : "Not done"}
                   </Badge>
                 </div>
-                <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight into preview/export.</p>
+                <p className="mt-2 text-sm text-slate-600">Confirm the essentials and move straight to Report Printing.</p>
               </div>
 
               {loading ? (
@@ -1684,7 +1751,7 @@ export default function JobReportNew({
 
               <div className="flex flex-wrap gap-3">
                 <Button asChild variant="outline">
-                  <Link href={`/jobs/${jobId}/report-live`}>Open live report</Link>
+                  <Link href={`/jobs/${jobId}/advanced-reports`}>Open Report Printing</Link>
                 </Button>
                 <LiveDataPDFExport
                   jobId={jobId}
@@ -1701,10 +1768,7 @@ export default function JobReportNew({
                   Review Actions
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      </AccordionSection>
     </div>
   );
 }
