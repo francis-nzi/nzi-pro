@@ -2153,63 +2153,58 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 13. Declaration / Sign-off ──────────────────────────────────── */}
-        {(report_metadata?.consultant_name || report_metadata?.client_signee_name) && (
-          <Card className="live-report-section">
-            <CardHeader className="pb-3">
-              <SectionHeader title="Declaration" />
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <p className="text-sm text-gray-600 leading-relaxed">
-                We confirm that the information contained in this report is accurate and prepared
-                in accordance with the GHG Protocol Corporate Standard and the relevant emission
-                factor datasets. This report has been reviewed and approved by the signatories below.
+        <Card className="live-report-section">
+          <CardHeader className="pb-3">
+            <SectionHeader title="Declaration and Sign Off" />
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Independent Verification Statement box */}
+            <div className="rounded-lg border-2 border-red-400 p-5 space-y-3">
+              <p className="text-base font-bold" style={{ color: "#c0392b" }}>
+                Independent Verification Statement
               </p>
-              <div className="grid grid-cols-2 gap-6">
-                {/* Consultant sign-off */}
-                {report_metadata?.consultant_name && (
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
-                      Prepared by
-                    </p>
-                    <p className="text-sm font-semibold text-gray-800">
-                      {report_metadata.consultant_name}
-                    </p>
-                    {report_metadata.consultant_position && (
-                      <p className="text-xs text-gray-500">{report_metadata.consultant_position}</p>
-                    )}
-                    {report_metadata.consultant_signature_date && (
-                      <p className="mt-2 text-xs text-gray-400">
-                        Date: {fmtSignatureDate(report_metadata.consultant_signature_date)}
-                      </p>
-                    )}
-                    <div className="mt-4 h-10 border-b border-dashed border-gray-300" />
-                  </div>
-                )}
+              <p className="text-sm text-gray-700 leading-relaxed">
+                This greenhouse gas emissions report has been prepared in accordance with the GHG
+                Protocol Corporate Accounting and Reporting Standard. The data and calculations have
+                been independently verified by Net Zero International.
+              </p>
+              {(data.job_data.reporting_period_start || data.job_data.reporting_period_end) && (
+                <p className="text-sm text-gray-700">
+                  <span className="font-semibold">Verification Scope:</span>{" "}
+                  All Scope 1, 2, and 3 emissions for the reporting period{" "}
+                  {data.job_data.reporting_period_start ? formatDate(data.job_data.reporting_period_start) : ""}
+                  {data.job_data.reporting_period_start && data.job_data.reporting_period_end ? " to " : ""}
+                  {data.job_data.reporting_period_end ? formatDate(data.job_data.reporting_period_end) : ""}
+                  .
+                </p>
+              )}
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">Assurance Level:</span> Limited Assurance
+              </p>
 
-                {/* Client sign-off */}
-                {report_metadata?.client_signee_name && (
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
-                      Approved by
-                    </p>
-                    <p className="text-sm font-semibold text-gray-800">
-                      {report_metadata.client_signee_name}
-                    </p>
-                    {report_metadata.client_signee_position && (
-                      <p className="text-xs text-gray-500">{report_metadata.client_signee_position}</p>
-                    )}
-                    {report_metadata.client_signature_date && (
-                      <p className="mt-2 text-xs text-gray-400">
-                        Date: {fmtSignatureDate(report_metadata.client_signature_date)}
-                      </p>
-                    )}
-                    <div className="mt-4 h-10 border-b border-dashed border-gray-300" />
-                  </div>
+              {/* Consultant signature */}
+              <div className="pt-3 space-y-1 max-w-xs">
+                {report_metadata?.consultant_name && (
+                  <p className="text-base italic" style={{ fontFamily: "Georgia, serif" }}>
+                    {report_metadata.consultant_name}
+                  </p>
+                )}
+                <div className="border-b border-gray-800 w-56 mb-3" />
+                {report_metadata?.consultant_position && (
+                  <p className="text-xs text-gray-500">{report_metadata.consultant_position}</p>
+                )}
+                {report_metadata?.consultant_name && (
+                  <p className="text-sm text-gray-700">{report_metadata.consultant_name}</p>
+                )}
+                {report_metadata?.consultant_signature_date && (
+                  <p className="text-sm text-gray-700">
+                    {fmtSignatureDate(report_metadata.consultant_signature_date)}
+                  </p>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* ── 14. Glossary ───────────────────────────────────────────────── */}
         {hasGlossary && (
