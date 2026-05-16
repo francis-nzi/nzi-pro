@@ -73,7 +73,7 @@ function renderFieldInput(
   }
 
   if (field.key === "consultant_position") {
-    return <Input id={inputId} type="text" value={value} readOnly className="bg-muted" />;
+    return <Input id={inputId} type="text" value={value} onChange={(e) => onValueChange(field.key, e.target.value)} />;
   }
 
   if (field.field_type === "textarea") {

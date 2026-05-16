@@ -243,6 +243,13 @@ function boolLabel(v: boolean | null | undefined): string {
   return v ? "Yes" : "No";
 }
 
+function fmtSignatureDate(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 // ─── NetZeroTrendChart ────────────────────────────────────────────────────────
 
 function NetZeroTrendChart({
@@ -2179,6 +2186,61 @@ export default function JobAdvancedReports({
                 ))}
               </div>
             )}
+
+            {/* Sign-off */}
+            <div className="grid grid-cols-2 gap-10 pt-4">
+              {/* NZI consultant sign-off */}
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-gray-800">
+                  Signed on behalf of Net Zero International
+                </p>
+                <div>
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Name: </span>
+                    {report_metadata?.consultant_name ?? ""}
+                  </p>
+                </div>
+                <div className="border-b border-gray-400 w-48 mt-6 mb-1" />
+                {report_metadata?.consultant_position && (
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Position: </span>
+                    {report_metadata.consultant_position}
+                  </p>
+                )}
+                {report_metadata?.consultant_signature_date && (
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Date: </span>
+                    {fmtSignatureDate(report_metadata.consultant_signature_date)}
+                  </p>
+                )}
+              </div>
+
+              {/* Client sign-off */}
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-gray-800">
+                  Signed on behalf of {data.job_data.client_name ?? "the organisation"}
+                </p>
+                <div>
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Name: </span>
+                    {report_metadata?.client_signee_name ?? ""}
+                  </p>
+                </div>
+                <div className="border-b border-gray-400 w-48 mt-6 mb-1" />
+                {report_metadata?.client_signee_position && (
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Position: </span>
+                    {report_metadata.client_signee_position}
+                  </p>
+                )}
+                {report_metadata?.client_signature_date && (
+                  <p className="text-sm text-gray-700">
+                    <span className="text-gray-500">Date: </span>
+                    {fmtSignatureDate(report_metadata.client_signature_date)}
+                  </p>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -2247,7 +2309,7 @@ export default function JobAdvancedReports({
                     )}
                     {report_metadata.consultant_signature_date && (
                       <p className="mt-2 text-xs text-gray-400">
-                        Date: {String(report_metadata.consultant_signature_date)}
+                        Date: {fmtSignatureDate(report_metadata.consultant_signature_date)}
                       </p>
                     )}
                     <div className="mt-4 h-10 border-b border-dashed border-gray-300" />
@@ -2268,7 +2330,7 @@ export default function JobAdvancedReports({
                     )}
                     {report_metadata.client_signature_date && (
                       <p className="mt-2 text-xs text-gray-400">
-                        Date: {String(report_metadata.client_signature_date)}
+                        Date: {fmtSignatureDate(report_metadata.client_signature_date)}
                       </p>
                     )}
                     <div className="mt-4 h-10 border-b border-dashed border-gray-300" />

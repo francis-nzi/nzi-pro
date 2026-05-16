@@ -215,11 +215,6 @@ export const AUTO_REPORT_METADATA_FIELDS = new Set<string>([
   "energy_emissions_tco2e",
   "energy_emissions_market_tco2e",
   "carbon_offsets_tco2e",
-  "consultant_name",
-  "consultant_position",
-  "consultant_signature_date",
-  "client_signee_name",
-  "client_signee_position",
 ]);
 
 export const JOB_SETUP_METADATA_KEYS = [
