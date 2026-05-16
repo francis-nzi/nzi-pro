@@ -2204,16 +2204,13 @@ export default function JobAdvancedReports({
                 </tr>
                 <tr className="border-b border-gray-100">
                   <td className="py-2 pr-4 text-gray-500 align-top">Reporting Standard</td>
-                  <td className="py-2 font-medium">ISO 14064-1 / GHG Protocol</td>
+                  <td className="py-2 font-medium">GHG Protocol</td>
                 </tr>
                 <tr className="border-b border-gray-100">
                   <td className="py-2 pr-4 text-gray-500 align-top">Scope Coverage</td>
                   <td className="py-2 font-medium">Scope 1, 2 and 3 (material categories)</td>
                 </tr>
-                <tr className="border-b border-gray-100">
-                  <td className="py-2 pr-4 text-gray-500 align-top">Net-Zero Standard</td>
-                  <td className="py-2 font-medium">SBTi Net-Zero Standard / Science Based Targets</td>
-                </tr>
+
                 <tr>
                   <td className="py-2 pr-4 text-gray-500 align-top">Prepared by</td>
                   <td className="py-2 font-medium">Net Zero International Limited</td>
