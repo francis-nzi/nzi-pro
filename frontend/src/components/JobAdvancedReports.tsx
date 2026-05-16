@@ -233,7 +233,7 @@ function fmt(v: number, dp = 1): string {
 }
 
 function fmtEnergy(kwh: number): string {
-  if (kwh >= 1_000_000) return `${fmt(kwh / 1_000_000, 2)} GWh`;
+  if (kwh >= 1_000_000) return `${fmt(kwh / 1_000_000)} GWh`;
   if (kwh >= 1_000) return `${fmt(kwh / 1_000, 1)} MWh`;
   return `${fmt(kwh, 0)} kWh`;
 }
@@ -503,7 +503,7 @@ function IntensityPathwayChart({
             tick={{ fontSize: 10 }}
           />
           <YAxis
-            tickFormatter={(v: number) => v.toFixed(2)}
+            tickFormatter={(v: number) => v.toFixed(1)}
             tick={{ fontSize: 10 }}
           />
           <Tooltip
@@ -1389,7 +1389,7 @@ export default function JobAdvancedReports({
                   Total Carbon Emissions
                 </p>
                 <p className="text-5xl font-bold" style={{ color: BRAND }}>
-                  {fmt(totalEmissions, 2)}
+                  {fmt(totalEmissions)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">tCO₂e</p>
               </div>
@@ -1419,13 +1419,13 @@ export default function JobAdvancedReports({
                       className={`grid grid-cols-[1fr_120px_120px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
                     >
                       <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
-                      <span className="text-xs text-gray-700 text-right">{toNum(row.pct_total).toFixed(2)}%</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total))}</span>
+                      <span className="text-xs text-gray-700 text-right">{toNum(row.pct_total).toFixed(1)}%</span>
                     </div>
                   ))}
                   <div className="grid grid-cols-[1fr_120px_120px] border-t border-gray-200 px-3 py-2 bg-gray-50">
                     <span className="text-xs font-semibold text-gray-700">Total</span>
-                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions)}</span>
                     <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
                   </div>
                 </div>
@@ -1538,7 +1538,7 @@ export default function JobAdvancedReports({
                     >
                       <span className="text-xs font-medium text-gray-700">{row.scope}</span>
                       <span className="text-xs text-gray-700 pr-4">{row.desc}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(row.value, 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(row.value)}</span>
                       <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
                     </div>
                   );
@@ -1546,7 +1546,7 @@ export default function JobAdvancedReports({
                 <div className="grid grid-cols-[52px_1fr_90px_58px] border-t border-gray-200 px-3 py-2 bg-gray-50">
                   <span className="text-xs font-semibold uppercase text-gray-700">Total</span>
                   <span />
-                  <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                  <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions)}</span>
                   <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
                 </div>
               </div>
@@ -1570,18 +1570,18 @@ export default function JobAdvancedReports({
                       className={`grid grid-cols-[1fr_80px_80px_80px_80px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
                     >
                       <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_1), 2)}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_2), 2)}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_3), 2)}</span>
-                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_1))}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_2))}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.scope_3))}</span>
+                      <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total))}</span>
                     </div>
                   ))}
                   <div className="grid grid-cols-[1fr_80px_80px_80px_80px] border-t border-gray-200 px-3 py-2 bg-gray-50">
                     <span className="text-xs font-semibold text-gray-700">Total</span>
-                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope1, 2)}</span>
-                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope2, 2)}</span>
-                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope3, 2)}</span>
-                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions, 2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope1)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope2)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scope3)}</span>
+                    <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totalEmissions)}</span>
                   </div>
                 </div>
               </div>
@@ -1681,22 +1681,22 @@ export default function JobAdvancedReports({
                             className={`grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-b border-gray-100 last:border-0 px-3 py-2 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}
                           >
                             <span className="text-xs text-gray-700">{row.site_name ?? "Unassigned"}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.energy), 2)}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.business_travel), 2)}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.employee_commuting), 2)}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.pgs), 2)}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.other), 2)}</span>
-                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total), 2)}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.energy))}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.business_travel))}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.employee_commuting))}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.pgs))}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.other))}</span>
+                            <span className="text-xs text-gray-700 text-right">{fmt(toNum(row.total))}</span>
                           </div>
                         ))}
                         <div className="grid grid-cols-[1fr_80px_110px_140px_60px_60px_80px] border-t border-gray-200 px-3 py-2 bg-gray-50">
                           <span className="text-xs font-semibold text-gray-700">Total</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.energy, 2)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.business_travel, 2)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.employee_commuting, 2)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.pgs, 2)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.other, 2)}</span>
-                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.total, 2)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.energy)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.business_travel)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.employee_commuting)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.pgs)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.other)}</span>
+                          <span className="text-xs font-semibold text-gray-700 text-right">{fmt(totals.total)}</span>
                         </div>
                       </div>
                     </div>
@@ -1767,9 +1767,9 @@ export default function JobAdvancedReports({
                   <span className="text-xs text-gray-500">{r.scope}</span>
                   <span className="text-xs text-gray-700 pr-2">{r.label}</span>
                   {hasBenchmark
-                    ? <span className="text-xs text-gray-700 text-right">{fmt(r.benchmark, 2)}</span>
+                    ? <span className="text-xs text-gray-700 text-right">{fmt(r.benchmark)}</span>
                     : <span className="text-xs text-gray-400 text-right">—</span>}
-                  <span className="text-xs text-gray-700 text-right">{fmt(r.current, 2)}</span>
+                  <span className="text-xs text-gray-700 text-right">{fmt(r.current)}</span>
                   <span className="text-xs text-gray-700 text-right">{pct.toFixed(1)}%</span>
                 </div>
               );
@@ -1782,9 +1782,9 @@ export default function JobAdvancedReports({
                 <span className="text-xs font-semibold text-gray-700">{scope}</span>
                 <span className="text-xs font-semibold text-gray-700">Sub-total</span>
                 {hasBenchmark
-                  ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark ?? 0, 2)}</span>
+                  ? <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeBenchmark ?? 0)}</span>
                   : <span className="text-xs text-gray-400 text-right">—</span>}
-                <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent, 2)}</span>
+                <span className="text-xs font-semibold text-gray-700 text-right">{fmt(scopeCurrent)}</span>
                 <span className="text-xs font-semibold text-gray-700 text-right">{scopePct.toFixed(1)}%</span>
               </div>
             );
@@ -1811,9 +1811,9 @@ export default function JobAdvancedReports({
                   <div className="grid grid-cols-[80px_1fr_120px_120px_60px] border-t-2 border-gray-300 px-3 py-2 bg-gray-50">
                     <span className="text-xs font-bold text-gray-700 uppercase col-span-2">Total Emissions</span>
                     {hasBenchmark
-                      ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal, 2)}</span>
+                      ? <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandBenchmarkTotal)}</span>
                       : <span className="text-xs text-gray-400 text-right">—</span>}
-                    <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal, 2)}</span>
+                    <span className="text-xs font-bold text-gray-700 text-right">{fmt(grandCurrentTotal)}</span>
                     <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
                   </div>
                 </div>
@@ -1869,7 +1869,7 @@ export default function JobAdvancedReports({
             const label = m.label?.trim() || key;
             const d = toNum(m.divider) || 1;
             const perStr = d === 1 ? `per ${label.toLowerCase()}` : `per ${d.toLocaleString()} ${label.toLowerCase()}`;
-            return `${fmt(intensity, 2)} tCO₂e ${perStr}`;
+            return `${fmt(intensity)} tCO₂e ${perStr}`;
           }).filter(Boolean);
 
           const employeeCount = toNum(intensity_metrics.employees?.value);
@@ -1906,7 +1906,7 @@ export default function JobAdvancedReports({
                           <div className="flex items-center justify-center"><MetricIcon metricKey={key} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
                           <span className="text-xs text-gray-500">Scopes 1, 2 and 3</span>
-                          <span className="text-right text-sm font-semibold text-gray-800">{intensity != null ? fmt(intensity, 2) : "—"}</span>
+                          <span className="text-right text-sm font-semibold text-gray-800">{intensity != null ? fmt(intensity) : "—"}</span>
                         </div>
                       );
                     })}
@@ -2374,7 +2374,7 @@ export default function JobAdvancedReports({
                           {row.category ?? row.emission_type ?? "—"}
                         </td>
                         <td className="py-1.5 pr-3 text-right text-gray-700">
-                          {row.qty != null ? fmt(toNum(row.qty), 2) : "—"}
+                          {row.qty != null ? fmt(toNum(row.qty)) : "—"}
                         </td>
                         <td className="py-1.5 pr-3 text-gray-500">{row.uom ?? "—"}</td>
                         <td className="py-1.5 text-right font-semibold text-gray-800">
