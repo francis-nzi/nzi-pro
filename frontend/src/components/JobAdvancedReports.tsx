@@ -1746,7 +1746,7 @@ export default function JobAdvancedReports({
             const si = scopeOrder.indexOf(a.scope) - scopeOrder.indexOf(b.scope);
             return si !== 0 ? si : a.label.localeCompare(b.label);
           });
-          const grandCurrentTotal = allRows.reduce((s, r) => s + r.current, 0);
+          const grandCurrentTotal = totalEmissions;
           const grandBenchmarkTotal = toNum(benchmark_totals?.Total);
           const hasBenchmark = grandBenchmarkTotal > 0 || (benchmark_categories?.length ?? 0) > 0;
 
@@ -2285,7 +2285,7 @@ export default function JobAdvancedReports({
                         Total
                       </td>
                       <td className="py-2 text-right text-xs font-bold text-gray-800">
-                        {fmt(appendixRows.reduce((s, r) => s + toNum(r.emissions), 0))}
+                        {fmt(totalEmissions)}
                       </td>
                     </tr>
                   </tfoot>
