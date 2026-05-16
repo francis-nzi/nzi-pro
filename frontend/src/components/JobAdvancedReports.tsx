@@ -885,9 +885,9 @@ export default function JobAdvancedReports({
       <style jsx global>{`
         @page {
           size: A4;
-          margin-top: 22mm;
+          margin-top: 30mm;
           margin-right: 15mm;
-          margin-bottom: 22mm;
+          margin-bottom: 30mm;
           margin-left: 15mm;
         }
         @page {
@@ -931,6 +931,10 @@ export default function JobAdvancedReports({
             break-inside: auto;
             page-break-inside: auto;
             width: 100% !important;
+          }
+          .live-report-section + .live-report-section {
+            break-before: page;
+            page-break-before: always;
           }
           .recharts-responsive-container {
             overflow: visible !important;
