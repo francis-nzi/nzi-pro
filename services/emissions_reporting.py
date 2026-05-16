@@ -177,10 +177,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     'Uncategorized'
                 ) AS dataset_category,
                 COALESCE(
-                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(jsr.category AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(jsr.level_1 AS VARCHAR)), ''),
-                    NULLIF(TRIM(CAST(jsr.level_2 AS VARCHAR)), ''),
                     'Uncategorized'
                 ) AS category,
                 COALESCE(s.site_name, 'No Site Assigned') AS site_name,
@@ -229,7 +226,6 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                     'Uncategorized'
                 ) AS dataset_category,
                 COALESCE(
-                    NULLIF(TRIM(CAST({factor_category_expr} AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
                     NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
                     'Uncategorized'

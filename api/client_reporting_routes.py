@@ -28,11 +28,11 @@ def _is_placeholder_category(value) -> bool:
 
 def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     for value in (
+        row.get("category"),
         row.get("dataset_category"),
         row.get("lookup_level_1"),
         row.get("level_1"),
         row.get("lookup_category"),
-        row.get("category"),
         row.get("level_2"),
     ):
         if _is_placeholder_category(value):
@@ -171,7 +171,10 @@ def get_client_reporting(
             scope_df['quantity'] = quantity_vals
             scope_df['scope'] = scope_df['scope'].apply(lambda value: _clean_label(value, 'Unknown'))
             scope_df['dataset_category'] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
-            scope_df['category'] = scope_df['dataset_category']
+            if 'category' in scope_df.columns:
+                scope_df['category'] = scope_df['category'].apply(lambda value: _clean_label(value, 'Uncategorized'))
+            else:
+                scope_df['category'] = scope_df['dataset_category']
             scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
             
             # Get unique years
