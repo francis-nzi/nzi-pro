@@ -53,7 +53,6 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState<ClientReportingData | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -64,9 +63,6 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
         if (!res.ok) throw new Error(`Failed to load reporting data: ${res.status}`);
         const json = (await res.json()) as ClientReportingData;
         setData(json);
-        if (json.years?.length > 0) {
-          setSelectedYear(json.years[json.years.length - 1]);
-        }
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -112,10 +108,8 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
     );
   }
 
-  // data is ClientReportingData from here on
   const { years, by_scope, by_scope_category, by_activity, by_site } = data;
   const latestYear = years[years.length - 1];
-  const activeYear = selectedYear ?? latestYear;
   const benchmarkYear = years[0];
   const displayYears = Array.from(new Set([benchmarkYear, ...years.slice(-4)]));
   const prevYear = years.length >= 2 ? years[years.length - 2] : null;
@@ -197,6 +191,26 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
         ))
       : [<Bar key="total" dataKey="Total" fill={SCOPE_COLORS[0]} />];
 
+  // Shared year header cells (benchmark + last 4 + Change)
+  function yearHeaders() {
+    return (
+      <>
+        {displayYears.map((year) => (
+          <th
+            key={year}
+            className={`text-right p-2 border whitespace-nowrap ${
+              year === benchmarkYear && showBenchmarkNote ? "text-slate-500" : ""
+            }`}
+          >
+            {year}
+            {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
+          </th>
+        ))}
+        <th className="text-right p-2 border">Change</th>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
@@ -250,21 +264,14 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
         </Card>
       </div>
 
-      {/* Overview Chart + Year Selector */}
+      {/* Overview Chart */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Total Emissions by Year</CardTitle>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart
-              data={chartData}
-              onClick={(e: { activeLabel?: string | number }) => {
-                const year = Number(e?.activeLabel);
-                if (year > 0) setSelectedYear(year);
-              }}
-              style={{ cursor: "pointer" }}
-            >
+            <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="year" tick={{ fontSize: 12 }} />
               <YAxis
@@ -282,27 +289,6 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
               {chartBars}
             </BarChart>
           </ResponsiveContainer>
-
-          {/* Year selector pills */}
-          <div className="mt-4 flex flex-wrap items-center gap-1.5">
-            {years.map((year) => (
-              <button
-                key={year}
-                type="button"
-                onClick={() => setSelectedYear(year)}
-                className={`rounded-full px-3 py-0.5 text-xs font-medium transition-colors ${
-                  activeYear === year
-                    ? "bg-green-700 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {year}
-              </button>
-            ))}
-            <span className="ml-2 text-xs text-muted-foreground">
-              Drill-down: <strong>{activeYear}</strong>
-            </span>
-          </div>
         </CardContent>
       </Card>
 
@@ -316,10 +302,9 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
 
         {/* ── By Scope ── */}
         <TabsContent value="by-scope" className="space-y-4">
-          {/* Summary table: benchmark + last 4 years */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Emissions by Scope</CardTitle>
+              <CardTitle className="text-base">Emissions by Scope &amp; Category</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -327,45 +312,66 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                   <thead>
                     <tr className="bg-muted">
                       <th className="text-left p-2 border">Scope</th>
-                      {displayYears.map((year) => (
-                        <th
-                          key={year}
-                          className={`text-right p-2 border whitespace-nowrap ${
-                            year === benchmarkYear && showBenchmarkNote
-                              ? "text-slate-500"
-                              : ""
-                          }`}
-                        >
-                          {year}
-                          {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
-                        </th>
-                      ))}
-                      <th className="text-right p-2 border">Change</th>
+                      <th className="text-left p-2 border">Category</th>
+                      {yearHeaders()}
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedScopes.map((scope) => (
-                      <tr key={scope} className="hover:bg-muted/50">
-                        <td className="p-2 border font-medium">{scope}</td>
-                        {displayYears.map((year) => {
-                          const value = getValueForYear(by_scope, year, scope);
-                          return (
-                            <td key={year} className="text-right p-2 border">
-                              {value > 0 ? formatNumber(value) : "—"}
+                    {sortedScopes.map((scope) => {
+                      const categories = getCategoriesForScope(scope);
+                      return (
+                        <>
+                          {categories.map((cat) => (
+                            <tr key={`${scope}-${cat}`} className="hover:bg-muted/50">
+                              <td className="p-2 border text-slate-500 text-xs align-top">
+                                {cat === categories[0] ? scope : ""}
+                              </td>
+                              <td className="p-2 border">{cat}</td>
+                              {displayYears.map((year) => {
+                                const value = getScopeCatValue(year, scope, cat);
+                                return (
+                                  <td key={year} className="text-right p-2 border">
+                                    {value > 0 ? formatNumber(value) : "—"}
+                                  </td>
+                                );
+                              })}
+                              <td className="text-right p-2 border">
+                                {prevYear
+                                  ? renderChange(
+                                      getScopeCatValue(latestYear, scope, cat),
+                                      getScopeCatValue(prevYear, scope, cat)
+                                    )
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                          {/* Scope subtotal */}
+                          <tr className="bg-slate-50 font-semibold text-slate-700">
+                            <td className="p-2 border" />
+                            <td className="p-2 border">{scope} Total</td>
+                            {displayYears.map((year) => {
+                              const value = getValueForYear(by_scope, year, scope);
+                              return (
+                                <td key={year} className="text-right p-2 border">
+                                  {value > 0 ? formatNumber(value) : "—"}
+                                </td>
+                              );
+                            })}
+                            <td className="text-right p-2 border">
+                              {prevYear
+                                ? renderChange(
+                                    getValueForYear(by_scope, latestYear, scope),
+                                    getValueForYear(by_scope, prevYear, scope)
+                                  )
+                                : "—"}
                             </td>
-                          );
-                        })}
-                        <td className="text-right p-2 border">
-                          {prevYear
-                            ? renderChange(
-                                getValueForYear(by_scope, latestYear, scope),
-                                getValueForYear(by_scope, prevYear, scope)
-                              )
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-muted font-semibold">
+                          </tr>
+                        </>
+                      );
+                    })}
+                    {/* Grand total */}
+                    <tr className="bg-muted font-bold">
+                      <td className="p-2 border" />
                       <td className="p-2 border">Total</td>
                       {displayYears.map((year) => {
                         const value = getValueForYear(by_scope, year, "total");
@@ -392,57 +398,6 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
               )}
             </CardContent>
           </Card>
-
-          {/* Per-scope category detail for activeYear */}
-          {sortedScopes.map((scope) => {
-            const categories = getCategoriesForScope(scope);
-            if (categories.length === 0) return null;
-            const scopeTotal = getValueForYear(by_scope, activeYear, scope);
-            return (
-              <Card key={scope}>
-                <CardHeader>
-                  <CardTitle className="text-base">
-                    {scope} — {activeYear} Detail
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <table className="w-full text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-muted">
-                        <th className="text-left p-2 border">Category</th>
-                        <th className="text-right p-2 border">tCO₂e</th>
-                        <th className="text-right p-2 border">% of {scope}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {categories.map((cat) => {
-                        const value = getScopeCatValue(activeYear, scope, cat);
-                        const pct = scopeTotal > 0 ? (value / scopeTotal) * 100 : 0;
-                        return (
-                          <tr key={cat} className="hover:bg-muted/50">
-                            <td className="p-2 border">{cat}</td>
-                            <td className="text-right p-2 border">
-                              {value > 0 ? formatNumber(value) : "—"}
-                            </td>
-                            <td className="text-right p-2 border">
-                              {pct > 0 ? `${pct.toFixed(1)}%` : "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      <tr className="bg-muted font-semibold">
-                        <td className="p-2 border">{scope} Total</td>
-                        <td className="text-right p-2 border">
-                          {scopeTotal > 0 ? formatNumber(scopeTotal) : "—"}
-                        </td>
-                        <td className="p-2 border" />
-                      </tr>
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            );
-          })}
         </TabsContent>
 
         {/* ── By Activity ── */}
@@ -457,20 +412,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                   <thead>
                     <tr className="bg-muted">
                       <th className="text-left p-2 border">Activity</th>
-                      {displayYears.map((year) => (
-                        <th
-                          key={year}
-                          className={`text-right p-2 border whitespace-nowrap ${
-                            year === benchmarkYear && showBenchmarkNote
-                              ? "text-slate-500"
-                              : ""
-                          }`}
-                        >
-                          {year}
-                          {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
-                        </th>
-                      ))}
-                      <th className="text-right p-2 border">Change</th>
+                      {yearHeaders()}
                     </tr>
                   </thead>
                   <tbody>
@@ -560,20 +502,7 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                   <thead>
                     <tr className="bg-muted">
                       <th className="text-left p-2 border">Site</th>
-                      {displayYears.map((year) => (
-                        <th
-                          key={year}
-                          className={`text-right p-2 border whitespace-nowrap ${
-                            year === benchmarkYear && showBenchmarkNote
-                              ? "text-slate-500"
-                              : ""
-                          }`}
-                        >
-                          {year}
-                          {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
-                        </th>
-                      ))}
-                      <th className="text-right p-2 border">Change</th>
+                      {yearHeaders()}
                     </tr>
                   </thead>
                   <tbody>
