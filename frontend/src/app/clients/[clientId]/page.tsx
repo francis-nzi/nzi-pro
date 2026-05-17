@@ -1713,53 +1713,43 @@ function ClientDetailPageContent() {
         {error && !clientNotFound ? <div className="mb-4 text-sm text-destructive">{error}</div> : null}
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
-        <div className={clientNotFound ? "grid gap-6" : "grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]"}>
-          {clientNotFound ? null : (
-            <Card className="h-fit lg:sticky lg:top-24">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Client Sections</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2">
-                <div className="space-y-2">
+        {!clientNotFound ? (
+          <>
+            {/* Top tab navigation */}
+            <div className="mt-4 border-b border-slate-200/80">
+              <div className="flex items-center justify-between gap-4">
+                <nav className="-mb-px flex overflow-x-auto">
                   {SECTIONS.map((section) => (
-                    <Button
+                    <button
                       key={section.id}
-                      variant={activeSection === section.id ? "default" : "outline"}
-                      className="w-full justify-start"
+                      type="button"
                       onClick={() => setSection(section.id)}
+                      className={`flex-shrink-0 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                        activeSection === section.id
+                          ? "border-green-700 text-green-700"
+                          : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
+                      }`}
                     >
                       {section.label}
-                    </Button>
+                    </button>
                   ))}
-                </div>
-
-                <div className="mt-4 border-t pt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Client logo
+                </nav>
+                {clientLogoSrc ? (
+                  <div className="mb-1 flex flex-shrink-0 items-center justify-center rounded-lg border bg-white px-3 py-1">
+                    <img
+                      src={clientLogoSrc}
+                      alt={`${client?.client_name || "Client"} logo`}
+                      className="max-h-8 max-w-[100px] object-contain"
+                      loading="lazy"
+                    />
                   </div>
-                  {clientLogoSrc ? (
-                    <div className="flex min-h-[92px] items-center justify-center rounded-lg border bg-white p-3">
-                      <img
-                        src={clientLogoSrc}
-                        alt={`${client?.client_name || "Client"} logo`}
-                        className="max-h-20 max-w-full object-contain"
-                        loading="lazy"
-                        fetchPriority="low"
-                      />
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-4 text-center">
-                      <div className="text-sm font-semibold text-amber-800">No client logo set</div>
-                      <div className="mt-1 text-xs text-amber-700">Add one in Client setup/edit to show it here.</div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                ) : null}
+              </div>
+            </div>
 
-          <div>{clientNotFound ? null : renderActiveSection()}</div>
-        </div>
+            <div className="mt-6">{renderActiveSection()}</div>
+          </>
+        ) : null}
 
         <CallPrepPanel
           open={callPrepOpen}
