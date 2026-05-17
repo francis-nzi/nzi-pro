@@ -216,10 +216,16 @@ def _ensure_report_template_schema(con) -> None:
         return
 
     # Jobs columns referenced by reporting/template auto-assignment
-    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_end DATE")
-    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
-    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS intensity_metrics JSONB")
-    con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_benchmark BOOLEAN DEFAULT FALSE")
+    for _stmt in [
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_end DATE",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS intensity_metrics JSONB",
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_benchmark BOOLEAN DEFAULT FALSE",
+    ]:
+        try:
+            con.execute(_stmt)
+        except Exception:
+            logger.debug("Ignoring jobs column migration: %s", _stmt, exc_info=True)
 
     # Core report template tables/columns
     con.execute(

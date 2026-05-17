@@ -46,8 +46,18 @@ def list_report_versions(
 ):
     try:
         with get_conn() as con:
-            _ensure_job_files_table(con)
-            _ensure_report_versions_schema(con)
+            try:
+                _ensure_report_template_schema(con)
+            except Exception:
+                pass
+            try:
+                _ensure_job_files_table(con)
+            except Exception:
+                pass
+            try:
+                _ensure_report_versions_schema(con)
+            except Exception:
+                pass
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
