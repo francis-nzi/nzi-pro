@@ -15,11 +15,11 @@ type Fields = {
 };
 
 const EMPTY: Fields = {
-  employee_number: "",
-  premises_owned: "",
-  premises_leased: "",
-  vehicles_owned: "",
-  vehicles_leased: "",
+  employee_number: "0",
+  premises_owned: "0",
+  premises_leased: "0",
+  vehicles_owned: "0",
+  vehicles_leased: "0",
 };
 
 const FIELD_LABELS: [keyof Fields, string][] = [
@@ -58,11 +58,11 @@ export default function ReportingElements({
         ? String(employeeMetricValue)
         : "";
       setFields({
-        employee_number: employeeNumberFromIntensity || (meta.employee_number != null ? String(meta.employee_number) : ""),
-        premises_owned:  meta.premises_owned  != null ? String(meta.premises_owned)  : "",
-        premises_leased: meta.premises_leased != null ? String(meta.premises_leased) : "",
-        vehicles_owned:  meta.vehicles_owned  != null ? String(meta.vehicles_owned)  : "",
-        vehicles_leased: meta.vehicles_leased != null ? String(meta.vehicles_leased) : "",
+        employee_number: employeeNumberFromIntensity || (meta.employee_number != null ? String(meta.employee_number) : "0"),
+        premises_owned:  meta.premises_owned  != null ? String(meta.premises_owned)  : "0",
+        premises_leased: meta.premises_leased != null ? String(meta.premises_leased) : "0",
+        vehicles_owned:  meta.vehicles_owned  != null ? String(meta.vehicles_owned)  : "0",
+        vehicles_leased: meta.vehicles_leased != null ? String(meta.vehicles_leased) : "0",
       });
     } catch {
       // leave defaults
@@ -123,7 +123,7 @@ export default function ReportingElements({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          These figures appear in the Background &amp; Organisation section of the carbon report. Leave blank to show N/A.
+          These figures appear in the Background &amp; Organisation section of the carbon report. Enter 0 if not applicable.
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FIELD_LABELS.map(([key, label]) => (
@@ -133,7 +133,7 @@ export default function ReportingElements({
                 id={`re-${key}`}
                 type="number"
                 min="0"
-                placeholder="N/A"
+                placeholder="0"
                 value={fields[key]}
                 onChange={(e) => setFields(prev => ({ ...prev, [key]: e.target.value }))}
               />
