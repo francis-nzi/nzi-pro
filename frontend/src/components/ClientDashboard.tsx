@@ -396,7 +396,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             <div className="space-y-0.5">
               <div className="text-sm text-muted-foreground">Intensity Metric</div>
               <div className="text-3xl font-semibold leading-none tabular-nums">
-                {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(2) : "-"}
+                {employeeIntensityMetric ? Number(employeeIntensityMetric.intensity || 0).toFixed(1) : "-"}
               </div>
               <div className="text-xs leading-tight text-muted-foreground">
                 {employeeIntensityMetric?.label || "No intensity data"}
