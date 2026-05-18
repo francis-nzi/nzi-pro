@@ -29,6 +29,7 @@ type TeamMember = {
   full_name: string | null;
   status?: string | null;
   position?: string | null;
+  role?: string | null;
 };
 
 type Dataset = {
@@ -246,14 +247,25 @@ export default function useJobWorkspaceDerivedState({
   }, [activeTeamMembers, selectedConsultantName]);
 
   const consultantOptions = useMemo(() => {
+    const SIGN_OFF_ROLES = new Set(["crm", "director"]);
     const byName = new Map<string, TeamMember>();
     activeTeamMembers.forEach((member) => {
       const name = (member.full_name ?? "").trim();
       if (!name) return;
+      const role = (member.role ?? "").trim().toLowerCase();
+      if (!SIGN_OFF_ROLES.has(role)) return;
       if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), member);
     });
+    // Always include the currently saved consultant even if their role has changed.
+    if (selectedConsultantName) {
+      const nameLc = selectedConsultantName.toLowerCase();
+      if (!byName.has(nameLc)) {
+        const existing = activeTeamMembers.find((m) => (m.full_name ?? "").trim().toLowerCase() === nameLc);
+        if (existing) byName.set(nameLc, existing);
+      }
+    }
     return Array.from(byName.values()).sort((a, b) => String(a.full_name ?? "").localeCompare(String(b.full_name ?? "")));
-  }, [activeTeamMembers]);
+  }, [activeTeamMembers, selectedConsultantName]);
 
   const derivedEnergyMetadataValues = useMemo(
     () => calculateDerivedEnergyEmissionFields(reportMetadataValues, reportMetadataEnergyFactors as EnergyEmissionFactorDetails | null),
