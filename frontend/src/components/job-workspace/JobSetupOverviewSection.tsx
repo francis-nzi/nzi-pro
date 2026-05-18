@@ -84,6 +84,11 @@ export default function JobSetupOverviewSection({
   onSaveJobDetails,
   onSaveReportingPeriod,
 }: JobSetupOverviewSectionProps) {
+  const handleSave = () => {
+    onSaveJobDetails();
+    onSaveReportingPeriod();
+  };
+
   return (
     <div className={`space-y-6 ${hidden ? "hidden" : ""}`}>
       <Card id="job-details-section">
@@ -91,81 +96,77 @@ export default function JobSetupOverviewSection({
           <CardTitle>Job Details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Job Title — full width */}
           <div className="space-y-2">
             <Label htmlFor="jobTitle">Job Title / Description</Label>
             <Input id="jobTitle" value={jobTitle} onChange={(e) => onJobTitleChange(e.target.value)} placeholder="Enter job title..." />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="jobStatus">Status</Label>
-            <Select value={jobStatus} onValueChange={onJobStatusChange}>
-              <SelectTrigger id="jobStatus">
-                <SelectValue placeholder="Select status..." />
-              </SelectTrigger>
-              <SelectContent>
-                {jobStatuses.map((statusItem) => (
-                  <SelectItem key={statusItem.status_id} value={statusItem.name}>
-                    {statusItem.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Status | Job Type */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="jobStatus">Status</Label>
+              <Select value={jobStatus} onValueChange={onJobStatusChange}>
+                <SelectTrigger id="jobStatus">
+                  <SelectValue placeholder="Select status..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobStatuses.map((s) => (
+                    <SelectItem key={s.status_id} value={s.name}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="jobType">Job Type</Label>
+              <Select value={jobType || "__none__"} onValueChange={(v) => onJobTypeChange(v === "__none__" ? "" : v)}>
+                <SelectTrigger id="jobType">
+                  <SelectValue placeholder="Select job type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {jobType && !jobTypes.some((jt) => jt.name === jobType) ? (
+                    <SelectItem value={jobType}>{jobType}</SelectItem>
+                  ) : null}
+                  {jobTypes.map((jt) => (
+                    <SelectItem key={jt.job_type_id} value={jt.name}>{jt.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Controls how the job is grouped on client pages and in reporting.</p>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="jobType">Job Type</Label>
-            <Select value={jobType || "__none__"} onValueChange={(v) => onJobTypeChange(v === "__none__" ? "" : v)}>
-              <SelectTrigger id="jobType">
-                <SelectValue placeholder="Select job type..." />
-              </SelectTrigger>
-              <SelectContent>
-                {jobType && !jobTypes.some((jt) => jt.name === jobType) ? (
-                  <SelectItem value={jobType}>{jobType}</SelectItem>
-                ) : null}
-                {jobTypes.map((jt) => (
-                  <SelectItem key={jt.job_type_id} value={jt.name}>
-                    {jt.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              This controls how the job is grouped on client pages and in reporting.
-            </p>
+          {/* Original Portfolio | CRM Name */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="originalPortfolio">Original Portfolio</Label>
+              <SearchableStringSelect
+                id="originalPortfolio"
+                value={originalPortfolio || "NZI"}
+                options={portfolios}
+                placeholder="Search portfolios..."
+                noMatchesText="Type a portfolio name and press Enter"
+                onValueChange={onOriginalPortfolioChange}
+              />
+              <p className="text-xs text-muted-foreground">Defaults to NZI and records the original portfolio for this job.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="crmName">CRM Name</Label>
+              <Select value={crmName || "__none__"} onValueChange={(v) => onCrmNameChange(v === "__none__" ? "" : v)}>
+                <SelectTrigger id="crmName">
+                  <SelectValue placeholder="Select team member..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {teamMembers.map((m) => (
+                    <SelectItem key={m.user_id} value={m.full_name}>{m.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="originalPortfolio">Original Portfolio</Label>
-            <SearchableStringSelect
-              id="originalPortfolio"
-              value={originalPortfolio || "NZI"}
-              options={portfolios}
-              placeholder="Search portfolios..."
-              noMatchesText="Type a portfolio name and press Enter"
-              onValueChange={onOriginalPortfolioChange}
-            />
-            <p className="text-xs text-muted-foreground">
-              Defaults to NZI and is used to record the original portfolio for this job.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="crmName">CRM Name</Label>
-            <Select value={crmName || "__none__"} onValueChange={(v) => onCrmNameChange(v === "__none__" ? "" : v)}>
-              <SelectTrigger id="crmName">
-                <SelectValue placeholder="Select team member..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">None</SelectItem>
-                {teamMembers.map((member) => (
-                  <SelectItem key={member.user_id} value={member.full_name}>
-                    {member.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
+          {/* Milestone Template — full width */}
           <div className="space-y-2">
             <Label htmlFor="milestoneTemplate">Milestone Template</Label>
             <Select value={selectedMilestoneTemplateId || "__none__"} onValueChange={onMilestoneTemplateChange}>
@@ -174,9 +175,9 @@ export default function JobSetupOverviewSection({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">None</SelectItem>
-                {milestoneTemplates.map((template) => (
-                  <SelectItem key={template.template_id} value={String(template.template_id)}>
-                    {template.template_name || `Template ${template.template_id}`}
+                {milestoneTemplates.map((t) => (
+                  <SelectItem key={t.template_id} value={String(t.template_id)}>
+                    {t.template_name || `Template ${t.template_id}`}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -186,7 +187,8 @@ export default function JobSetupOverviewSection({
             </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          {/* Start Date | End Date */}
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="jobStartDate">Start Date</Label>
               <Input id="jobStartDate" type="date" value={jobStartDate} onChange={(e) => onJobStartDateChange(e.target.value)} />
@@ -197,12 +199,13 @@ export default function JobSetupOverviewSection({
             </div>
           </div>
 
+          {/* Reporting Period */}
           <div className="border-t pt-4 space-y-3">
             <div className="text-sm font-medium">Reporting Period</div>
-            <div className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Datasets will be auto-selected based on this period. System supports multi-year periods (e.g., Aug 2024 – Jul 2025).
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="periodStart">Period Start</Label>
                 <Input id="periodStart" type="date" value={reportingPeriodStart} onChange={(e) => onReportingPeriodStartChange(e.target.value)} />
@@ -212,24 +215,18 @@ export default function JobSetupOverviewSection({
                 <Input id="periodEnd" type="date" value={reportingPeriodEnd} onChange={(e) => onReportingPeriodEndChange(e.target.value)} />
                 {periodEndMonthMismatch ? (
                   <p className="text-xs text-amber-700">
-                    The chosen Period End month does not align with the client&apos;s Year End month, as defined in the client&apos;s file
+                    The chosen Period End month does not align with the client&apos;s Year End month.
                   </p>
                 ) : null}
               </div>
             </div>
-            <div className="flex justify-end">
-              <Button onClick={onSaveReportingPeriod} disabled={busy}>
-                Save reporting period
-              </Button>
-            </div>
           </div>
 
-          <div className="border-t pt-2 space-y-2">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Job ID:</span> {Number.isFinite(jobId) ? jobId : "-"}
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Reporting Period:</span>{" "}
+          {/* Meta info */}
+          <div className="border-t pt-3 grid gap-1 md:grid-cols-2 text-sm text-muted-foreground">
+            <div><span className="font-medium text-foreground">Job ID:</span> {Number.isFinite(jobId) ? jobId : "-"}</div>
+            <div>
+              <span className="font-medium text-foreground">Reporting Period:</span>{" "}
               {reportingPeriodDisplay || "-"}
               {benchmarkPeriodLabel ? (
                 <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800">
@@ -239,13 +236,12 @@ export default function JobSetupOverviewSection({
             </div>
           </div>
 
-          <div className="flex justify-end">
-            <Button onClick={onSaveJobDetails} disabled={busy}>
+          <div className="flex items-center justify-end gap-3">
+            {status ? <span className="text-sm text-muted-foreground">{status}</span> : null}
+            <Button onClick={handleSave} disabled={busy}>
               Save Job Details
             </Button>
           </div>
-
-          {status ? <div className="text-sm text-muted-foreground">{status}</div> : null}
         </CardContent>
       </Card>
     </div>
