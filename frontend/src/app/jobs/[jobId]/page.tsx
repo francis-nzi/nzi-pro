@@ -787,9 +787,6 @@ export default function JobDetailPage() {
                 jobId={jobId}
                 busy={busy}
                 status={status}
-                includePrevYear={includePrevYear}
-                selectedSiteId={selectedSiteId}
-                selectedTemplateId={selectedTemplateId}
                 selectedMilestoneTemplateId={selectedMilestoneTemplateId}
                 jobTitle={jobTitle}
                 jobStatus={jobStatus}
@@ -803,8 +800,6 @@ export default function JobDetailPage() {
                 reportingPeriodDisplay={reportingPeriodLabel}
                 benchmarkPeriodLabel={benchmarkPeriodLabel || undefined}
                 periodEndMonthMismatch={periodEndMonthMismatch}
-                sites={sites}
-                templates={templates}
                 milestoneTemplates={milestoneTemplates}
                 jobStatuses={jobStatuses}
                 jobTypes={jobTypes}
@@ -815,28 +810,13 @@ export default function JobDetailPage() {
                 onJobTypeChange={setJobType}
                 onOriginalPortfolioChange={setOriginalPortfolio}
                 onCrmNameChange={setCrmName}
-                onJobTemplateChange={setSelectedTemplateId}
                 onMilestoneTemplateChange={setSelectedMilestoneTemplateId}
                 onJobStartDateChange={setJobStartDate}
                 onJobEndDateChange={setJobEndDate}
                 onReportingPeriodStartChange={setReportingPeriodStart}
                 onReportingPeriodEndChange={setReportingPeriodEnd}
-                onSelectedSiteIdChange={setSelectedSiteId}
-                onIncludePrevYearChange={setIncludePrevYear}
                 onSaveJobDetails={workspaceActions.saveJobDetails}
                 onSaveReportingPeriod={workspaceActions.saveReportingPeriod}
-                onSaveTemplate={workspaceActions.saveTemplate}
-                onDownloadTemplate={() =>
-                  void workspaceActions.downloadTemplate(
-                    selectedTemplateId,
-                    selectedSiteName(),
-                    includePrevYear,
-                    periodStartLabel,
-                    periodEndLabel,
-                    workspaceJob.jobNumber,
-                    workspaceJob.clientName
-                  )
-                }
               />
 
               {/* Project Milestones */}
@@ -987,38 +967,54 @@ export default function JobDetailPage() {
           </TabsContent>
 
           <TabsContent value="upload" className="mt-0">
-            <div className="space-y-6">
-              <JobUploadSection
-                hidden={false}
-                busy={busy}
-                selectedSiteId={selectedSiteId}
-                selectedSiteName={selectedSiteName()}
-                sites={sites}
-                uploadFile={uploadFile}
-                uploadStatus={uploadStatus}
-                uploadProgress={uploadProgress}
-                uploadResult={uploadResult}
-                importConflicts={importConflicts}
-                selectedRowsCount={uploadResult?.rows_ready?.length ?? 0}
-                canImport={selectedSiteId !== "All"}
-                onSelectedSiteChange={setSelectedSiteId}
-                onUploadFileChange={(file) => {
-                  setUploadFile(file);
-                  setUploadResult(null);
-                  setUploadStatus("");
-                  setImportConflicts([]);
-                  setImportConflictAcknowledged(false);
-                }}
-                onValidateUpload={workspaceActions.validateUpload}
-                onClearConflicts={() => setImportConflicts([])}
-                onOverwriteAndImport={() => {
-                  setImportConflictAcknowledged(true);
-                  setImportConflicts([]);
-                  void workspaceActions.importValidatedRows(true);
-                }}
-                onImportValidatedRows={() => void workspaceActions.importValidatedRows()}
-              />
-            </div>
+            <JobUploadSection
+              hidden={false}
+              busy={busy}
+              selectedSiteId={selectedSiteId}
+              selectedSiteName={selectedSiteName()}
+              sites={sites}
+              templates={templates}
+              selectedTemplateId={selectedTemplateId}
+              includePrevYear={includePrevYear}
+              templateStatus={status}
+              onJobTemplateChange={setSelectedTemplateId}
+              onSaveTemplate={workspaceActions.saveTemplate}
+              onDownloadTemplate={() =>
+                void workspaceActions.downloadTemplate(
+                  selectedTemplateId,
+                  selectedSiteName(),
+                  includePrevYear,
+                  periodStartLabel,
+                  periodEndLabel,
+                  workspaceJob.jobNumber,
+                  workspaceJob.clientName
+                )
+              }
+              onIncludePrevYearChange={setIncludePrevYear}
+              uploadFile={uploadFile}
+              uploadStatus={uploadStatus}
+              uploadProgress={uploadProgress}
+              uploadResult={uploadResult}
+              importConflicts={importConflicts}
+              selectedRowsCount={uploadResult?.rows_ready?.length ?? 0}
+              canImport={selectedSiteId !== "All"}
+              onSelectedSiteChange={setSelectedSiteId}
+              onUploadFileChange={(file) => {
+                setUploadFile(file);
+                setUploadResult(null);
+                setUploadStatus("");
+                setImportConflicts([]);
+                setImportConflictAcknowledged(false);
+              }}
+              onValidateUpload={workspaceActions.validateUpload}
+              onClearConflicts={() => setImportConflicts([])}
+              onOverwriteAndImport={() => {
+                setImportConflictAcknowledged(true);
+                setImportConflicts([]);
+                void workspaceActions.importValidatedRows(true);
+              }}
+              onImportValidatedRows={() => void workspaceActions.importValidatedRows()}
+            />
           </TabsContent>
 
           <TabsContent value="custom-dataset" className="mt-0">

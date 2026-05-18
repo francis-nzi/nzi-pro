@@ -171,10 +171,9 @@ def get_client_reporting(
             scope_df['quantity'] = quantity_vals
             scope_df['scope'] = scope_df['scope'].apply(lambda value: _clean_label(value, 'Unknown'))
             scope_df['dataset_category'] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
-            if 'category' in scope_df.columns:
-                scope_df['category'] = scope_df['category'].apply(lambda value: _clean_label(value, 'Uncategorized'))
-            else:
-                scope_df['category'] = scope_df['dataset_category']
+            # Use dataset_category (full fallback chain: factor lookup → category → level_1 → level_2)
+            # rather than the raw category column which only checks jsr.category and falls to Uncategorized.
+            scope_df['category'] = scope_df['dataset_category']
             scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
             
             # Get unique years
