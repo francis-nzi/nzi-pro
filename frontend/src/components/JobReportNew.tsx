@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import EmissionsSummary from "@/components/EmissionsSummary";
 import ReportingElements from "@/components/ReportingElements";
 import ReportVariablesPanel from "@/components/job-workspace/ReportVariablesPanel";
-import { LiveDataPDFExport } from "@/components/LiveDataPDFExport";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Sparkles, Target } from "lucide-react";
 import { apiUrl } from "@/lib/auth-client";
@@ -1753,17 +1752,6 @@ export default function JobReportNew({
                 <Button asChild variant="outline">
                   <Link href={`/jobs/${jobId}/advanced-reports`}>Open Report Printing</Link>
                 </Button>
-                <LiveDataPDFExport
-                  jobId={jobId}
-                  templateId={assignment?.template_id ?? undefined}
-                  buttonLabel="Preview & Export"
-                  busyLabel="Saving review PDF..."
-                  onComplete={() => {
-                    setStatus("Saved review PDF.");
-                    void loadWorkspace();
-                  }}
-                  onError={(message) => setError(message)}
-                />
                 <Button variant="outline" onClick={() => onOpenActions?.()}>
                   Review Actions
                 </Button>

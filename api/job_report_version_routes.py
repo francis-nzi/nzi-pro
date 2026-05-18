@@ -44,20 +44,27 @@ def list_report_versions(
     job_id: int,
     _user: dict[str, str] = Depends(_current_user),
 ):
+    # Run schema migrations on a separate connection so any DDL failure
+    # cannot corrupt the read connection's state.
+    try:
+        with get_conn() as ddl_con:
+            try:
+                _ensure_report_template_schema(ddl_con)
+            except Exception:
+                pass
+            try:
+                _ensure_job_files_table(ddl_con)
+            except Exception:
+                pass
+            try:
+                _ensure_report_versions_schema(ddl_con)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     try:
         with get_conn() as con:
-            try:
-                _ensure_report_template_schema(con)
-            except Exception:
-                pass
-            try:
-                _ensure_job_files_table(con)
-            except Exception:
-                pass
-            try:
-                _ensure_report_versions_schema(con)
-            except Exception:
-                pass
             job_exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
             if not job_exists:
                 raise HTTPException(status_code=404, detail="Job not found")
@@ -103,7 +110,7 @@ def list_report_versions(
     except HTTPException:
         raise
     except Exception as e:
-        logger.warning("Failed to list report versions for job %s; returning empty history", job_id, exc_info=True)
+        logger.warning("Failed to list report versions for job %s: %s", job_id, e, exc_info=True)
         return {
             "job_id": int(job_id),
             "versions": [],
