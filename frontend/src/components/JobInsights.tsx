@@ -234,7 +234,7 @@ export default function JobInsights({
       { name: "Scope 1", value: scopeTotals.scope_1 },
       { name: "Scope 2", value: scopeTotals.scope_2 },
       { name: "Scope 3", value: scopeTotals.scope_3 },
-    ].filter((entry) => entry.value > 0);
+    ];
   }, [scopeTotals]);
 
   const activityData = useMemo(() => {
