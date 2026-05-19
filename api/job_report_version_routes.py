@@ -287,6 +287,8 @@ def generate_report_draft(
     try:
         actor = _user.get("email", "unknown")
         context = _build_report_draft_context(int(job_id), payload.template_key)
+        if payload.sibling_drafts:
+            context["sibling_drafts"] = {k: str(v) for k, v in payload.sibling_drafts.items() if v}
         selected_template = context.get("selected_template") or {}
         template_id = selected_template.get("template_id")
         version_id = selected_template.get("version_id")

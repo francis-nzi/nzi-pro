@@ -401,7 +401,7 @@ def _enrich_executive_summary_text(context: dict[str, Any], draft_text: str) -> 
         paragraphs.append(context_sentence + ".")
 
     strategy_bits = [
-        f"ShredIT ME's wider Net Zero programme targets {commitment_year}" if commitment_year else "",
+        f"{company_name}'s wider Net Zero programme targets {commitment_year}" if commitment_year else "",
         f"with an interim milestone in {interim_year}" if commitment_year and interim_year else "",
         (
             f"The current action plan contains {action_count} actions "
@@ -677,6 +677,14 @@ def _build_executive_summary_context_lines(context: dict[str, Any]) -> list[str]
                 f"{_text(item.get('action_term_label') or item.get('action_term') or '')} | "
                 f"{_text(item.get('action_category') or '')}"
             )
+
+    sibling_drafts = context.get("sibling_drafts") or {}
+    emissions_draft = _text(sibling_drafts.get("emissions_overview") or "")
+    actions_draft = _text(sibling_drafts.get("actions") or "")
+    if emissions_draft:
+        lines.append(f"Emissions Overview section (already drafted — reference and extend, do not repeat verbatim): {emissions_draft[:600]}")
+    if actions_draft:
+        lines.append(f"Actions section (already drafted — reference and extend, do not repeat verbatim): {actions_draft[:400]}")
 
     return lines
 

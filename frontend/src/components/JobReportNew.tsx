@@ -10,7 +10,8 @@ import EmissionsSummary from "@/components/EmissionsSummary";
 import ReportingElements from "@/components/ReportingElements";
 import ReportVariablesPanel from "@/components/job-workspace/ReportVariablesPanel";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, CircleX, FileText, Search, Sparkles, Target } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { apiUrl } from "@/lib/auth-client";
 
 type ReportTemplate = {
@@ -514,6 +515,7 @@ export default function JobReportNew({
   const [reportVersionsError, setReportVersionsError] = useState<string>("");
   const [savingTemplateId, setSavingTemplateId] = useState<number | null>(null);
   const [savingReportVersion, setSavingReportVersion] = useState(false);
+  const [profileSearch, setProfileSearch] = useState("");
   const [reportVersionBusy, setReportVersionBusy] = useState<{ id: number; kind: "download" | "snapshot" } | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -1186,7 +1188,7 @@ export default function JobReportNew({
   }
 
   const generateSectionDraft = useCallback(
-    async (section: string) => {
+    async (section: string, siblingDrafts?: Record<string, string>) => {
       const sectionKey = getDraftSectionKey(section);
       if (!AI_DRAFT_SECTIONS.has(section)) {
         return;
@@ -1197,17 +1199,21 @@ export default function JobReportNew({
       setError("");
       setDraftError("");
       try {
+        const body: Record<string, unknown> = {
+          section_key: sectionKey,
+          template_key: selectedProfile.templateKey,
+          provider: "anthropic",
+        };
+        if (siblingDrafts && Object.keys(siblingDrafts).length > 0) {
+          body.sibling_drafts = siblingDrafts;
+        }
         const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
           method: "POST",
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            section_key: sectionKey,
-            template_key: selectedProfile.templateKey,
-            provider: "anthropic",
-          }),
+          body: JSON.stringify(body),
         }, 1);
 
         if (!res.ok) {
@@ -1255,6 +1261,78 @@ export default function JobReportNew({
     },
     [baseUrl, jobId, selectedProfile.templateKey]
   );
+
+  const generateAllAiDrafts = useCallback(async () => {
+    const orderedSections = ["Emissions Overview", "Actions", "Executive Summary"];
+    const toGenerate = orderedSections.filter((s) => selectedProfile.sections.some((ps) => (SECTION_LABEL_ALIASES[ps] || ps) === s || ps === s));
+    if (toGenerate.length === 0) return;
+
+    setStatus("");
+    setError("");
+    setDraftError("");
+
+    const currentDrafts: Record<string, string> = {};
+
+    for (const section of toGenerate) {
+      setActiveDraftSection(section);
+      setDraftGeneratingSection(section);
+
+      const sectionKey = getDraftSectionKey(section);
+      const siblingDrafts: Record<string, string> = {};
+      if (section === "Executive Summary") {
+        if (currentDrafts["Emissions Overview"]) siblingDrafts.emissions_overview = currentDrafts["Emissions Overview"];
+        if (currentDrafts["Actions"]) siblingDrafts.actions = currentDrafts["Actions"];
+      }
+
+      const body: Record<string, unknown> = {
+        section_key: sectionKey,
+        template_key: selectedProfile.templateKey,
+        provider: "anthropic",
+      };
+      if (Object.keys(siblingDrafts).length > 0) body.sibling_drafts = siblingDrafts;
+
+      try {
+        const res = await fetchWithRetry(`${baseUrl}/jobs/${jobId}/report-drafts/generate`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }, 1);
+
+        if (!res.ok) {
+          let message = `Failed to generate ${section} (${res.status})`;
+          try {
+            const errPayload = await res.json();
+            if (errPayload?.detail) message = typeof errPayload.detail === "string" ? errPayload.detail : JSON.stringify(errPayload.detail);
+          } catch { /* keep fallback */ }
+          throw new Error(message);
+        }
+
+        const payload = await res.json();
+        const draftText = typeof payload?.draft?.draft_text === "string" ? payload.draft.draft_text : "";
+        const readableText = coerceReadableDraftText(draftText, draftText);
+
+        if (readableText.trim()) {
+          currentDrafts[section] = readableText;
+          setDraftNotes((prev) => ({ ...prev, [section]: readableText }));
+          setDraftOrigins((prev) => ({ ...prev, [section]: "ai" }));
+          const provider = String(payload?.draft?.provider || "anthropic").toLowerCase();
+          setDraftProviders((prev) => ({
+            ...prev,
+            [section]: provider === "anthropic" || provider === "openai" || provider === "rule-based" ? (provider as DraftProviders[string]) : "anthropic",
+          }));
+          setDraftDirty(true);
+        }
+      } catch (err) {
+        setDraftGeneratingSection(null);
+        setDraftError(formatFriendlyFetchError(err, `Failed to generate ${section}.`));
+        return;
+      }
+    }
+
+    setDraftGeneratingSection(null);
+    setStatus(`Generated AI drafts for ${toGenerate.length} sections.`);
+  }, [baseUrl, jobId, selectedProfile]);
 
   return (
     <div className="space-y-6">
@@ -1338,68 +1416,124 @@ export default function JobReportNew({
       <AccordionSection
         stageNum={4}
         title="Choose report profile"
-        description="Start with the report family, then shape the draft and visuals around the profile."
+        description="Select the report family for this job. Use search to filter when many templates are available."
         isOpen={openSections.has("stage-4")}
         onToggle={() => toggleSection("stage-4")}
         id="stage-4-profile"
       >
-            <div className="grid gap-4 md:grid-cols-2">
-              {PROFILE_LIBRARY.map((profile) => {
-                const template = templates.find((item) => item.template_key === profile.templateKey);
-                const isSelected = selectedProfile.key === profile.key;
-                return (
-                  <div
-                    key={profile.key}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedKey(profile.key)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        setSelectedKey(profile.key);
-                      }
-                    }}
-                    className={`cursor-pointer text-left rounded-2xl border p-4 transition-all ${
-                      isSelected ? "border-slate-950 bg-slate-50 shadow-sm" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50/60"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-slate-500">{profile.subtitle}</div>
-                        <div className="mt-1 text-lg font-semibold">{profile.title}</div>
-                      </div>
-                      <Badge className={toneClass(profile.statusTone)}>{profile.statusLabel}</Badge>
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-600">{profile.description}</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {profile.sections.slice(0, 4).map((section) => (
-                        <Badge key={section} variant="outline" className="bg-white">
-                          {section}
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        className="gap-2"
-                        disabled={loading || savingTemplateId === template?.template_id}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          void assignProfile(profile);
-                        }}
-                      >
-                        {savingTemplateId === template?.template_id ? "Assigning..." : "Use this profile"}
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                      {template?.latest_version_number ? (
-                        <Badge variant="outline">v{template.latest_version_number}</Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Assigned profile summary */}
+        {assignment?.template_id ? (
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-emerald-900">{assignment.template_name}</span>
+              {assignment.version_number ? (
+                <Badge variant="outline" className="ml-2 bg-white text-[10px]">v{assignment.version_number}</Badge>
+              ) : null}
             </div>
+            <Badge className="ml-auto shrink-0 bg-emerald-100 text-emerald-800 border-emerald-200">Assigned</Badge>
+          </div>
+        ) : null}
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            placeholder="Search templates…"
+            value={profileSearch}
+            onChange={(e) => setProfileSearch(e.target.value)}
+            className="pl-8 text-sm"
+          />
+        </div>
+
+        {/* Template list */}
+        <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white overflow-hidden">
+          {PROFILE_LIBRARY.filter((profile) => {
+            if (!profileSearch.trim()) return true;
+            const q = profileSearch.toLowerCase();
+            return (
+              profile.title.toLowerCase().includes(q) ||
+              profile.subtitle.toLowerCase().includes(q) ||
+              profile.description.toLowerCase().includes(q) ||
+              profile.templateKey.toLowerCase().includes(q)
+            );
+          }).map((profile) => {
+            const template = templates.find((item) => item.template_key === profile.templateKey);
+            const isSelected = selectedProfile.key === profile.key;
+            const isAssigned = assignment?.template_key === profile.templateKey;
+            return (
+              <div
+                key={profile.key}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedKey(profile.key)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedKey(profile.key);
+                  }
+                }}
+                className={`flex items-center gap-3 px-3 py-3 transition-colors cursor-pointer ${
+                  isSelected ? "bg-slate-50" : "hover:bg-slate-50/60"
+                }`}
+              >
+                {/* Selection indicator */}
+                <div className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border-2 transition-colors ${
+                  isSelected ? "border-slate-900 bg-slate-900" : "border-slate-300"
+                }`} />
+
+                {/* Name + meta */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium text-slate-900">{profile.title}</span>
+                    {profile.subtitle ? (
+                      <span className="text-xs text-slate-500">– {profile.subtitle}</span>
+                    ) : null}
+                    {isAssigned ? (
+                      <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">Assigned</Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <Badge className={`${toneClass(profile.statusTone)} text-[10px]`}>{profile.statusLabel}</Badge>
+                    {profile.sections.slice(0, 4).map((section) => (
+                      <span key={section} className="text-[11px] text-slate-400">{section}</span>
+                    ))}
+                    {template?.latest_version_number ? (
+                      <span className="text-[11px] text-slate-400">v{template.latest_version_number}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Assign button */}
+                <Button
+                  size="sm"
+                  variant={isAssigned ? "outline" : "default"}
+                  className="shrink-0 gap-1.5 text-xs"
+                  disabled={loading || savingTemplateId === template?.template_id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void assignProfile(profile);
+                  }}
+                >
+                  {savingTemplateId === template?.template_id ? "Assigning…" : isAssigned ? "Reassign" : "Assign"}
+                  <ArrowRight className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })}
+          {profileSearch.trim() && !PROFILE_LIBRARY.some((profile) => {
+            const q = profileSearch.toLowerCase();
+            return (
+              profile.title.toLowerCase().includes(q) ||
+              profile.subtitle.toLowerCase().includes(q) ||
+              profile.description.toLowerCase().includes(q) ||
+              profile.templateKey.toLowerCase().includes(q)
+            );
+          }) ? (
+            <div className="px-3 py-4 text-center text-sm text-slate-400">No templates match your search.</div>
+          ) : null}
+        </div>
       </AccordionSection>
 
       {/* ── Stage 5: Draft Content ─────────────────────────────────────── */}
@@ -1411,27 +1545,32 @@ export default function JobReportNew({
         onToggle={() => toggleSection("stage-5")}
       >
             <div className="rounded-xl border bg-slate-50 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="bg-white">
-                  {selectedProfile.subtitle}
-                </Badge>
-                <Badge variant="outline" className="bg-white">
-                  {draftedSectionCount}/{selectedProfile.sections.length} drafted
-                </Badge>
-                <Badge variant="outline" className="bg-white">
-                  {selectedActions} actions ready
-                </Badge>
-                <Badge variant="outline" className="bg-white">
-                  {draftOrigins["Executive Summary"] === "ai" || draftOrigins["Emissions Overview"] === "ai" || draftOrigins["Actions"] === "ai"
-                    ? "AI drafting enabled"
-                    : "AI drafting ready"}
-                </Badge>
-                <Badge variant="outline" className="bg-white">
-                  {getDraftProviderLabel(draftProviders[activeDraftSection], draftOrigins[activeDraftSection])}
-                </Badge>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="bg-white">
+                    {selectedProfile.subtitle}
+                  </Badge>
+                  <Badge variant="outline" className="bg-white">
+                    {draftedSectionCount}/{selectedProfile.sections.length} drafted
+                  </Badge>
+                  <Badge variant="outline" className="bg-white">
+                    {selectedActions} actions ready
+                  </Badge>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 bg-white"
+                  onClick={() => void generateAllAiDrafts()}
+                  disabled={draftGeneratingSection !== null}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {draftGeneratingSection !== null ? `Generating ${draftGeneratingSection}…` : "Generate all AI sections"}
+                </Button>
               </div>
               <p className="mt-2 text-sm text-slate-600">
-                Draft one section at a time, keep the others as quick navigation, and move to preview/export when the narrative feels coherent.
+                Generate all AI sections in order — Emissions Overview, then Actions, then Executive Summary (which references the others).
               </p>
               {draftContext?.context_summary ? (
                 <p className="mt-1.5 text-sm text-slate-500">
