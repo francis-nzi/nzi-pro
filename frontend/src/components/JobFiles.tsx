@@ -63,6 +63,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
   const [selectedFileType, setSelectedFileType] = useState("");
   const [selectedRowId, setSelectedRowId] = useState<number | "">("");
   const [description, setDescription] = useState("");
+  const [selectedUploadFile, setSelectedUploadFile] = useState<File | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingFileId, setEditingFileId] = useState<number | null>(null);
   const [editRowId, setEditRowId] = useState<number | "">("");
@@ -156,16 +157,25 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     loadScopeRows();
   }, [loadFileTypes, loadFiles, loadScopeRows]);
 
-  async function handleUpload(fileInput: HTMLInputElement) {
-    const file = fileInput.files?.[0];
+  useEffect(() => {
+    if (selectedFileType) return;
+    const firstActive = fileTypes.find((type) => type.is_active);
+    if (firstActive) {
+      setSelectedFileType(firstActive.file_type_key);
+    }
+  }, [fileTypes, selectedFileType]);
+
+  async function handleUpload() {
+    const file = selectedUploadFile;
     if (!file) return;
     if (!selectedFileType) {
-      alert("Please select a file type before uploading.");
+      setError("Please select a file type before uploading.");
       return;
     }
 
     setUploading(true);
     setUploadProgress(0);
+    setError("");
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -187,14 +197,14 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       }
 
       // Reset form
-      fileInput.value = "";
+      setSelectedUploadFile(null);
       setDescription("");
       setSelectedRowId("");
       
       // Reload files
       await loadFiles();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to upload file");
+      setError(err instanceof Error ? err.message : "Failed to upload file");
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -221,7 +231,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
 
       await loadFiles();
     } catch (e) {
-      alert((e as Error).message);
+      setError((e as Error).message);
     }
   }
 
@@ -257,7 +267,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
       setEditNotes("");
       await loadFiles();
     } catch (e) {
-      alert((e as Error).message);
+      setError((e as Error).message);
     }
   }
 
@@ -339,18 +349,17 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
     );
   }
 
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="py-8">
-          <div className="text-center text-destructive">{error}</div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {error ? (
+        <Card className="border-rose-200 bg-rose-50">
+          <CardContent className="py-4">
+            <div className="text-sm font-medium text-rose-700">Unable to complete the last action</div>
+            <div className="text-sm text-rose-700">{error}</div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Upload Section */}
       <Card>
         <CardHeader>
@@ -377,7 +386,7 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
                 )}
               </select>
               <div className="text-xs text-muted-foreground">
-                File types are managed in Admin &gt; Lookups.
+                File types are managed in Admin &gt; Lookups. A default is selected automatically.
               </div>
             </div>
             
@@ -413,15 +422,42 @@ export default function JobFiles({ jobId, baseUrl }: JobFilesProps) {
             <label className="text-sm font-medium">Select File</label>
             <input
               type="file"
-              onChange={(e) => handleUpload(e.target)}
+              onChange={(e) => {
+                setSelectedUploadFile(e.target.files?.[0] ?? null);
+                if (error) setError("");
+              }}
               disabled={uploading}
               className="w-full rounded-md border px-3 py-2 text-sm"
             />
           </div>
-          
-          {uploading && (
-            <UploadProgressBar value={uploadProgress} label="Uploading file..." />
-          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm text-muted-foreground">
+              {selectedUploadFile ? `Selected: ${selectedUploadFile.name}` : "No file selected"}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedUploadFile(null);
+                  setDescription("");
+                  setSelectedRowId("");
+                  setError("");
+                }}
+                disabled={uploading}
+              >
+                Clear
+              </Button>
+              <Button
+                onClick={() => void handleUpload()}
+                disabled={uploading || !selectedUploadFile || !selectedFileType || typesLoading}
+              >
+                Upload File
+              </Button>
+            </div>
+          </div>
+
+          {uploading && <UploadProgressBar value={uploadProgress} label="Uploading file..." />}
         </CardContent>
       </Card>
 
