@@ -4,11 +4,12 @@ import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 
+import LoadingOrbit from "@/components/LoadingOrbit";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
 
 const JobAdvancedReports = dynamic(() => import("@/components/JobAdvancedReports"), {
   ssr: false,
-  loading: () => <div className="py-12 text-center text-sm text-muted-foreground">Loading report…</div>,
+  loading: () => <LoadingOrbit className="py-12" label="Loading report…" />,
 });
 
 function apiBaseUrl(): string {

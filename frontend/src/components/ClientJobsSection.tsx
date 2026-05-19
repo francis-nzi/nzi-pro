@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import LoadingOrbit from "@/components/LoadingOrbit";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { milestoneDotClass } from "@/lib/status-utils";
@@ -30,7 +31,7 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
           <CardTitle>Jobs</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground">Loading jobs...</div>
+          <LoadingOrbit className="py-6" label="Loading jobs..." />
         </CardContent>
       </Card>
     );

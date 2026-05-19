@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import LoadingOrbit from "@/components/LoadingOrbit";
 import { withAuditHeaders } from "@/lib/auth-client";
 import { dispatchJobScopeRefresh, JOB_SCOPE_REFRESH_EVENT } from "@/lib/job-scope-refresh";
 import { useUnsavedChangesGuard } from "@/lib/useUnsavedChangesGuard";
@@ -1528,7 +1529,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-sm text-muted-foreground text-center">Loading...</div>
+              <LoadingOrbit className="py-8" label="Loading data summary..." />
             ) : scopeTotals ? (
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="space-y-1 text-center">
@@ -1685,15 +1686,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
 
       {/* Data Grid */}
       <Card>
-        <CardHeader>
-          <CardTitle>Data Entries ({filteredData.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-sm text-muted-foreground">Loading...</div>
-          ) : filteredData.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              No data entries yet. Add data using the template or Excel upload.
+          <CardHeader>
+            <CardTitle>Data Entries ({filteredData.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <LoadingOrbit className="py-16" label="Loading data entries..." />
+            ) : filteredData.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No data entries yet. Add data using the template or Excel upload.
             </div>
           ) : (
             <div className="overflow-x-auto">

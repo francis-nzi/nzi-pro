@@ -9,6 +9,7 @@ import JobWorkspaceSubtabs from "./JobWorkspaceSubtabs";
 import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab, WorkspaceTab } from "./types";
 import { getCachedJobShellData, loadJobShellData } from "@/lib/job-shell-data";
 import type { JobShellJob } from "@/lib/job-shell-data";
+import LoadingOrbit from "@/components/LoadingOrbit";
 
 type JobSectionShellProps = {
   jobId: number;
@@ -247,7 +248,7 @@ export default function JobSectionShell({
             />
           </div>
         ) : null}
-        {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading {sectionLabel.toLowerCase()}...</div> : null}
+        {loading ? <LoadingOrbit className="mt-4 py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
         {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
         <div className="mt-6">{renderContent ? (job ? renderContent(job) : null) : children}</div>
       </div>

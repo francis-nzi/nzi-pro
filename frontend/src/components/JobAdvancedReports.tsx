@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import LoadingOrbit from "@/components/LoadingOrbit";
 import { formatDate } from "@/lib/format";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -777,12 +778,7 @@ export default function JobAdvancedReports({
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center text-gray-400">
-        <div className="text-center">
-          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
-          <p className="text-sm">Loading report data…</p>
-        </div>
-      </div>
+      <LoadingOrbit className="h-64" label="Loading report data…" />
     );
   }
 
