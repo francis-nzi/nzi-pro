@@ -89,6 +89,10 @@ const AIInsights = dynamic(() => import("@/components/AIInsights"), {
   ssr: false,
   loading: () => <div className="py-12 text-center text-sm text-muted-foreground">Loading insights...</div>,
 });
+const ClientPathwayCharts = dynamic(() => import("@/components/ClientPathwayCharts"), {
+  ssr: false,
+  loading: () => <div className="py-12 text-center text-sm text-muted-foreground">Loading pathways...</div>,
+});
 
 export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -424,6 +428,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
         <TabsList className="w-full justify-start">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="trends">Trends</TabsTrigger>
+          <TabsTrigger value="pathways">Pathways</TabsTrigger>
           <TabsTrigger value="insights">Insights</TabsTrigger>
         </TabsList>
 
@@ -445,6 +450,17 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             trendData={trendData}
             topCategoryData={topCategoryData}
             view="trends"
+          />
+        </TabsContent>
+
+        <TabsContent value="pathways" className="space-y-6">
+          <ClientPathwayCharts
+            clientId={clientId}
+            baseUrl={baseUrl}
+            yearlyEmissions={data.yearly_emissions}
+            intensityMetrics={data.intensity_metrics ?? []}
+            benchmarkMetrics={data.benchmark_metrics ?? null}
+            currentMetrics={currentMetrics}
           />
         </TabsContent>
 
