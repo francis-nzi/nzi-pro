@@ -307,28 +307,28 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
 
   const renderNotesTable = useCallback((items: ClientNote[]) => {
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1200px] text-sm">
+      <div className="w-full">
+        <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b text-left">
-              <th className="p-2">Source</th>
-              <th className="p-2">Where</th>
-              <th className="p-2">Note</th>
-              <th className="p-2">Author</th>
-              <th className="p-2">Updated At</th>
-              <th className="p-2">Actions</th>
+              <th className="w-[16%] p-2">Source</th>
+              <th className="w-[18%] p-2">Where</th>
+              <th className="w-[38%] p-2">Note</th>
+              <th className="w-[10%] p-2">Author</th>
+              <th className="w-[10%] p-2">Updated At</th>
+              <th className="w-[8%] p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.note_id} className="border-b align-top">
-                <td className="p-2">
+                <td className="p-2 align-top break-words">
                   <div className="font-medium">{item.source_label}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Client"}
                   </div>
                 </td>
-                <td className="p-2">
+                <td className="p-2 align-top break-words">
                   <div className="font-medium">{item.note_location}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {item.site_name || "No site"}
@@ -337,7 +337,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                     {item.report_label ? ` | ${item.report_label}` : ""}
                   </div>
                 </td>
-                <td className="p-2 whitespace-pre-wrap">
+                <td className="p-2 align-top whitespace-pre-wrap break-words">
                   {item.note_subject ? <div className="font-medium">{item.note_subject}</div> : null}
                   <div>{item.note_text}</div>
                   {item.updated_by ? (
@@ -347,9 +347,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                     </div>
                   ) : null}
                 </td>
-                <td className="p-2">{item.note_author || "-"}</td>
-                <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
-                <td className="p-2">
+                <td className="p-2 align-top break-words">{item.note_author || "-"}</td>
+                <td className="p-2 align-top break-words">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
+                <td className="p-2 align-top">
                   <div className="flex flex-col gap-1">
                     <Button size="sm" variant="outline" onClick={() => openEdit(item)}>
                       Edit
@@ -370,7 +370,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   return (
     <div className="space-y-6">
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[96vw] max-w-5xl">
           <DialogHeader>
             <DialogTitle>Edit Note</DialogTitle>
           </DialogHeader>

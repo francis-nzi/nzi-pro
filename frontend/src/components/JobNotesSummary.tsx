@@ -501,7 +501,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
           }
         }}
       >
-        <DialogContent className="w-[96vw] max-w-6xl">
+        <DialogContent className="w-[98vw] max-w-7xl">
           <DialogHeader>
             <DialogTitle>{editingNote ? "Edit Job Note" : "Add Job Note"}</DialogTitle>
           </DialogHeader>
