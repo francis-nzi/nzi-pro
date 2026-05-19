@@ -105,6 +105,50 @@ def admin_update_report_action_option(
     return {"ok": True, "item": item}
 
 
+@router.get("/jobs/{job_id}/report-actions/available-sources")
+def get_report_action_copy_sources(
+    job_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Return other jobs from the same client that have actions, for use in copy-from dialog."""
+    assert_job_access(_user, int(job_id))
+    with get_conn() as con:
+        from services.report_actions import ensure_report_actions_schema
+        ensure_report_actions_schema(con)
+        row = con.execute(
+            "SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]
+        ).fetchone()
+        if not row or row[0] is None:
+            return {"items": []}
+        client_db_id = int(row[0])
+        rows = con.execute(
+            """
+            SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                   COUNT(a.job_action_id) AS action_count
+            FROM jobs j
+            LEFT JOIN job_report_actions a ON a.job_id = j.job_id
+            WHERE j.client_db_id = %s
+              AND j.job_id <> %s
+            GROUP BY j.job_id, j.job_number, j.title, j.reporting_year, j.status
+            HAVING COUNT(a.job_action_id) > 0
+            ORDER BY j.reporting_year DESC NULLS LAST, j.job_id DESC
+            """,
+            [client_db_id, int(job_id)],
+        ).fetchall()
+        items = [
+            {
+                "job_id": int(r[0]),
+                "job_number": str(r[1] or ""),
+                "title": str(r[2] or ""),
+                "reporting_year": int(r[3]) if r[3] is not None else None,
+                "status": str(r[4] or ""),
+                "action_count": int(r[5]),
+            }
+            for r in (rows or [])
+        ]
+    return {"items": items}
+
+
 @router.get("/jobs/{job_id}/report-actions")
 def get_job_report_actions(
     job_id: int,

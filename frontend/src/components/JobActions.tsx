@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -57,6 +64,15 @@ type JobActionsResponse = {
   term_counts?: Record<string, number>;
 };
 
+type CopySourceJob = {
+  job_id: number;
+  job_number: string;
+  title: string;
+  reporting_year: number | null;
+  status: string;
+  action_count: number;
+};
+
 type JobActionsProps = {
   jobId: number;
   baseUrl?: string;
@@ -104,6 +120,14 @@ export default function JobActions({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copySourceJobs, setCopySourceJobs] = useState<CopySourceJob[]>([]);
+  const [copySourceJobsLoading, setCopySourceJobsLoading] = useState(false);
+  const [selectedCopySourceId, setSelectedCopySourceId] = useState<string>("");
+  const [copyPreviewItems, setCopyPreviewItems] = useState<JobActionItem[]>([]);
+  const [copyPreviewLoading, setCopyPreviewLoading] = useState(false);
+  const [copyChecked, setCopyChecked] = useState<Set<number>>(new Set());
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -223,6 +247,67 @@ export default function JobActions({
     setStatus("");
   }
 
+  const openCopyDialog = useCallback(async () => {
+    setCopyOpen(true);
+    setSelectedCopySourceId("");
+    setCopyPreviewItems([]);
+    setCopyChecked(new Set());
+    setCopySourceJobsLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/report-actions/available-sources`, { credentials: "include" });
+      const data = await res.json() as { items: CopySourceJob[] };
+      setCopySourceJobs(Array.isArray(data.items) ? data.items : []);
+    } catch {
+      setCopySourceJobs([]);
+    } finally {
+      setCopySourceJobsLoading(false);
+    }
+  }, [baseUrl, jobId]);
+
+  const loadCopyPreview = useCallback(async (sourceId: string) => {
+    setSelectedCopySourceId(sourceId);
+    if (!sourceId) { setCopyPreviewItems([]); setCopyChecked(new Set()); return; }
+    setCopyPreviewLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${sourceId}/report-actions`, { credentials: "include" });
+      const data = await res.json() as JobActionsResponse;
+      const preview = Array.isArray(data.items) ? data.items : [];
+      setCopyPreviewItems(preview);
+      setCopyChecked(new Set(preview.map((_, i) => i)));
+    } catch {
+      setCopyPreviewItems([]);
+      setCopyChecked(new Set());
+    } finally {
+      setCopyPreviewLoading(false);
+    }
+  }, [baseUrl]);
+
+  function toggleCopyCheck(index: number) {
+    setCopyChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
+  }
+
+  function applyImport() {
+    const existingNames = new Set(items.map((item) => item.action_name.trim().toLowerCase()));
+    const toAdd = copyPreviewItems
+      .filter((_, i) => copyChecked.has(i))
+      .filter((item) => !existingNames.has(item.action_name.trim().toLowerCase()))
+      .map((item, i) => ({
+        ...item,
+        job_action_id: undefined,
+        is_custom: true,
+        sort_order: (items.length + i + 1) * 10,
+      }));
+    if (toAdd.length > 0) {
+      setItems((prev) => [...prev, ...toAdd]);
+      setStatus(`${toAdd.length} action${toAdd.length === 1 ? "" : "s"} added. Save to keep changes.`);
+    }
+    setCopyOpen(false);
+  }
+
   async function saveActions() {
     const trimmedItems = items.map((item, index) => ({
       ...item,
@@ -279,8 +364,112 @@ export default function JobActions({
     }
   }
 
+  const allChecked = copyPreviewItems.length > 0 && copyChecked.size === copyPreviewItems.length;
+  const existingNamesForPreview = useMemo(
+    () => new Set(items.map((item) => item.action_name.trim().toLowerCase())),
+    [items]
+  );
+
   return (
     <div className="space-y-6">
+      <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Copy Actions from Another Job</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Source Job</Label>
+              {copySourceJobsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading jobs...</p>
+              ) : copySourceJobs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No other jobs with actions found for this client.</p>
+              ) : (
+                <Select value={selectedCopySourceId} onValueChange={(v) => void loadCopyPreview(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a job to copy actions from..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {copySourceJobs.map((job) => (
+                      <SelectItem key={job.job_id} value={String(job.job_id)}>
+                        {job.job_number ? `${job.job_number} – ` : ""}{job.title || `Job ${job.job_id}`}
+                        {job.reporting_year ? ` (${job.reporting_year})` : ""}
+                        {" "}&middot; {job.action_count} action{job.action_count === 1 ? "" : "s"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {selectedCopySourceId && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Actions to copy</Label>
+                  {copyPreviewItems.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCopyChecked(allChecked ? new Set() : new Set(copyPreviewItems.map((_, i) => i)))}
+                    >
+                      {allChecked ? "Deselect all" : "Select all"}
+                    </Button>
+                  )}
+                </div>
+                {copyPreviewLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading actions...</p>
+                ) : copyPreviewItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No actions in selected job.</p>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto space-y-2 rounded-md border p-3">
+                    {copyPreviewItems.map((item, i) => {
+                      const alreadyExists = existingNamesForPreview.has(item.action_name.trim().toLowerCase());
+                      return (
+                        <div key={i} className={`flex items-start gap-3 rounded-md p-2 ${alreadyExists ? "bg-muted/50" : ""}`}>
+                          <input
+                            type="checkbox"
+                            id={`copy-item-${i}`}
+                            checked={copyChecked.has(i)}
+                            onChange={() => toggleCopyCheck(i)}
+                            disabled={alreadyExists}
+                            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <label htmlFor={`copy-item-${i}`} className={`text-sm font-medium cursor-pointer ${alreadyExists ? "text-muted-foreground" : ""}`}>
+                              {item.action_name}
+                              {alreadyExists && <span className="ml-2 text-xs font-normal">(already in plan)</span>}
+                            </label>
+                            <div className="mt-0.5 flex flex-wrap gap-1">
+                              <Badge variant="outline" className={`text-xs ${termBadgeVariant(item.action_term)}`}>
+                                {item.action_term_label || item.action_term}
+                              </Badge>
+                              {item.action_category && <Badge variant="secondary" className="text-xs">{item.action_category}</Badge>}
+                            </div>
+                            {item.description && <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{item.description}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {copyChecked.size} of {copyPreviewItems.length} selected. Actions already in this plan are skipped automatically.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyOpen(false)}>Cancel</Button>
+            <Button
+              onClick={applyImport}
+              disabled={copyChecked.size === 0 || !selectedCopySourceId}
+            >
+              Add {copyChecked.size > 0 ? copyChecked.size : ""} Action{copyChecked.size === 1 ? "" : "s"} to Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-1">
@@ -290,6 +479,10 @@ export default function JobActions({
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void openCopyDialog()}>
+              <Copy className="mr-2 h-4 w-4" />
+              Copy from Another Job
+            </Button>
             <Button variant="outline" onClick={addCustomAction}>
               <Plus className="mr-2 h-4 w-4" />
               Add Custom Action
