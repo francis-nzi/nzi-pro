@@ -231,7 +231,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
       { name: "Scope 1", value: Number(currentMetrics.scope1 || 0) },
       { name: "Scope 2", value: Number(currentMetrics.scope2 || 0) },
       { name: "Scope 3", value: Number(currentMetrics.scope3 || 0) },
-    ].filter((x) => x.value > 0);
+    ];
   }, [currentMetrics]);
 
   const topCategoryData = useMemo(() => {
