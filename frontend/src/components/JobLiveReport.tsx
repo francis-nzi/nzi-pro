@@ -720,6 +720,11 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
                           {formatNumber(currentTotal)}
                         </div>
                         <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
+                        {periodStart && periodEnd ? (
+                          <div className="mt-1 text-[10px] text-muted-foreground/70">{periodStart} – {periodEnd}</div>
+                        ) : reportYear ? (
+                          <div className="mt-1 text-[10px] text-muted-foreground/70">{reportYear}</div>
+                        ) : null}
                       </div>
                     </div>
                   </div>

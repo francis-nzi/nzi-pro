@@ -650,6 +650,7 @@ export default function JobInsights({
                   <div className="text-center">
                     <div className="text-3xl font-semibold tabular-nums">{formatTco2e(scopeTotals?.total ?? 0)}</div>
                     <div className="text-xs text-muted-foreground">tCO₂e total</div>
+                    {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
                   </div>
                 </div>
               </div>
@@ -755,6 +756,7 @@ export default function JobInsights({
                     <div className="text-center">
                       <div className="text-3xl font-semibold tabular-nums">{formatTco2e(Number(scopeTotals?.total || 0))}</div>
                       <div className="text-xs text-muted-foreground">tCO₂e total</div>
+                      {currentYear ? <div className="mt-1 text-[10px] text-muted-foreground/70">{currentYear}</div> : null}
                     </div>
                   </div>
                 </div>

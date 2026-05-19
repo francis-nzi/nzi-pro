@@ -1173,6 +1173,13 @@ export default function JobAdvancedReports({
                   <div className="text-center">
                     <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
                     <div className="text-xs text-gray-400">tCO₂e total</div>
+                    {(printPeriodStart || printPeriodEnd) ? (
+                      <div className="mt-1 text-[10px] text-gray-400">
+                        {printPeriodStart && printPeriodEnd ? `${printPeriodStart} – ${printPeriodEnd}` : printPeriodStart || printPeriodEnd}
+                      </div>
+                    ) : data.job_data?.reporting_year != null ? (
+                      <div className="mt-1 text-[10px] text-gray-400">{data.job_data.reporting_year}</div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1541,6 +1548,13 @@ export default function JobAdvancedReports({
                     <div className="text-center">
                       <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
                       <div className="text-xs text-gray-400">tCO₂e total</div>
+                      {(printPeriodStart || printPeriodEnd) ? (
+                        <div className="mt-1 text-[10px] text-gray-400">
+                          {printPeriodStart && printPeriodEnd ? `${printPeriodStart} – ${printPeriodEnd}` : printPeriodStart || printPeriodEnd}
+                        </div>
+                      ) : data.job_data?.reporting_year != null ? (
+                        <div className="mt-1 text-[10px] text-gray-400">{data.job_data.reporting_year}</div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
