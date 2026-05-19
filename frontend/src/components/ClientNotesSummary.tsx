@@ -426,7 +426,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   return (
       <div className="space-y-6">
       <Dialog open={addClientNoteOpen} onOpenChange={setAddClientNoteOpen}>
-        <DialogContent className="w-[96vw] max-w-5xl">
+        <DialogContent className="w-[98vw] max-w-[1400px]">
           <DialogHeader>
             <DialogTitle>Add Client Note</DialogTitle>
           </DialogHeader>
@@ -473,7 +473,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       </Dialog>
 
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
-        <DialogContent className="w-[96vw] max-w-5xl">
+        <DialogContent className="w-[98vw] max-w-[1400px]">
           <DialogHeader>
             <DialogTitle>{editingNote?.source_type === "client" ? "Edit Client Note" : "Edit Note"}</DialogTitle>
           </DialogHeader>
