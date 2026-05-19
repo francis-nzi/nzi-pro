@@ -646,6 +646,8 @@ export default function JobAdvancedReports({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [versions, setVersions] = useState<ReactReportVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
@@ -678,6 +680,37 @@ export default function JobAdvancedReports({
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
   }, [jobId, baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function downloadPdf() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await authFetch(`${baseUrl}/jobs/${jobId}/report-live-pdf`);
+      if (!res.ok) {
+        let detail = `PDF generation failed (${res.status})`;
+        try {
+          const body = await res.json() as { detail?: string };
+          if (body.detail) detail = body.detail;
+        } catch { /* ignore */ }
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const clientSlug = String(data?.job_data?.client_name ?? "report").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase();
+      const year = data?.job_data?.reporting_year ?? new Date().getFullYear();
+      a.download = `${clientSlug}-crp-${year}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDownloadError((e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   function loadVersions() {
     setVersionsLoading(true);
@@ -882,10 +915,10 @@ export default function JobAdvancedReports({
       <style jsx global>{`
         @page {
           size: A4;
-          margin-top: 18mm;
-          margin-right: 15mm;
-          margin-bottom: 18mm;
-          margin-left: 15mm;
+          margin-top: 22mm;
+          margin-right: 18mm;
+          margin-bottom: 22mm;
+          margin-left: 18mm;
         }
         @page {
           @top-left {
@@ -983,40 +1016,59 @@ export default function JobAdvancedReports({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => window.print()}
-              className="text-xs"
-            >
-              Print
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
               onClick={() => saveVersion("draft")}
-              disabled={generating}
+              disabled={generating || downloading}
               className="text-xs"
             >
               Save Draft
             </Button>
             <Button
               size="sm"
+              variant="outline"
               onClick={() => saveVersion("review")}
-              disabled={generating}
-              className="bg-green-700 text-xs text-white hover:bg-green-800"
+              disabled={generating || downloading}
+              className="text-xs"
             >
               {generating ? (
                 <span className="flex items-center gap-2">
-                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
-                  Generating…
+                  <span className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" />
+                  Saving…
                 </span>
               ) : (
-                "⬇ Save for Review"
+                "Save for Review"
+              )}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void downloadPdf()}
+              disabled={downloading || generating}
+              className="bg-green-700 text-xs text-white hover:bg-green-800"
+            >
+              {downloading ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                  Generating PDF…
+                </span>
+              ) : (
+                "⬇ Download PDF"
               )}
             </Button>
           </div>
         </div>
+        {downloadError && (
+          <div className="border-t border-red-100 bg-red-50 px-5 py-2 text-xs text-red-700">
+            <span className="font-medium">Download failed: </span>
+            {downloadError}
+            {downloadError.toLowerCase().includes("frontend_base_url") && (
+              <span className="ml-1 text-red-500">
+                — set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
+              </span>
+            )}
+          </div>
+        )}
         {generateError && (
           <div className="border-t border-red-100 bg-red-50 px-5 py-2 text-xs text-red-700">
-            <span className="font-medium">PDF generation failed: </span>
+            <span className="font-medium">Save failed: </span>
             {generateError}
             {generateError.toLowerCase().includes("frontend_base_url") && (
               <span className="ml-1 text-red-500">
