@@ -194,6 +194,28 @@ def _safe_text(value: Any) -> str:
     return text
 
 
+def _display_name(con, value: Any) -> str | None:
+    raw = _safe_text(value)
+    if not raw:
+        return None
+    try:
+        row = con.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(full_name), ''), email)
+            FROM users
+            WHERE lower(COALESCE(email, '')) = lower(%s)
+               OR lower(COALESCE(full_name, '')) = lower(%s)
+            LIMIT 1
+            """,
+            [raw, raw],
+        ).fetchone()
+        if row and row[0]:
+            return _safe_text(row[0]) or None
+    except Exception:
+        logger.debug("Failed to resolve display name", exc_info=True)
+    return raw
+
+
 def _json_safe(value):
     """Normalize values to JSON-safe primitives."""
     if value is None:
@@ -856,7 +878,7 @@ def get_job_notes_summary(
                     if not note_change_detected:
                         continue
 
-                    actor_label = str(audit_row.get("actor_name") or audit_row.get("actor_email") or "").strip() or None
+                    actor_label = _display_name(con, audit_row.get("actor_name") or audit_row.get("actor_email"))
                     latest_note_events[entity_id] = {
                         "updated_at": _to_iso(audit_row.get("created_at")),
                         "updated_by": actor_label,
@@ -932,7 +954,7 @@ def get_job_notes_summary(
                             "note_text": note_text,
                             "note_location": " | ".join(location_bits),
                             "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
-                            "note_updated_by": _safe_text(row.get("created_by")) or None,
+                            "note_updated_by": _display_name(con, row.get("created_by")),
                             "row_created_at": _to_iso(row.get("created_at")),
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }
@@ -982,7 +1004,7 @@ def get_job_notes_summary(
                             "note_text": note_text,
                             "note_location": note_location,
                             "note_updated_at": updated_at,
-                            "note_updated_by": note_event.get("updated_by"),
+                            "note_updated_by": _display_name(con, note_event.get("updated_by")),
                             "row_created_at": _to_iso(row.get("created_at")),
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }

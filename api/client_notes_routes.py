@@ -29,6 +29,28 @@ def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _display_name(con, value: Any) -> str | None:
+    raw = _safe_text(value)
+    if not raw:
+        return None
+    try:
+        row = con.execute(
+            """
+            SELECT COALESCE(NULLIF(TRIM(full_name), ''), email)
+            FROM users
+            WHERE lower(COALESCE(email, '')) = lower(%s)
+               OR lower(COALESCE(full_name, '')) = lower(%s)
+            LIMIT 1
+            """,
+            [raw, raw],
+        ).fetchone()
+        if row and row[0]:
+            return _safe_text(row[0]) or None
+    except Exception:
+        pass
+    return raw
+
+
 def _safe_int(value: Any, default: int | None = None) -> int | None:
     try:
         if value is None or str(value).strip() == "":
@@ -161,7 +183,7 @@ def get_client_notes_summary(
                         if subject:
                             location_bits.append(subject)
                         raw_id = _safe_int(row.get("event_id"), 0) or 0
-                        updated_by = _safe_text(row.get("updated_by")) or None
+                        updated_by = _display_name(con, row.get("updated_by"))
                         items.append(
                             {
                                 "note_id": f"client-event-{raw_id}",
@@ -182,7 +204,7 @@ def get_client_notes_summary(
                                 "note_location": " | ".join(location_bits),
                                 "note_subject": subject,
                                 "note_text": note_text,
-                                "note_author": _safe_text(row.get("created_by")) or None,
+                                "note_author": _display_name(con, row.get("created_by")),
                                 "updated_by": updated_by,
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
@@ -247,7 +269,7 @@ def get_client_notes_summary(
                         if subject:
                             location_bits.append(subject)
                         raw_id = _safe_int(row.get("communication_id"), 0) or 0
-                        updated_by = _safe_text(row.get("updated_by")) or None
+                        updated_by = _display_name(con, row.get("updated_by"))
                         items.append(
                             {
                                 "note_id": f"job-comm-{raw_id}",
@@ -268,7 +290,7 @@ def get_client_notes_summary(
                                 "note_location": " | ".join(location_bits),
                                 "note_subject": subject,
                                 "note_text": note_text,
-                                "note_author": _safe_text(row.get("created_by")) or None,
+                                "note_author": _display_name(con, row.get("created_by")),
                                 "updated_by": updated_by,
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
