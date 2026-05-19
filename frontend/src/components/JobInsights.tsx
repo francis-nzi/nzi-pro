@@ -305,10 +305,6 @@ export default function JobInsights({
   const trendReportingLabel = `Reporting years ${currentYear} to ${targetYear ?? 2050}`;
   const pathwayReportingLabel = `Reporting years ${(benchmarkYear ?? currentYear)} to ${targetYear ?? 2050}`;
 
-  function titled(base: string, suffix: string): string {
-    return `${base} (${suffix})`;
-  }
-
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
     const startYear = benchmarkYear ?? currentYear;
@@ -570,17 +566,19 @@ export default function JobInsights({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label={`Total tCO₂e (${currentReportingLabel})`} value={formatTco2e(Number(scopeTotals?.total || 0))} />
-        <MetricCard label={`Target Year (${currentReportingLabel})`} value={targetYear ?? 2050} />
+        <MetricCard label="Total tCO₂e" subtitle={currentReportingLabel} value={formatTco2e(Number(scopeTotals?.total || 0))} />
+        <MetricCard label="Target Year" subtitle={currentReportingLabel} value={targetYear ?? 2050} />
         <LinkMetricCard
-          label={`Top Dataset Category (${currentReportingLabel})`}
+          label="Top Dataset Category"
+          subtitle={currentReportingLabel}
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedActivityData[0]?.name ?? "No dataset category data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
-          label={`Top Site (${currentReportingLabel})`}
+          label="Top Site"
+          subtitle={currentReportingLabel}
           value={normalizedSiteData[0] ? formatTco2e(normalizedSiteData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedSiteData[0]?.name ?? "No site data"}
@@ -589,8 +587,9 @@ export default function JobInsights({
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{titled("Summary", currentReportingLabel)}</CardTitle>
+        <CardHeader className="space-y-1">
+          <CardTitle>Summary</CardTitle>
+          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-700">{summaryData}</p>
@@ -630,8 +629,9 @@ export default function JobInsights({
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>{titled("Emissions Summary by Scope", currentReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Emissions Summary by Scope</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -681,8 +681,9 @@ export default function JobInsights({
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>{titled("Top Emissions by Dataset Category", currentReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Top Emissions by Dataset Category</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
           </CardHeader>
           <CardContent>
             {normalizedActivityData.length === 0 ? (
@@ -730,8 +731,9 @@ export default function JobInsights({
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>{titled("Emissions by Site", currentReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Emissions by Site</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
           </CardHeader>
           <CardContent>
             {normalizedSiteData.length === 0 ? (
@@ -787,8 +789,9 @@ export default function JobInsights({
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>{titled("Emissions Trend to Target Year", trendReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Emissions Trend to Target Year</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{trendReportingLabel}</div>
           </CardHeader>
           <CardContent>
             <div className="h-[320px]">
@@ -817,8 +820,9 @@ export default function JobInsights({
 
       {scopePathwayData.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>{titled(`Emissions Reduction Pathway to ${targetYear ?? 2050}`, pathwayReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayReportingLabel}</div>
           </CardHeader>
           <CardContent>
             <div className="h-[360px]">
@@ -866,8 +870,9 @@ export default function JobInsights({
 
       {intensityPathwayData.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>{titled(`Emissions Reduction Pathway to ${targetYear ?? 2050} for Intensity Metrics`, pathwayReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050} for Intensity Metrics</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{pathwayReportingLabel}</div>
           </CardHeader>
           <CardContent>
             <div className="h-[360px]">
@@ -912,8 +917,9 @@ export default function JobInsights({
 
       {intensityTrend.length > 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>{titled("Intensity Actuals vs Forecast", currentReportingLabel)}</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle>Intensity Actuals vs Forecast</CardTitle>
+            <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
@@ -946,8 +952,9 @@ export default function JobInsights({
       ) : null}
 
       <Card>
-        <CardHeader>
-          <CardTitle>{titled("Monthly Emissions Trend", currentReportingLabel)}</CardTitle>
+        <CardHeader className="space-y-1">
+          <CardTitle>Monthly Emissions Trend</CardTitle>
+          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -965,8 +972,9 @@ export default function JobInsights({
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{titled("What If Scenarios", trendReportingLabel)}</CardTitle>
+        <CardHeader className="space-y-1">
+          <CardTitle>What If Scenarios</CardTitle>
+          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{trendReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
@@ -994,8 +1002,9 @@ export default function JobInsights({
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{titled("Industry Trends and References", currentReportingLabel)}</CardTitle>
+        <CardHeader className="space-y-1">
+          <CardTitle>Industry Trends and References</CardTitle>
+          <div className="text-xs uppercase tracking-[0.28em] text-muted-foreground">{currentReportingLabel}</div>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-slate-700">
           <p>Use this section to compare the job against sector norms, highlight reduction opportunities, and cite the source material used for assumptions.</p>
@@ -1013,17 +1022,22 @@ export default function JobInsights({
 
 function MetricCard({
   label,
+  subtitle,
   value,
   suffix,
 }: {
   label: string;
+  subtitle?: string;
   value: number | string;
   suffix?: string;
 }) {
   return (
     <Card>
       <CardContent className="pt-6">
-        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="space-y-1">
+          <div className="text-sm text-muted-foreground">{label}</div>
+          {subtitle ? <div className="text-[0.62rem] uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
+        </div>
         <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? ` ${suffix}` : ""}</div>
       </CardContent>
     </Card>
@@ -1032,12 +1046,14 @@ function MetricCard({
 
 function LinkMetricCard({
   label,
+  subtitle,
   value,
   suffix,
   name,
   href,
 }: {
   label: string;
+  subtitle?: string;
   value: number | string;
   suffix?: string;
   name: string;
@@ -1046,7 +1062,10 @@ function LinkMetricCard({
   return (
     <Card>
       <CardContent className="pt-6">
-        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="space-y-1">
+          <div className="text-sm text-muted-foreground">{label}</div>
+          {subtitle ? <div className="text-[0.62rem] uppercase tracking-[0.28em] text-muted-foreground">{subtitle}</div> : null}
+        </div>
         <div className="text-3xl font-semibold tabular-nums">{value}{suffix ? ` ${suffix}` : ""}</div>
         <Link href={href} className="mt-2 inline-block max-w-full truncate text-sm font-medium text-slate-900 underline decoration-slate-300 underline-offset-2">
           {name}
