@@ -20,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import LoadingOrbit from "@/components/LoadingOrbit";
 import { Input } from "@/components/ui/input";
 
 type ScopeTotals = {
@@ -542,7 +543,9 @@ export default function JobInsights({
         <CardHeader>
           <CardTitle>Job Insights</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Loading insights dashboard...</CardContent>
+        <CardContent>
+          <LoadingOrbit className="py-10" label="Loading insights dashboard..." />
+        </CardContent>
       </Card>
     );
   }
