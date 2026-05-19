@@ -301,6 +301,13 @@ export default function JobInsights({
   }, [rows, scopeTotals?.total]);
 
   const currentYear = reportingYear ?? new Date().getFullYear();
+  const currentReportingLabel = `Reporting year ${currentYear}`;
+  const trendReportingLabel = `Reporting years ${currentYear} to ${targetYear ?? 2050}`;
+  const pathwayReportingLabel = `Reporting years ${(benchmarkYear ?? currentYear)} to ${targetYear ?? 2050}`;
+
+  function titled(base: string, suffix: string): string {
+    return `${base} (${suffix})`;
+  }
 
   const targetPath = useMemo(() => {
     const currentTotal = Number(scopeTotals?.total || 0);
@@ -563,17 +570,17 @@ export default function JobInsights({
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Total tCO₂e" value={formatTco2e(Number(scopeTotals?.total || 0))} />
-        <MetricCard label="Target Year" value={targetYear ?? 2050} />
+        <MetricCard label={`Total tCO₂e (${currentReportingLabel})`} value={formatTco2e(Number(scopeTotals?.total || 0))} />
+        <MetricCard label={`Target Year (${currentReportingLabel})`} value={targetYear ?? 2050} />
         <LinkMetricCard
-          label="Top Dataset Category"
+          label={`Top Dataset Category (${currentReportingLabel})`}
           value={normalizedActivityData[0] ? formatTco2e(normalizedActivityData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedActivityData[0]?.name ?? "No dataset category data"}
           href={`/jobs/${jobId}/data-entry`}
         />
         <LinkMetricCard
-          label="Top Site"
+          label={`Top Site (${currentReportingLabel})`}
           value={normalizedSiteData[0] ? formatTco2e(normalizedSiteData[0].value) : "0.0"}
           suffix="tCO₂e"
           name={normalizedSiteData[0]?.name ?? "No site data"}
@@ -583,7 +590,7 @@ export default function JobInsights({
 
       <Card>
         <CardHeader>
-          <CardTitle>Summary</CardTitle>
+          <CardTitle>{titled("Summary", currentReportingLabel)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-700">{summaryData}</p>
@@ -624,7 +631,7 @@ export default function JobInsights({
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Emissions Summary by Scope</CardTitle>
+            <CardTitle>{titled("Emissions Summary by Scope", currentReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -675,7 +682,7 @@ export default function JobInsights({
 
         <Card>
           <CardHeader>
-            <CardTitle>Top Emissions by Dataset Category</CardTitle>
+            <CardTitle>{titled("Top Emissions by Dataset Category", currentReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             {normalizedActivityData.length === 0 ? (
@@ -724,7 +731,7 @@ export default function JobInsights({
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Emissions by Site</CardTitle>
+            <CardTitle>{titled("Emissions by Site", currentReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             {normalizedSiteData.length === 0 ? (
@@ -781,7 +788,7 @@ export default function JobInsights({
 
         <Card>
           <CardHeader>
-            <CardTitle>Emissions Trend to Target Year</CardTitle>
+            <CardTitle>{titled("Emissions Trend to Target Year", trendReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[320px]">
@@ -811,7 +818,7 @@ export default function JobInsights({
       {scopePathwayData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050}</CardTitle>
+            <CardTitle>{titled(`Emissions Reduction Pathway to ${targetYear ?? 2050}`, pathwayReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[360px]">
@@ -860,7 +867,7 @@ export default function JobInsights({
       {intensityPathwayData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Emissions Reduction Pathway to {targetYear ?? 2050} for Intensity Metrics</CardTitle>
+            <CardTitle>{titled(`Emissions Reduction Pathway to ${targetYear ?? 2050} for Intensity Metrics`, pathwayReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[360px]">
@@ -906,7 +913,7 @@ export default function JobInsights({
       {intensityTrend.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Intensity Actuals vs Forecast</CardTitle>
+            <CardTitle>{titled("Intensity Actuals vs Forecast", currentReportingLabel)}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
@@ -940,7 +947,7 @@ export default function JobInsights({
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Emissions Trend</CardTitle>
+          <CardTitle>{titled("Monthly Emissions Trend", currentReportingLabel)}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[300px]">
@@ -959,7 +966,7 @@ export default function JobInsights({
 
       <Card>
         <CardHeader>
-          <CardTitle>What If Scenarios</CardTitle>
+          <CardTitle>{titled("What If Scenarios", trendReportingLabel)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
@@ -988,7 +995,7 @@ export default function JobInsights({
 
       <Card>
         <CardHeader>
-          <CardTitle>Industry Trends and References</CardTitle>
+          <CardTitle>{titled("Industry Trends and References", currentReportingLabel)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-slate-700">
           <p>Use this section to compare the job against sector norms, highlight reduction opportunities, and cite the source material used for assumptions.</p>
