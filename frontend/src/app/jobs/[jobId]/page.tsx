@@ -673,6 +673,7 @@ export default function JobDetailPage() {
     setScopeEffectiveDatasetIds,
     setScopeDatasetIds,
     setAdditionalDatasetIds,
+    setMilestoneTemplateCompletions,
     setSelectedTemplateId,
     jobTitle,
     jobStatus,

@@ -42,6 +42,21 @@ type JobScopeConfigResponse = {
   additional_dataset_ids?: Array<string | number | null>;
 };
 
+type MilestoneTemplateCompletion = {
+  completion_id?: number | null;
+  job_id: number;
+  item_id: number;
+  template_id?: number | null;
+  milestone_name?: string | null;
+  days_offset?: number | null;
+  sort_order?: number | null;
+  is_complete?: boolean;
+  completed_at?: string | null;
+  completed_by?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
 type ActionDeps = {
   jobId: number;
   baseUrl: string;
@@ -67,6 +82,7 @@ type ActionDeps = {
   setScopeEffectiveDatasetIds: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setScopeDatasetIds: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setAdditionalDatasetIds: React.Dispatch<React.SetStateAction<string[]>>;
+  setMilestoneTemplateCompletions: React.Dispatch<React.SetStateAction<MilestoneTemplateCompletion[]>>;
   setSelectedTemplateId: React.Dispatch<React.SetStateAction<string>>;
   selectedMilestoneTemplateId: string;
   jobTitle: string;
@@ -116,6 +132,7 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
     setScopeEffectiveDatasetIds,
     setScopeDatasetIds,
     setAdditionalDatasetIds,
+    setMilestoneTemplateCompletions,
     setSelectedTemplateId,
     jobTitle,
     jobStatus,
@@ -589,21 +606,97 @@ export default function useJobWorkspaceActions(deps: ActionDeps) {
   }
 
   async function toggleMilestone(kind: string, completed: boolean) {
-    await fetch(`${baseUrl}/jobs/${jobId}/milestones/${kind}/complete`, {
+    const res = await fetch(`${baseUrl}/jobs/${jobId}/milestones/${kind}/complete`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to update milestone: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+    }
+
+    const [updatedJobRes, completionsRes] = await Promise.all([
+      fetch(`${baseUrl}/jobs/${jobId}`),
+      fetch(`${baseUrl}/jobs/${jobId}/milestone-template-completions`),
+    ]);
+
+    if (updatedJobRes.ok) {
+      const updatedJob = (await updatedJobRes.json()) as WorkspaceJob;
+      setJob(updatedJob);
+      primeJobShellData(baseUrl, jobId, {
+        job: {
+          job_id: updatedJob.job_id,
+          job_number: updatedJob.job_number,
+          title: updatedJob.title,
+          reporting_year: updatedJob.reporting_year,
+          reporting_period_start: updatedJob.reporting_period_start,
+          reporting_period_end: updatedJob.reporting_period_end,
+          status: updatedJob.status,
+          job_template_id: updatedJob.job_template_id,
+          milestone_template_id: updatedJob.milestone_template_id,
+          client_db_id: updatedJob.client_db_id ?? 0,
+          client_name: updatedJob.client_name,
+          crm_owner: updatedJob.crm_owner,
+          crm_name: updatedJob.crm_name,
+        },
+        clientOwnerLabel,
+        clientBenchmarkPeriodLabel,
+      });
+    }
+
+    if (completionsRes.ok) {
+      const payload = (await completionsRes.json()) as { items?: MilestoneTemplateCompletion[] };
+      setMilestoneTemplateCompletions(Array.isArray(payload.items) ? payload.items : []);
+    }
   }
 
   async function toggleAdditionalMilestone(itemId: number, completed: boolean) {
-    await fetch(`${baseUrl}/jobs/${jobId}/milestone-template-items/${itemId}/complete`, {
+    const res = await fetch(`${baseUrl}/jobs/${jobId}/milestone-template-items/${itemId}/complete`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ completed }),
     });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Failed to update milestone template item: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+    }
+
+    const [updatedJobRes, completionsRes] = await Promise.all([
+      fetch(`${baseUrl}/jobs/${jobId}`),
+      fetch(`${baseUrl}/jobs/${jobId}/milestone-template-completions`),
+    ]);
+
+    if (updatedJobRes.ok) {
+      const updatedJob = (await updatedJobRes.json()) as WorkspaceJob;
+      setJob(updatedJob);
+      primeJobShellData(baseUrl, jobId, {
+        job: {
+          job_id: updatedJob.job_id,
+          job_number: updatedJob.job_number,
+          title: updatedJob.title,
+          reporting_year: updatedJob.reporting_year,
+          reporting_period_start: updatedJob.reporting_period_start,
+          reporting_period_end: updatedJob.reporting_period_end,
+          status: updatedJob.status,
+          job_template_id: updatedJob.job_template_id,
+          milestone_template_id: updatedJob.milestone_template_id,
+          client_db_id: updatedJob.client_db_id ?? 0,
+          client_name: updatedJob.client_name,
+          crm_owner: updatedJob.crm_owner,
+          crm_name: updatedJob.crm_name,
+        },
+        clientOwnerLabel,
+        clientBenchmarkPeriodLabel,
+      });
+    }
+
+    if (completionsRes.ok) {
+      const payload = (await completionsRes.json()) as { items?: MilestoneTemplateCompletion[] };
+      setMilestoneTemplateCompletions(Array.isArray(payload.items) ? payload.items : []);
+    }
   }
 
   return {
