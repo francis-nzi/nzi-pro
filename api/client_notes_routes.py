@@ -7,9 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from api.crm_timeline_routes import _ensure_tables as _ensure_crm_timeline_tables
-from api.job_scope_data_routes import _ensure_job_scope_rows_schema
 from core.database import get_conn
-from services.audit_log import ensure_audit_log_table, parse_json_text
 
 router = APIRouter(tags=["client-notes"])
 
@@ -79,13 +77,11 @@ def get_client_notes_summary(
     q: str | None = Query(default=None),
     _user: dict[str, str] = Depends(_current_user),
 ):
-    """Return all notes for a client across client communications, job communications, and job data."""
+    """Return client-level and job-level notes for a client (excludes job data row notes)."""
 
     try:
         with get_conn() as con:
             _ensure_crm_timeline_tables(con)
-            _ensure_job_scope_rows_schema(con)
-            ensure_audit_log_table(con)
 
             def _safe_df(sql: str, params: list[Any] | None = None) -> pd.DataFrame | None:
                 try:
@@ -114,7 +110,6 @@ def get_client_notes_summary(
                 [int(client_id)],
             )
             job_lookup = _build_job_lookup(jobs_df)
-            job_ids = list(job_lookup.keys())
 
             items: list[dict[str, Any]] = []
 
@@ -129,6 +124,10 @@ def get_client_notes_summary(
                     e.created_by,
                     e.created_at,
                     e.updated_at,
+                    e.updated_by,
+                    e.archived,
+                    e.archived_at,
+                    e.archived_by,
                     e.event_at,
                     j.job_number,
                     j.title AS job_title
@@ -136,6 +135,7 @@ def get_client_notes_summary(
                 LEFT JOIN jobs j ON j.job_id = e.job_id
                 WHERE e.client_db_id = %s
                   AND lower(COALESCE(e.event_type, '')) = 'note'
+                  AND COALESCE(e.archived, FALSE) = FALSE
                 ORDER BY COALESCE(e.event_at, e.created_at) DESC NULLS LAST, e.event_id DESC
                 """,
                 [int(client_id)],
@@ -158,11 +158,15 @@ def get_client_notes_summary(
                             location_bits.append(f"Job {job_id_val}")
                         if subject:
                             location_bits.append(subject)
+                        raw_id = _safe_int(row.get("event_id"), 0) or 0
+                        updated_by = _safe_text(row.get("updated_by")) or None
                         items.append(
                             {
-                                "note_id": f"client-event-{_safe_int(row.get('event_id'), 0) or 0}",
+                                "note_id": f"client-event-{raw_id}",
                                 "source_type": "client",
                                 "source_label": "Client Note",
+                                "raw_id": raw_id,
+                                "raw_job_id": job_id_val,
                                 "client_db_id": _safe_int(row.get("client_db_id"), client_id) or client_id,
                                 "job_id": job_id_val,
                                 "job_number": job_number,
@@ -177,6 +181,10 @@ def get_client_notes_summary(
                                 "note_subject": subject,
                                 "note_text": note_text,
                                 "note_author": _safe_text(row.get("created_by")) or None,
+                                "updated_by": updated_by,
+                                "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+                                "archived_at": _to_iso(row.get("archived_at")),
+                                "archived_by": _safe_text(row.get("archived_by")) or None,
                                 "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
                                 "row_created_at": _to_iso(row.get("created_at")),
                                 "row_updated_at": _to_iso(row.get("updated_at")),
@@ -201,6 +209,10 @@ def get_client_notes_summary(
                     jc.created_by,
                     jc.created_at,
                     jc.updated_at,
+                    jc.updated_by,
+                    jc.archived,
+                    jc.archived_at,
+                    jc.archived_by,
                     jc.event_at,
                     j.job_number,
                     j.title AS job_title
@@ -232,11 +244,15 @@ def get_client_notes_summary(
                             location_bits.append(f"Job {job_id_val}")
                         if subject:
                             location_bits.append(subject)
+                        raw_id = _safe_int(row.get("communication_id"), 0) or 0
+                        updated_by = _safe_text(row.get("updated_by")) or None
                         items.append(
                             {
-                                "note_id": f"job-comm-{_safe_int(row.get('communication_id'), 0) or 0}",
+                                "note_id": f"job-comm-{raw_id}",
                                 "source_type": "job-communication",
                                 "source_label": "Job Note",
+                                "raw_id": raw_id,
+                                "raw_job_id": job_id_val,
                                 "client_db_id": _safe_int(row.get("client_db_id"), client_id) or client_id,
                                 "job_id": job_id_val,
                                 "job_number": job_number,
@@ -251,6 +267,10 @@ def get_client_notes_summary(
                                 "note_subject": subject,
                                 "note_text": note_text,
                                 "note_author": _safe_text(row.get("created_by")) or None,
+                                "updated_by": updated_by,
+                                "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+                                "archived_at": _to_iso(row.get("archived_at")),
+                                "archived_by": _safe_text(row.get("archived_by")) or None,
                                 "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
                                 "row_created_at": _to_iso(row.get("created_at")),
                                 "row_updated_at": _to_iso(row.get("updated_at")),
@@ -258,133 +278,6 @@ def get_client_notes_summary(
                         )
                     except Exception:
                         continue
-
-            if job_ids:
-                placeholders = ", ".join(["%s"] * len(job_ids))
-                job_data_df = _safe_df(
-                    f"""
-                    SELECT
-                        jsr.row_id,
-                        jsr.job_id,
-                        j.job_number,
-                        j.title AS job_title,
-                        jsr.scope,
-                        jsr.site_id,
-                        cs.site_name,
-                        jsr.category,
-                        jsr.level_1,
-                        jsr.level_2,
-                        jsr.level_3,
-                        jsr.level_4,
-                        jsr.column_text,
-                        jsr.report_label,
-                        jsr.original_id,
-                        jsr.notes,
-                        jsr.created_at,
-                        jsr.updated_at
-                    FROM job_scope_rows jsr
-                    JOIN jobs j ON j.job_id = jsr.job_id
-                    LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
-                    WHERE j.client_db_id = %s
-                      AND jsr.job_id IN ({placeholders})
-                      AND COALESCE(TRIM(CAST(jsr.notes AS VARCHAR)), '') <> ''
-                    ORDER BY jsr.updated_at DESC NULLS LAST, jsr.created_at DESC NULLS LAST, jsr.row_id DESC
-                    """,
-                    [int(client_id), *job_ids],
-                )
-
-                audit_df = _safe_df(
-                    f"""
-                    SELECT audit_id, job_id, entity_id, created_at, actor_email, actor_name, diff_json, metadata_json
-                    FROM audit_log
-                    WHERE job_id IN ({placeholders})
-                      AND entity_type = 'job_scope_row'
-                    ORDER BY created_at DESC, audit_id DESC
-                    """,
-                    job_ids,
-                )
-
-                latest_note_events: dict[str, dict[str, Any]] = {}
-                if audit_df is not None and not audit_df.empty:
-                    for _, audit_row in audit_df.iterrows():
-                        entity_id = _safe_text(audit_row.get("entity_id"))
-                        if not entity_id or entity_id in latest_note_events:
-                            continue
-
-                        diff_data = parse_json_text(audit_row.get("diff_json"))
-                        meta_data = parse_json_text(audit_row.get("metadata_json"))
-                        note_change_detected = False
-                        if isinstance(diff_data, dict) and "notes" in diff_data:
-                            note_change_detected = True
-                        if not note_change_detected and isinstance(meta_data, dict):
-                            updated_fields = meta_data.get("updated_fields")
-                            if isinstance(updated_fields, list) and any(str(field).strip() == "notes" for field in updated_fields):
-                                note_change_detected = True
-                        if not note_change_detected:
-                            continue
-
-                        latest_note_events[entity_id] = {
-                            "updated_at": _to_iso(audit_row.get("created_at")),
-                            "updated_by": _safe_text(audit_row.get("actor_name") or audit_row.get("actor_email")) or None,
-                        }
-
-                if job_data_df is not None and not job_data_df.empty:
-                    for _, row in job_data_df.iterrows():
-                        try:
-                            row_id = _safe_int(row.get("row_id"), None)
-                            if row_id is None:
-                                continue
-                            note_text = _safe_text(row.get("notes"))
-                            if not note_text:
-                                continue
-                            job_id_val = _safe_int(row.get("job_id"), None)
-                            job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
-                            job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
-                            job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
-                            site_name = _safe_text(row.get("site_name")) or (
-                                f"Site {row.get('site_id')}" if row.get("site_id") is not None else "No Site Assigned"
-                            )
-                            location_parts = []
-                            if job_number:
-                                location_parts.append(f"Job {job_number}")
-                            elif job_id_val is not None:
-                                location_parts.append(f"Job {job_id_val}")
-                            if site_name:
-                                location_parts.append(site_name)
-                            location_parts.extend(
-                                [
-                                    _safe_text(row.get("scope")),
-                                    _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
-                                    _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
-                                ]
-                            )
-                            note_event = latest_note_events.get(str(row_id), {})
-                            items.append(
-                                {
-                                    "note_id": f"job-data-{row_id}",
-                                    "source_type": "job-row",
-                                    "source_label": "Job Row Note",
-                                    "client_db_id": int(client_id),
-                                    "job_id": job_id_val,
-                                    "job_number": job_number,
-                                    "job_title": job_title,
-                                    "scope": _safe_text(row.get("scope")),
-                                    "site_id": _safe_int(row.get("site_id"), None),
-                                    "site_name": site_name,
-                                    "category": _safe_text(row.get("category") or row.get("level_2") or row.get("level_1")),
-                                    "report_label": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")),
-                                    "original_id": _safe_text(row.get("original_id")),
-                                    "note_location": " | ".join(part for part in location_parts if part),
-                                    "note_subject": _safe_text(row.get("report_label") or row.get("column_text") or row.get("original_id")) or None,
-                                    "note_text": note_text,
-                                    "note_author": _safe_text(note_event.get("updated_by")) or None,
-                                    "note_updated_at": _safe_text(note_event.get("updated_at")) or _to_iso(row.get("updated_at")),
-                                    "row_created_at": _to_iso(row.get("created_at")),
-                                    "row_updated_at": _to_iso(row.get("updated_at")),
-                                }
-                            )
-                        except Exception:
-                            continue
 
             filtered: list[dict[str, Any]] = []
             source_val = _safe_text(source).lower()

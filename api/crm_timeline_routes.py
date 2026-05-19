@@ -51,6 +51,10 @@ def _ensure_tables(con) -> None:
         WHERE source_ref IS NOT NULL AND source_ref <> ''
         """
     )
+    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
+    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
+    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
+    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
 
     con.execute(
         """
@@ -136,6 +140,10 @@ def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
         "created_by": str(row.get("created_by") or ""),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
         "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
+        "updated_by": str(row.get("updated_by") or "") or None,
+        "archived": bool(row.get("archived") if row.get("archived") is not None else False),
+        "archived_at": row.get("archived_at").isoformat() if row.get("archived_at") else None,
+        "archived_by": str(row.get("archived_by") or "") or None,
     }
 
 
@@ -213,7 +221,7 @@ def list_client_timeline(
     try:
         with get_conn() as con:
             _ensure_tables(con)
-            where = ["e.client_db_id = %s"]
+            where = ["e.client_db_id = %s", "e.archived = FALSE"]
             params: list[Any] = [int(client_id)]
             if job_id is not None:
                 where.append("e.job_id = %s")
@@ -314,6 +322,7 @@ def create_client_timeline_event(client_id: int, body: dict = Body(...), _user: 
 @router.patch("/timeline/events/{event_id}")
 def update_timeline_event(event_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
+        actor = _actor(_user)
         with get_conn() as con:
             _ensure_tables(con)
             exists = con.execute("SELECT event_id FROM crm_events WHERE event_id = %s", [int(event_id)]).fetchone()
@@ -338,7 +347,8 @@ def update_timeline_event(event_id: int, body: dict = Body(...), _user: dict = D
 
             if updates:
                 updates.append("updated_at = NOW()")
-                params.append(int(event_id))
+                updates.append("updated_by = %s")
+                params.extend([actor, int(event_id)])
                 con.execute(f"UPDATE crm_events SET {', '.join(updates)} WHERE event_id = %s", params)
 
             if "tags" in body and isinstance(body.get("tags"), list):
@@ -352,6 +362,29 @@ def update_timeline_event(event_id: int, body: dict = Body(...), _user: dict = D
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update event: {e}")
+
+
+@router.patch("/timeline/events/{event_id}/archive")
+def archive_timeline_event(event_id: int, _user: dict = Depends(_current_user)):
+    try:
+        actor = _actor(_user)
+        with get_conn() as con:
+            _ensure_tables(con)
+            exists = con.execute("SELECT event_id FROM crm_events WHERE event_id = %s", [int(event_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Event not found")
+            con.execute(
+                "UPDATE crm_events SET archived = TRUE, archived_at = NOW(), archived_by = %s, updated_at = NOW() WHERE event_id = %s",
+                [actor, int(event_id)],
+            )
+            row_df = con.execute("SELECT * FROM crm_events WHERE event_id = %s", [int(event_id)]).df()
+            item = _serialize_event(row_df.iloc[0].to_dict()) if row_df is not None and not row_df.empty else {"event_id": int(event_id)}
+            item["tags"] = _tags_for_event(con, int(event_id))
+            return item
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive event: {e}")
 
 
 @router.post("/clients/{client_id}/tasks")

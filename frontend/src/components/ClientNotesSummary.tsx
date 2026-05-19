@@ -4,9 +4,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 type ClientJobRef = {
   job_id: number;
@@ -20,6 +28,8 @@ type ClientNote = {
   note_id: string;
   source_type: string;
   source_label: string;
+  raw_id: number;
+  raw_job_id: number | null;
   client_db_id: number;
   job_id: number | null;
   job_number: string | null;
@@ -34,12 +44,16 @@ type ClientNote = {
   note_subject: string | null;
   note_text: string;
   note_author: string | null;
+  updated_by: string | null;
+  archived: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
   note_updated_at: string | null;
   row_created_at: string | null;
   row_updated_at: string | null;
 };
 
-type ClientNotesSummary = {
+type ClientNotesSummaryData = {
   client_db_id: number;
   client_name: string | null;
   total: number;
@@ -85,14 +99,13 @@ function jobLabel(job: ClientJobRef): string {
 function sourceLabel(sourceType: string): string {
   if (sourceType === "client") return "Client Note";
   if (sourceType === "job-communication") return "Job Note";
-  if (sourceType === "job-row") return "Job Row Note";
   return sourceType || "Note";
 }
 
 export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [summary, setSummary] = useState<ClientNotesSummary | null>(null);
+  const [summary, setSummary] = useState<ClientNotesSummaryData | null>(null);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [jobFilter, setJobFilter] = useState("All");
@@ -102,8 +115,13 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     client: true,
     "job-communication": true,
-    "job-row": true,
   });
+
+  const [editingNote, setEditingNote] = useState<ClientNote | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editText, setEditText] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState("");
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -113,7 +131,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       if (!res.ok) {
         throw new Error(`Failed to load notes summary: ${res.status}`);
       }
-      const json = (await res.json()) as ClientNotesSummary;
+      const json = (await res.json()) as ClientNotesSummaryData;
       setSummary(json);
     } catch (err) {
       setSummary(null);
@@ -126,6 +144,66 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   useEffect(() => {
     void loadNotes();
   }, [loadNotes]);
+
+  const openEdit = useCallback((note: ClientNote) => {
+    setEditingNote(note);
+    setEditSubject(note.note_subject ?? "");
+    setEditText(note.note_text);
+    setEditError("");
+  }, []);
+
+  const saveEdit = useCallback(async () => {
+    if (!editingNote) return;
+    setEditBusy(true);
+    setEditError("");
+    try {
+      let url: string;
+      let body: Record<string, string>;
+      if (editingNote.source_type === "client") {
+        url = `${baseUrl}/timeline/events/${editingNote.raw_id}`;
+        body = { subject: editSubject, body_text: editText };
+      } else {
+        url = `${baseUrl}/jobs/${editingNote.raw_job_id}/communications/${editingNote.raw_id}`;
+        body = { subject: editSubject, message_text: editText };
+      }
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Save failed: ${res.status}`);
+      }
+      setEditingNote(null);
+      await loadNotes();
+    } catch (err) {
+      setEditError((err as Error).message);
+    } finally {
+      setEditBusy(false);
+    }
+  }, [baseUrl, editingNote, editSubject, editText, loadNotes]);
+
+  const archiveNote = useCallback(async (note: ClientNote) => {
+    if (!window.confirm("Archive this note? It will no longer appear in the notes list.")) return;
+    try {
+      let url: string;
+      if (note.source_type === "client") {
+        url = `${baseUrl}/timeline/events/${note.raw_id}/archive`;
+      } else {
+        url = `${baseUrl}/jobs/${note.raw_job_id}/communications/${note.raw_id}/archive`;
+      }
+      const res = await fetch(url, { method: "PATCH", credentials: "include" });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Archive failed: ${res.status}`);
+      }
+      await loadNotes();
+    } catch (err) {
+      alert(`Archive failed: ${(err as Error).message}`);
+    }
+  }, [baseUrl, loadNotes]);
 
   const availableSources = useMemo(() => {
     const seen = new Set<string>();
@@ -210,11 +288,6 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
         label: "Job Notes",
         description: "Notes captured from job communications and job-level updates.",
       },
-      {
-        key: "job-row",
-        label: "Job Row Notes",
-        description: "Notes attached to individual job rows and line items.",
-      },
     ];
 
     return groupMeta
@@ -241,8 +314,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
               <th className="p-2">Source</th>
               <th className="p-2">Where</th>
               <th className="p-2">Note</th>
-              <th className="p-2">Updated By</th>
+              <th className="p-2">Author</th>
               <th className="p-2">Updated At</th>
+              <th className="p-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -266,26 +340,80 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 <td className="p-2 whitespace-pre-wrap">
                   {item.note_subject ? <div className="font-medium">{item.note_subject}</div> : null}
                   <div>{item.note_text}</div>
+                  {item.updated_by ? (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Edited by {item.updated_by}
+                      {item.row_updated_at ? ` on ${formatTimestamp(item.row_updated_at)}` : ""}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="p-2">{item.note_author || "-"}</td>
                 <td className="p-2">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
+                <td className="p-2">
+                  <div className="flex flex-col gap-1">
+                    <Button size="sm" variant="outline" onClick={() => openEdit(item)}>
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => void archiveNote(item)}>
+                      Archive
+                    </Button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     );
-  }, []);
+  }, [openEdit, archiveNote]);
 
   return (
     <div className="space-y-6">
+      <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="editNoteSubject">Subject</Label>
+              <Input
+                id="editNoteSubject"
+                value={editSubject}
+                onChange={(e) => setEditSubject(e.target.value)}
+                placeholder="Subject (optional)"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="editNoteText">Note</Label>
+              <Textarea
+                id="editNoteText"
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                rows={6}
+                placeholder="Note text..."
+              />
+            </div>
+            {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingNote(null)} disabled={editBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveEdit()} disabled={editBusy || !editText.trim()}>
+              {editBusy ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
               <CardTitle>Client Notes</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Notes from client communications, job notes, and job data, all in one place.
+                Client-level and job-level notes, all in one place. Each note can be edited or archived.
               </p>
             </div>
             <Button variant="outline" asChild>
@@ -314,9 +442,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All Sources</SelectItem>
-                    {availableSources.map((source) => (
-                      <SelectItem key={source} value={source}>
-                        {sourceLabel(source)}
+                    {availableSources.map((src) => (
+                      <SelectItem key={src} value={src}>
+                        {sourceLabel(src)}
                       </SelectItem>
                     ))}
                   </SelectContent>

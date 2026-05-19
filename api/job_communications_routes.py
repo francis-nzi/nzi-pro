@@ -98,6 +98,7 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
+    con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -216,6 +217,7 @@ def _serialize_comm(row: dict[str, Any]) -> dict[str, Any]:
         "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
         "archived_at": row.get("archived_at").isoformat() if row.get("archived_at") else None,
         "archived_by": str(row.get("archived_by") or ""),
+        "updated_by": str(row.get("updated_by") or "") or None,
         "automation_key": str(row.get("automation_key") or ""),
         "created_by": str(row.get("created_by") or ""),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
@@ -870,7 +872,7 @@ def list_job_communications(job_id: int, _user: dict = Depends(_current_user)):
                 SELECT communication_id, job_id, client_db_id, direction, channel, subject, message_text,
                        scope, category, site_id, site_name,
                        from_name, from_email, to_name, to_email, status, event_at, requires_follow_up,
-                       follow_up_due, is_private, archived, archived_at, archived_by, automation_key, created_by, created_at, updated_at
+                       follow_up_due, is_private, archived, archived_at, archived_by, updated_by, automation_key, created_by, created_at, updated_at
                 FROM job_communications
                 WHERE job_id = %s
                   AND COALESCE(archived, FALSE) = FALSE
@@ -1044,7 +1046,7 @@ def update_job_communication(
     body: dict = Body(...),
     _user: dict = Depends(_current_user),
 ):
-    _ = _actor(_user)
+    actor = _actor(_user)
     try:
         with get_conn() as con:
             _ensure_tables(con)
@@ -1104,7 +1106,8 @@ def update_job_communication(
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
             updates.append("updated_at = NOW()")
-            params.extend([int(job_id), int(communication_id)])
+            updates.append("updated_by = %s")
+            params.extend([actor, int(job_id), int(communication_id)])
             con.execute(
                 f"UPDATE job_communications SET {', '.join(updates)} WHERE job_id = %s AND communication_id = %s",
                 params,
