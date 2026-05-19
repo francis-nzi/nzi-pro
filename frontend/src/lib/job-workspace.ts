@@ -137,7 +137,6 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
     subtabs: [
       { key: "communications-timeline", label: "Timeline" },
       { key: "communications-inbox", label: "Inbox" },
-      { key: "communications-notes", label: "Notes" },
       { key: "communications-email", label: "Email" },
       { key: "communications-tasks", label: "Tasks" },
       { key: "communications-automation", label: "Automation" },
@@ -154,6 +153,12 @@ export const JOB_WORKSPACE_GROUPS: JobWorkspaceGroup[] = [
       { key: "financial-other-costs", label: "Other Costs" },
       { key: "financial-profit-loss", label: "Profit & Loss" },
     ],
+  },
+  {
+    key: "job-notes",
+    label: "Notes",
+    defaultTab: "communications-notes",
+    subtabs: [],
   },
   {
     key: "admin",
@@ -186,7 +191,7 @@ export const JOB_TAB_TO_GROUP: Record<string, WorkspaceTab["key"]> = {
   insights: "insights",
   "communications-timeline": "communications",
   "communications-inbox": "communications",
-  "communications-notes": "communications",
+  "communications-notes": "job-notes",
   "communications-email": "communications",
   "communications-tasks": "communications",
   "communications-automation": "communications",

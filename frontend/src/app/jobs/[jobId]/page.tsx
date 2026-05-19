@@ -763,6 +763,7 @@ export default function JobDetailPage() {
                   group.key === "insights" ? `/jobs/${jobId}/insights` :
                   group.key === "communications" ? `/jobs/${jobId}/communications/timeline` :
                   group.key === "financial" ? `/jobs/${jobId}/financial/quotes` :
+                  group.key === "job-notes" ? `/jobs/${jobId}/communications/notes` :
                   group.key === "admin" ? `/jobs/${jobId}/admin/files` :
                   undefined,
               }))}

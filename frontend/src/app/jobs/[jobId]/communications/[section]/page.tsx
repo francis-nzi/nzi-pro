@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import ClientTimeline from "@/components/ClientTimeline";
 import JobCommunications from "@/components/JobCommunications";
 import JobSectionShell from "@/components/job-workspace/JobSectionShell";
+import type { WorkspaceGroupKey } from "@/components/job-workspace/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 function apiBaseUrl(): string {
@@ -30,13 +31,15 @@ export default function JobCommunicationsSectionPage() {
   const section = COMMUNICATIONS_SECTIONS[sectionSegment as CommunicationsSectionKey] ?? COMMUNICATIONS_SECTIONS.timeline;
   const baseUrl = apiBaseUrl();
 
+  const activeGroup: WorkspaceGroupKey = sectionSegment === "notes" ? "job-notes" : "communications";
+
   return (
     <JobSectionShell
       jobId={jobId}
       baseUrl={baseUrl}
       sectionLabel={section.label}
       sectionHref={`/jobs/${jobId}/communications/${sectionSegment}`}
-      activeGroup="communications"
+      activeGroup={activeGroup}
       activeSubtab={section.key}
       renderContent={(job) =>
         section.mode === "crm" ? (

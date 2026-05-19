@@ -85,7 +85,6 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   communications: [
     { key: "communications-timeline", label: "Timeline", href: "/jobs/__JOB_ID__/communications/timeline" },
     { key: "communications-inbox", label: "Inbox", href: "/jobs/__JOB_ID__/communications/inbox" },
-    { key: "communications-notes", label: "Notes", href: "/jobs/__JOB_ID__/communications/notes" },
     { key: "communications-email", label: "Email", href: "/jobs/__JOB_ID__/communications/email" },
     { key: "communications-tasks", label: "Tasks", href: "/jobs/__JOB_ID__/communications/tasks" },
     { key: "communications-automation", label: "Automation", href: "/jobs/__JOB_ID__/communications/automation" },
@@ -97,6 +96,7 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
     { key: "financial-other-costs", label: "Other Costs", href: "/jobs/__JOB_ID__/financial/other-costs" },
     { key: "financial-profit-loss", label: "Profit & Loss", href: "/jobs/__JOB_ID__/financial/profit-loss" },
   ],
+  "job-notes": [],
   admin: [
     { key: "files", label: "Files", href: "/jobs/__JOB_ID__/admin/files" },
     { key: "time", label: "Time Entries", href: "/jobs/__JOB_ID__/admin/time" },
@@ -213,6 +213,7 @@ export default function JobSectionShell({
     { key: "insights", label: "Insights", href: `/jobs/${jobId}/insights` },
     { key: "communications", label: "Communications", href: `/jobs/${jobId}/communications/timeline` },
     { key: "financial", label: "Financial", href: `/jobs/${jobId}/financial/quotes` },
+    { key: "job-notes", label: "Notes", href: `/jobs/${jobId}/communications/notes` },
     { key: "admin", label: "Admin", href: `/jobs/${jobId}/admin/files` },
   ];
   const activeWorkspaceSubtabs = (GROUP_SUBTABS[activeWorkspaceGroup] || []).map((subtab) => ({

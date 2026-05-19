@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from api.crm_timeline_routes import _ensure_tables as _ensure_crm_timeline_tables
+from api.job_communications_routes import _ensure_tables as _ensure_job_comm_tables
 from core.database import get_conn
 
 router = APIRouter(tags=["client-notes"])
@@ -82,6 +83,7 @@ def get_client_notes_summary(
     try:
         with get_conn() as con:
             _ensure_crm_timeline_tables(con)
+            _ensure_job_comm_tables(con)
 
             def _safe_df(sql: str, params: list[Any] | None = None) -> pd.DataFrame | None:
                 try:

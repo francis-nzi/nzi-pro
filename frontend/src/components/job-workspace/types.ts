@@ -12,6 +12,7 @@ export type WorkspaceGroupKey =
   | "insights"
   | "communications"
   | "financial"
+  | "job-notes"
   | "admin";
 
 export type WorkspaceTab = {
