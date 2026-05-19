@@ -145,6 +145,7 @@ def get_client_notes_summary(
                     e.job_id,
                     e.subject,
                     e.body_text,
+                    e.is_high_importance,
                     e.created_by,
                     e.created_at,
                     e.updated_at,
@@ -206,6 +207,7 @@ def get_client_notes_summary(
                                 "note_text": note_text,
                                 "note_author": _display_name(con, row.get("created_by")),
                                 "updated_by": updated_by,
+                                "is_high_importance": bool(row.get("is_high_importance")) if row.get("is_high_importance") is not None else False,
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
                                 "archived_by": _safe_text(row.get("archived_by")) or None,
@@ -292,6 +294,7 @@ def get_client_notes_summary(
                                 "note_text": note_text,
                                 "note_author": _display_name(con, row.get("created_by")),
                                 "updated_by": updated_by,
+                                "is_high_importance": False,
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
                                 "archived_by": _safe_text(row.get("archived_by")) or None,
@@ -346,6 +349,7 @@ def get_client_notes_summary(
                 ),
                 reverse=True,
             )
+            filtered.sort(key=lambda item: 0 if bool(item.get("is_high_importance")) else 1)
 
             jobs = [
                 {

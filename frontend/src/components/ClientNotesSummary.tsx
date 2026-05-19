@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -45,6 +46,7 @@ type ClientNote = {
   note_text: string;
   note_author: string | null;
   updated_by: string | null;
+  is_high_importance: boolean;
   archived: boolean;
   archived_at: string | null;
   archived_by: string | null;
@@ -117,9 +119,17 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     "job-communication": true,
   });
 
+  const [addClientNoteOpen, setAddClientNoteOpen] = useState(false);
+  const [addSubject, setAddSubject] = useState("");
+  const [addText, setAddText] = useState("");
+  const [addHighImportance, setAddHighImportance] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState("");
+
   const [editingNote, setEditingNote] = useState<ClientNote | null>(null);
   const [editSubject, setEditSubject] = useState("");
   const [editText, setEditText] = useState("");
+  const [editHighImportance, setEditHighImportance] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -149,8 +159,49 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     setEditingNote(note);
     setEditSubject(note.note_subject ?? "");
     setEditText(note.note_text);
+    setEditHighImportance(Boolean(note.is_high_importance));
     setEditError("");
   }, []);
+
+  const openAddClientNote = useCallback(() => {
+    setAddSubject("");
+    setAddText("");
+    setAddHighImportance(false);
+    setAddError("");
+    setAddClientNoteOpen(true);
+  }, []);
+
+  const saveClientNote = useCallback(async () => {
+    setAddBusy(true);
+    setAddError("");
+    try {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/timeline/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          event_type: "note",
+          channel: "internal",
+          subject: addSubject.trim() || null,
+          body_text: addText.trim(),
+          is_high_importance: addHighImportance,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(detail || `Save failed: ${res.status}`);
+      }
+      setAddClientNoteOpen(false);
+      setAddSubject("");
+      setAddText("");
+      setAddHighImportance(false);
+      await loadNotes();
+    } catch (err) {
+      setAddError((err as Error).message);
+    } finally {
+      setAddBusy(false);
+    }
+  }, [addHighImportance, addSubject, addText, baseUrl, clientId, loadNotes]);
 
   const saveEdit = useCallback(async () => {
     if (!editingNote) return;
@@ -158,10 +209,10 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     setEditError("");
     try {
       let url: string;
-      let body: Record<string, string>;
+      let body: Record<string, unknown>;
       if (editingNote.source_type === "client") {
         url = `${baseUrl}/timeline/events/${editingNote.raw_id}`;
-        body = { subject: editSubject, body_text: editText };
+        body = { subject: editSubject, body_text: editText, is_high_importance: editHighImportance };
       } else {
         url = `${baseUrl}/jobs/${editingNote.raw_job_id}/communications/${editingNote.raw_id}`;
         body = { subject: editSubject, message_text: editText };
@@ -183,7 +234,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     } finally {
       setEditBusy(false);
     }
-  }, [baseUrl, editingNote, editSubject, editText, loadNotes]);
+  }, [baseUrl, editingNote, editHighImportance, editSubject, editText, loadNotes]);
 
   const archiveNote = useCallback(async (note: ClientNote) => {
     if (!window.confirm("Archive this note? It will no longer appear in the notes list.")) return;
@@ -311,9 +362,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
         <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b text-left">
-              <th className="w-[16%] p-2">Source</th>
+              <th className="w-[18%] p-2">Source</th>
               <th className="w-[18%] p-2">Where</th>
-              <th className="w-[38%] p-2">Note</th>
+              <th className="w-[36%] p-2">Note</th>
               <th className="w-[10%] p-2">Author</th>
               <th className="w-[10%] p-2">Updated At</th>
               <th className="w-[8%] p-2">Actions</th>
@@ -321,9 +372,14 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.note_id} className="border-b align-top">
+              <tr key={item.note_id} className={`border-b align-top ${item.is_high_importance ? "bg-amber-50/60" : ""}`}>
                 <td className="p-2 align-top break-words">
                   <div className="font-medium">{item.source_label}</div>
+                  {item.is_high_importance ? (
+                    <Badge variant="secondary" className="mt-1 bg-amber-100 text-amber-800">
+                      High importance
+                    </Badge>
+                  ) : null}
                   <div className="mt-1 text-xs text-muted-foreground">
                     {item.job_number ? `Job ${item.job_number}` : item.job_id ? `Job ${item.job_id}` : "Client"}
                   </div>
@@ -368,11 +424,58 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   }, [openEdit, archiveNote]);
 
   return (
-    <div className="space-y-6">
+      <div className="space-y-6">
+      <Dialog open={addClientNoteOpen} onOpenChange={setAddClientNoteOpen}>
+        <DialogContent className="w-[96vw] max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Add Client Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="addClientNoteSubject">Subject</Label>
+              <Input
+                id="addClientNoteSubject"
+                value={addSubject}
+                onChange={(e) => setAddSubject(e.target.value)}
+                placeholder="Subject (optional)"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="addClientNoteText">Note</Label>
+              <Textarea
+                id="addClientNoteText"
+                value={addText}
+                onChange={(e) => setAddText(e.target.value)}
+                rows={8}
+                placeholder="Write the client note here..."
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={addHighImportance}
+                onChange={(e) => setAddHighImportance(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <span className="font-medium">High importance</span>
+            </label>
+            {addError ? <p className="text-sm text-destructive">{addError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddClientNoteOpen(false)} disabled={addBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveClientNote()} disabled={addBusy || !addText.trim()}>
+              {addBusy ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
         <DialogContent className="w-[96vw] max-w-5xl">
           <DialogHeader>
-            <DialogTitle>Edit Note</DialogTitle>
+            <DialogTitle>{editingNote?.source_type === "client" ? "Edit Client Note" : "Edit Note"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1">
@@ -394,6 +497,17 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 placeholder="Note text..."
               />
             </div>
+            {editingNote?.source_type === "client" ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editHighImportance}
+                  onChange={(e) => setEditHighImportance(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <span className="font-medium">High importance</span>
+              </label>
+            ) : null}
             {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
           </div>
           <DialogFooter>
@@ -410,15 +524,20 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
-            <div>
+              <div>
               <CardTitle>Client Notes</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Client-level and job-level notes, all in one place. Each note can be edited or archived.
+                Client-level and job-level notes, all in one place. Client notes can be added, edited, archived, and marked high importance.
               </p>
             </div>
-            <Button variant="outline" asChild>
-              <Link href={`/clients/${clientId}?section=timeline`}>Open Communications</Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={openAddClientNote}>
+                Add Client Note
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href={`/clients/${clientId}?section=timeline`}>Open Communications</Link>
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

@@ -34,6 +34,7 @@ def _ensure_tables(con) -> None:
           source_ref VARCHAR(120),
           payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           is_private BOOLEAN NOT NULL DEFAULT FALSE,
+          is_high_importance BOOLEAN NOT NULL DEFAULT FALSE,
           created_by VARCHAR,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -55,6 +56,7 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
     con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
     con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
+    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS is_high_importance BOOLEAN NOT NULL DEFAULT FALSE")
 
     con.execute(
         """
@@ -137,6 +139,7 @@ def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
         "source_ref": str(row.get("source_ref") or ""),
         "payload_json": row.get("payload_json") if isinstance(row.get("payload_json"), dict) else {},
         "is_private": bool(row.get("is_private") if row.get("is_private") is not None else False),
+        "is_high_importance": bool(row.get("is_high_importance") if row.get("is_high_importance") is not None else False),
         "created_by": str(row.get("created_by") or ""),
         "created_at": row.get("created_at").isoformat() if row.get("created_at") else None,
         "updated_at": row.get("updated_at").isoformat() if row.get("updated_at") else None,
@@ -278,9 +281,9 @@ def create_client_timeline_event(client_id: int, body: dict = Body(...), _user: 
                 INSERT INTO crm_events (
                   client_db_id, job_id, event_type, channel, direction, subject,
                   body_text, body_html, status, owner_user_id, due_at, source, source_ref,
-                  payload_json, is_private, created_by, created_at, updated_at
+                  payload_json, is_private, is_high_importance, created_by, created_at, updated_at
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, NOW(), NOW())
                 RETURNING event_id
                 """,
                 [
@@ -299,6 +302,7 @@ def create_client_timeline_event(client_id: int, body: dict = Body(...), _user: 
                     str(body.get("source_ref") or "").strip() or None,
                     body.get("payload_json") or {},
                     bool(body.get("is_private", False)),
+                    bool(body.get("is_high_importance", False)),
                     actor,
                 ],
             )
@@ -331,12 +335,12 @@ def update_timeline_event(event_id: int, body: dict = Body(...), _user: dict = D
 
             updates: list[str] = []
             params: list[Any] = []
-            for key in ("subject", "body_text", "body_html", "status", "owner_user_id", "due_at", "is_private"):
+            for key in ("subject", "body_text", "body_html", "status", "owner_user_id", "due_at", "is_private", "is_high_importance"):
                 if key not in body:
                     continue
                 updates.append(f"{key} = %s")
                 value = body.get(key)
-                if key == "is_private":
+                if key in ("is_private", "is_high_importance"):
                     params.append(bool(value))
                 else:
                     params.append(str(value).strip() if value is not None else None)
