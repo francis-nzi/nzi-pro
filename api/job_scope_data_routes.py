@@ -746,7 +746,10 @@ def get_job_notes_summary(
         return text_value or None
 
     try:
-        archive_state_normalized = str(archive_state or "active").strip().lower()
+        archive_state_value = archive_state
+        if not isinstance(archive_state_value, str):
+            archive_state_value = getattr(archive_state_value, "default", "active")
+        archive_state_normalized = str(archive_state_value or "active").strip().lower()
         if archive_state_normalized not in {"active", "archived", "all"}:
             raise HTTPException(status_code=400, detail="Invalid archive state")
 
@@ -839,6 +842,7 @@ def get_job_notes_summary(
                 FROM job_scope_rows jsr
                 LEFT JOIN client_sites cs ON cs.site_id = jsr.site_id
                 WHERE jsr.job_id = %s
+                  AND COALESCE(jsr.enabled, TRUE) = TRUE
                   AND COALESCE(TRIM(CAST(jsr.notes AS VARCHAR)), '') <> ''
                 ORDER BY jsr.updated_at DESC NULLS LAST, jsr.created_at DESC NULLS LAST, jsr.row_id DESC
                 """,

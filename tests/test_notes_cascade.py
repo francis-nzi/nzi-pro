@@ -41,6 +41,11 @@ class _FakeConn:
         for key, value in sorted(self.fetchone_map.items(), key=lambda kv: len(kv[0]), reverse=True):
             if key in sql:
                 return _FakeResult(fetchone_value=value)
+        if "FROM job_scope_rows" in sql and "COALESCE(jsr.enabled, TRUE) = TRUE" in sql:
+            df = self.df_map.get("FROM job_scope_rows")
+            if df is not None and not df.empty and "enabled" in df.columns:
+                enabled_df = df[df["enabled"].fillna(True).astype(bool)]
+                return _FakeResult(df_value=enabled_df)
         for key, value in sorted(self.df_map.items(), key=lambda kv: len(kv[0]), reverse=True):
             if key in sql:
                 return _FakeResult(df_value=value)
@@ -65,8 +70,28 @@ def test_job_notes_summary_includes_job_notes_and_row_notes(monkeypatch: pytest.
                 "report_label": "Fuel",
                 "original_id": "R-10",
                 "notes": "Row note",
+                "enabled": True,
                 "created_at": "2026-04-23T10:00:00",
                 "updated_at": "2026-04-23T10:30:00",
+            },
+            {
+                "row_id": 11,
+                "job_id": 640,
+                "scope": "Scope 1",
+                "site_id": 1,
+                "site_name": "HQ",
+                "category": "Fuel",
+                "level_1": "Fuel",
+                "level_2": "Fuel",
+                "level_3": None,
+                "level_4": None,
+                "column_text": "Fuel note deleted",
+                "report_label": "Fuel",
+                "original_id": "R-11",
+                "notes": "Deleted row note",
+                "enabled": False,
+                "created_at": "2026-04-23T10:10:00",
+                "updated_at": "2026-04-23T10:40:00",
             }
         ]
     )
@@ -103,12 +128,13 @@ def test_job_notes_summary_includes_job_notes_and_row_notes(monkeypatch: pytest.
     monkeypatch.setattr(job_scope_data_routes, "_ensure_job_scope_rows_schema", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(job_scope_data_routes, "ensure_audit_log_table", lambda *_args, **_kwargs: None)
 
-    result = job_scope_data_routes.get_job_notes_summary(640, _user={"user_id": "u1", "org_id": "org-123"})
+    result = job_scope_data_routes.get_job_notes_summary(640, archive_state="all", _user={"user_id": "u1", "org_id": "org-123"})
 
     assert result["total"] == 2
     assert {item["source_type"] for item in result["items"]} == {"job-communication", "job-row"}
     assert any(item["source_label"] == "Job Note" for item in result["items"])
     assert any(item["source_label"] == "Job Row Note" for item in result["items"])
+    assert all(item["row_id"] != 11 for item in result["items"] if item["source_type"] == "job-row")
 
 
 def test_client_notes_summary_includes_cascaded_job_notes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,9 +210,6 @@ def test_client_notes_summary_includes_cascaded_job_notes(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(client_notes_routes, "get_conn", lambda: fake)
     monkeypatch.setattr(client_notes_routes, "_ensure_crm_timeline_tables", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(client_notes_routes, "_ensure_job_scope_rows_schema", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(client_notes_routes, "ensure_audit_log_table", lambda *_args, **_kwargs: None)
-
     result = client_notes_routes.get_client_notes_summary(
         143,
         source=None,
@@ -198,6 +221,5 @@ def test_client_notes_summary_includes_cascaded_job_notes(monkeypatch: pytest.Mo
         _user={"user_id": "u1", "org_id": "org-123"},
     )
 
-    assert result["total"] == 3
-    assert {item["source_type"] for item in result["items"]} == {"client", "job-communication", "job-row"}
-    assert any(item["source_label"] == "Job Row Note" for item in result["items"])
+    assert result["total"] == 2
+    assert {item["source_type"] for item in result["items"]} == {"client", "job-communication"}
