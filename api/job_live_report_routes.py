@@ -371,7 +371,7 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(
-            viewport={"width": 820, "height": 2200},
+            viewport={"width": 1440, "height": 2200},
             extra_http_headers=extra_headers,
         )
         # Inject the JWT as the nzi_token cookie so the auth-client.ts global
@@ -391,10 +391,15 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             page.locator(".live-report-section").first.wait_for(state="visible", timeout=60000)
             page.wait_for_timeout(1500)
             page.emulate_media(media="print")
-            page.wait_for_timeout(300)
             return page.pdf(
                 format="A4",
                 print_background=True,
+                margin={
+                    "top": "10mm",
+                    "right": "10mm",
+                    "bottom": "10mm",
+                    "left": "10mm",
+                },
             )
         finally:
             context.close()

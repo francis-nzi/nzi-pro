@@ -882,10 +882,10 @@ export default function JobAdvancedReports({
       <style jsx global>{`
         @page {
           size: A4;
-          margin-top: 25mm;
-          margin-right: 20mm;
-          margin-bottom: 25mm;
-          margin-left: 20mm;
+          margin-top: 18mm;
+          margin-right: 15mm;
+          margin-bottom: 18mm;
+          margin-left: 15mm;
         }
         @page {
           @top-left {
@@ -916,22 +916,11 @@ export default function JobAdvancedReports({
           @top-left {
             content: none;
           }
-          @bottom-left {
-            content: none;
-          }
-          @bottom-right {
-            content: none;
-          }
         }
         @media print {
           * {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
-            box-sizing: border-box;
-          }
-          html, body {
-            width: 100% !important;
-            overflow: hidden !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -940,25 +929,20 @@ export default function JobAdvancedReports({
             break-inside: auto;
             page-break-inside: auto;
             width: 100% !important;
-            max-width: 100% !important;
-            overflow: hidden !important;
           }
           .live-report-section + .live-report-section {
             break-before: page;
             page-break-before: always;
           }
           .recharts-responsive-container {
-            overflow: hidden !important;
+            overflow: visible !important;
             width: 100% !important;
-            max-width: 100% !important;
           }
           .recharts-wrapper {
-            overflow: hidden !important;
-            max-width: 100% !important;
+            overflow: visible !important;
           }
           .recharts-surface {
             overflow: visible !important;
-            max-width: 100% !important;
           }
         }
       `}</style>
@@ -1000,7 +984,6 @@ export default function JobAdvancedReports({
               size="sm"
               variant="outline"
               onClick={() => window.print()}
-              title="Browser print — disable 'Headers and footers' in your print dialog, or use Save for Review → Download for a clean PDF"
               className="text-xs"
             >
               Print
