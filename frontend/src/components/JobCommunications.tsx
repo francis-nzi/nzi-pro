@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import JobOverviewLetter from "@/components/JobOverviewLetter";
@@ -20,6 +22,10 @@ type Communication = {
   event_at: string | null;
   created_by: string;
   created_at: string | null;
+  updated_by?: string | null;
+  archived?: boolean;
+  archived_at?: string | null;
+  archived_by?: string | null;
 };
 
 type Task = {
@@ -82,6 +88,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
   const [direction, setDirection] = useState("internal");
   const [subject, setSubject] = useState("");
   const [messageText, setMessageText] = useState("");
+  const [editingNote, setEditingNote] = useState<Communication | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editMessageText, setEditMessageText] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState("");
 
   const [emailTo, setEmailTo] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
@@ -220,6 +231,56 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       setSaving(false);
     }
   }
+
+  const openEditNote = useCallback((note: Communication) => {
+    setEditingNote(note);
+    setEditSubject(note.subject || "");
+    setEditMessageText(note.message_text || "");
+    setEditError("");
+  }, []);
+
+  const saveEditNote = useCallback(async () => {
+    if (!editingNote) return;
+    setEditBusy(true);
+    setEditError("");
+    try {
+      const res = await fetch(`${baseUrl}/timeline/events/${editingNote.communication_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          subject: editSubject,
+          body_text: editMessageText,
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Save failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      setEditingNote(null);
+      await load();
+    } catch (e) {
+      setEditError((e as Error).message);
+    } finally {
+      setEditBusy(false);
+    }
+  }, [baseUrl, editMessageText, editSubject, editingNote, load]);
+
+  const archiveNote = useCallback(async (note: Communication) => {
+    try {
+      const res = await fetch(`${baseUrl}/timeline/events/${note.communication_id}/archive`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Archive failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      await load();
+    } catch (e) {
+      setStatus(`Error archiving note: ${(e as Error).message}`);
+    }
+  }, [baseUrl, load]);
 
   async function sendEmail() {
     if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
@@ -488,9 +549,107 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
         </Card>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-      {showLogCard ? (
-        <Card>
+      {showNotes ? (
+        <div className="space-y-6">
+          {showLogCard ? (
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>{showNotes ? "Add Note" : "Log Communication"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-md border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Notes are saved as internal communications and will appear in the job timeline and inbox.
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Direction</Label>
+                    <Select value={direction} onValueChange={setDirection}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="internal">Internal</SelectItem>
+                        <SelectItem value="inbound">Inbound</SelectItem>
+                        <SelectItem value="outbound">Outbound</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Channel</Label>
+                    <Select value={channel} onValueChange={setChannel}>
+                      <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="note">Note</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
+                        <SelectItem value="call">Call</SelectItem>
+                        <SelectItem value="meeting">Meeting</SelectItem>
+                        <SelectItem value="chat">Chat</SelectItem>
+                        <SelectItem value="message">Message</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Subject</Label>
+                  <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Message</Label>
+                  <Textarea value={messageText} onChange={(e) => setMessageText(e.target.value)} rows={6} className="w-full" />
+                </div>
+                <Button onClick={addCommunication} disabled={saving}>Log Entry</Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {showTimeline ? (
+            <Card className="w-full">
+              <CardHeader>
+                <CardTitle>
+                  {showNotes ? `Notes Timeline (${noteOnlyCommunications.length})` : `Communication Timeline (${data?.summary?.communications_count ?? 0})`}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : noteOnlyCommunications.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No notes yet.</div>
+                ) : (
+                  noteOnlyCommunications.map((c) => (
+                    <div key={c.communication_id} className="w-full rounded-md border p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium break-words">[{c.channel}] {c.subject || "(No subject)"}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {c.direction} | {c.created_by || "-"} | {c.event_at || c.created_at || "-"}
+                          </div>
+                        </div>
+                        <Badge variant={c.archived ? "secondary" : "outline"} className="shrink-0">
+                          {c.archived ? "Archived" : c.status || "logged"}
+                        </Badge>
+                      </div>
+                      {c.message_text ? (
+                        <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{c.message_text}</div>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => openEditNote(c)}>
+                          Edit
+                        </Button>
+                        {!c.archived ? (
+                          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => void archiveNote(c)}>
+                            Archive
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-3">
+        {showLogCard ? (
+          <Card>
             <CardHeader>
               <CardTitle>{showNotes ? "Add Note" : "Log Communication"}</CardTitle>
             </CardHeader>
@@ -587,7 +746,8 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
             </CardContent>
           </Card>
         ) : null}
-      </div>
+        </div>
+      )}
 
       {showAutomation ? (
         <Card>
@@ -617,76 +777,112 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
         </Card>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-      {showTimeline ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {showNotes ? `Notes Timeline (${noteOnlyCommunications.length})` : `Communication Timeline (${data?.summary?.communications_count ?? 0})`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {loading ? (
-                <div className="text-sm text-muted-foreground">Loading...</div>
-              ) : (showNotes ? noteOnlyCommunications : communications).length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  {showNotes ? "No notes yet." : "No communication entries yet."}
-                </div>
-              ) : (
-                (showNotes ? noteOnlyCommunications : communications).map((c) => (
-                  <div key={c.communication_id} className="rounded-md border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium">[{c.channel}] {c.subject || "(No subject)"}</div>
-                      <div className="text-xs text-muted-foreground">{c.status}</div>
+      {!showNotes ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {showTimeline ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Communication Timeline ({data?.summary?.communications_count ?? 0})</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : communications.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No communication entries yet.</div>
+                ) : (
+                  communications.map((c) => (
+                    <div key={c.communication_id} className="rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium">[{c.channel}] {c.subject || "(No subject)"}</div>
+                        <div className="text-xs text-muted-foreground">{c.status}</div>
+                      </div>
+                      <div className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{c.message_text}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {c.direction} | {c.to_email || "-"} | {c.created_by || "-"} | {c.event_at || c.created_at || "-"}
+                      </div>
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{c.message_text}</div>
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      {c.direction} | {c.to_email || "-"} | {c.created_by || "-"} | {c.event_at || c.created_at || "-"}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
-        {showTasks ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Task Monitor (Open: {data?.summary?.open_tasks_count ?? 0}, Overdue: {data?.summary?.overdue_tasks_count ?? 0})</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {loading ? (
-                <div className="text-sm text-muted-foreground">Loading...</div>
-              ) : tasks.length === 0 ? (
-                <div className="text-sm text-muted-foreground">No tasks yet.</div>
-              ) : (
-                tasks.map((t) => (
-                  <div key={t.task_id} className="rounded-md border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium">{t.title}</div>
-                      <div className="text-xs text-muted-foreground">{t.priority}</div>
+          {showTasks ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Task Monitor (Open: {data?.summary?.open_tasks_count ?? 0}, Overdue: {data?.summary?.overdue_tasks_count ?? 0})</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {loading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : tasks.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No tasks yet.</div>
+                ) : (
+                  tasks.map((t) => (
+                    <div key={t.task_id} className="rounded-md border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium">{t.title}</div>
+                        <div className="text-xs text-muted-foreground">{t.priority}</div>
+                      </div>
+                      {t.details ? <div className="mt-1 text-sm text-muted-foreground">{t.details}</div> : null}
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">Assigned: {t.assigned_to || "-"} | Due: {t.due_date || "-"} | By: {t.created_by || "-"}</div>
+                        <Select value={t.status} onValueChange={(v) => void updateTaskStatus(t.task_id, v)}>
+                          <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="open">Open</SelectItem>
+                            <SelectItem value="in_progress">In Progress</SelectItem>
+                            <SelectItem value="done">Done</SelectItem>
+                            <SelectItem value="closed">Closed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    {t.details ? <div className="mt-1 text-sm text-muted-foreground">{t.details}</div> : null}
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-xs text-muted-foreground">Assigned: {t.assigned_to || "-"} | Due: {t.due_date || "-"} | By: {t.created_by || "-"}</div>
-                      <Select value={t.status} onValueChange={(v) => void updateTaskStatus(t.task_id, v)}>
-                        <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="open">Open</SelectItem>
-                          <SelectItem value="in_progress">In Progress</SelectItem>
-                          <SelectItem value="done">Done</SelectItem>
-                          <SelectItem value="closed">Closed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
+        <DialogContent className="w-[96vw] max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Edit Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="editJobNoteSubject">Subject</Label>
+              <Input
+                id="editJobNoteSubject"
+                value={editSubject}
+                onChange={(e) => setEditSubject(e.target.value)}
+                placeholder="Subject (optional)"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="editJobNoteText">Message</Label>
+              <Textarea
+                id="editJobNoteText"
+                value={editMessageText}
+                onChange={(e) => setEditMessageText(e.target.value)}
+                rows={8}
+                placeholder="Note text..."
+              />
+            </div>
+            {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingNote(null)} disabled={editBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveEditNote()} disabled={editBusy || !editMessageText.trim()}>
+              {editBusy ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
