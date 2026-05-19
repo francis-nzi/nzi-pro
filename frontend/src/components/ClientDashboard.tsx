@@ -434,6 +434,7 @@ export default function ClientDashboard({ clientId, baseUrl }: ClientDashboardPr
             trendData={trendData}
             topCategoryData={topCategoryData}
             view="overview"
+            year={selectedYear ?? undefined}
           />
         </TabsContent>
 

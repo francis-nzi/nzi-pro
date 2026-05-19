@@ -9,6 +9,9 @@ type ScopeTotals = {
   scope_2: number;
   scope_3: number;
   total: number;
+  reporting_year?: number | null;
+  reporting_period_start?: string | null;
+  reporting_period_end?: string | null;
 };
 
 type EmissionsSummaryProps = {
@@ -104,11 +107,24 @@ export default function EmissionsSummary({
   }, [clearUpdatedFlash]);
 
   const formatNumber = (num: number) => {
-    return num.toLocaleString('en-GB', { 
-      minimumFractionDigits: 2, 
-      maximumFractionDigits: 2 
+    return num.toLocaleString('en-GB', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
     });
   };
+
+  function periodLabel(totals: ScopeTotals | null): string {
+    if (!totals) return "Current job totals";
+    if (totals.reporting_period_start && totals.reporting_period_end) {
+      const fmt = (s: string) => {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+      };
+      return `${fmt(totals.reporting_period_start)} – ${fmt(totals.reporting_period_end)}`;
+    }
+    if (totals.reporting_year) return `Reporting year ${totals.reporting_year}`;
+    return "Current job totals";
+  }
 
   if (variant === "compact") {
     return (
@@ -116,7 +132,7 @@ export default function EmissionsSummary({
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-[0.68rem] uppercase tracking-[0.36em] text-slate-500">Emissions Summary</div>
-            <div className="text-xs text-slate-600">Current job totals</div>
+            <div className="text-xs text-slate-600">{periodLabel(scopeTotals)}</div>
           </div>
           <div className="flex items-center gap-2">
             {updatedJustNow ? <div className="text-xs font-medium text-emerald-700">Updated just now</div> : null}
@@ -162,7 +178,10 @@ export default function EmissionsSummary({
     <Card className={className}>
       <CardHeader>
         <div className="flex items-center justify-between gap-3">
-          <CardTitle>Emissions Summary</CardTitle>
+          <div>
+            <CardTitle>Emissions Summary</CardTitle>
+            <p className="mt-0.5 text-xs text-muted-foreground">{periodLabel(scopeTotals)}</p>
+          </div>
           {updatedJustNow ? <div className="text-xs font-medium text-emerald-700">Updated just now</div> : null}
         </div>
       </CardHeader>

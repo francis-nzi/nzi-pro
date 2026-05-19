@@ -1253,25 +1253,43 @@ def get_job_scope_totals(job_id: int, _user: dict[str, str] = Depends(_current_u
             resolver = JobMonthlyEmissionsResolver(con, int(job_id))
             data_df = _load_data_output_rows(con, int(job_id))
             if data_df is None or data_df.empty:
+                period_row = con.execute(
+                    "SELECT reporting_year, reporting_period_start, reporting_period_end FROM jobs WHERE job_id = %s",
+                    [int(job_id)],
+                ).fetchone()
                 return {
                     "job_id": int(job_id),
                     "scope_1": 0.0,
                     "scope_2": 0.0,
                     "scope_3": 0.0,
                     "total": 0.0,
+                    "reporting_year": int(period_row[0]) if period_row and period_row[0] is not None else None,
+                    "reporting_period_start": str(period_row[1]) if period_row and period_row[1] is not None else None,
+                    "reporting_period_end": str(period_row[2]) if period_row and period_row[2] is not None else None,
                 }
 
             _, totals = _build_scope_summary(data_df, resolver)
             scope_1_rounded = round(float(totals.get("Scope 1") or 0.0), 2)
             scope_2_rounded = round(float(totals.get("Scope 2") or 0.0), 2)
             scope_3_rounded = round(float(totals.get("Scope 3") or 0.0), 2)
-            
+
+            period_row = con.execute(
+                "SELECT reporting_year, reporting_period_start, reporting_period_end FROM jobs WHERE job_id = %s",
+                [int(job_id)],
+            ).fetchone()
+            reporting_year = int(period_row[0]) if period_row and period_row[0] is not None else None
+            reporting_period_start = str(period_row[1]) if period_row and period_row[1] is not None else None
+            reporting_period_end = str(period_row[2]) if period_row and period_row[2] is not None else None
+
             return {
                 "job_id": int(job_id),
                 "scope_1": scope_1_rounded,
                 "scope_2": scope_2_rounded,
                 "scope_3": scope_3_rounded,
-                "total": scope_1_rounded + scope_2_rounded + scope_3_rounded
+                "total": scope_1_rounded + scope_2_rounded + scope_3_rounded,
+                "reporting_year": reporting_year,
+                "reporting_period_start": reporting_period_start,
+                "reporting_period_end": reporting_period_end,
             }
             
     except HTTPException:

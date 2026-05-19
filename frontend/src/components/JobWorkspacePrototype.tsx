@@ -47,6 +47,9 @@ type ScopeTotalsResponse = {
   scope_1?: number | null;
   scope_2?: number | null;
   scope_3?: number | null;
+  reporting_year?: number | null;
+  reporting_period_start?: string | null;
+  reporting_period_end?: string | null;
 };
 
 function formatDateLabel(value: string | null | undefined): string {
@@ -82,12 +85,22 @@ function mapLiveJob(job: JobApiRecord): JobWorkspaceJob {
 }
 
 function mapScopeTotals(totals: ScopeTotalsResponse): WorkspaceEmissionsSummaryData {
+  let label = "Current job totals";
+  if (totals.reporting_period_start && totals.reporting_period_end) {
+    const fmt = (s: string) => {
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? s : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    };
+    label = `${fmt(totals.reporting_period_start)} – ${fmt(totals.reporting_period_end)}`;
+  } else if (totals.reporting_year) {
+    label = `Reporting year ${totals.reporting_year}`;
+  }
   return {
     totalTco2e: typeof totals.total === "number" ? totals.total : null,
     scope1Tco2e: typeof totals.scope_1 === "number" ? totals.scope_1 : null,
     scope2Tco2e: typeof totals.scope_2 === "number" ? totals.scope_2 : null,
     scope3Tco2e: typeof totals.scope_3 === "number" ? totals.scope_3 : null,
-    label: "Current job totals",
+    label,
   };
 }
 

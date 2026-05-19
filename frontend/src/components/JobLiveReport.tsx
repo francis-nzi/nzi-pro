@@ -340,20 +340,24 @@ export default function JobLiveReport({ jobId, baseUrl, printMode = false }: Job
   const deltaTotal = liveSummary?.delta_total ?? currentTotal - benchmarkTotal;
   const deltaPct = liveSummary?.delta_pct ?? (benchmarkTotal > 0 ? (deltaTotal / benchmarkTotal) * 100.0 : null);
 
+  const periodStart = job?.reporting_period_start ? formatDate(job.reporting_period_start, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const periodEnd = job?.reporting_period_end ? formatDate(job.reporting_period_end, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const reportYear = job?.reporting_year ?? new Date().getFullYear();
+
   const emissionsSummary: WorkspaceEmissionsSummaryData | null = job
     ? {
         totalTco2e: currentTotal,
         scope1Tco2e: toNumber(scopeTotals["Scope 1"] ?? scopeTotals.scope_1 ?? 0),
         scope2Tco2e: toNumber(scopeTotals["Scope 2"] ?? scopeTotals.scope_2 ?? 0),
         scope3Tco2e: toNumber(scopeTotals["Scope 3"] ?? scopeTotals.scope_3 ?? 0),
-        label: "Current live totals",
+        label: periodStart && periodEnd
+          ? `${periodStart} – ${periodEnd}`
+          : reportYear
+            ? `Reporting year ${reportYear}`
+            : "Current live totals",
         note: benchmarkTotal > 0 ? `Benchmark: ${formatNumber(benchmarkTotal)} tCO₂e` : undefined,
       }
     : null;
-
-  const periodStart = job?.reporting_period_start ? formatDate(job.reporting_period_start, { day: "numeric", month: "short", year: "numeric" }) : "";
-  const periodEnd = job?.reporting_period_end ? formatDate(job.reporting_period_end, { day: "numeric", month: "short", year: "numeric" }) : "";
-  const reportYear = job?.reporting_year ?? new Date().getFullYear();
   const htmlReportUrl = `${baseUrl}/jobs/${jobId}/generate-html-report`;
   const selectedDatasets = splitCommaList(reportMetadata.datasets_names);
   const downloadLiveReportPdf = async () => {

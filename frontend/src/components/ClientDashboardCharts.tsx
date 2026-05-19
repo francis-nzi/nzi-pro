@@ -45,6 +45,7 @@ type ClientDashboardChartsProps = {
   trendData: TrendDatum[];
   topCategoryData: TopCategoryDatum[];
   view: "overview" | "trends";
+  year?: string | number | null;
 };
 
 export default function ClientDashboardCharts({
@@ -53,6 +54,7 @@ export default function ClientDashboardCharts({
   trendData,
   topCategoryData,
   view,
+  year,
 }: ClientDashboardChartsProps) {
   return (
     <div className="space-y-6">
@@ -76,6 +78,9 @@ export default function ClientDashboardCharts({
                     {formatEmissions(total)}
                   </div>
                   <div className="mt-2 text-[11px] text-muted-foreground">tCO₂e total</div>
+                  {year != null ? (
+                    <div className="mt-1 text-[10px] font-medium text-muted-foreground/70">{year}</div>
+                  ) : null}
                 </div>
               </div>
             </div>
