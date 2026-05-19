@@ -648,6 +648,8 @@ export default function JobAdvancedReports({
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfFilename, setPdfFilename] = useState<string>("report.pdf");
   const [versions, setVersions] = useState<ReactReportVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
@@ -696,20 +698,32 @@ export default function JobAdvancedReports({
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
       const clientSlug = String(data?.job_data?.client_name ?? "report").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase();
       const year = data?.job_data?.reporting_year ?? new Date().getFullYear();
-      a.download = `${clientSlug}-crp-${year}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const filename = `${clientSlug}-crp-${year}.pdf`;
+      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+      setPdfFilename(filename);
+      setPdfBlobUrl(url);
     } catch (e) {
       setDownloadError((e as Error).message);
     } finally {
       setDownloading(false);
     }
+  }
+
+  function closePdfViewer() {
+    if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    setPdfBlobUrl(null);
+  }
+
+  function savePdfToDisk() {
+    if (!pdfBlobUrl) return;
+    const a = document.createElement("a");
+    a.href = pdfBlobUrl;
+    a.download = pdfFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   function loadVersions() {
@@ -911,6 +925,43 @@ export default function JobAdvancedReports({
 
   return (
     <>
+      {/* In-app PDF viewer overlay */}
+      {pdfBlobUrl && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-gray-900">
+          {/* Header bar */}
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-700 bg-gray-800 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-white">
+                {data?.job_data?.client_name ?? "Report"} — Carbon Reduction Plan
+              </span>
+              <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
+                {pdfFilename}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={savePdfToDisk}
+                className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
+              >
+                ⬇ Save to disk
+              </button>
+              <button
+                onClick={closePdfViewer}
+                className="flex items-center gap-1.5 rounded border border-gray-500 bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-600"
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+          {/* PDF iframe */}
+          <iframe
+            src={pdfBlobUrl}
+            className="min-h-0 flex-1 w-full border-0"
+            title="Report PDF"
+          />
+        </div>
+      )}
+
       {/* Print CSS */}
       <style jsx global>{`
         @page {
@@ -1050,7 +1101,7 @@ export default function JobAdvancedReports({
                   Generating PDF…
                 </span>
               ) : (
-                "⬇ Download PDF"
+                "View PDF"
               )}
             </Button>
           </div>
