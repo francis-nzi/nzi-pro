@@ -362,6 +362,15 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
     }
   }
 
+  function resetDataEntryFilters() {
+    setSearchQuery("");
+    setSelectedScope("All");
+    setConfidenceFilter("All");
+    setSiteFilter("All");
+    setCategoryFilter("All");
+    setMonthlyCompletenessFilter("All");
+  }
+
   useEffect(() => {
     loadData();
   }, [jobId]);
@@ -1647,7 +1656,13 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
               </Button>
             </div>
             <div className="flex items-end">
-              <Button onClick={loadData} variant="outline">
+              <Button
+                onClick={() => {
+                  resetDataEntryFilters();
+                  void loadData();
+                }}
+                variant="outline"
+              >
                 Refresh
               </Button>
             </div>
@@ -1659,14 +1674,7 @@ export default function JobDataEntry({ jobId, showEmissionsSummary = false, base
             <div className="flex flex-wrap items-end gap-2 sm:col-span-2 xl:col-span-6">
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSearchQuery("");
-                  setSelectedScope("All");
-                  setConfidenceFilter("All");
-                  setSiteFilter("All");
-                  setCategoryFilter("All");
-                  setMonthlyCompletenessFilter("All");
-                }}
+                onClick={resetDataEntryFilters}
               >
                 Clear Filters
               </Button>
