@@ -60,6 +60,17 @@ def _safe_int(value: Any, default: int | None = None) -> int | None:
         return default
 
 
+def _ensure_client_notes_schema(con) -> None:
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS job_id INTEGER")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS subject TEXT")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS is_high_importance BOOLEAN NOT NULL DEFAULT FALSE")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP")
+    con.execute("ALTER TABLE client_notes ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
+
+
 def _matches_search(search: str, values: list[Any]) -> bool:
     terms = [term.strip().lower() for term in str(search or "").split() if term.strip()]
     if not terms:
@@ -89,6 +100,57 @@ def _build_job_lookup(jobs_df: pd.DataFrame | None) -> dict[int, dict[str, Any]]
     return lookup
 
 
+def _serialize_client_note_row(con, row: dict[str, Any], client_id: int, job_lookup: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    raw_id = _safe_int(row.get("note_id"), 0) or 0
+    note_text = _safe_text(row.get("note_text"))
+    subject = _safe_text(row.get("subject")) or None
+    job_id_val = _safe_int(row.get("job_id"), None)
+    job_info = job_lookup.get(job_id_val or -1, {}) if job_id_val is not None else {}
+    job_number = _safe_text(row.get("job_number") or job_info.get("job_number")) or None
+    job_title = _safe_text(row.get("job_title") or job_info.get("job_title")) or None
+    location_bits = ["Client Note"]
+    if job_number:
+        location_bits.append(f"Job {job_number}")
+    elif job_id_val is not None:
+        location_bits.append(f"Job {job_id_val}")
+    if subject:
+        location_bits.append(subject)
+    created_at = row.get("created_at")
+    updated_at = row.get("updated_at") or created_at
+    author = _display_name(con, row.get("author"))
+    updated_by = _display_name(con, row.get("updated_by"))
+    return {
+        "note_id": f"client-note-{raw_id}",
+        "source_type": "client",
+        "note_backend": "client_notes",
+        "source_label": "Client Note",
+        "raw_id": raw_id,
+        "raw_job_id": job_id_val,
+        "client_db_id": _safe_int(row.get("client_db_id"), client_id) or client_id,
+        "job_id": job_id_val,
+        "job_number": job_number,
+        "job_title": job_title,
+        "scope": "",
+        "site_id": None,
+        "site_name": "",
+        "category": "",
+        "report_label": "",
+        "original_id": "",
+        "note_location": " | ".join(location_bits),
+        "note_subject": subject,
+        "note_text": note_text,
+        "note_author": author,
+        "updated_by": updated_by,
+        "is_high_importance": bool(row.get("is_high_importance")) if row.get("is_high_importance") is not None else False,
+        "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+        "archived_at": _to_iso(row.get("archived_at")),
+        "archived_by": _safe_text(row.get("archived_by")) or None,
+        "note_updated_at": _to_iso(updated_at),
+        "row_created_at": _to_iso(created_at),
+        "row_updated_at": _to_iso(updated_at),
+    }
+
+
 @router.get("/clients/{client_id}/notes-summary")
 def get_client_notes_summary(
     client_id: int,
@@ -105,6 +167,7 @@ def get_client_notes_summary(
     try:
         with get_conn() as con:
             _ensure_crm_timeline_tables(con)
+            _ensure_client_notes_schema(con)
             _ensure_job_comm_tables(con)
 
             def _safe_df(sql: str, params: list[Any] | None = None) -> pd.DataFrame | None:
@@ -136,6 +199,42 @@ def get_client_notes_summary(
             job_lookup = _build_job_lookup(jobs_df)
 
             items: list[dict[str, Any]] = []
+
+            client_notes_df = _safe_df(
+                """
+                SELECT
+                    cn.note_id,
+                    cn.client_db_id,
+                    cn.job_id,
+                    cn.subject,
+                    cn.note_text,
+                    cn.author,
+                    cn.is_high_importance,
+                    cn.archived,
+                    cn.archived_at,
+                    cn.archived_by,
+                    cn.created_at,
+                    cn.updated_at,
+                    cn.updated_by,
+                    j.job_number,
+                    j.title AS job_title
+                FROM client_notes cn
+                LEFT JOIN jobs j ON j.job_id = cn.job_id
+                WHERE cn.client_db_id = %s
+                  AND COALESCE(cn.archived, FALSE) = FALSE
+                ORDER BY COALESCE(cn.updated_at, cn.created_at) DESC NULLS LAST, cn.note_id DESC
+                """,
+                [int(client_id)],
+            )
+            if client_notes_df is not None and not client_notes_df.empty:
+                for _, row in client_notes_df.iterrows():
+                    try:
+                        note_text = _safe_text(row.get("note_text"))
+                        if not note_text:
+                            continue
+                        items.append(_serialize_client_note_row(con, row.to_dict(), int(client_id), job_lookup))
+                    except Exception:
+                        continue
 
             client_events_df = _safe_df(
                 """
@@ -189,6 +288,7 @@ def get_client_notes_summary(
                             {
                                 "note_id": f"client-event-{raw_id}",
                                 "source_type": "client",
+                                "note_backend": "crm_event",
                                 "source_label": "Client Note",
                                 "raw_id": raw_id,
                                 "raw_job_id": job_id_val,
@@ -373,3 +473,121 @@ def get_client_notes_summary(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch client notes summary: {e}")
+
+
+@router.post("/clients/{client_id}/notes")
+def create_client_note(client_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_client_notes_schema(con)
+            client_row = con.execute("SELECT db_id FROM clients WHERE db_id = %s", [int(client_id)]).fetchone()
+            if not client_row:
+                raise HTTPException(status_code=404, detail="Client not found")
+            author = _display_name(con, _user.get("email") or _user.get("user_id") or "system") or _safe_text(_user.get("email") or _user.get("user_id")) or "system"
+            subject = _safe_text(body.get("subject")) or None
+            note_text = _safe_text(body.get("note_text"))
+            if not note_text:
+                raise HTTPException(status_code=400, detail="note_text is required")
+            job_id_value = _safe_int(body.get("job_id"), None)
+            row = con.execute(
+                """
+                INSERT INTO client_notes (
+                    client_db_id, job_id, subject, note_text, author, is_high_importance, created_at, updated_at, updated_by
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
+                RETURNING note_id
+                """,
+                [
+                    int(client_id),
+                    job_id_value,
+                    subject,
+                    note_text,
+                    author,
+                    bool(body.get("is_high_importance", False)),
+                    author,
+                ],
+            ).fetchone()
+            note_id = int(row[0])
+            payload = {
+                "note_id": note_id,
+                "client_db_id": int(client_id),
+                "job_id": job_id_value,
+                "subject": subject,
+                "note_text": note_text,
+                "author": author,
+                "is_high_importance": bool(body.get("is_high_importance", False)),
+                "archived": False,
+                "created_at": None,
+                "updated_at": None,
+                "updated_by": author,
+            }
+            return {"ok": True, "item": payload}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create client note: {e}")
+
+
+@router.patch("/client-notes/{note_id}")
+def update_client_note(note_id: int, body: dict = Body(...), _user: dict[str, str] = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_client_notes_schema(con)
+            row = con.execute(
+                "SELECT note_id, client_db_id, archived FROM client_notes WHERE note_id = %s",
+                [int(note_id)],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Client note not found")
+            if bool(row[2]):
+                raise HTTPException(status_code=400, detail="Client note is archived")
+            author = _display_name(con, _user.get("email") or _user.get("user_id") or "system") or _safe_text(_user.get("email") or _user.get("user_id")) or "system"
+            updates: list[str] = []
+            params: list[Any] = []
+            if "subject" in body:
+                updates.append("subject = %s")
+                params.append(_safe_text(body.get("subject")) or None)
+            if "note_text" in body:
+                note_text = _safe_text(body.get("note_text"))
+                if not note_text:
+                    raise HTTPException(status_code=400, detail="note_text is required")
+                updates.append("note_text = %s")
+                params.append(note_text)
+            if "is_high_importance" in body:
+                updates.append("is_high_importance = %s")
+                params.append(bool(body.get("is_high_importance")))
+            if updates:
+                updates.extend(["updated_at = NOW()", "updated_by = %s"])
+                params.extend([author, int(note_id)])
+                con.execute(f"UPDATE client_notes SET {', '.join(updates)} WHERE note_id = %s", params)
+            row_df = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [int(note_id)]).df()
+            item = row_df.iloc[0].to_dict() if row_df is not None and not row_df.empty else {"note_id": int(note_id)}
+            return {"ok": True, "item": item}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update client note: {e}")
+
+
+@router.patch("/client-notes/{note_id}/archive")
+def archive_client_note(note_id: int, _user: dict[str, str] = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_client_notes_schema(con)
+            exists = con.execute("SELECT note_id FROM client_notes WHERE note_id = %s", [int(note_id)]).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Client note not found")
+            actor = _display_name(con, _user.get("email") or _user.get("user_id") or "system") or _safe_text(_user.get("email") or _user.get("user_id")) or "system"
+            con.execute(
+                """
+                UPDATE client_notes
+                SET archived = TRUE, archived_at = NOW(), archived_by = %s, updated_at = NOW(), updated_by = %s
+                WHERE note_id = %s
+                """,
+                [actor, actor, int(note_id)],
+            )
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to archive client note: {e}")

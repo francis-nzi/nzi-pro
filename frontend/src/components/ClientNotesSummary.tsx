@@ -28,6 +28,7 @@ type ClientJobRef = {
 type ClientNote = {
   note_id: string;
   source_type: string;
+  note_backend?: string;
   source_label: string;
   raw_id: number;
   raw_job_id: number | null;
@@ -175,15 +176,13 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     setAddBusy(true);
     setAddError("");
     try {
-      const res = await fetch(`${baseUrl}/clients/${clientId}/timeline/events`, {
+      const res = await fetch(`${baseUrl}/clients/${clientId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          event_type: "note",
-          channel: "internal",
           subject: addSubject.trim() || null,
-          body_text: addText.trim(),
+          note_text: addText.trim(),
           is_high_importance: addHighImportance,
         }),
       });
@@ -210,7 +209,10 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     try {
       let url: string;
       let body: Record<string, unknown>;
-      if (editingNote.source_type === "client") {
+      if (editingNote.note_backend === "client_notes") {
+        url = `${baseUrl}/client-notes/${editingNote.raw_id}`;
+        body = { subject: editSubject, note_text: editText, is_high_importance: editHighImportance };
+      } else if (editingNote.source_type === "client") {
         url = `${baseUrl}/timeline/events/${editingNote.raw_id}`;
         body = { subject: editSubject, body_text: editText, is_high_importance: editHighImportance };
       } else {
@@ -240,7 +242,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     if (!window.confirm("Archive this note? It will no longer appear in the notes list.")) return;
     try {
       let url: string;
-      if (note.source_type === "client") {
+      if (note.note_backend === "client_notes") {
+        url = `${baseUrl}/client-notes/${note.raw_id}/archive`;
+      } else if (note.source_type === "client") {
         url = `${baseUrl}/timeline/events/${note.raw_id}/archive`;
       } else {
         url = `${baseUrl}/jobs/${note.raw_job_id}/communications/${note.raw_id}/archive`;
@@ -426,7 +430,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   return (
       <div className="space-y-6">
       <Dialog open={addClientNoteOpen} onOpenChange={setAddClientNoteOpen}>
-        <DialogContent className="w-[98vw] max-w-[1400px]">
+        <DialogContent className="!w-[98vw] !max-w-[1800px]">
           <DialogHeader>
             <DialogTitle>Add Client Note</DialogTitle>
           </DialogHeader>
@@ -446,8 +450,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 id="addClientNoteText"
                 value={addText}
                 onChange={(e) => setAddText(e.target.value)}
-                rows={8}
+                rows={12}
                 placeholder="Write the client note here..."
+                className="w-full"
               />
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -473,7 +478,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       </Dialog>
 
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
-        <DialogContent className="w-[98vw] max-w-[1400px]">
+        <DialogContent className="!w-[98vw] !max-w-[1800px]">
           <DialogHeader>
             <DialogTitle>{editingNote?.source_type === "client" ? "Edit Client Note" : "Edit Note"}</DialogTitle>
           </DialogHeader>
@@ -493,8 +498,9 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 id="editNoteText"
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                rows={6}
+                rows={10}
                 placeholder="Note text..."
+                className="w-full"
               />
             </div>
             {editingNote?.source_type === "client" ? (
