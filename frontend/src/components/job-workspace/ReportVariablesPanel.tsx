@@ -16,7 +16,13 @@ type ConsultantOption = {
   user_id?: string | null;
   full_name: string | null;
   position?: string | null;
+  role?: string | null;
 };
+
+function isConsultantSignOffRole(role: string | null | undefined): boolean {
+  const normalized = String(role ?? "").trim().toLowerCase();
+  return normalized.includes("crm") || normalized.includes("director");
+}
 
 type ReportVariablesPanelProps = {
   jobId: number;
@@ -48,9 +54,10 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
           // Team members for consultant dropdown
           if (teamRes.ok) {
             const teamData = await teamRes.json() as { members?: ConsultantOption[] };
-            setConsultantOptions(
-              (teamData.members ?? []).filter((m) => m.full_name)
+            const filtered = (teamData.members ?? []).filter(
+              (m) => m.full_name && isConsultantSignOffRole(m.role)
             );
+            setConsultantOptions(filtered);
           }
 
           // Report metadata fields + values

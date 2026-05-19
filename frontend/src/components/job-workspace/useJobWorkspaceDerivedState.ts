@@ -32,6 +32,11 @@ type TeamMember = {
   role?: string | null;
 };
 
+function isConsultantSignOffRole(role: string | null | undefined): boolean {
+  const normalized = String(role ?? "").trim().toLowerCase();
+  return normalized.includes("crm") || normalized.includes("director");
+}
+
 type Dataset = {
   dataset_id: number | string;
   name?: string | null;
@@ -247,13 +252,11 @@ export default function useJobWorkspaceDerivedState({
   }, [activeTeamMembers, selectedConsultantName]);
 
   const consultantOptions = useMemo(() => {
-    const SIGN_OFF_ROLES = new Set(["crm", "director"]);
     const byName = new Map<string, TeamMember>();
     activeTeamMembers.forEach((member) => {
       const name = (member.full_name ?? "").trim();
       if (!name) return;
-      const role = (member.role ?? "").trim().toLowerCase();
-      if (!SIGN_OFF_ROLES.has(role)) return;
+      if (!isConsultantSignOffRole(member.role)) return;
       if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), member);
     });
     // Always include the currently saved consultant even if their role has changed.
