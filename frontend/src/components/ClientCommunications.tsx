@@ -77,7 +77,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
 
   const [newJobId, setNewJobId] = useState<string>("none");
   const [newDirection, setNewDirection] = useState("internal");
-  const [newChannel, setNewChannel] = useState("note");
+  const [newChannel, setNewChannel] = useState("email");
   const [newSubject, setNewSubject] = useState("");
   const [newBody, setNewBody] = useState("");
 
@@ -139,8 +139,13 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     void load();
   }, [load]);
 
+  const communicationEvents = useMemo(
+    () => events.filter((ev) => (ev.event_type || "").toLowerCase() !== "note"),
+    [events],
+  );
+
   const inboxItems = useMemo<InboxItem[]>(() => {
-    const eventItems: InboxItem[] = events.map((ev) => ({
+    const eventItems: InboxItem[] = communicationEvents.map((ev) => ({
       kind: "communication",
       id: `event-${ev.event_id}`,
       title: ev.subject || "(No subject)",
@@ -166,7 +171,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     }));
 
     return [...eventItems, ...taskItems].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
-  }, [events, tasks]);
+  }, [communicationEvents, tasks]);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -208,7 +213,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       }
       setNewSubject("");
       setNewBody("");
-      setStatus("Communication logged.");
+      setStatus(newChannel === "note" ? "Note logged. Open the Notes tab to view and manage it." : "Communication logged.");
       await load();
     } catch (e) {
       setStatus((e as Error).message);
@@ -391,7 +396,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-md border p-3 text-sm">
               <div className="text-muted-foreground">Communications</div>
-              <div className="text-lg font-semibold">{events.length}</div>
+              <div className="text-lg font-semibold">{communicationEvents.length}</div>
             </div>
             <div className="rounded-md border p-3 text-sm">
               <div className="text-muted-foreground">Open Tasks</div>
@@ -529,6 +534,9 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                     <SelectItem value="message">Message</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Use the Notes tab for client notes. Notes logged here will still be saved, but they appear in Notes rather than this inbox.
+                </p>
               </div>
             </div>
             <div className="space-y-2">
