@@ -47,6 +47,7 @@ type ActionOption = {
   scope_focus?: string | null;
   sort_order: number;
   is_active: boolean;
+  is_default?: boolean;
 };
 
 const DEFAULT_TERM_OPTIONS: TermOption[] = [
@@ -80,6 +81,7 @@ export default function AdminActionsOptionsPage() {
   const [scopeFocus, setScopeFocus] = useState("");
   const [sortOrder, setSortOrder] = useState("0");
   const [isActive, setIsActive] = useState(true);
+  const [isDefault, setIsDefault] = useState(false);
 
   useEffect(() => {
     void loadData();
@@ -128,6 +130,7 @@ export default function AdminActionsOptionsPage() {
     setScopeFocus("");
     setSortOrder("0");
     setIsActive(true);
+    setIsDefault(false);
     setEditingId(null);
   }
 
@@ -145,6 +148,7 @@ export default function AdminActionsOptionsPage() {
     setScopeFocus(item.scope_focus || "");
     setSortOrder(String(item.sort_order || 0));
     setIsActive(item.is_active);
+    setIsDefault(item.is_default ?? false);
     setEditingId(item.action_option_id);
     setShowForm(true);
     setStatus("");
@@ -165,6 +169,7 @@ export default function AdminActionsOptionsPage() {
       scope_focus: scopeFocus.trim() || null,
       sort_order: Number(sortOrder || 0) || 0,
       is_active: isActive,
+      is_default: isDefault,
     };
 
     try {
@@ -208,6 +213,7 @@ export default function AdminActionsOptionsPage() {
           scope_focus: item.scope_focus || null,
           sort_order: item.sort_order,
           is_active: !item.is_active,
+          is_default: item.is_default ?? false,
         }),
       });
       if (!res.ok) {
@@ -361,6 +367,19 @@ export default function AdminActionsOptionsPage() {
                   </div>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <input
+                    id="isDefault"
+                    type="checkbox"
+                    checked={isDefault}
+                    onChange={(event) => setIsDefault(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <Label htmlFor="isDefault" className="cursor-pointer">
+                    Mark as default — automatically imported when a job uses &ldquo;Import Default Actions&rdquo;
+                  </Label>
+                </div>
+
                 <div className="flex flex-wrap gap-2">
                   <Button type="submit">
                     <Save className="mr-2 h-4 w-4" />
@@ -412,7 +431,12 @@ export default function AdminActionsOptionsPage() {
                   {filteredItems.map((item) => (
                     <TableRow key={item.action_option_id}>
                       <TableCell>
-                        <div className="font-medium">{item.action_name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{item.action_name}</span>
+                          {item.is_default ? (
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-xs">Default</Badge>
+                          ) : null}
+                        </div>
                         {item.description ? (
                           <div className="max-w-[440px] text-xs text-muted-foreground">{item.description}</div>
                         ) : null}

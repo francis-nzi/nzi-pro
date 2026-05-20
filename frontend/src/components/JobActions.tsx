@@ -41,6 +41,7 @@ type SuggestedActionOption = {
   scope_focus?: string | null;
   sort_order: number;
   is_active: boolean;
+  is_default?: boolean;
 };
 
 type JobActionItem = {
@@ -308,6 +309,30 @@ export default function JobActions({
     setCopyOpen(false);
   }
 
+  function handleImportDefaults() {
+    const defaultOptions = suggestedOptions.filter((option) => option.is_default && !selectedOptionIds.has(option.action_option_id));
+    if (defaultOptions.length === 0) {
+      setStatus("No default actions to import (all defaults are already in the plan).");
+      return;
+    }
+    setItems((prev) => [
+      ...prev,
+      ...defaultOptions.map((option, i) => ({
+        action_option_id: option.action_option_id,
+        action_name: option.action_name,
+        description: option.description || "",
+        action_term: option.action_term,
+        action_term_label: option.action_term_label,
+        action_term_hint: option.action_term_hint,
+        action_category: option.action_category || "",
+        scope_focus: option.scope_focus || "",
+        is_custom: false,
+        sort_order: (prev.length + i + 1) * 10,
+      })),
+    ]);
+    setStatus(`${defaultOptions.length} default action${defaultOptions.length === 1 ? "" : "s"} added. Save to keep changes.`);
+  }
+
   async function saveActions() {
     const trimmedItems = items.map((item, index) => ({
       ...item,
@@ -479,6 +504,10 @@ export default function JobActions({
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleImportDefaults}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Import Default Actions
+            </Button>
             <Button variant="outline" onClick={() => void openCopyDialog()}>
               <Copy className="mr-2 h-4 w-4" />
               Copy from Another Job

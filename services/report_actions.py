@@ -220,6 +220,7 @@ def ensure_report_actions_schema(con) -> None:
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS scope_focus TEXT",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
         "ALTER TABLE report_action_options ADD COLUMN IF NOT EXISTS created_by VARCHAR",
@@ -291,7 +292,8 @@ def list_report_action_options(
           sort_order,
           COALESCE(is_active, TRUE) AS is_active,
           created_at,
-          updated_at
+          updated_at,
+          COALESCE(is_default, FALSE) AS is_default
         FROM report_action_options
         {where_sql}
         ORDER BY sort_order ASC, action_name ASC, action_option_id ASC
@@ -315,6 +317,7 @@ def list_report_action_options(
                 "is_active": bool(row[7]),
                 "created_at": str(row[8]) if row[8] is not None else None,
                 "updated_at": str(row[9]) if row[9] is not None else None,
+                "is_default": bool(row[10]),
             }
         )
     return items
@@ -348,6 +351,7 @@ def upsert_report_action_option(
     scope_focus = _clean_text(payload.get("scope_focus"))
     sort_order = _safe_int(payload.get("sort_order"), 0)
     is_active = bool(payload.get("is_active", True))
+    is_default = bool(payload.get("is_default", False))
 
     duplicate = con.execute(
         """
@@ -366,9 +370,9 @@ def upsert_report_action_option(
         row = con.execute(
             """
             INSERT INTO report_action_options
-              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, created_by, updated_by)
+              (action_name, description, action_term, action_category, scope_focus, sort_order, is_active, is_default, created_by, updated_by)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING action_option_id
             """,
             [
@@ -379,6 +383,7 @@ def upsert_report_action_option(
                 scope_focus,
                 sort_order,
                 is_active,
+                is_default,
                 actor,
                 actor,
             ],
@@ -402,6 +407,7 @@ def upsert_report_action_option(
                 scope_focus = %s,
                 sort_order = %s,
                 is_active = %s,
+                is_default = %s,
                 updated_at = NOW(),
                 updated_by = %s
             WHERE action_option_id = %s
@@ -414,6 +420,7 @@ def upsert_report_action_option(
                 scope_focus,
                 sort_order,
                 is_active,
+                is_default,
                 actor,
                 int(action_option_id),
             ],
