@@ -22,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 _FACTOR_ORIGINAL_ID_RE = re.compile(r"(?:^|[;( ])factor_original_id=([^;)\s]+)", re.IGNORECASE)
 _STORAGE_REASON_RE = re.compile(r"(?:^|[;( ])storage_reason=([^;)\s]+)", re.IGNORECASE)
+_scope_rows_schema_seeded: bool = False
 
 
 def _ensure_job_scope_rows_schema(con) -> None:
     """Keep job_scope_rows schema aligned for data-entry endpoints."""
+    global _scope_rows_schema_seeded
+    if _scope_rows_schema_seeded:
+        return
     try:
         con.execute("ALTER TABLE job_scope_rows ADD COLUMN IF NOT EXISTS site_id INTEGER")
     except Exception:
@@ -92,6 +96,7 @@ def _ensure_job_scope_rows_schema(con) -> None:
         con.execute("DROP INDEX IF EXISTS job_scope_rows_job_site_scope_oid_uidx")
     except Exception:
         logger.debug("Ignoring job_scope_rows unique index drop failure", exc_info=True)
+    _scope_rows_schema_seeded = True
 
 
 def _legacy_scope_dataset_map(job_id: int) -> dict[str, int]:
@@ -214,6 +219,38 @@ def _display_name(con, value: Any) -> str | None:
     except Exception:
         logger.debug("Failed to resolve display name", exc_info=True)
     return raw
+
+
+def _batch_display_names(con, identifiers: list[str]) -> dict[str, str]:
+    """Single query to resolve display names for a list of email/name identifiers."""
+    unique = [s for s in dict.fromkeys(s for s in identifiers if s)]
+    if not unique:
+        return {}
+    try:
+        placeholders = ", ".join(["%s"] * len(unique))
+        lower_unique = [s.lower() for s in unique]
+        rows = con.execute(
+            f"""
+            SELECT COALESCE(NULLIF(TRIM(full_name), ''), email) AS display, email, full_name
+            FROM users
+            WHERE lower(COALESCE(email, '')) = ANY(ARRAY[{placeholders}]::text[])
+               OR lower(COALESCE(full_name, '')) = ANY(ARRAY[{placeholders}]::text[])
+            """,
+            lower_unique + lower_unique,
+        ).fetchall()
+        result: dict[str, str] = {}
+        for row in rows:
+            display = _safe_text(row[0]) or ""
+            email = _safe_text(row[1]).lower()
+            full_name = _safe_text(row[2]).lower()
+            for orig in unique:
+                orig_lc = orig.lower()
+                if orig_lc == email or orig_lc == full_name:
+                    result[orig] = display or orig
+        return result
+    except Exception:
+        logger.debug("Failed to batch resolve display names", exc_info=True)
+        return {}
 
 
 def _json_safe(value):
@@ -919,6 +956,26 @@ def get_job_notes_summary(
                 scope_options.sort(key=lambda value: value.lower())
                 category_options.sort(key=lambda value: value.lower())
 
+            # Batch-resolve display names to avoid N+1 queries per note row.
+            _all_identifiers: list[str] = []
+            if communications_df is not None and not communications_df.empty:
+                for _, _r in communications_df.iterrows():
+                    v = _safe_text(_r.get("created_by"))
+                    if v:
+                        _all_identifiers.append(v)
+            if notes_df is not None and not notes_df.empty:
+                for _evid, _evdata in latest_note_events.items():
+                    v = _safe_text(_evdata.get("updated_by"))
+                    if v:
+                        _all_identifiers.append(v)
+            _display_name_cache = _batch_display_names(con, _all_identifiers)
+
+            def _cached_display(raw: Any) -> str | None:
+                s = _safe_text(raw)
+                if not s:
+                    return None
+                return _display_name_cache.get(s) or s
+
             items: list[dict[str, Any]] = []
             if communications_df is not None and not communications_df.empty:
                 for _, row in communications_df.iterrows():
@@ -958,7 +1015,7 @@ def get_job_notes_summary(
                             "note_text": note_text,
                             "note_location": " | ".join(location_bits),
                             "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
-                            "note_updated_by": _display_name(con, row.get("created_by")),
+                            "note_updated_by": _cached_display(row.get("created_by")),
                             "row_created_at": _to_iso(row.get("created_at")),
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }
@@ -1008,7 +1065,7 @@ def get_job_notes_summary(
                             "note_text": note_text,
                             "note_location": note_location,
                             "note_updated_at": updated_at,
-                            "note_updated_by": _display_name(con, note_event.get("updated_by")),
+                            "note_updated_by": _cached_display(note_event.get("updated_by")),
                             "row_created_at": _to_iso(row.get("created_at")),
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }

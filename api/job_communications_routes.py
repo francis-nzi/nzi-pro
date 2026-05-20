@@ -27,12 +27,17 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 router = APIRouter(tags=["job-communications"])
 
+_communications_schema_seeded: bool = False
+
 
 def _actor(user: dict) -> str:
     return str(user.get("email") or user.get("user_id") or "system").strip()
 
 
 def _ensure_tables(con) -> None:
+    global _communications_schema_seeded
+    if _communications_schema_seeded:
+        return
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_communications (
@@ -99,6 +104,7 @@ def _ensure_tables(con) -> None:
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
     con.execute("ALTER TABLE job_communications ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
+    _communications_schema_seeded = True
 
 
 def _coerce_int(value: Any) -> int | None:

@@ -18,8 +18,13 @@ REDACTED_KEYS = {
     "authorization",
 }
 
+_audit_log_table_seeded: bool = False
+
 
 def ensure_audit_log_table(con) -> None:
+    global _audit_log_table_seeded
+    if _audit_log_table_seeded:
+        return
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS audit_log (
@@ -72,6 +77,7 @@ def ensure_audit_log_table(con) -> None:
         con.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_actor_email ON audit_log(actor_email)")
     except Exception:
         pass
+    _audit_log_table_seeded = True
 
 
 def _json_safe(value: Any) -> Any:
