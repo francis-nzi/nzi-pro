@@ -2153,7 +2153,7 @@ export default function JobAdvancedReports({
                   <div className="overflow-hidden rounded-lg border border-gray-200">
                     <div className="grid grid-cols-[56px_1fr_160px_120px] border-b border-gray-200 bg-gray-50 px-3 py-1.5">
                       <span /><span /><span />
-                      <div className="text-center">
+                      <div className="text-right">
                         <p className="text-xs font-semibold text-gray-600">Benchmark Year</p>
                         {periodLabel && <p className="text-xs text-gray-500">{periodLabel}</p>}
                       </div>
@@ -2510,8 +2510,8 @@ export default function JobAdvancedReports({
                     <tr className="border-b-2 border-gray-200">
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Site</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Scope</th>
-                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Activity Group</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Category</th>
+                      <th className="py-2 pr-3 text-left font-semibold text-gray-500">Details</th>
                       <th className="py-2 pr-3 text-right font-semibold text-gray-500">Qty</th>
                       <th className="py-2 pr-3 text-left font-semibold text-gray-500">Unit</th>
                       <th className="py-2 text-right font-semibold text-gray-500">tCO₂e</th>
@@ -2525,10 +2525,8 @@ export default function JobAdvancedReports({
                       >
                         <td className="py-1.5 pr-3 text-gray-600">{row.site_name ?? "—"}</td>
                         <td className="py-1.5 pr-3 text-gray-600">{row.scope ?? "—"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600">{row.activity_group ?? "—"}</td>
-                        <td className="py-1.5 pr-3 text-gray-600 max-w-[180px] truncate">
-                          {row.category ?? row.emission_type ?? "—"}
-                        </td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.category ?? "—"}</td>
+                        <td className="py-1.5 pr-3 text-gray-600">{row.emission_type ?? "—"}</td>
                         <td className="py-1.5 pr-3 text-right text-gray-700">
                           {row.qty != null ? fmt(toNum(row.qty)) : "—"}
                         </td>
