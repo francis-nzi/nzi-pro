@@ -106,15 +106,31 @@ export default function ReportingElements({
       });
       if (!res.ok) throw new Error(`Save failed (${res.status})`);
 
-      // Sync employee count to intensity-metrics so the PDF report reflects it
+      // Sync employee count to intensity-metrics so the PDF report reflects it.
+      // Load existing metrics first so we only update the employee entry and preserve all other metrics.
       const employeeCount = metadata.employee_number;
       if (employeeCount != null && employeeCount > 0) {
         try {
+          const existingRes = await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, {
+            credentials: "include",
+          });
+          const existingData = existingRes.ok ? (await existingRes.json() as { metrics?: Record<string, { label?: string; value?: number; divider?: number }> }) : {};
+          const existingMetrics: Record<string, { label?: string; value?: number; divider?: number }> =
+            (existingData.metrics && typeof existingData.metrics === "object") ? existingData.metrics : {};
+          const mergedMetrics = {
+            ...existingMetrics,
+            employees: {
+              label: "Employee",
+              divider: existingMetrics.employees?.divider ?? 1,
+              ...existingMetrics.employees,
+              value: employeeCount,
+            },
+          };
           await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ metrics: { employees: { value: employeeCount } } }),
+            body: JSON.stringify({ metrics: mergedMetrics }),
           });
         } catch {
           // Non-fatal — report-metadata already saved
