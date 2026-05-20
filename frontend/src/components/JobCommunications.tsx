@@ -250,7 +250,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
         credentials: "include",
         body: JSON.stringify({
           subject: editSubject,
-          body_text: editMessageText,
+          message_text: editMessageText,
         }),
       });
       if (!res.ok) {
