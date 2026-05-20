@@ -38,6 +38,23 @@ type ArchivedIndustry = {
   is_active?: boolean | null;
 };
 
+type ArchivedNote = {
+  communication_id: number;
+  job_id: number | null;
+  channel: string;
+  subject: string;
+  message_text: string;
+  scope: string;
+  category: string;
+  created_by: string;
+  archived_at: string | null;
+  archived_by: string;
+  created_at: string | null;
+  job_number: string;
+  job_title: string;
+  client_name: string;
+};
+
 type ArchiveRetentionSummary = {
   retention_days: number;
   cutoff_at: string | null;
@@ -49,6 +66,9 @@ type ArchiveRetentionSummary = {
     archived_total: number;
     purgeable_total: number;
   };
+  notes?: {
+    archived_total: number;
+  };
 };
 
 export default function ArchivePage() {
@@ -58,6 +78,9 @@ export default function ArchivePage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [clients, setClients] = useState<ArchivedClient[]>([]);
   const [industries, setIndustries] = useState<ArchivedIndustry[]>([]);
+  const [notes, setNotes] = useState<ArchivedNote[]>([]);
+  const [noteSearch, setNoteSearch] = useState("");
+  const [expandedNotes, setExpandedNotes] = useState<Set<number>>(new Set());
   const [retentionSummary, setRetentionSummary] = useState<ArchiveRetentionSummary | null>(null);
   const [retentionDays, setRetentionDays] = useState("365");
   const [loading, setLoading] = useState(false);
@@ -73,11 +96,12 @@ export default function ArchivePage() {
   async function loadArchivedData() {
     setLoading(true);
     try {
-      const [datasetsRes, clientsRes, industriesRes, retentionRes] = await Promise.all([
+      const [datasetsRes, clientsRes, industriesRes, retentionRes, notesRes] = await Promise.all([
         fetch(`${baseUrl}/admin/datasets?include_archived=true`),
         fetch(`${baseUrl}/admin/archived-clients`),
         fetch(`${baseUrl}/admin/lookups/industries_lookup?include_archived=true`),
         fetch(`${baseUrl}/admin/archive/retention-summary`),
+        fetch(`${baseUrl}/admin/archived-notes`, { credentials: "include" }),
       ]);
 
       if (datasetsRes.ok) {
@@ -101,6 +125,10 @@ export default function ArchivePage() {
         const json = (await retentionRes.json()) as ArchiveRetentionSummary;
         setRetentionSummary(json);
         setRetentionDays(String(json.retention_days || 365));
+      }
+      if (notesRes.ok) {
+        const json = await notesRes.json();
+        setNotes(Array.isArray(json.items) ? json.items : []);
       }
     } catch (e) {
       setStatus(`Error loading archived items: ${(e as Error).message}`);
@@ -357,6 +385,87 @@ export default function ArchivePage() {
     }
   }
 
+  async function restoreNote(communicationId: number) {
+    const confirmed = await confirmAction({
+      title: "Restore note?",
+      description: "This note will be moved back to active status on the job.",
+      confirmLabel: "Restore",
+    });
+    if (!confirmed) return;
+
+    setStatus("Restoring note...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/archived-notes/${communicationId}/restore`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      setStatus("Note restored successfully.");
+      void loadArchivedData();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`Error restoring note: ${(e as Error).message}`);
+    }
+  }
+
+  async function permanentlyDeleteNote(communicationId: number) {
+    const confirmed = await confirmAction({
+      title: "Permanently delete note?",
+      description: "This will permanently delete the note. This action cannot be undone.",
+      confirmLabel: "Delete permanently",
+      destructive: true,
+      confirmationText: "DELETE",
+    });
+    if (!confirmed) {
+      setStatus("Deletion cancelled");
+      setTimeout(() => setStatus(""), 2000);
+      return;
+    }
+
+    setStatus("Permanently deleting note...");
+    try {
+      const res = await fetch(`${baseUrl}/admin/archived-notes/${communicationId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      setStatus("Note permanently deleted.");
+      void loadArchivedData();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`Error deleting note: ${(e as Error).message}`);
+    }
+  }
+
+  function toggleNoteExpanded(communicationId: number) {
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(communicationId)) next.delete(communicationId);
+      else next.add(communicationId);
+      return next;
+    });
+  }
+
+  const filteredNotes = useMemo(() => {
+    const q = noteSearch.trim().toLowerCase();
+    if (!q) return notes;
+    return notes.filter(
+      (n) =>
+        n.subject.toLowerCase().includes(q) ||
+        n.message_text.toLowerCase().includes(q) ||
+        n.job_number.toLowerCase().includes(q) ||
+        n.job_title.toLowerCase().includes(q) ||
+        n.client_name.toLowerCase().includes(q) ||
+        n.created_by.toLowerCase().includes(q)
+    );
+  }, [notes, noteSearch]);
+
   const groupedDatasets = useMemo(() => {
     const groups: Record<string, Record<string, Dataset[]>> = {};
 
@@ -416,6 +525,7 @@ export default function ArchivePage() {
                 <div><span className="font-medium">Cutoff:</span> {retentionSummary?.cutoff_at || "-"}</div>
                 <div><span className="font-medium">Purgeable datasets:</span> {retentionSummary?.datasets.purgeable_total ?? 0}</div>
                 <div><span className="font-medium">Purgeable clients:</span> {retentionSummary?.clients.purgeable_total ?? 0}</div>
+                <div><span className="font-medium">Archived notes:</span> {retentionSummary?.notes?.archived_total ?? notes.length}</div>
               </div>
             </div>
             {retentionError ? <p className="text-destructive">{retentionError}</p> : null}
@@ -594,6 +704,114 @@ export default function ArchivePage() {
                       </div>
                     </div>
                   ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle>Archived Notes ({filteredNotes.length}{noteSearch ? ` of ${notes.length}` : ""})</CardTitle>
+              <Input
+                placeholder="Search notes..."
+                value={noteSearch}
+                onChange={(e) => setNoteSearch(e.target.value)}
+                className="max-w-xs"
+              />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-sm text-muted-foreground">Loading...</div>
+            ) : filteredNotes.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                {notes.length === 0 ? "No archived notes" : "No notes match your search"}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredNotes.map((note) => {
+                  const isExpanded = expandedNotes.has(note.communication_id);
+                  const longText = note.message_text.length > 160;
+                  const displayText =
+                    longText && !isExpanded
+                      ? note.message_text.slice(0, 160) + "…"
+                      : note.message_text;
+                  const jobLabel = [
+                    note.job_number ? `Job ${note.job_number}` : note.job_id ? `Job #${note.job_id}` : null,
+                    note.job_title || null,
+                  ]
+                    .filter(Boolean)
+                    .join(" — ");
+                  return (
+                    <div
+                      key={note.communication_id}
+                      className="rounded-md border border-destructive/20 bg-destructive/5 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">
+                              {note.channel}
+                            </span>
+                            {note.subject && <span>{note.subject}</span>}
+                            {!note.subject && <span className="text-muted-foreground italic">No subject</span>}
+                          </div>
+                          {jobLabel && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {jobLabel}
+                              {note.client_name && ` · ${note.client_name}`}
+                            </div>
+                          )}
+                          {note.scope && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Scope: {note.scope}
+                              {note.category && ` · ${note.category}`}
+                            </div>
+                          )}
+                          <div className="mt-1.5 whitespace-pre-wrap break-words text-xs text-foreground/80">
+                            {displayText}
+                            {longText && (
+                              <button
+                                type="button"
+                                className="ml-1 text-primary underline"
+                                onClick={() => toggleNoteExpanded(note.communication_id)}
+                              >
+                                {isExpanded ? "show less" : "show more"}
+                              </button>
+                            )}
+                          </div>
+                          <div className="mt-1.5 text-xs text-muted-foreground">
+                            Created by {note.created_by}
+                            {note.created_at && ` · ${new Date(note.created_at).toLocaleString("en-GB")}`}
+                          </div>
+                          {note.archived_at && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Archived: {new Date(note.archived_at).toLocaleString("en-GB")}
+                              {note.archived_by && ` by ${note.archived_by}`}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => restoreNote(note.communication_id)}
+                          >
+                            Restore
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => permanentlyDeleteNote(note.communication_id)}
+                          >
+                            Delete Forever
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

@@ -285,6 +285,121 @@ def permanently_delete_archived_client(client_id: int, _user: dict = Depends(_cu
         raise HTTPException(status_code=500, detail=f"Failed to permanently delete archived client: {e}")
 
 
+@router.get("/archived-notes")
+def list_archived_notes(q: str = "", _user: dict = Depends(_current_user)):
+    """List archived job communications/notes."""
+    try:
+        with get_conn() as con:
+            search = f"%{q}%" if q else "%%"
+            df = con.execute(
+                """
+                SELECT
+                  jc.communication_id,
+                  jc.job_id,
+                  jc.channel,
+                  jc.subject,
+                  jc.message_text,
+                  jc.scope,
+                  jc.category,
+                  jc.created_by,
+                  jc.archived_at,
+                  jc.archived_by,
+                  jc.created_at,
+                  j.job_number,
+                  j.title AS job_title,
+                  c.client_name
+                FROM job_communications jc
+                LEFT JOIN jobs j ON j.job_id = jc.job_id
+                LEFT JOIN clients c ON c.db_id = j.client_db_id
+                WHERE jc.archived = TRUE
+                  AND (
+                    %s = '%%%%'
+                    OR jc.subject ILIKE %s
+                    OR jc.message_text ILIKE %s
+                    OR j.job_number ILIKE %s
+                    OR j.title ILIKE %s
+                    OR c.client_name ILIKE %s
+                    OR jc.created_by ILIKE %s
+                  )
+                ORDER BY jc.archived_at DESC NULLS LAST, jc.communication_id DESC
+                LIMIT 200
+                """,
+                [search, search, search, search, search, search, search],
+            ).df()
+        items = []
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                items.append({
+                    "communication_id": int(r["communication_id"]),
+                    "job_id": int(r["job_id"]) if r.get("job_id") is not None else None,
+                    "channel": str(r.get("channel") or "note"),
+                    "subject": str(r.get("subject") or ""),
+                    "message_text": str(r.get("message_text") or ""),
+                    "scope": str(r.get("scope") or ""),
+                    "category": str(r.get("category") or ""),
+                    "created_by": str(r.get("created_by") or ""),
+                    "archived_at": str(r["archived_at"]) if r.get("archived_at") else None,
+                    "archived_by": str(r.get("archived_by") or ""),
+                    "created_at": str(r["created_at"]) if r.get("created_at") else None,
+                    "job_number": str(r.get("job_number") or ""),
+                    "job_title": str(r.get("job_title") or ""),
+                    "client_name": str(r.get("client_name") or ""),
+                })
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list archived notes: {e}")
+
+
+@router.patch("/archived-notes/{communication_id}/restore")
+def restore_archived_note(communication_id: int, _user: dict = Depends(_current_user)):
+    """Restore (unarchive) a note back to active status."""
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                "SELECT communication_id FROM job_communications WHERE communication_id = %s AND archived = TRUE",
+                [communication_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Archived note not found")
+            con.execute(
+                """
+                UPDATE job_communications
+                SET archived = FALSE, archived_at = NULL, archived_by = NULL, status = 'logged'
+                WHERE communication_id = %s
+                """,
+                [communication_id],
+            )
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to restore note: {e}")
+
+
+@router.delete("/archived-notes/{communication_id}")
+def permanently_delete_archived_note(communication_id: int, _user: dict = Depends(_current_user)):
+    """Permanently delete an archived note."""
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                "SELECT communication_id, archived FROM job_communications WHERE communication_id = %s",
+                [communication_id],
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Note not found")
+            if not row[1]:
+                raise HTTPException(status_code=400, detail="Note must be archived before permanent deletion")
+            con.execute(
+                "DELETE FROM job_communications WHERE communication_id = %s",
+                [communication_id],
+            )
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to permanently delete note: {e}")
+
+
 @router.get("/archive/retention-summary")
 def archive_retention_summary(_user: dict = Depends(_current_user)):
     """Summarize archived data and the current purge cutoff."""
@@ -312,6 +427,9 @@ def archive_retention_summary(_user: dict = Depends(_current_user)):
                 """,
                 [cutoff],
             ).fetchone()
+            note_counts = con.execute(
+                "SELECT COUNT(*) FROM job_communications WHERE archived = TRUE",
+            ).fetchone()
         return {
             "retention_days": retention_days,
             "cutoff_at": cutoff.isoformat(sep=" "),
@@ -322,6 +440,9 @@ def archive_retention_summary(_user: dict = Depends(_current_user)):
             "clients": {
                 "archived_total": int(client_counts[0] or 0) if client_counts else 0,
                 "purgeable_total": int(client_counts[1] or 0) if client_counts else 0,
+            },
+            "notes": {
+                "archived_total": int(note_counts[0] or 0) if note_counts else 0,
             },
         }
     except Exception as e:
