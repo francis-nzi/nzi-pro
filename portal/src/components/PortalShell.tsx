@@ -34,8 +34,14 @@ export default function PortalShell({ children }: { children: React.ReactNode })
       <header className="bg-white border-b border-gray-200 shadow-sm">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold" style={{ color: "#F26624" }}>NZInsights</span>
-            <span className="hidden text-sm text-gray-400 sm:inline">by Net Zero International</span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/api/backend/system-settings/logo/file"
+              alt="Net Zero International"
+              className="h-8 w-auto object-contain"
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+            <span className="text-xl font-bold" style={{ color: "#F26624" }}>NZ Insights Pro</span>
           </div>
           {user && (
             <div className="flex items-center gap-3">
@@ -55,7 +61,7 @@ export default function PortalShell({ children }: { children: React.ReactNode })
         {children}
       </main>
       <footer className="border-t border-gray-200 bg-white py-4 text-center text-xs text-gray-400">
-        NZInsights · Powered by Net Zero International
+        NZ Insights Pro · Net Zero International
       </footer>
     </div>
   );

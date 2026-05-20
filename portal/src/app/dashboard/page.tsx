@@ -130,6 +130,7 @@ export default function DashboardPage() {
   // Dashboard metrics
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [metricsLoading, setMetricsLoading] = useState(true);
+  const [metricsError, setMetricsError] = useState("");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
 
   useEffect(() => {
@@ -142,26 +143,35 @@ export default function DashboardPage() {
 
     // Load metrics (for Dashboard tab)
     apiFetch("/portal/metrics")
-      .then(r => r.json() as Promise<DashboardMetrics>)
+      .then(r => {
+        if (!r.ok) return r.text().then(t => Promise.reject(new Error(`${r.status}: ${t}`)));
+        return r.json() as Promise<DashboardMetrics>;
+      })
       .then(d => {
         setMetrics(d);
         if (d.selected_year) setSelectedYear(d.selected_year);
         if (!clientName && d.client_name) setClientName(d.client_name);
       })
-      .catch(() => {})
+      .catch(e => setMetricsError((e as Error).message))
       .finally(() => setMetricsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadMetricsForYear = useCallback(async (year: number) => {
     setMetricsLoading(true);
+    setMetricsError("");
     try {
       const res = await apiFetch(`/portal/metrics?year=${year}`);
+      if (!res.ok) {
+        const t = await res.text();
+        setMetricsError(`${res.status}: ${t}`);
+        return;
+      }
       const d = await res.json() as DashboardMetrics;
       setMetrics(d);
       setSelectedYear(year);
-    } catch {
-      // non-fatal
+    } catch (e) {
+      setMetricsError((e as Error).message);
     } finally {
       setMetricsLoading(false);
     }
@@ -241,6 +251,11 @@ export default function DashboardPage() {
         {/* ── Dashboard tab ─────────────────────────────────────────────── */}
         {activeTab === "dashboard" && (
           <div className="space-y-6 pt-2">
+            {metricsError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Failed to load dashboard data: {metricsError}
+              </div>
+            )}
             {/* Year selector */}
             {yearOptions.length > 0 && (
               <div className="flex items-center justify-end gap-2">

@@ -5,10 +5,13 @@ enforce client_db_id ownership so a client can only access their own data.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 
 from api.portal_auth_routes import portal_user_dep
@@ -284,7 +287,7 @@ def portal_metrics(
     year: int | None = Query(default=None),
     current_user: dict = Depends(portal_user_dep),
 ):
-    from services.emissions_reporting import load_combined_emissions_summary_rows
+    from services.emissions_reporting import load_combined_reporting_rows, attach_exact_emissions
     from services.client_benchmark import get_client_benchmark_metrics
     from datetime import date as _date
 
@@ -303,8 +306,14 @@ def portal_metrics(
         scope_df = None
         if job_ids:
             try:
-                scope_df = load_combined_emissions_summary_rows(con, job_ids)
-            except Exception:
+                rows_df = load_combined_reporting_rows(con, job_ids)
+                if rows_df is not None and not rows_df.empty:
+                    scope_df = attach_exact_emissions(con, rows_df)
+            except Exception as exc:
+                logger.exception(
+                    "portal_metrics: emissions load failed client_db_id=%s job_ids=%s",
+                    client_db_id, job_ids,
+                )
                 scope_df = None
 
         try:
@@ -457,7 +466,14 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
             return {"client_db_id": client_db_id, "client_name": str(client_row[0] or ""), "years": [], "by_scope": [], "by_scope_category": [], "by_activity": [], "by_site": []}
 
         job_ids = [int(j) for j in jobs_df["job_id"].tolist()]
-        scope_df = load_combined_reporting_rows(con, job_ids)
+        try:
+            scope_df = load_combined_reporting_rows(con, job_ids)
+        except Exception as exc:
+            logger.exception(
+                "portal_reporting_data: rows load failed client_db_id=%s job_ids=%s",
+                client_db_id, job_ids,
+            )
+            raise HTTPException(status_code=500, detail=f"Failed to load emissions data: {exc}") from exc
 
         if scope_df is None or scope_df.empty:
             avail = sorted({_portal_safe_year(y) for y in jobs_df["dashboard_year"].dropna().unique() if _portal_safe_year(y)})
