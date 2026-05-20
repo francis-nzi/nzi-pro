@@ -119,7 +119,7 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/notes-summary?archive_state=all`, { credentials: "include" });
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/notes-summary?archive_state=all&_t=${Date.now()}`, { credentials: "include" });
       if (!res.ok) {
         throw new Error(`Failed to load notes summary: ${res.status}`);
       }

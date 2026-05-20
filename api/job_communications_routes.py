@@ -1054,7 +1054,7 @@ def update_job_communication(
 ):
     actor = _actor(_user)
     try:
-        with get_conn() as con:
+        with get_conn(autocommit=False) as con:
             _ensure_tables(con)
             job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
             if not job_row:
@@ -1114,10 +1114,12 @@ def update_job_communication(
             updates.append("updated_at = NOW()")
             updates.append("updated_by = %s")
             params.extend([actor, int(job_id), int(communication_id)])
-            con.execute(
+            result = con.execute(
                 f"UPDATE job_communications SET {', '.join(updates)} WHERE job_id = %s AND communication_id = %s",
                 params,
             )
+            if result.cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Communication not found or could not be updated")
         return {"ok": True}
     except HTTPException:
         raise
@@ -1133,12 +1135,13 @@ def archive_job_communication(
 ):
     actor = _actor(_user)
     try:
-        with get_conn() as con:
+        with get_conn(autocommit=False) as con:
             _ensure_tables(con)
             job_row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
             client_db_id = int(job_row[0]) if job_row[0] is not None else None
+            _ = client_db_id
             exists = con.execute(
                 "SELECT 1 FROM job_communications WHERE job_id = %s AND communication_id = %s",
                 [int(job_id), int(communication_id)],
