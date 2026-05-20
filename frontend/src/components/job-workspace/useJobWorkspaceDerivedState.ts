@@ -32,9 +32,11 @@ type TeamMember = {
   role?: string | null;
 };
 
-function isConsultantSignOffRole(role: string | null | undefined): boolean {
-  const normalized = String(role ?? "").trim().toLowerCase();
-  return normalized.includes("crm") || normalized.includes("director");
+function isConsultantSignOffRole(role: string | null | undefined, position: string | null | undefined): boolean {
+  const tokens = [role, position]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return tokens.some((value) => value.includes("crm") || value.includes("director"));
 }
 
 type Dataset = {
@@ -256,7 +258,7 @@ export default function useJobWorkspaceDerivedState({
     activeTeamMembers.forEach((member) => {
       const name = (member.full_name ?? "").trim();
       if (!name) return;
-      if (!isConsultantSignOffRole(member.role)) return;
+      if (!isConsultantSignOffRole(member.role, member.position)) return;
       if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), member);
     });
     // Always include the currently saved consultant even if their role has changed.

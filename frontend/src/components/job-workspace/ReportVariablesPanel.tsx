@@ -18,11 +18,14 @@ type ConsultantOption = {
   full_name: string | null;
   position?: string | null;
   role?: string | null;
+  status?: string | null;
 };
 
-function isConsultantSignOffRole(role: string | null | undefined): boolean {
-  const normalized = String(role ?? "").trim().toLowerCase();
-  return normalized.includes("crm") || normalized.includes("director");
+function isConsultantSignOffRole(role: string | null | undefined, position: string | null | undefined): boolean {
+  const tokens = [role, position]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  return tokens.some((value) => value.includes("crm") || value.includes("director"));
 }
 
 type ReportVariablesPanelProps = {
@@ -48,16 +51,18 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
       try {
         const [metaRes, teamRes] = await Promise.all([
           fetch(`${baseUrl}/jobs/${jobId}/report-metadata`),
-          fetch(`${baseUrl}/jobs/${jobId}/team`),
+          fetch(`${baseUrl}/admin/users`, { credentials: "include" }),
         ]);
 
         if (!cancelled) {
           // Team members for consultant dropdown
           if (teamRes.ok) {
-            const teamData = await teamRes.json() as { members?: ConsultantOption[] };
-            const filtered = (teamData.members ?? []).filter(
-              (m) => m.full_name && isConsultantSignOffRole(m.role)
-            );
+            const teamData = await teamRes.json() as { items?: ConsultantOption[] };
+            const filtered = (teamData.items ?? []).filter((m) => {
+              const fullName = String(m.full_name ?? "").trim();
+              const isActive = String(m.status ?? "").trim().toLowerCase() === "active";
+              return Boolean(fullName) && isActive && isConsultantSignOffRole(m.role, m.position);
+            });
             setConsultantOptions(filtered);
           }
 
