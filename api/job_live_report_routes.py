@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -201,86 +202,139 @@ def get_job_live_report_data(job_id: int, _user: dict[str, str] = Depends(_curre
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    try:
-        scope_totals = get_scope_totals(int(job_id))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"get_scope_totals failed: {exc}") from exc
+    # ── Parallel fetch of all independent data sources ────────────────────────
+    _jid = int(job_id)
+    _client_db_id = int(job_data.get("client_db_id") or 0)
+    _benchmark_year = job_data.get("benchmark_year")
 
-    try:
-        categories = get_emissions_by_category(int(job_id))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"get_emissions_by_category failed: {exc}") from exc
+    scope_totals: dict[str, Any] = {}
+    categories: list[dict[str, Any]] = []
+    benchmark_totals: dict[str, Any] = {"Scope 1": 0, "Scope 2": 0, "Scope 3": 0, "Total": 0}
+    intensity_metrics: dict[str, Any] = {}
+    job_actions: dict[str, Any] = {}
+    target_data: dict[str, Any] = {}
+    report_metadata: dict[str, Any] = {}
+    yearly_emissions: list[dict[str, Any]] = []
+    template_selection: dict[str, Any] | None = None
+    site_breakdowns: dict[str, Any] = {}
 
-    try:
-        benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
-    except Exception as exc:
-        benchmark_totals = {"Scope 1": 0, "Scope 2": 0, "Scope 3": 0, "Total": 0}
+    def _fetch_scope_totals():
+        return "scope_totals", get_scope_totals(_jid)
 
+    def _fetch_categories():
+        return "categories", get_emissions_by_category(_jid)
+
+    def _fetch_benchmark_totals():
+        return "benchmark_totals", get_benchmark_emissions(_jid, _benchmark_year)
+
+    def _fetch_intensity_metrics():
+        return "intensity_metrics", _load_job_intensity_metrics(_jid)
+
+    def _fetch_job_actions():
+        return "job_actions", get_job_report_actions_payload(_jid)
+
+    def _fetch_target_data():
+        return "target_data", get_job_target_data(_jid)
+
+    def _fetch_report_metadata():
+        return "report_metadata", _get_job_report_metadata(_jid)
+
+    def _fetch_yearly_emissions():
+        with get_conn() as con:
+            return "yearly_emissions", _build_yearly_emissions(con, _client_db_id)
+
+    def _fetch_template_selection():
+        return "template_selection", _get_job_assigned_template_selection(_jid)
+
+    def _fetch_site_breakdowns():
+        return "site_breakdowns", get_site_emissions_breakdowns(_jid)
+
+    _parallel_tasks = [
+        _fetch_scope_totals,
+        _fetch_categories,
+        _fetch_benchmark_totals,
+        _fetch_intensity_metrics,
+        _fetch_job_actions,
+        _fetch_target_data,
+        _fetch_report_metadata,
+        _fetch_yearly_emissions,
+        _fetch_template_selection,
+        _fetch_site_breakdowns,
+    ]
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {pool.submit(fn): fn.__name__ for fn in _parallel_tasks}
+        for future in as_completed(futures):
+            try:
+                key, value = future.result()
+                if key == "scope_totals":
+                    scope_totals = value
+                elif key == "categories":
+                    categories = value
+                elif key == "benchmark_totals":
+                    benchmark_totals = value
+                elif key == "intensity_metrics":
+                    intensity_metrics = value
+                elif key == "job_actions":
+                    job_actions = value
+                elif key == "target_data":
+                    target_data = value
+                elif key == "report_metadata":
+                    report_metadata = value
+                elif key == "yearly_emissions":
+                    yearly_emissions = value
+                elif key == "template_selection":
+                    template_selection = value
+                elif key == "site_breakdowns":
+                    site_breakdowns = value
+            except Exception:
+                pass  # each fetch has a safe default above
+
+    if not scope_totals:
+        try:
+            scope_totals = get_scope_totals(_jid)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"get_scope_totals failed: {exc}") from exc
+    if not categories:
+        try:
+            categories = get_emissions_by_category(_jid)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"get_emissions_by_category failed: {exc}") from exc
+    if not report_metadata:
+        try:
+            report_metadata = _get_job_report_metadata(_jid)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"get_job_report_metadata failed: {exc}") from exc
+
+    # ── Sequential: depends on results above ──────────────────────────────────
     benchmark_categories: list[dict[str, Any]] = []
     try:
-        bm_job_id = _resolve_benchmark_reference_job(int(job_id), job_data.get("benchmark_year"))
-        if bm_job_id and bm_job_id != int(job_id):
+        bm_job_id = _resolve_benchmark_reference_job(_jid, _benchmark_year)
+        if bm_job_id and bm_job_id != _jid:
             benchmark_categories = get_emissions_by_category(int(bm_job_id))
     except Exception:
         benchmark_categories = []
 
     try:
         activity_groups, activity_totals, activity_details = _build_activity_grouping(categories)
-    except Exception as exc:
+    except Exception:
         activity_groups, activity_totals, activity_details = {}, {}, {}
-
-    try:
-        intensity_metrics = _load_job_intensity_metrics(int(job_id))
-    except Exception:
-        intensity_metrics = {}
-
-    try:
-        job_actions = get_job_report_actions_payload(int(job_id))
-    except Exception:
-        job_actions = {}
-
-    try:
-        target_data = get_job_target_data(int(job_id))
-    except Exception:
-        target_data = {}
-
-    try:
-        report_metadata = _get_job_report_metadata(int(job_id))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"get_job_report_metadata failed: {exc}") from exc
-
-    try:
-        with get_conn() as con:
-            yearly_emissions = _build_yearly_emissions(con, int(job_data.get("client_db_id") or 0))
-    except Exception:
-        yearly_emissions = []
-
-    try:
-        template_selection = _get_job_assigned_template_selection(int(job_id))
-    except Exception:
-        template_selection = None
 
     template_variables: dict[str, Any] = {}
     if template_selection and template_selection.get("template_id") is not None:
         try:
             template_variables = _get_template_variable_values_for_render(
-                int(job_id),
+                _jid,
                 int(template_selection["template_id"]),
                 int(template_selection["version_id"]) if template_selection.get("version_id") is not None else None,
             )
         except Exception:
             template_variables = {}
 
-    site_breakdowns: dict[str, Any] = {}
-    try:
-        site_breakdowns = get_site_emissions_breakdowns(int(job_id))
-    except Exception:
-        pass
-
     glossary_cards: list[dict[str, Any]] = []
     try:
         glossary_cards = _ensure_glossary_cards_and_fetch(
-            int(job_id),
+            _jid,
             job_data,
             target_data.get("glossary_terms") if target_data else None,
         )
