@@ -390,6 +390,13 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             page.goto(report_url, wait_until="networkidle", timeout=90000)
             page.locator(".live-report-section").first.wait_for(state="visible", timeout=60000)
             page.wait_for_timeout(1500)
+            # Shrink viewport to approximately A4 content width so Recharts
+            # ResizeObserver re-measures containers before PDF generation.
+            # At 750px the 2-column donut layout (300+32+280=612px) still fits
+            # within the padded card area (~654px), and line-chart SVGs render
+            # at the correct width for the A4 page (~657px content area).
+            page.set_viewport_size({"width": 750, "height": 2200})
+            page.wait_for_timeout(1500)
             page.emulate_media(media="print")
             return page.pdf(
                 format="A4",

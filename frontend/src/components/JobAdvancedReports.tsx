@@ -251,6 +251,27 @@ function fmtSignatureDate(raw: string | null | undefined): string {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// ─── WrapLegend ──────────────────────────────────────────────────────────────
+// Recharts' default legend renders in a single row and overflows at narrow
+// print widths. This custom renderer allows items to wrap to multiple lines.
+
+type LegendEntry = { color?: string; value?: string };
+function WrapLegend({ payload }: { payload?: LegendEntry[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 10px", fontSize: 10, paddingTop: 4 }}>
+      {(payload ?? []).map((entry, i) => (
+        <span key={i} style={{ display: "flex", alignItems: "center", gap: 3, whiteSpace: "nowrap" }}>
+          <span style={{
+            display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+            backgroundColor: entry.color ?? "#999", flexShrink: 0,
+          }} />
+          <span>{entry.value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ─── NetZeroTrendChart ────────────────────────────────────────────────────────
 
 function NetZeroTrendChart({
@@ -351,7 +372,7 @@ function NetZeroTrendChart({
             formatter={(value: unknown) => [value != null ? `${fmt(Number(value))} tCO₂e` : "—", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+          <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
 
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
@@ -511,7 +532,7 @@ function IntensityPathwayChart({
             formatter={(value: unknown) => [value != null ? `${Number(value).toFixed(3)} tCO₂e` : "—", ""]}
             labelFormatter={(label: unknown) => `Year: ${label}`}
           />
-          <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+          <Legend content={(p) => <WrapLegend payload={(p.payload as LegendEntry[] | undefined)} />} />
           {interimYear && interimYear > baselineYear && interimYear < endYear && (
             <ReferenceLine x={interimYear} stroke="#f59e0b" strokeDasharray="3 3"
               label={{ value: "Interim", position: "top", fill: "#f59e0b", fontSize: 9 }} />
@@ -979,21 +1000,21 @@ export default function JobAdvancedReports({
             font-weight: 600;
             color: #1c3a2c;
             font-family: Arial, sans-serif;
-            vertical-align: top;
+            vertical-align: middle;
           }
           @bottom-left {
             content: "© Net Zero International";
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
-            vertical-align: bottom;
+            vertical-align: middle;
           }
           @bottom-right {
             content: counter(page);
             font-size: 8pt;
             color: #666;
             font-family: Arial, sans-serif;
-            vertical-align: bottom;
+            vertical-align: middle;
           }
         }
         @page :first {
@@ -2154,6 +2175,7 @@ export default function JobAdvancedReports({
                       tick={{ fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
+                      padding={{ left: 60, right: 60 }}
                     />
                     <YAxis
                       tickFormatter={(v: number) =>
