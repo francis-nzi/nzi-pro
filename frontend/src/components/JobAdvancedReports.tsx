@@ -1037,6 +1037,15 @@ export default function JobAdvancedReports({
           }
           .live-report-section {
             overflow: hidden !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+          .live-report-section > div {
+            border-radius: 0 !important;
+          }
+          .donut-total {
+            font-size: 14px !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1279,10 +1288,10 @@ export default function JobAdvancedReports({
             )}
 
             {/* Donut + scope table */}
-            <div className="mx-auto grid w-fit grid-cols-[220px_minmax(0,1fr)] gap-6 items-center">
+            <div className="mx-auto grid w-fit grid-cols-[280px_minmax(0,1fr)] gap-6 items-center">
 
               {/* Donut — Insights style */}
-              <div className="relative aspect-square w-[220px] flex-shrink-0">
+              <div className="relative aspect-square w-[280px] flex-shrink-0">
                 <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
                     <Pie
@@ -1303,7 +1312,7 @@ export default function JobAdvancedReports({
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
                     {(() => { const s = fmt(totalEmissions); return (
-                      <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
+                      <div className="donut-total font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
                     ); })()}
                     <div className="text-xs text-gray-400">tCO₂e total</div>
                     {(printPeriodStart || printPeriodEnd) ? (
@@ -1658,8 +1667,8 @@ export default function JobAdvancedReports({
             {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="mx-auto grid w-fit grid-cols-[220px_minmax(0,1fr)] gap-6 items-center">
-                <div className="relative aspect-square w-[220px] flex-shrink-0">
+              <div className="mx-auto grid w-fit grid-cols-[280px_minmax(0,1fr)] gap-6 items-center">
+                <div className="relative aspect-square w-[280px] flex-shrink-0">
                   <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
                       <Pie
@@ -1680,7 +1689,7 @@ export default function JobAdvancedReports({
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       {(() => { const s = fmt(totalEmissions); return (
-                        <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
+                        <div className="donut-total font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
                       ); })()}
                       <div className="text-xs text-gray-400">tCO₂e total</div>
                       {(printPeriodStart || printPeriodEnd) ? (
