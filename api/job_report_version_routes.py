@@ -20,6 +20,7 @@ from api.job_report_routes import (
     _ensure_report_drafts_schema,
     _ensure_report_template_schema,
     _ensure_report_versions_schema,
+    _get_job_assigned_template_selection,
     _load_latest_final_report_version_snapshot,
     _load_report_drafts,
     _load_report_version_file_payload,
@@ -154,20 +155,18 @@ def list_report_drafts(
     _user: dict[str, str] = Depends(_current_user),
 ):
     try:
+        selected_template = _get_job_assigned_template_selection(int(job_id)) or {}
+        template_id = selected_template.get("template_id")
+        version_id = selected_template.get("version_id")
+        resolved_template_key = template_key or selected_template.get("template_key")
+        if template_id is None or version_id is None:
+            return {"job_id": int(job_id), "template_key": resolved_template_key, "items": []}
         with get_conn() as con:
-            _ensure_report_template_schema(con)
             _ensure_report_drafts_schema(con)
-            context = _build_report_draft_context(int(job_id), template_key)
-            selected_template = context.get("selected_template") or {}
-            template_id = selected_template.get("template_id")
-            version_id = selected_template.get("version_id")
-            if template_id is None or version_id is None:
-                return {"job_id": int(job_id), "template_key": context.get("template_key"), "items": []}
-
             drafts = _load_report_drafts(con, int(job_id), int(template_id), int(version_id))
             return {
                 "job_id": int(job_id),
-                "template_key": context.get("template_key"),
+                "template_key": resolved_template_key,
                 "template_id": int(template_id),
                 "version_id": int(version_id),
                 "items": drafts,
@@ -186,18 +185,17 @@ def save_report_drafts(
 ):
     actor = _user.get("email", "unknown")
     try:
+        selected_template = _get_job_assigned_template_selection(int(job_id)) or {}
+        template_id = selected_template.get("template_id")
+        version_id = selected_template.get("version_id")
+        template_key = payload.template_key or selected_template.get("template_key")
+        if template_id is None or version_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No assigned report template/version is available for saving drafts.",
+            )
         with get_conn(autocommit=False) as con:
-            _ensure_report_template_schema(con)
             _ensure_report_drafts_schema(con)
-            context = _build_report_draft_context(int(job_id), payload.template_key)
-            selected_template = context.get("selected_template") or {}
-            template_id = selected_template.get("template_id")
-            version_id = selected_template.get("version_id")
-            if template_id is None or version_id is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No assigned report template/version is available for saving drafts.",
-                )
 
             incoming_sections = [section for section in payload.sections if isinstance(section, ReportDraftSectionPayload)]
             keep_section_keys: set[str] = set()
@@ -265,7 +263,7 @@ def save_report_drafts(
             return {
                 "ok": True,
                 "job_id": int(job_id),
-                "template_key": context.get("template_key"),
+                "template_key": template_key,
                 "template_id": int(template_id),
                 "version_id": int(version_id),
                 "items": loaded_items,
