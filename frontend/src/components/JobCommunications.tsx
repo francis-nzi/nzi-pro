@@ -244,7 +244,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
     setEditBusy(true);
     setEditError("");
     try {
-      const res = await fetch(`${baseUrl}/timeline/events/${editingNote.communication_id}`, {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/${editingNote.communication_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -264,7 +264,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
     } finally {
       setEditBusy(false);
     }
-  }, [baseUrl, editMessageText, editSubject, editingNote, load]);
+  }, [baseUrl, editMessageText, editSubject, editingNote, jobId, load]);
 
   const archiveNote = useCallback(async (note: Communication) => {
     try {
@@ -847,11 +847,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       ) : null}
 
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
-        <DialogContent className="w-[96vw] max-w-5xl">
+        <DialogContent className="w-[98vw] max-w-7xl">
           <DialogHeader>
             <DialogTitle>Edit Note</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="space-y-1">
               <Label htmlFor="editJobNoteSubject">Subject</Label>
               <Input
@@ -859,6 +859,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                 value={editSubject}
                 onChange={(e) => setEditSubject(e.target.value)}
                 placeholder="Subject (optional)"
+                className="w-full"
               />
             </div>
             <div className="space-y-1">
@@ -867,8 +868,9 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                 id="editJobNoteText"
                 value={editMessageText}
                 onChange={(e) => setEditMessageText(e.target.value)}
-                rows={8}
+                rows={14}
                 placeholder="Note text..."
+                className="min-h-[24rem] w-full"
               />
             </div>
             {editError ? <p className="text-sm text-destructive">{editError}</p> : null}
