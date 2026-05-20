@@ -190,6 +190,46 @@ function formatFriendlyFetchError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function looksLikeHtmlErrorBody(raw: string): boolean {
+  const normalized = raw.trim().toLowerCase();
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html") || normalized.includes("<body");
+}
+
+async function formatSaveFailureMessage(res: Response, fallback: string, oversizedFallback: string): Promise<string> {
+  if (res.status === 413) {
+    return oversizedFallback;
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  try {
+    const raw = await res.text();
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return fallback;
+    }
+
+    if (contentType.includes("application/json")) {
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
+        const detail = parsed?.detail ?? parsed?.message;
+        if (detail) {
+          return typeof detail === "string" ? detail : JSON.stringify(detail);
+        }
+      } catch {
+        // Fall through to plain-text handling.
+      }
+    }
+
+    if (looksLikeHtmlErrorBody(trimmed)) {
+      return fallback;
+    }
+
+    return trimmed.slice(0, 500);
+  } catch {
+    return fallback;
+  }
+}
+
 async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit, retries = 1): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -759,16 +799,16 @@ export default function JobReportNew({
         if (draftText === starterText && origin === "starter") {
           return null;
         }
-        return {
+      return {
           section_key: getDraftSectionKey(section),
           section_title: section,
           draft_text: draftText,
           draft_json: {
             section_key: getDraftSectionKey(section),
             section_title: section,
-            draft_text: draftText,
             origin,
             provider,
+            draft_length: draftText.length,
           },
           provider,
           model: provider === "anthropic" || provider === "openai" ? "draft-generation" : provider === "rule-based" ? "fallback" : "manual-edit",
@@ -794,7 +834,11 @@ export default function JobReportNew({
       }),
     }, 1);
     if (!res.ok) {
-      const message = await res.text().catch(() => "");
+      const message = await formatSaveFailureMessage(
+        res,
+        `Failed to save report drafts (${res.status}).`,
+        "This draft is too large to save in one update. Please shorten the pasted content or split it into smaller sections."
+      );
       throw new Error(message || `Failed to save report drafts (${res.status})`);
     }
     const payload = await res.json().catch(() => null);
