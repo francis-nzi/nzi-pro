@@ -21,12 +21,6 @@ type ConsultantOption = {
   status?: string | null;
 };
 
-function isConsultantSignOffRole(role: string | null | undefined, position: string | null | undefined): boolean {
-  const tokens = [role, position]
-    .map((value) => String(value ?? "").trim().toLowerCase())
-    .filter((value) => value.length > 0);
-  return tokens.some((value) => value.includes("crm") || value.includes("director"));
-}
 
 type ReportVariablesPanelProps = {
   jobId: number;
@@ -61,7 +55,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
             const filtered = (teamData.items ?? []).filter((m) => {
               const fullName = String(m.full_name ?? "").trim();
               const isActive = String(m.status ?? "").trim().toLowerCase() === "active";
-              return Boolean(fullName) && isActive && isConsultantSignOffRole(m.role, m.position);
+              return Boolean(fullName) && isActive;
             });
             setConsultantOptions(filtered);
           }
