@@ -80,6 +80,7 @@ const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
   report: [
     { key: "report-new",       label: "Report Preparation", href: "/jobs/__JOB_ID__/report-new" },
     { key: "advanced-reports", label: "Report Printing",    href: "/jobs/__JOB_ID__/advanced-reports" },
+    { key: "client-review",    label: "Client Review",      href: "/jobs/__JOB_ID__/client-review" },
   ],
   analysis: [{ key: "lca", label: "Life Cycle Analysis", href: "/jobs/__JOB_ID__/lca" }],
   insights: [],

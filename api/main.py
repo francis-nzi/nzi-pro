@@ -123,6 +123,9 @@ from api.theme_routes import router as theme_router
 from api.time_routes import router as time_router
 from api.report_template_routes import router as report_template_router
 from api.report_actions_routes import router as report_actions_router
+from api.portal_auth_routes import router as portal_auth_router
+from api.portal_routes import router as portal_router
+from api.job_review_routes import router as job_review_router
 from api.system_settings_routes import router as system_settings_router
 from api.custom_fields_routes import router as custom_fields_router
 from api.databank_routes import router as databank_router
@@ -302,6 +305,11 @@ app.include_router(report_template_router)
 # Include report actions routes
 app.include_router(report_actions_router)
 
+# Include client portal routes
+app.include_router(portal_auth_router)
+app.include_router(portal_router)
+app.include_router(job_review_router)
+
 # Include system settings routes (NZI logo upload and system configuration)
 app.include_router(system_settings_router)
 _safe_startup_log("OK", f"System settings router registered with {len(system_settings_router.routes)} routes")
@@ -420,6 +428,8 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "https://www.nzinsights.co.uk",
+        "https://nzinsights.co.uk",
     ],
     allow_origin_regex=r"^https:\/\/.*\.onrender\.com$",
     allow_credentials=True,
