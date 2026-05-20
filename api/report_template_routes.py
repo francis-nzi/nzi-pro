@@ -27,6 +27,10 @@ from services.report_actions import get_job_report_actions_payload
 
 logger = logging.getLogger(__name__)
 
+# Guards so DDL migrations run only once per process, not on every request.
+_report_template_schema_seeded: bool = False
+_report_metadata_table_seeded: bool = False
+
 router = APIRouter()
 
 
@@ -2040,6 +2044,9 @@ def _sync_consultant_metadata_with_team_role(
 
 
 def _ensure_report_metadata_table(con) -> None:
+    global _report_metadata_table_seeded
+    if _report_metadata_table_seeded:
+        return
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_report_metadata (
@@ -2120,6 +2127,7 @@ def _ensure_report_metadata_table(con) -> None:
         ADD COLUMN IF NOT EXISTS vehicles_leased INTEGER
         """
     )
+    _report_metadata_table_seeded = True
 
 
 def _build_default_report_meta(con, job_id: int, actor_email: str | None = None) -> dict[str, Any]:

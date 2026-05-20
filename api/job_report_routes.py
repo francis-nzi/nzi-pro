@@ -102,8 +102,10 @@ def _table_columns(con, table_name: str) -> set[str]:
 def _factor_category_expr(con) -> str:
     return "fl.category" if "category" in _table_columns(con, "factor_lookup") else "NULL::text"
 
-# Guard so DDL + seed inserts run only once per process lifetime, not on every page load.
+# Guards so DDL migrations run only once per process lifetime, not on every request.
 _glossary_schema_seeded: bool = False
+_report_versions_schema_seeded: bool = False
+_report_drafts_schema_seeded: bool = False
 
 DEFAULT_GLOSSARY_ENTRIES: list[dict[str, str]] = [
     {"term": "Absolute Emissions", "definition": "The total amount of greenhouse gasses calculated, measured in tonnes of CO2e."},
@@ -386,6 +388,9 @@ def _get_job_assigned_template_selection(job_id: int):
 
 
 def _ensure_report_versions_schema(con) -> None:
+    global _report_versions_schema_seeded
+    if _report_versions_schema_seeded:
+        return
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_report_versions (
@@ -463,9 +468,13 @@ def _ensure_report_versions_schema(con) -> None:
         )
     except Exception:
         logger.debug("Ignoring job_report_versions org backfill failure", exc_info=True)
+    _report_versions_schema_seeded = True
 
 
 def _ensure_report_drafts_schema(con) -> None:
+    global _report_drafts_schema_seeded
+    if _report_drafts_schema_seeded:
+        return
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS job_report_drafts (
@@ -518,6 +527,7 @@ def _ensure_report_drafts_schema(con) -> None:
         )
     except Exception:
         logger.debug("Ignoring job_report_drafts org backfill failure", exc_info=True)
+    _report_drafts_schema_seeded = True
 
 
 def _safe_path_segment(text: str | None) -> str:
