@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,6 +27,93 @@ type JobReportVariablesSectionProps = {
   hasFields: boolean;
 };
 
+function ConsultantCombobox({
+  value,
+  options,
+  onSelect,
+}: {
+  value: string;
+  options: ConsultantOption[];
+  onSelect: (name: string, position: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  const filtered = query.trim()
+    ? options.filter((m) => (m.full_name ?? "").toLowerCase().includes(query.toLowerCase()))
+    : options;
+
+  function handleSelect(member: ConsultantOption) {
+    onSelect(member.full_name ?? "", member.position ?? "");
+    setQuery(member.full_name ?? "");
+    setOpen(false);
+  }
+
+  function handleClear() {
+    onSelect("", "");
+    setQuery("");
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    function handleMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery(value);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [value]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <Input
+        value={query}
+        placeholder="Search team members..."
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+      />
+      {open && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md max-h-52 overflow-y-auto">
+          <div
+            className="cursor-pointer px-3 py-2 text-sm text-muted-foreground hover:bg-accent"
+            onMouseDown={(e) => { e.preventDefault(); handleClear(); }}
+          >
+            None
+          </div>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
+          ) : (
+            filtered.map((m) => (
+              <div
+                key={`${m.user_id ?? ""}-${m.full_name ?? ""}`}
+                className={`cursor-pointer px-3 py-2 text-sm hover:bg-accent ${
+                  (m.full_name ?? "") === value ? "bg-accent/50 font-medium" : ""
+                }`}
+                onMouseDown={(e) => { e.preventDefault(); handleSelect(m); }}
+              >
+                {m.full_name}
+                {m.position ? (
+                  <span className="ml-2 text-xs text-muted-foreground">{m.position}</span>
+                ) : null}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function renderFieldInput(
   field: ReportMetadataField,
   value: string,
@@ -35,40 +124,15 @@ function renderFieldInput(
   const isAutoField = AUTO_REPORT_METADATA_FIELDS.has(field.key);
 
   if (field.key === "consultant_name") {
-    const currentName = value.trim();
-    const hasCurrentInList = consultantOptions.some(
-      (member) => (member.full_name ?? "").trim().toLowerCase() === currentName.toLowerCase()
-    );
-
     return (
-      <Select
-        value={currentName || "__none__"}
-        onValueChange={(nextValue) => {
-          if (nextValue === "__none__") {
-            onValueChange("consultant_name", "");
-            onValueChange("consultant_position", "");
-            return;
-          }
-          const selected = consultantOptions.find(
-            (member) => (member.full_name ?? "").trim().toLowerCase() === nextValue.trim().toLowerCase()
-          );
-          onValueChange("consultant_name", nextValue);
-          onValueChange("consultant_position", (selected?.position ?? "").trim());
+      <ConsultantCombobox
+        value={value.trim()}
+        options={consultantOptions}
+        onSelect={(name, position) => {
+          onValueChange("consultant_name", name);
+          onValueChange("consultant_position", position);
         }}
-      >
-        <SelectTrigger id={inputId}>
-          <SelectValue placeholder="Select consultant..." />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none__">None</SelectItem>
-          {consultantOptions.map((member) => (
-            <SelectItem key={`consultant-${member.user_id ?? ""}-${member.full_name ?? ""}`} value={member.full_name ?? ""}>
-              {member.full_name}
-            </SelectItem>
-          ))}
-          {currentName && !hasCurrentInList ? <SelectItem value={currentName}>{currentName}</SelectItem> : null}
-        </SelectContent>
-      </Select>
+      />
     );
   }
 
