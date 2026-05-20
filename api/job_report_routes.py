@@ -437,6 +437,7 @@ def _ensure_report_versions_schema(con) -> None:
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS finalized_by VARCHAR",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMP",
         "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS superseded_by VARCHAR",
+        "ALTER TABLE job_report_versions ADD COLUMN IF NOT EXISTS report_format VARCHAR DEFAULT 'pdf'",
         "CREATE INDEX IF NOT EXISTS job_report_versions_job_idx ON job_report_versions (job_id, version_number DESC)",
         "CREATE INDEX IF NOT EXISTS job_report_versions_client_idx ON job_report_versions (client_db_id, generated_at DESC)",
         "CREATE INDEX IF NOT EXISTS job_report_versions_org_idx ON job_report_versions (org_id, job_id, version_number DESC)",

@@ -646,4 +646,5 @@ def list_react_report_versions(
         raise
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to list react report versions: {exc}") from exc
+        logger.warning("Failed to list react report versions for job %s: %s", job_id, exc, exc_info=True)
+        return {"versions": [], "total": 0, "warning": "Version history is temporarily unavailable."}
