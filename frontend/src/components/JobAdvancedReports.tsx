@@ -1027,9 +1027,16 @@ export default function JobAdvancedReports({
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
-          .live-report-section p {
-            font-size: 12px !important;
-            line-height: 1.5 !important;
+          .live-report-section,
+          .live-report-section * {
+            font-size: 10px !important;
+          }
+          .live-report-section p,
+          .live-report-section li {
+            line-height: 1.4 !important;
+          }
+          .live-report-section {
+            overflow: hidden !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1296,7 +1303,7 @@ export default function JobAdvancedReports({
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
                     {(() => { const s = fmt(totalEmissions); return (
-                      <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 14 : s.length > 6 ? 17 : 20 }}>{s}</div>
+                      <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
                     ); })()}
                     <div className="text-xs text-gray-400">tCO₂e total</div>
                     {(printPeriodStart || printPeriodEnd) ? (
@@ -1673,7 +1680,7 @@ export default function JobAdvancedReports({
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
                       {(() => { const s = fmt(totalEmissions); return (
-                        <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 14 : s.length > 6 ? 17 : 20 }}>{s}</div>
+                        <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 12 : s.length > 6 ? 14 : 16 }}>{s}</div>
                       ); })()}
                       <div className="text-xs text-gray-400">tCO₂e total</div>
                       {(printPeriodStart || printPeriodEnd) ? (
