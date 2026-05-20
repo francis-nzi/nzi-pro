@@ -630,7 +630,13 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                         <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{c.message_text}</div>
                       ) : null}
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditNote(c)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditNote(c)}
+                          disabled={Boolean(c.archived)}
+                          title={c.archived ? "Archived notes are read-only" : "Edit note"}
+                        >
                           Edit
                         </Button>
                         {!c.archived ? (
@@ -639,6 +645,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                           </Button>
                         ) : null}
                       </div>
+                      {c.archived ? (
+                        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          Archived notes are read-only.
+                        </div>
+                      ) : null}
                     </div>
                   ))
                 )}
