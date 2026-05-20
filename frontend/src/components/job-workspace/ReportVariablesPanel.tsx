@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LoadingOrbit from "@/components/LoadingOrbit";
 import JobReportVariablesSection from "./JobReportVariablesSection";
 import {
   AUTO_REPORT_METADATA_FIELDS,
@@ -140,7 +141,7 @@ export default function ReportVariablesPanel({ jobId, baseUrl }: ReportVariables
   }
 
   if (loading) {
-    return <div className="py-4 text-sm text-muted-foreground">Loading report variables…</div>;
+    return <LoadingOrbit className="py-8" label="Loading report variables…" />;
   }
 
   const fieldsBySection: Record<string, ReportMetadataField[]> = {};
