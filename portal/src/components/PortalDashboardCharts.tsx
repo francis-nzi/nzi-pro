@@ -34,7 +34,7 @@ export default function PortalDashboardCharts({ scopeData, total, trendData, top
                     <Cell key={idx} fill={SCOPE_COLORS[idx % SCOPE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(val: number | string | undefined) => [`${formatEmissions(val)} tCO₂e`]} />
+                <Tooltip formatter={(val) => `${formatEmissions(val as number)} tCO₂e`} />
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -83,7 +83,7 @@ export default function PortalDashboardCharts({ scopeData, total, trendData, top
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="category" width={150} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(val: number | string | undefined) => [`${formatEmissions(val)} tCO₂e`]} />
+                <Tooltip formatter={(val) => `${formatEmissions(val as number)} tCO₂e`} />
                 <Bar dataKey="emissions" radius={[0, 4, 4, 0]} fill="#0ea5e9" />
               </BarChart>
             </ResponsiveContainer>
@@ -109,7 +109,7 @@ export default function PortalDashboardCharts({ scopeData, total, trendData, top
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="year" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip formatter={(val: number | string | undefined) => [`${formatEmissions(val)} tCO₂e`]} />
+            <Tooltip formatter={(val) => `${formatEmissions(val as number)} tCO₂e`} />
             <Legend />
             <Line type="monotone" dataKey="total" stroke="#0f766e" strokeWidth={3} dot={{ r: 4 }} name="Total" />
             <Line type="monotone" dataKey="scope1" stroke="#0f766e" strokeOpacity={0.6} strokeWidth={1.5} dot={false} name="Scope 1" />

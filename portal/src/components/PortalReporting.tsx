@@ -153,7 +153,7 @@ export default function PortalReporting() {
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis dataKey="year" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
-            <Tooltip formatter={(v: string | number | undefined) => [`${fmt(Number(v ?? 0))} tCO₂e`]} />
+            <Tooltip formatter={(v) => `${fmt(Number(v ?? 0))} tCO₂e`} />
             <Legend />
             {sortedScopes.map((s, i) => (
               <Bar key={s} dataKey={s} stackId="a" fill={SCOPE_COLORS[i % SCOPE_COLORS.length]} />
