@@ -2349,27 +2349,22 @@ export default function JobAdvancedReports({
             )}
 
             {/* Client sign-off */}
-            <div className="pt-4 space-y-3 max-w-sm">
-              <p className="text-sm font-semibold text-gray-800">
-                Signed on behalf of {data.job_data.client_name ?? "the organisation"}
-              </p>
-              <p className="text-sm text-gray-700">
-                <span className="text-gray-500">Name: </span>
-                {report_metadata?.client_signee_name ?? ""}
-              </p>
-              <div className="border-b border-gray-400 w-48 mt-6 mb-1" />
-              {report_metadata?.client_signee_position && (
-                <p className="text-sm text-gray-700">
-                  <span className="text-gray-500">Position: </span>
-                  {report_metadata.client_signee_position}
-                </p>
-              )}
-              {report_metadata?.client_signature_date && (
-                <p className="text-sm text-gray-700">
-                  <span className="text-gray-500">Date: </span>
-                  {fmtSignatureDate(report_metadata.client_signature_date)}
-                </p>
-              )}
+            <div className="pt-4 space-y-4 max-w-sm">
+              <p className="text-sm font-semibold text-gray-800">Approved by:</p>
+              <div className="space-y-5">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Name:</p>
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Position:</p>
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Date:</p>
+                  <div className="border-b border-gray-400 w-56" />
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
