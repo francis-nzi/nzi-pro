@@ -27,7 +27,7 @@ function AdvancedReportsInner() {
   // so that only report sections appear in the output.
   if (printMode && pdfToken) {
     return (
-      <div className="bg-white p-6">
+      <div className="bg-white">
         <JobAdvancedReports jobId={jobId} baseUrl={apiBaseUrl()} pdfToken={pdfToken} />
       </div>
     );

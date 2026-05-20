@@ -988,9 +988,9 @@ export default function JobAdvancedReports({
         @page {
           size: A4;
           margin-top: 22mm;
-          margin-right: 18mm;
+          margin-right: 12mm;
           margin-bottom: 22mm;
-          margin-left: 18mm;
+          margin-left: 12mm;
         }
         @page {
           @top-left {
@@ -1026,6 +1026,10 @@ export default function JobAdvancedReports({
           * {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+          }
+          .live-report-section p {
+            font-size: 12px !important;
+            line-height: 1.5 !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1268,10 +1272,10 @@ export default function JobAdvancedReports({
             )}
 
             {/* Donut + scope table */}
-            <div className="mx-auto grid w-fit grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
+            <div className="mx-auto grid w-fit grid-cols-[220px_minmax(0,1fr)] gap-6 items-center">
 
               {/* Donut — Insights style */}
-              <div className="relative aspect-square w-[300px] flex-shrink-0">
+              <div className="relative aspect-square w-[220px] flex-shrink-0">
                 <ResponsiveContainer width="100%" aspect={1}>
                   <PieChart>
                     <Pie
@@ -1291,7 +1295,9 @@ export default function JobAdvancedReports({
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
-                    <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
+                    {(() => { const s = fmt(totalEmissions); return (
+                      <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 14 : s.length > 6 ? 17 : 20 }}>{s}</div>
+                    ); })()}
                     <div className="text-xs text-gray-400">tCO₂e total</div>
                     {(printPeriodStart || printPeriodEnd) ? (
                       <div className="mt-1 text-[10px] text-gray-400">
@@ -1308,7 +1314,7 @@ export default function JobAdvancedReports({
               <div className="space-y-2">
                 <div className="overflow-hidden rounded-lg border border-gray-200">
                   {/* Header */}
-                  <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                  <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                     <span className="text-xs font-semibold text-gray-500">Scope</span>
                     <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
                     <div className="text-right text-xs font-semibold text-gray-500">%</div>
@@ -1317,21 +1323,21 @@ export default function JobAdvancedReports({
                     const v = toNum(scope_totals?.[s]);
                     const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
                     return (
-                      <div key={s} className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                      <div key={s} className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
                         <div className="flex items-center gap-2">
                           <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                          <span className="text-xs text-gray-500">{s}</span>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">{s}</span>
                         </div>
-                        <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">{fmt(v)}</div>
-                        <div className="text-right text-xs text-gray-500 tabular-nums">{pct.toFixed(1)}%</div>
+                        <div className="text-right text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmt(v)}</div>
+                        <div className="text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{pct.toFixed(1)}%</div>
                       </div>
                     );
                   })}
                   {/* Total row */}
-                  <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                  <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
                     <span className="text-xs font-semibold text-gray-600">Total</span>
-                    <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                    <div className="text-right text-xs text-gray-500">100.0%</div>
+                    <div className="text-right text-xs font-bold tabular-nums whitespace-nowrap" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
+                    <div className="text-right text-xs text-gray-500 whitespace-nowrap">100.0%</div>
                   </div>
                 </div>
                 {/* Benchmark comparison */}
@@ -1645,8 +1651,8 @@ export default function JobAdvancedReports({
             {/* Emissions by Scope: donut + table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-4">Emissions by Scope</p>
-              <div className="mx-auto grid w-fit grid-cols-[300px_minmax(280px,420px)] gap-8 items-center">
-                <div className="relative aspect-square w-[300px] flex-shrink-0">
+              <div className="mx-auto grid w-fit grid-cols-[220px_minmax(0,1fr)] gap-6 items-center">
+                <div className="relative aspect-square w-[220px] flex-shrink-0">
                   <ResponsiveContainer width="100%" aspect={1}>
                     <PieChart>
                       <Pie
@@ -1666,7 +1672,9 @@ export default function JobAdvancedReports({
                   </ResponsiveContainer>
                   <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-3xl font-semibold text-gray-800">{fmt(totalEmissions)}</div>
+                      {(() => { const s = fmt(totalEmissions); return (
+                        <div className="font-semibold text-gray-800 whitespace-nowrap" style={{ fontSize: s.length > 8 ? 14 : s.length > 6 ? 17 : 20 }}>{s}</div>
+                      ); })()}
                       <div className="text-xs text-gray-400">tCO₂e total</div>
                       {(printPeriodStart || printPeriodEnd) ? (
                         <div className="mt-1 text-[10px] text-gray-400">
@@ -1680,7 +1688,7 @@ export default function JobAdvancedReports({
                 </div>
                 <div className="space-y-2">
                   <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
+                    <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1.5">
                       <span className="text-xs font-semibold text-gray-500">Scope</span>
                       <div className="text-right text-xs font-semibold text-gray-500">tCO₂e</div>
                       <div className="text-right text-xs font-semibold text-gray-500">%</div>
@@ -1689,20 +1697,20 @@ export default function JobAdvancedReports({
                       const v = toNum(scope_totals?.[s]);
                       const pct = totalEmissions > 0 ? (v / totalEmissions) * 100 : 0;
                       return (
-                        <div key={s} className="grid grid-cols-[1fr_200px_60px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
+                        <div key={s} className="grid grid-cols-[1fr_90px_52px] items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 last:border-b-0">
                           <div className="flex items-center gap-2">
                             <div className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: SCOPE_COLORS[s] }} />
-                            <span className="text-xs text-gray-500">{s}</span>
+                            <span className="text-xs text-gray-500 whitespace-nowrap">{s}</span>
                           </div>
-                          <div className="text-right text-sm font-semibold text-gray-800 tabular-nums">{fmt(v)}</div>
-                          <div className="text-right text-xs text-gray-500 tabular-nums">{pct.toFixed(1)}%</div>
+                          <div className="text-right text-xs font-semibold text-gray-800 tabular-nums whitespace-nowrap">{fmt(v)}</div>
+                          <div className="text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{pct.toFixed(1)}%</div>
                         </div>
                       );
                     })}
-                    <div className="grid grid-cols-[1fr_200px_60px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
+                    <div className="grid grid-cols-[1fr_90px_52px] items-center gap-2 px-3 py-2" style={{ backgroundColor: `${BRAND}0d` }}>
                       <span className="text-xs font-semibold text-gray-600">Total</span>
-                      <div className="text-right text-sm font-bold tabular-nums" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
-                      <div className="text-right text-xs text-gray-500">100.0%</div>
+                      <div className="text-right text-xs font-bold tabular-nums whitespace-nowrap" style={{ color: BRAND }}>{fmt(totalEmissions)}</div>
+                      <div className="text-right text-xs text-gray-500 whitespace-nowrap">100.0%</div>
                     </div>
                   </div>
                 </div>
