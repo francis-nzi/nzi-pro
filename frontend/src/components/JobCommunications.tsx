@@ -268,7 +268,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
 
   const archiveNote = useCallback(async (note: Communication) => {
     try {
-      const res = await fetch(`${baseUrl}/timeline/events/${note.communication_id}/archive`, {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/${note.communication_id}/archive`, {
         method: "PATCH",
         credentials: "include",
       });
@@ -280,7 +280,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
     } catch (e) {
       setStatus(`Error archiving note: ${(e as Error).message}`);
     }
-  }, [baseUrl, load]);
+  }, [baseUrl, jobId, load]);
 
   async function sendEmail() {
     if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
@@ -858,7 +858,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       ) : null}
 
       <Dialog open={editingNote !== null} onOpenChange={(open) => { if (!open) setEditingNote(null); }}>
-        <DialogContent className="w-[98vw] max-w-7xl">
+        <DialogContent className="!w-[min(98vw,1600px)] !max-w-none">
           <DialogHeader>
             <DialogTitle>Edit Note</DialogTitle>
           </DialogHeader>
