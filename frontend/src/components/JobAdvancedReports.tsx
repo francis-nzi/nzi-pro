@@ -1044,8 +1044,25 @@ export default function JobAdvancedReports({
           .live-report-section > div {
             border-radius: 0 !important;
           }
+          /* CardHeader: tighten top/bottom padding, zero horizontal */
+          div.live-report-section > div:first-child {
+            padding: 6px 0 4px !important;
+          }
+          /* CardContent: zero all padding */
+          div.live-report-section > div:first-child + div {
+            padding: 0 !important;
+          }
+          /* Page break before Organisational Boundary */
+          .org-boundary-section {
+            break-before: page !important;
+          }
+          /* Emissions summary box figure: 3× the 10px base = 30px */
+          .emissions-box-figure {
+            font-size: 30px !important;
+          }
+          /* Donut center total: doubled from 14px */
           .donut-total {
-            font-size: 14px !important;
+            font-size: 28px !important;
           }
           .advanced-report-controls {
             display: none !important;
@@ -1520,7 +1537,7 @@ export default function JobAdvancedReports({
             </div>
 
             {/* Organisational Boundary */}
-            <div>
+            <div className="org-boundary-section">
               <p className="text-sm font-semibold text-gray-700 mb-2">Organisational Boundary</p>
               <p className="text-sm text-gray-700 leading-relaxed mb-3">
                 The organisational boundary defines the operations over which the organisation has control or financial responsibility for GHG emissions.
@@ -1609,7 +1626,7 @@ export default function JobAdvancedReports({
                 <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: BRAND }}>
                   Total Carbon Emissions
                 </p>
-                <p className="text-5xl font-bold" style={{ color: BRAND }}>
+                <p className="emissions-box-figure text-5xl font-bold" style={{ color: BRAND }}>
                   {fmt(totalEmissions)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">tCO₂e</p>
@@ -2093,7 +2110,19 @@ export default function JobAdvancedReports({
             );
           };
 
-          const summaryParts = Object.entries(intensity_metrics).map(([key, m]) => {
+          const dedupedMetricEntries = (() => {
+            const seen = new Set<string>();
+            return [...Object.entries(intensity_metrics)]
+              .sort(([a], [b]) => (a === "employees" ? -1 : b === "employees" ? 1 : 0))
+              .filter(([key, m]) => {
+                const lbl = perLabel(key, m);
+                if (seen.has(lbl)) return false;
+                seen.add(lbl);
+                return true;
+              });
+          })();
+
+          const summaryParts = dedupedMetricEntries.map(([key, m]) => {
             const intensity = calcIntensity(m);
             if (intensity == null) return null;
             const label = m.label?.trim() || key;
@@ -2129,7 +2158,7 @@ export default function JobAdvancedReports({
                         {periodLabel && <p className="text-xs text-gray-500">{periodLabel}</p>}
                       </div>
                     </div>
-                    {Object.entries(intensity_metrics).map(([key, m], i) => {
+                    {dedupedMetricEntries.map(([key, m], i) => {
                       const intensity = calcIntensity(m);
                       return (
                         <div key={key} className={`grid grid-cols-[56px_1fr_160px_120px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>

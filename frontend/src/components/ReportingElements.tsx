@@ -105,6 +105,22 @@ export default function ReportingElements({
         body: JSON.stringify({ metadata }),
       });
       if (!res.ok) throw new Error(`Save failed (${res.status})`);
+
+      // Sync employee count to intensity-metrics so the PDF report reflects it
+      const employeeCount = metadata.employee_number;
+      if (employeeCount != null && employeeCount > 0) {
+        try {
+          await fetch(`${baseUrl}/jobs/${jobId}/intensity-metrics`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ metrics: { employees: { value: employeeCount } } }),
+          });
+        } catch {
+          // Non-fatal — report-metadata already saved
+        }
+      }
+
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
