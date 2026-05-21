@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,17 +68,54 @@ interface TimeSubject {
   budget_hours: number;
 }
 
+interface TeamMember {
+  user_id: string;
+  full_name: string;
+  email?: string | null;
+  role?: string | null;
+  position?: string | null;
+  status?: string | null;
+}
+
+interface ClientContact {
+  contact_id: number;
+  full_name?: string | null;
+  job_title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+interface JobDetail {
+  job_id: number;
+  client_db_id?: number | null;
+}
+
+interface TaskAssigneeOption {
+  value: string;
+  label: string;
+  sourceLabel: string;
+}
+
+function addDaysIso(sourceIso: string, days: number): string {
+  const dt = new Date(`${sourceIso}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return sourceIso;
+  dt.setDate(dt.getDate() + days);
+  return dt.toISOString().split("T")[0];
+}
+
 function TimePageContent() {
   const searchParams = useSearchParams();
   const confirmAction = useConfirmDialog();
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [subjects, setSubjects] = useState<TimeSubject[]>([]);
-  const [teamMembers, setTeamMembers] = useState<Array<{user_id: string; full_name: string}>>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [filterUserId, setFilterUserId] = useState<string>("");
+  const [, setSelectedJobClientId] = useState<number | null>(null);
 
   // Form state
   const [selectedJobId, setSelectedJobId] = useState<string>("");
@@ -89,54 +126,62 @@ function TimePageContent() {
   const [workDate, setWorkDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [hours, setHours] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [createTask, setCreateTask] = useState(false);
+  const [taskTitle, setTaskTitle] = useState<string>("");
+  const [taskDetails, setTaskDetails] = useState<string>("");
+  const [taskDueDate, setTaskDueDate] = useState<string>("");
+  const [taskPriority, setTaskPriority] = useState<string>("normal");
+  const [selectedTaskAssignees, setSelectedTaskAssignees] = useState<string[]>([]);
+  const [taskAssigneeLoading, setTaskAssigneeLoading] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Handle jobId query parameter to pre-select a job
-  useEffect(() => {
-    const jobIdParam = searchParams.get('jobId');
-    if (jobIdParam && jobs.length > 0) {
-      const job = jobs.find(j => j.job_id === parseInt(jobIdParam));
-      if (job) {
-        setSelectedJobId(String(job.job_id));
-        setJobSearchQuery(`${job.job_number} - ${job.title}`);
-      }
-    }
-  }, [searchParams, jobs]);
+  const activeTeamMembers = useMemo(
+    () => teamMembers.filter((member) => String(member.status ?? "").trim().toLowerCase() === "active"),
+    [teamMembers]
+  );
 
-  useEffect(() => {
-    loadData();
-  }, [filterUserId]);
+  const taskAssigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
+    const options: TaskAssigneeOption[] = [];
+    const seen = new Set<string>();
 
-  useEffect(() => {
-    // Filter jobs based on search query
-    if (jobSearchQuery.trim() === "") {
-      setFilteredJobs([]);
-    } else {
-      const query = jobSearchQuery.toLowerCase();
-      const filtered = jobs.filter(
-        (job) =>
-          job.job_number?.toLowerCase().includes(query) ||
-          job.title?.toLowerCase().includes(query) ||
-          job.client_name?.toLowerCase().includes(query)
-      );
-      setFilteredJobs(filtered.slice(0, 50)); // Limit to 50 results
-    }
-  }, [jobSearchQuery, jobs]);
+    activeTeamMembers.forEach((member) => {
+      const label = String(member.full_name || member.email || "").trim();
+      if (!label) return;
+      const key = `team:${String(member.user_id || label).trim().toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      options.push({
+        value: key,
+        label,
+        sourceLabel: [member.position, member.role, member.email].filter(Boolean).join(" • "),
+      });
+    });
 
-  useEffect(() => {
-    // Close dropdown when clicking outside
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as HTMLElement;
-      if (!target.closest('#job') && !target.closest('.job-dropdown')) {
-        setShowJobDropdown(false);
-      }
-    }
+    clientContacts.forEach((contact) => {
+      const label = String(contact.full_name || contact.email || "").trim();
+      if (!label) return;
+      const key = `client:${contact.contact_id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      options.push({
+        value: key,
+        label,
+        sourceLabel: [contact.job_title, contact.email].filter(Boolean).join(" • "),
+      });
+    });
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [activeTeamMembers, clientContacts]);
 
-  async function loadData() {
+  const selectedTaskAssigneeLabels = useMemo(
+    () =>
+      selectedTaskAssignees
+        .map((value) => taskAssigneeOptions.find((option) => option.value === value)?.label)
+        .filter((value): value is string => Boolean(value)),
+    [selectedTaskAssignees, taskAssigneeOptions]
+  );
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -174,7 +219,104 @@ function TimePageContent() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [filterUserId]);
+
+  // Handle jobId query parameter to pre-select a job
+  useEffect(() => {
+    const jobIdParam = searchParams.get('jobId');
+    if (jobIdParam && jobs.length > 0) {
+      const job = jobs.find(j => j.job_id === parseInt(jobIdParam));
+      if (job) {
+        setSelectedJobId(String(job.job_id));
+        setJobSearchQuery(`${job.job_number} - ${job.title}`);
+      }
+    }
+  }, [searchParams, jobs]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadClientContacts() {
+      setTaskAssigneeLoading(true);
+      setClientContacts([]);
+      setSelectedJobClientId(null);
+      setSelectedTaskAssignees((prev) => prev.filter((value) => value.startsWith("team:")));
+
+      const jobIdNum = Number(selectedJobId);
+      if (!Number.isFinite(jobIdNum) || jobIdNum <= 0) {
+        if (!cancelled) setTaskAssigneeLoading(false);
+        return;
+      }
+
+      try {
+        const baseUrl = apiBaseUrl();
+        const jobRes = await fetch(`${baseUrl}/jobs/${jobIdNum}`, { credentials: "include" });
+        if (!jobRes.ok) {
+          throw new Error("Failed to load selected job");
+        }
+        const jobJson = (await jobRes.json()) as JobDetail;
+        if (cancelled) return;
+        const clientDbId = jobJson?.client_db_id != null ? Number(jobJson.client_db_id) : null;
+        setSelectedJobClientId(Number.isFinite(clientDbId ?? NaN) ? clientDbId : null);
+        if (!clientDbId || !Number.isFinite(clientDbId)) {
+          return;
+        }
+
+        const contactsRes = await fetch(`${baseUrl}/clients/${clientDbId}/contacts`, { credentials: "include" });
+        if (!contactsRes.ok) {
+          throw new Error("Failed to load client contacts");
+        }
+        const contactsJson = await contactsRes.json();
+        if (!cancelled) {
+          setClientContacts(Array.isArray(contactsJson?.contacts) ? contactsJson.contacts : []);
+        }
+      } catch {
+        if (!cancelled) {
+          setClientContacts([]);
+        }
+      } finally {
+        if (!cancelled) setTaskAssigneeLoading(false);
+      }
+    }
+
+    void loadClientContacts();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    // Filter jobs based on search query
+    if (jobSearchQuery.trim() === "") {
+      setFilteredJobs([]);
+    } else {
+      const query = jobSearchQuery.toLowerCase();
+      const filtered = jobs.filter(
+        (job) =>
+          job.job_number?.toLowerCase().includes(query) ||
+          job.title?.toLowerCase().includes(query) ||
+          job.client_name?.toLowerCase().includes(query)
+      );
+      setFilteredJobs(filtered.slice(0, 50)); // Limit to 50 results
+    }
+  }, [jobSearchQuery, jobs]);
+
+  useEffect(() => {
+    // Close dropdown when clicking outside
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as HTMLElement;
+      if (!target.closest('#job') && !target.closest('.job-dropdown')) {
+        setShowJobDropdown(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -192,6 +334,21 @@ function TimePageContent() {
     if (!hours || parseFloat(hours) <= 0) {
       setStatus("Please enter valid hours");
       return;
+    }
+
+    if (createTask) {
+      if (!taskTitle.trim()) {
+        setStatus("Please enter a task title");
+        return;
+      }
+      if (!taskDueDate) {
+        setStatus("Please choose a task due date");
+        return;
+      }
+      if (selectedTaskAssignees.length === 0) {
+        setStatus("Please select at least one task assignee");
+        return;
+      }
     }
 
     const minutes = Math.round(parseFloat(hours) * 60);
@@ -221,6 +378,28 @@ function TimePageContent() {
       }
 
       setStatus(editingId ? "Time log updated!" : "Time log added!");
+
+      if (createTask) {
+        const taskResponse = await fetch(`${baseUrl}/jobs/${parseInt(selectedJobId)}/communications/tasks`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: taskTitle.trim(),
+            details: taskDetails.trim() || notes.trim() || "",
+            assigned_to: selectedTaskAssigneeLabels.join(", "),
+            priority: taskPriority,
+            due_date: taskDueDate,
+            status: "open",
+          }),
+        });
+
+        if (!taskResponse.ok) {
+          const taskText = await taskResponse.text().catch(() => "");
+          throw new Error(taskText ? `Task creation failed: ${taskText}` : "Task creation failed");
+        }
+      }
+
       resetForm();
       loadData();
 
@@ -237,6 +416,14 @@ function TimePageContent() {
     setWorkDate(new Date().toISOString().split('T')[0]);
     setHours("");
     setNotes("");
+    setCreateTask(false);
+    setTaskTitle("");
+    setTaskDetails("");
+    setTaskDueDate("");
+    setTaskPriority("normal");
+    setSelectedTaskAssignees([]);
+    setClientContacts([]);
+    setSelectedJobClientId(null);
     setEditingId(null);
   }
 
@@ -248,6 +435,7 @@ function TimePageContent() {
     setHours(String(log.hours));
     setNotes(log.notes);
     setEditingId(log.time_id);
+    setCreateTask(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -417,6 +605,129 @@ function TimePageContent() {
                 placeholder="Description of work done..."
                 rows={3}
               />
+            </div>
+
+            <div className="rounded-lg border bg-slate-50 p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  id="createTask"
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={createTask}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setCreateTask(checked);
+                    if (checked && !taskDueDate) {
+                      setTaskDueDate(addDaysIso(workDate, 7));
+                    }
+                    if (checked && !taskTitle.trim()) {
+                      setTaskTitle(`Follow-up: ${selectedSubject || "time entry"}`);
+                    }
+                  }}
+                />
+                <Label htmlFor="createTask" className="font-medium">
+                  Create action task
+                </Label>
+              </div>
+
+              {createTask ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Create a follow-up task for the selected job and add it to the job task list.
+                  </p>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="taskTitle">Task Title *</Label>
+                      <Input
+                        id="taskTitle"
+                        value={taskTitle}
+                        onChange={(e) => setTaskTitle(e.target.value)}
+                        placeholder="e.g. Follow up on client response"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="taskDueDate">Deadline *</Label>
+                      <Input
+                        id="taskDueDate"
+                        type="date"
+                        value={taskDueDate}
+                        onChange={(e) => setTaskDueDate(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="taskPriority">Priority</Label>
+                    <Select value={taskPriority} onValueChange={setTaskPriority}>
+                      <SelectTrigger id="taskPriority">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="normal">Normal</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Assign to *</Label>
+                    <div className="rounded-md border bg-white p-3">
+                      {taskAssigneeLoading ? (
+                        <div className="text-sm text-muted-foreground">Loading assignees...</div>
+                      ) : taskAssigneeOptions.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">
+                          Pick a job to load team members and client contacts.
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {taskAssigneeOptions.map((option) => {
+                            const checked = selectedTaskAssignees.includes(option.value);
+                            return (
+                              <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-md border p-2 hover:bg-slate-50">
+                                <input
+                                  type="checkbox"
+                                  className="mt-1 h-4 w-4 rounded border-slate-300"
+                                  checked={checked}
+                                  onChange={() => {
+                                    setSelectedTaskAssignees((prev) =>
+                                      checked ? prev.filter((value) => value !== option.value) : [...prev, option.value]
+                                    );
+                                  }}
+                                />
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-medium text-slate-900">{option.label}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {option.sourceLabel || (option.value.startsWith("client:") ? "Client contact" : "Team member")}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    {selectedTaskAssigneeLabels.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTaskAssigneeLabels.map((label) => (
+                          <span key={label} className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-800">
+                            {label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="taskDetails">Task Details</Label>
+                    <Textarea
+                      id="taskDetails"
+                      value={taskDetails}
+                      onChange={(e) => setTaskDetails(e.target.value)}
+                      placeholder="Add extra context for the task..."
+                      rows={4}
+                    />
+                  </div>
+                </>
+              ) : null}
             </div>
 
             <div className="flex gap-2">

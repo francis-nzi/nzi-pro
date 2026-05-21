@@ -82,13 +82,13 @@ def list_time_logs(
             where_clauses = []
             params = []
             if has_time_org:
-                where_clauses.append("org_id = ?")
+                where_clauses.append("tl.org_id = ?")
                 params.append(org_id)
             if job_id is not None:
-                where_clauses.append("job_id = ?")
+                where_clauses.append("tl.job_id = ?")
                 params.append(int(job_id))
             if user_id is not None:
-                where_clauses.append("user_id = ?")
+                where_clauses.append("tl.user_id = ?")
                 params.append(user_id)
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
@@ -102,7 +102,8 @@ def list_time_logs(
                     FROM time_logs tl
                     LEFT JOIN jobs j ON j.job_id = tl.job_id
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
-                    LEFT JOIN users u ON u.user_id = tl.user_id
+                    LEFT JOIN users u ON LOWER(COALESCE(u.user_id, '')) = LOWER(COALESCE(tl.user_id, ''))
+                                      OR LOWER(COALESCE(u.email, '')) = LOWER(COALESCE(tl.user_id, ''))
                     {where_sql}
                     ORDER BY tl.work_date DESC, tl.created_at DESC
                     """,
