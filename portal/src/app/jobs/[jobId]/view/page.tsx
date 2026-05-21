@@ -66,7 +66,7 @@ export default function ReportViewPage() {
               ref={iframeRef}
               title="Carbon Report"
               className="w-full"
-              style={{ height: "calc(100vh - 160px)", border: "none", minHeight: "600px" }}
+              style={{ height: "calc(100vh - 140px)", border: "none", minHeight: "600px" }}
               sandbox="allow-same-origin"
             />
           </div>
