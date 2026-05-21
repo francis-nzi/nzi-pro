@@ -228,6 +228,60 @@ def _notify_crm_new_comment(job_id: int, client_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Debug — raw data counts for portal client (temporary)
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/debug-data")
+def portal_debug_data(current_user: dict = Depends(portal_user_dep)):
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        jobs_df = _portal_load_jobs(con, client_db_id)
+        job_ids = [] if (jobs_df is None or jobs_df.empty) else [int(j) for j in jobs_df["job_id"].tolist()]
+
+        result: dict = {
+            "client_db_id": client_db_id,
+            "job_ids": job_ids,
+            "job_details": [],
+            "scope_rows_count": 0,
+            "emission_sources_count": 0,
+            "crp_scope_entries_count": 0,
+        }
+
+        for jid in job_ids:
+            jr = con.execute(
+                "SELECT job_id, title, reporting_year, is_crp FROM jobs WHERE job_id = %s",
+                [jid],
+            ).fetchone()
+            if jr:
+                result["job_details"].append({
+                    "job_id": jr[0], "title": str(jr[1] or ""), "reporting_year": jr[2],
+                    "is_crp": jr[3],
+                })
+
+        if job_ids:
+            ph = ",".join(["%s"] * len(job_ids))
+            r = con.execute(
+                f"SELECT COUNT(*) FROM job_scope_rows WHERE job_id IN ({ph}) AND enabled = TRUE",
+                job_ids,
+            ).fetchone()
+            result["scope_rows_count"] = int(r[0] or 0) if r else 0
+
+            r2 = con.execute(
+                f"SELECT COUNT(*) FROM job_emission_sources WHERE job_id IN ({ph}) AND COALESCE(enabled, TRUE) = TRUE",
+                job_ids,
+            ).fetchone()
+            result["emission_sources_count"] = int(r2[0] or 0) if r2 else 0
+
+            r3 = con.execute(
+                f"SELECT COUNT(*) FROM crp_scope_entries WHERE job_id IN ({ph}) AND is_archived = FALSE",
+                job_ids,
+            ).fetchone()
+            result["crp_scope_entries_count"] = int(r3[0] or 0) if r3 else 0
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Metrics (dashboard data) — replicates /clients/{id}/dashboard?lite=1
 # ---------------------------------------------------------------------------
 
