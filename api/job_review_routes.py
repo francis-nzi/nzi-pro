@@ -229,6 +229,23 @@ def send_job_for_review(
     for pu in portal_users:
         _notify_client_review_ready(pu, job_ref, int(job_id))
 
+    # Auto-generate an HTML snapshot so the portal can serve it for review.
+    # Best-effort: if it fails the review notification has already been sent.
+    try:
+        from api.job_report_routes import generate_html_report
+        generate_html_report(
+            job_id=int(job_id),
+            save_version=True,
+            report_version_status="review",
+            report_version_label="For Client Review",
+            _user=_user,
+        )
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            "send_job_for_review: failed to auto-save review snapshot for job %s", job_id
+        )
+
     return {"ok": True, "review": review, "notified_count": len(portal_users)}
 
 

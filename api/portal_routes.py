@@ -119,10 +119,7 @@ def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_de
 @router.get("/portal/jobs/{job_id}/report-html", response_class=HTMLResponse)
 def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep)):
     from services.tenancy import org_context
-    from api.job_report_routes import (
-        _load_latest_final_report_version_snapshot,
-        _render_report_snapshot_html,
-    )
+    from api.job_report_routes import _render_report_snapshot_html
 
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
@@ -131,15 +128,38 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
 
     with org_context(_org_id):
         with get_conn() as con:
-            frozen = _load_latest_final_report_version_snapshot(con, int(job_id))
+            import json as _json
+            version_row_raw = con.execute(
+                """
+                SELECT report_version_id, snapshot_json, status, version_label, version_number
+                FROM job_report_versions
+                WHERE job_id = %s
+                  AND lower(COALESCE(status, '')) IN ('final', 'review', 'draft')
+                  AND snapshot_json IS NOT NULL
+                ORDER BY
+                    CASE lower(COALESCE(status, ''))
+                        WHEN 'final' THEN 1
+                        WHEN 'review' THEN 2
+                        WHEN 'draft' THEN 3
+                        ELSE 4
+                    END,
+                    COALESCE(finalized_at, reviewed_at, generated_at) DESC NULLS LAST,
+                    version_number DESC NULLS LAST
+                LIMIT 1
+                """,
+                [int(job_id)],
+            ).fetchone()
 
-    if not frozen:
+    if not version_row_raw or not version_row_raw[1]:
         raise HTTPException(
             status_code=404,
-            detail="No published report is available yet for this job. Please contact your NZI consultant.",
+            detail="No report has been published for review yet. Please ask your NZI consultant to send the report for review.",
         )
 
-    _version_row, snapshot_payload = frozen
+    try:
+        snapshot_payload = _json.loads(version_row_raw[1])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Report snapshot is corrupted: {exc}") from exc
     try:
         html_content = _render_report_snapshot_html(snapshot_payload)
     except Exception as exc:

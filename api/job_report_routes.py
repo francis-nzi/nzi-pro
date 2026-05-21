@@ -4143,6 +4143,9 @@ def generate_html_report(
     job_id: int,
     template_id: int | None = Query(None),
     version_id: int | None = Query(None),
+    save_version: bool = False,
+    report_version_status: str = "review",
+    report_version_label: str | None = None,
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
@@ -4155,21 +4158,22 @@ def generate_html_report(
         if not job_data:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        with get_conn() as con:
-            frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
-        if frozen_snapshot:
-            version_row, snapshot_payload = frozen_snapshot
-            html_content = _render_report_snapshot_html(snapshot_payload)
-            label = version_row.get("version_label") or f"v{version_row.get('version_number') or job_id}"
-            return HTMLResponse(
-                content=html_content,
-                headers={
-                    "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
-                    "X-Report-Version-Label": str(label),
-                    "X-Report-Version-Status": str(version_row.get("status") or ""),
-                    "Cache-Control": "no-store",
-                },
-            )
+        if not save_version:
+            with get_conn() as con:
+                frozen_snapshot = _load_latest_final_report_version_snapshot(con, int(job_id))
+            if frozen_snapshot:
+                version_row, snapshot_payload = frozen_snapshot
+                html_content = _render_report_snapshot_html(snapshot_payload)
+                label = version_row.get("version_label") or f"v{version_row.get('version_number') or job_id}"
+                return HTMLResponse(
+                    content=html_content,
+                    headers={
+                        "X-Report-Version-Id": str(version_row.get("report_version_id") or ""),
+                        "X-Report-Version-Label": str(label),
+                        "X-Report-Version-Status": str(version_row.get("status") or ""),
+                        "Cache-Control": "no-store",
+                    },
+                )
         
         scope_totals = get_scope_totals(job_id)
         categories = get_emissions_by_category(job_id)
@@ -4323,7 +4327,72 @@ def generate_html_report(
         )
 
         html_content = _apply_braced_placeholder_substitution(html_content, render_values)
-        
+
+        if save_version:
+            try:
+                report_snapshot_payload, report_snapshot_hash = _build_report_version_snapshot(
+                    job_data=job_data,
+                    selected_template=render_meta,
+                    template_variables=template_variables,
+                    report_metadata=report_metadata,
+                    job_actions=job_actions,
+                    scope_totals=scope_totals,
+                    benchmark_totals=benchmark_totals,
+                    categories=categories,
+                    activity_totals=activity_totals,
+                    site_breakdowns=site_breakdowns,
+                    benchmark_site_breakdowns=benchmark_site_breakdowns,
+                    render_values=render_values,
+                    target_data=target_data,
+                    scope_comparison=scope_comparison,
+                    activity_comparison=activity_comparison,
+                    site_overall_comparison=site_overall_comparison,
+                    assets=assets,
+                    generation_date=generation_date,
+                )
+                report_snapshot_json = json.dumps(report_snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
+                normalized_status = _normalize_report_version_status(report_version_status)
+                generated_by = _user.get("email", "unknown")
+                org_id_val = str(job_data.get("org_id") or "").strip() or None
+                client_db_id_val = int(job_data.get("client_db_id") or 0)
+                tmpl_id = int(selected_template["template_id"]) if selected_template and selected_template.get("template_id") is not None else None
+                tmpl_ver_id = int(selected_template["version_id"]) if selected_template and selected_template.get("version_id") is not None else None
+                with get_conn(autocommit=False) as con:
+                    _ensure_report_versions_schema(con)
+                    vn_row = con.execute(
+                        "SELECT COALESCE(MAX(version_number), 0) + 1 FROM job_report_versions WHERE job_id = %s",
+                        [int(job_id)],
+                    ).fetchone()
+                    next_version_number = int(vn_row[0]) if vn_row and vn_row[0] is not None else 1
+                    version_label_val = str(report_version_label or f"v{next_version_number}").strip()
+                    con.execute(
+                        """
+                        INSERT INTO job_report_versions (
+                            org_id, job_id, client_db_id, version_number, version_label, status,
+                            report_format, template_id, version_id, data_hash, snapshot_json,
+                            generated_by,
+                            reviewed_at, reviewed_by, finalized_at, finalized_by
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            'html', %s, %s, %s, %s,
+                            %s,
+                            CASE WHEN lower(%s) = 'review' THEN NOW() ELSE NULL END,
+                            CASE WHEN lower(%s) = 'review' THEN %s ELSE NULL END,
+                            CASE WHEN lower(%s) = 'final' THEN NOW() ELSE NULL END,
+                            CASE WHEN lower(%s) = 'final' THEN %s ELSE NULL END
+                        )
+                        """,
+                        [
+                            org_id_val, int(job_id), client_db_id_val, next_version_number, version_label_val, normalized_status,
+                            tmpl_id, tmpl_ver_id, report_snapshot_hash, report_snapshot_json,
+                            generated_by,
+                            normalized_status, normalized_status, generated_by,
+                            normalized_status, normalized_status, generated_by,
+                        ],
+                    )
+            except Exception:
+                logger.exception("generate_html_report: failed to save version snapshot for job %s", job_id)
+
         # Return HTML
         return Response(
             content=html_content,
@@ -4336,7 +4405,7 @@ def generate_html_report(
                 "X-Rendered-Template-Source": template_source,
             }
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
