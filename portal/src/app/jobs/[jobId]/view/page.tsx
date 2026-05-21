@@ -18,8 +18,13 @@ export default function ReportViewPage() {
 
   useEffect(() => {
     apiFetch(`/portal/jobs/${jobId}/report-html`)
-      .then(r => {
-        if (!r.ok) return r.text().then(t => Promise.reject(new Error(`${r.status}: ${t}`)));
+      .then(async r => {
+        if (!r.ok) {
+          const body = await r.text();
+          let msg = `${r.status}: ${r.statusText}`;
+          try { msg = `${r.status}: ${(JSON.parse(body) as { detail?: string }).detail ?? body}`; } catch { msg = `${r.status}: ${body || r.statusText}`; }
+          throw new Error(msg);
+        }
         return r.text();
       })
       .then(html => setReportHtml(html))
