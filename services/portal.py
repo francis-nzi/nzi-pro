@@ -649,13 +649,18 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
     ensure_portal_schema(con)
     rows = con.execute(
         """
-        SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+        SELECT j.job_id, j.job_number, j.title,
+               COALESCE(
+                   EXTRACT(YEAR FROM j.reporting_period_end)::int,
+                   j.reporting_year
+               ) AS display_year,
+               j.status,
                COALESCE(r.status, 'not_sent') AS review_status,
                r.review_id, r.sent_for_review_at, r.approved_at
         FROM jobs j
         LEFT JOIN report_reviews r ON r.job_id = j.job_id
         WHERE j.client_db_id = %s
-        ORDER BY j.reporting_year DESC NULLS LAST, j.job_id DESC
+        ORDER BY display_year DESC NULLS LAST, j.job_id DESC
         """,
         [int(client_db_id)],
     ).fetchall()

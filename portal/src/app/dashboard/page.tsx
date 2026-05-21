@@ -53,8 +53,8 @@ type DashboardMetrics = {
 // ── Review status helpers ────────────────────────────────────────────────────
 
 const REVIEW_LABELS: Record<string, string> = {
-  not_sent: "Not available yet",
-  draft: "Not available yet",
+  not_sent: "",
+  draft: "",
   sent_for_review: "Ready to review",
   changes_requested: "Changes requested",
   approved: "Approved",
@@ -133,23 +133,26 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
     }
   }
   const sorted = Array.from(byYear.entries()).sort((a, b) => b[0] - a[0]);
-  const canView = (s: string) => s === "approved" || s === "sent_for_review" || s === "changes_requested";
+  const statusLabel = (s: string) => REVIEW_LABELS[s] ?? "";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {sorted.map(([year, job]) => (
-        <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
-              <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
+      {sorted.map(([year, job]) => {
+        const label = statusLabel(job.review_status);
+        return (
+          <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
+                <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
+              </div>
+              <ReviewIcon status={job.review_status} />
             </div>
-            <ReviewIcon status={job.review_status} />
-          </div>
-          <span className={`self-start inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${REVIEW_COLOURS[job.review_status] ?? "bg-gray-100 text-gray-500"}`}>
-            {REVIEW_LABELS[job.review_status] ?? job.review_status}
-          </span>
-          {canView(job.review_status) ? (
+            {label && (
+              <span className={`self-start inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${REVIEW_COLOURS[job.review_status] ?? "bg-gray-100 text-gray-500"}`}>
+                {label}
+              </span>
+            )}
             <Link
               href={`/jobs/${job.job_id}/view`}
               className="mt-auto flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-colors"
@@ -158,13 +161,9 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               <ExternalLink className="h-4 w-4" />
               View Report
             </Link>
-          ) : (
-            <div className="mt-auto rounded-lg bg-gray-50 py-2.5 text-center text-sm text-gray-400">
-              Not yet available
-            </div>
-          )}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
