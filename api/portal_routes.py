@@ -135,12 +135,18 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
                 version_id=None,
                 _user=_mock_user,
             )
-            if hasattr(response, "body"):
-                return HTMLResponse(content=response.body.decode("utf-8"), status_code=200)
-            return response
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.exception("portal_report_html failed for job %s", job_id)
             raise HTTPException(status_code=500, detail=f"Report render failed: {exc}") from exc
+
+    try:
+        body = response.body
+        html = body.decode("utf-8") if isinstance(body, (bytes, bytearray)) else str(body)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Report decode failed: {exc}") from exc
+    return HTMLResponse(content=html, status_code=200)
 
 
 # ---------------------------------------------------------------------------
