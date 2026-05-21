@@ -150,6 +150,46 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
 
 
 # ---------------------------------------------------------------------------
+# Report debug — temporary diagnostic, remove once report rendering confirmed
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/jobs/{job_id}/report-debug")
+def portal_report_debug(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Return JSON describing what generate_html_report does for this job."""
+    import traceback
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _assert_job_belongs_to_client(job_id, client_db_id, con)
+        _org_id = _portal_org_id(con, client_db_id)
+
+    from api.job_report_routes import generate_html_report, get_job_data
+
+    result: dict = {"job_id": job_id, "org_id": _org_id}
+    _mock_user = {"email": "portal-viewer", "role": "portal", "sub": "portal"}
+
+    with org_context(_org_id):
+        try:
+            jd = get_job_data(int(job_id))
+            result["job_data_found"] = jd is not None
+            result["job_title"] = (jd or {}).get("title")
+        except Exception as exc:
+            result["job_data_error"] = str(exc)
+
+        try:
+            response = generate_html_report(
+                job_id=int(job_id), template_id=None, version_id=None, _user=_mock_user
+            )
+            result["html_ok"] = True
+            result["response_type"] = type(response).__name__
+            result["body_length"] = len(getattr(response, "body", b""))
+        except Exception as exc:
+            result["html_error"] = str(exc)
+            result["html_traceback"] = traceback.format_exc()
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Comments
 # ---------------------------------------------------------------------------
 
