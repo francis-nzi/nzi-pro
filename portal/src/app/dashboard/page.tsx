@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Clock, FileText, MessageSquare } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, FileText, MessageSquare } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
 import PortalShell from "@/components/PortalShell";
@@ -112,6 +112,59 @@ function ChartSection({ scopeData, total, trendData, topCategoryData, year }: {
           year={year}
         />
       </div>
+    </div>
+  );
+}
+
+// ── Year-based report cards ───────────────────────────────────────────────────
+
+const REVIEW_STATUS_RANK: Record<string, number> = {
+  approved: 4, sent_for_review: 3, changes_requested: 2, draft: 1, not_sent: 0,
+};
+
+function ReportYearCards({ jobs }: { jobs: Job[] }) {
+  const byYear = new Map<number, Job>();
+  for (const job of jobs) {
+    const yr = job.reporting_year ?? 0;
+    const existing = byYear.get(yr);
+    const rank = REVIEW_STATUS_RANK[job.review_status] ?? 0;
+    if (!existing || rank > (REVIEW_STATUS_RANK[existing.review_status] ?? 0)) {
+      byYear.set(yr, job);
+    }
+  }
+  const sorted = Array.from(byYear.entries()).sort((a, b) => b[0] - a[0]);
+  const canView = (s: string) => s === "approved" || s === "sent_for_review" || s === "changes_requested";
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {sorted.map(([year, job]) => (
+        <div key={year} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
+              <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
+            </div>
+            <ReviewIcon status={job.review_status} />
+          </div>
+          <span className={`self-start inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${REVIEW_COLOURS[job.review_status] ?? "bg-gray-100 text-gray-500"}`}>
+            {REVIEW_LABELS[job.review_status] ?? job.review_status}
+          </span>
+          {canView(job.review_status) ? (
+            <Link
+              href={`/jobs/${job.job_id}/view`}
+              className="mt-auto flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white transition-colors"
+              style={{ backgroundColor: "#F26624" }}
+            >
+              <ExternalLink className="h-4 w-4" />
+              View Report
+            </Link>
+          ) : (
+            <div className="mt-auto rounded-lg bg-gray-50 py-2.5 text-center text-sm text-gray-400">
+              Not yet available
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -367,47 +420,7 @@ function DashboardPageInner() {
                 No reports available yet. Your NZI contact will send your report for review when it is ready.
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {jobs.map(job => {
-                  const canReview = job.review_status === "sent_for_review" || job.review_status === "changes_requested" || job.review_status === "approved";
-                  return (
-                    <div key={job.job_id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-xs text-gray-400 font-medium uppercase tracking-wide">
-                            {job.reporting_year ?? "—"}
-                          </div>
-                          <div className="mt-0.5 font-semibold text-gray-900 leading-tight">
-                            {job.title || `Job ${job.job_id}`}
-                          </div>
-                          {job.job_number && (
-                            <div className="mt-0.5 text-xs text-gray-400">{job.job_number}</div>
-                          )}
-                        </div>
-                        <ReviewIcon status={job.review_status} />
-                      </div>
-                      <div className="mt-3">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${REVIEW_COLOURS[job.review_status] ?? "bg-gray-100 text-gray-500"}`}>
-                          {REVIEW_LABELS[job.review_status] ?? job.review_status}
-                        </span>
-                      </div>
-                      {canReview ? (
-                        <Link
-                          href={`/jobs/${job.job_id}/review`}
-                          className="mt-4 block w-full rounded-lg py-2 text-center text-sm font-medium text-white transition-colors"
-                          style={{ backgroundColor: "#F26624" }}
-                        >
-                          {job.review_status === "approved" ? "View Report" : "Review Report"}
-                        </Link>
-                      ) : (
-                        <div className="mt-4 rounded-lg bg-gray-50 py-2 text-center text-sm text-gray-400">
-                          Not yet available
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <ReportYearCards jobs={jobs} />
             )}
           </div>
         )}

@@ -121,22 +121,22 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
     client_db_id = int(current_user["client_db_id"])
     with get_conn() as con:
         _assert_job_belongs_to_client(job_id, client_db_id, con)
+        _org_id = _portal_org_id(con, client_db_id)
 
-    # Delegate to the existing report render (which does its own DB access)
     from api.job_report_routes import generate_html_report
-    from fastapi import Request
     from starlette.datastructures import QueryParams
 
     class _MockRequest:
         query_params = QueryParams("")
 
-    try:
-        response = generate_html_report(int(job_id), request=_MockRequest())
-        if hasattr(response, "body"):
-            return HTMLResponse(content=response.body.decode("utf-8"), status_code=200)
-        return response
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Report render failed: {exc}") from exc
+    with org_context(_org_id):
+        try:
+            response = generate_html_report(int(job_id), request=_MockRequest())
+            if hasattr(response, "body"):
+                return HTMLResponse(content=response.body.decode("utf-8"), status_code=200)
+            return response
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Report render failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
