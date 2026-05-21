@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ClientReviewNotifications from "@/components/ClientReviewNotifications";
 import IntelligenceDashboard from "@/components/IntelligenceDashboard";
 import TaskCalendar from "@/components/TaskCalendar";
 import StatusBadge from "@/components/StatusBadge";
@@ -293,6 +294,11 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             <Card key={i}><CardContent className="pt-6 pb-4"><div className="h-10 bg-muted animate-pulse rounded" /></CardContent></Card>
           ))}
         </div>
+      )}
+
+      {/* Client review notifications — shown whenever there are open client comments */}
+      {(ov || !loading) && (
+        <ClientReviewNotifications baseUrl={api} crmOwner={crm} />
       )}
 
       {/* Tabs */}

@@ -2717,3 +2717,42 @@ def export_dashboard_report(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export dashboard report: {e}")
+
+
+@router.get("/dashboard/review-notifications")
+def get_review_notifications(
+    crm_owner: str | None = Query(None),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Jobs with open client portal comments awaiting CRM response."""
+    with get_conn() as con:
+        rows = con.execute(
+            """
+            SELECT
+                j.job_id,
+                COALESCE(j.job_number, '') AS job_number,
+                COALESCE(j.title, '')      AS title,
+                COALESCE(cl.client_name, '') AS client_name,
+                COALESCE(j.crm_owner, '')  AS crm_owner,
+                COUNT(rrc.comment_id)      AS open_count,
+                MAX(rrc.created_at)        AS last_comment_at,
+                rr.status                  AS review_status
+            FROM report_reviews rr
+            JOIN report_review_comments rrc ON rrc.review_id = rr.review_id
+            JOIN jobs j ON j.job_id = rr.job_id
+            LEFT JOIN clients cl ON cl.client_db_id = j.client_db_id
+            WHERE rrc.author_type = 'client'
+              AND rrc.status = 'open'
+            GROUP BY j.job_id, j.job_number, j.title, cl.client_name, j.crm_owner, rr.status
+            ORDER BY MAX(rrc.created_at) DESC NULLS LAST
+            """,
+        ).fetchall()
+
+    cols = ["job_id", "job_number", "title", "client_name", "crm_owner",
+            "open_count", "last_comment_at", "review_status"]
+    items = [dict(zip(cols, row)) for row in rows]
+
+    if crm_owner:
+        items = [i for i in items if (i.get("crm_owner") or "") == crm_owner]
+
+    return {"ok": True, "items": items, "total": len(items)}
