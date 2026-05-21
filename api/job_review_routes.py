@@ -235,6 +235,8 @@ def send_job_for_review(
         from api.job_report_routes import generate_html_report
         generate_html_report(
             job_id=int(job_id),
+            template_id=None,
+            version_id=None,
             save_version=True,
             report_version_status="review",
             report_version_label="For Client Review",
@@ -262,6 +264,8 @@ def generate_review_snapshot(
         from api.job_report_routes import generate_html_report
         generate_html_report(
             job_id=int(job_id),
+            template_id=None,
+            version_id=None,
             save_version=True,
             report_version_status="review",
             report_version_label="For Client Review",
