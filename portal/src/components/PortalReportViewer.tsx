@@ -559,7 +559,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                     {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                   </Pie>
-                  <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
+                  <Tooltip formatter={(v: unknown, n: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(n ?? "")]} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -843,7 +843,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                     <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="72%" outerRadius="94%" paddingAngle={2}>
                       {scopeDonutData.map(entry => <Cell key={entry.name} fill={SCOPE_COLORS[entry.name] ?? "#999"} />)}
                     </Pie>
-                    <Tooltip formatter={(v: number | undefined, n: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", n ?? ""]} />
+                    <Tooltip formatter={(v: unknown, n: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(n ?? "")]} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -974,7 +974,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F0F0F0" />
                   <XAxis type="number" tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} />
                   <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 9 }} />
-                  <Tooltip formatter={(v: number | undefined, _: string | undefined, props: { payload?: { fullName?: string } }) => [v != null ? `${fmt(v)} tCO₂e` : "—", props.payload?.fullName ?? ""]} />
+                  <Tooltip formatter={(v: unknown, _: unknown, props: { payload?: { fullName?: string } }) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", props.payload?.fullName ?? ""]} />
                   <Bar dataKey="value" name="tCO₂e" radius={[0, 3, 3, 0]}>
                     {activityBarData.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.fill} />)}
                   </Bar>
@@ -1251,7 +1251,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F0F0F0" vertical={false} />
                   <XAxis dataKey="year" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} padding={{ left: 60, right: 60 }} />
                   <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={52} />
-                  <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} labelFormatter={(l: unknown) => `Year: ${l}`} />
+                  <Tooltip formatter={(v: unknown, name: unknown) => [v != null ? `${fmt(Number(v))} tCO₂e` : "—", String(name ?? "")]} labelFormatter={(l: unknown) => `Year: ${l}`} />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="scope1" name="Scope 1" stackId="a" fill={SCOPE_COLORS["Scope 1"]} />
                   <Bar dataKey="scope2" name="Scope 2" stackId="a" fill={SCOPE_COLORS["Scope 2"]} />
