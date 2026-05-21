@@ -951,7 +951,7 @@ def _load_report_version_file_payload(con, job_id: int, file_id: int) -> dict[st
     }
 
 
-def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
+def _render_report_snapshot_html(snapshot_payload: dict[str, Any], *, portal_view: bool = False) -> str:
     template_meta = snapshot_payload.get("template") or snapshot_payload.get("render_template") or {}
     template_selection = None
     if isinstance(template_meta, dict):
@@ -1011,6 +1011,7 @@ def _render_report_snapshot_html(snapshot_payload: dict[str, Any]) -> str:
         activity_comparison=snapshot_payload.get("activity_comparison") or {},
         benchmark_site_breakdowns=snapshot_payload.get("benchmark_site_breakdowns") or {},
         site_overall_comparison=snapshot_payload.get("site_overall_comparison") or {},
+        portal_view=portal_view,
     )
     render_values = snapshot_payload.get("render_values") or {}
     return _apply_braced_placeholder_substitution(html_content, render_values)

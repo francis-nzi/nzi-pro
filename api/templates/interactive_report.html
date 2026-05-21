@@ -861,12 +861,14 @@
 {% set tv = template_variables if template_variables is defined and template_variables else {} %}
 
 {% block content %}
-<!-- Print Controls (Screen Only) -->
-    <div class="print-controls">
-        <button class="print-button" onclick="window.print()">
-            ðŸ“„ Download PDF
+<!-- Print Controls (Screen Only) — hidden when served via portal -->
+    {% if not portal_view %}
+    <div class=”print-controls”>
+        <button class=”print-button” onclick=”window.print()”>
+            ðŸ”„ Download PDF
         </button>
     </div>
+    {% endif %}
 
     <div class="container">
         <!-- COVER PAGE -->

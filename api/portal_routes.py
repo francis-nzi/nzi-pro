@@ -161,7 +161,7 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Report snapshot is corrupted: {exc}") from exc
     try:
-        html_content = _render_report_snapshot_html(snapshot_payload)
+        html_content = _render_report_snapshot_html(snapshot_payload, portal_view=True)
     except Exception as exc:
         logger.exception("portal_report_html: snapshot render failed for job %s", job_id)
         raise HTTPException(status_code=500, detail=f"Report render failed: {exc}") from exc
