@@ -54,7 +54,7 @@ export default function ReportViewPage() {
 
         {error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            Could not load report: {error}
+            {error.startsWith("404:") ? error.replace(/^404:\s*/, "") : `Could not load report: ${error}`}
           </div>
         ) : loading ? (
           <div className="rounded-xl border border-gray-200 bg-white p-16 text-center text-sm text-gray-400 shadow-sm">
