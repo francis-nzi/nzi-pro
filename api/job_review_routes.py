@@ -249,6 +249,32 @@ def send_job_for_review(
     return {"ok": True, "review": review, "notified_count": len(portal_users)}
 
 
+@router.post("/jobs/{job_id}/review/generate-snapshot")
+def generate_review_snapshot(
+    job_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Generate (or refresh) the portal HTML snapshot for this job without re-sending the client notification."""
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+
+    try:
+        from api.job_report_routes import generate_html_report
+        generate_html_report(
+            job_id=int(job_id),
+            save_version=True,
+            report_version_status="review",
+            report_version_label="For Client Review",
+            _user=_user,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate snapshot: {exc}") from exc
+
+    return {"ok": True, "message": "Report snapshot generated successfully"}
+
+
 def _get_active_portal_users_for_job(job_id: int, con) -> list[dict]:
     row = con.execute("SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
     if not row:

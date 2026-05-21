@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, MessageSquare, Send, UserPlus, X } from "lucide-react";
+import { CheckCircle2, MessageSquare, RefreshCw, Send, UserPlus, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,7 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [snapshotting, setSnapshotting] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -141,6 +142,25 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
       setError((e as Error).message);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleGenerateSnapshot() {
+    setSnapshotting(true);
+    setStatus("");
+    setError("");
+    try {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/review/generate-snapshot`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json() as { ok?: boolean; message?: string };
+      if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Failed to generate snapshot");
+      setStatus(data.message ?? "Portal snapshot refreshed.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSnapshotting(false);
     }
   }
 
@@ -231,6 +251,10 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
             </CardDescription>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={handleGenerateSnapshot} disabled={snapshotting} title="Refresh the report snapshot shown in the client portal (no email sent)">
+              <RefreshCw className={`mr-2 h-4 w-4 ${snapshotting ? "animate-spin" : ""}`} />
+              {snapshotting ? "Generating…" : "Refresh Portal Snapshot"}
+            </Button>
             {review?.status !== "approved" && (
               <Button onClick={handleSendForReview} disabled={sending || portalUsers.filter(u => u.is_active).length === 0}>
                 <Send className="mr-2 h-4 w-4" />
