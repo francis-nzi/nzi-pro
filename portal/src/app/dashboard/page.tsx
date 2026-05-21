@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Clock, FileText, MessageSquare } from "lucide-react";
 import { apiFetch } from "@/lib/auth";
 import { formatEmissions } from "@/lib/format";
@@ -119,8 +120,28 @@ function ChartSection({ scopeData, total, trendData, topCategoryData, year }: {
 
 type TabKey = "dashboard" | "reporting" | "reports";
 
+const VALID_TABS: TabKey[] = ["dashboard", "reporting", "reports"];
+
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  return (
+    <Suspense fallback={null}>
+      <DashboardPageInner />
+    </Suspense>
+  );
+}
+
+function DashboardPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const tabFromUrl = searchParams.get("tab") as TabKey | null;
+  const initialTab: TabKey = tabFromUrl && VALID_TABS.includes(tabFromUrl) ? tabFromUrl : "dashboard";
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+
+  function handleTabChange(tab: TabKey) {
+    setActiveTab(tab);
+    router.replace(`/dashboard?tab=${tab}`, { scroll: false });
+  }
 
   // Jobs (Reports tab)
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -240,7 +261,7 @@ export default function DashboardPage() {
           {tabs.map(tab => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabChange(tab.key)}
               className={`px-5 py-2.5 text-sm font-medium transition-colors ${activeTab === tab.key ? "border-b-2 border-orange-500 text-orange-600" : "text-gray-500 hover:text-gray-700"}`}
             >
               {tab.label}
