@@ -124,18 +124,22 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
         _org_id = _portal_org_id(con, client_db_id)
 
     from api.job_report_routes import generate_html_report
-    from starlette.datastructures import QueryParams
 
-    class _MockRequest:
-        query_params = QueryParams("")
+    _mock_user = {"email": "portal-viewer", "role": "portal", "sub": "portal"}
 
     with org_context(_org_id):
         try:
-            response = generate_html_report(int(job_id), request=_MockRequest())
+            response = generate_html_report(
+                job_id=int(job_id),
+                template_id=None,
+                version_id=None,
+                _user=_mock_user,
+            )
             if hasattr(response, "body"):
                 return HTMLResponse(content=response.body.decode("utf-8"), status_code=200)
             return response
         except Exception as exc:
+            logger.exception("portal_report_html failed for job %s", job_id)
             raise HTTPException(status_code=500, detail=f"Report render failed: {exc}") from exc
 
 
