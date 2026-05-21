@@ -122,6 +122,12 @@ function formatShortDay(dateStr: string): string {
   return d.toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
 }
 
+function shortTaskTitle(title: string, maxLength = 32): string {
+  const cleaned = String(title || "").trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
@@ -564,7 +570,7 @@ function MonthGrid({
                       ].join(" ")}
                       title={task.title}
                     >
-                      {task.title}
+                      {shortTaskTitle(task.title)}
                     </button>
                   );
                 })}
@@ -708,7 +714,7 @@ function TaskRow({
           "text-sm font-medium leading-snug truncate",
           isDone ? "line-through text-muted-foreground" : "",
         ].join(" ")}>
-          {task.title}
+          {shortTaskTitle(task.title, 36)}
         </p>
         <div className="flex items-center flex-wrap gap-2 mt-1">
           <span className={`text-[10px] font-semibold px-1.5 py-0 rounded ${PRIORITY_CHIP[task.priority]}`}>
@@ -838,7 +844,16 @@ function TaskDetailModal({
           {task.completed_at && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Check className="h-3.5 w-3.5 text-green-500" />
-              <span>Completed {new Date(task.completed_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+              <span>
+                Completed{" "}
+                {new Date(task.completed_at).toLocaleString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
             </div>
           )}
         </div>

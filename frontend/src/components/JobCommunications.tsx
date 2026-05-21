@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import JobOverviewLetter from "@/components/JobOverviewLetter";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import TaskAssigneePicker, { type TaskAssigneeOption } from "@/components/TaskAssigneePicker";
+import { Edit } from "lucide-react";
 
 type Communication = {
   communication_id: number;
@@ -78,6 +80,19 @@ type InboxItem = {
   taskId?: number;
 };
 
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,9 +115,11 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
 
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
-  const [taskAssignee, setTaskAssignee] = useState("");
+  const [taskAssignees, setTaskAssignees] = useState<string[]>([]);
   const [taskPriority, setTaskPriority] = useState("normal");
   const [taskDueDate, setTaskDueDate] = useState("");
+  const [taskStatus, setTaskStatus] = useState("open");
+  const [taskEditingId, setTaskEditingId] = useState<number | null>(null);
 
   const [automationRecipient, setAutomationRecipient] = useState("");
   const [sendingAlerts, setSendingAlerts] = useState(false);
@@ -141,6 +158,76 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
   const contacts = useMemo(() => data?.lookups?.contacts || [], [data]);
   const communications = useMemo(() => data?.communications || [], [data]);
   const tasks = useMemo(() => data?.tasks || [], [data]);
+  const taskAssigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
+    const options: TaskAssigneeOption[] = [];
+    const seen = new Set<string>();
+
+    teamUsers.forEach((user) => {
+      const label = String(user.full_name || user.email || "").trim();
+      if (!label) return;
+      const value = `team:${String(user.email || user.full_name || "").trim().toLowerCase()}`;
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({
+        value,
+        label,
+        meta: [user.email, "Team member"].filter(Boolean).join(" • "),
+      });
+    });
+
+    contacts.forEach((contact) => {
+      const label = String(contact.full_name || contact.email || "").trim();
+      if (!label) return;
+      const value = `contact:${contact.contact_id}`;
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({
+        value,
+        label,
+        meta: [contact.email, "Client contact"].filter(Boolean).join(" • "),
+      });
+    });
+
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [teamUsers, contacts]);
+
+  const taskAssigneeLabels = useMemo(
+    () =>
+      taskAssignees
+        .map((value) => taskAssigneeOptions.find((option) => option.value === value)?.label)
+        .filter((value): value is string => Boolean(value)),
+    [taskAssignees, taskAssigneeOptions]
+  );
+
+  function resetTaskForm() {
+    setTaskTitle("");
+    setTaskDetails("");
+    setTaskAssignees([]);
+    setTaskPriority("normal");
+    setTaskDueDate("");
+    setTaskStatus("open");
+    setTaskEditingId(null);
+  }
+
+  function parseTaskAssignees(raw: string): string[] {
+    const labels = String(raw || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const byLabel = new Map(taskAssigneeOptions.map((option) => [option.label.toLowerCase(), option.value]));
+    return labels.map((label) => byLabel.get(label.toLowerCase()) || "").filter(Boolean);
+  }
+
+  function openTaskEditor(task: Task) {
+    setTaskEditingId(task.task_id);
+    setTaskTitle(task.title || "");
+    setTaskDetails(task.details || "");
+    setTaskAssignees(parseTaskAssignees(task.assigned_to || ""));
+    setTaskPriority(task.priority || "normal");
+    setTaskDueDate(task.due_date || "");
+    setTaskStatus(task.status || "open");
+    setStatus(`Editing task ${task.task_id}.`);
+  }
 
   const showInbox = mode === "all" || mode === "inbox";
   const showTimeline = mode === "all" || mode === "timeline" || mode === "notes";
@@ -149,6 +236,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
   const showTasks = mode === "all" || mode === "tasks";
   const showAutomation = mode === "all" || mode === "automation";
   const showLogCard = mode === "all" || mode === "timeline" || mode === "notes";
+  const mainPanelGridClass = showTimeline && showTasks ? "grid gap-6 lg:grid-cols-2" : "grid gap-6 grid-cols-1";
 
   const inboxItems = useMemo<InboxItem[]>(() => {
     const commItems: InboxItem[] = communications.map((c) => ({
@@ -314,39 +402,39 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
     }
   }
 
-  async function addTask() {
+  async function saveTask() {
     if (!taskTitle.trim()) {
       setStatus("Task title is required.");
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/communications/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          title: taskTitle.trim(),
-          details: taskDetails.trim(),
-          assigned_to: taskAssignee || null,
-          priority: taskPriority,
-          due_date: taskDueDate || null,
-          status: "open",
-        }),
-      });
+      const isEditing = taskEditingId !== null;
+      const res = await fetch(
+        `${baseUrl}/jobs/${jobId}/communications/tasks${isEditing ? `/${taskEditingId}` : ""}`,
+        {
+          method: isEditing ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            title: taskTitle.trim(),
+            details: taskDetails.trim(),
+            assigned_to: taskAssigneeLabels.join(", ") || null,
+            priority: taskPriority,
+            due_date: taskDueDate || null,
+            status: taskStatus,
+          }),
+        },
+      );
       if (!res.ok) {
         const t = await res.text().catch(() => "");
-        throw new Error(`Task save failed: ${res.status}${t ? ` - ${t}` : ""}`);
+        throw new Error(`${isEditing ? "Task update" : "Task save"} failed: ${res.status}${t ? ` - ${t}` : ""}`);
       }
-      setTaskTitle("");
-      setTaskDetails("");
-      setTaskAssignee("");
-      setTaskPriority("normal");
-      setTaskDueDate("");
-      setStatus("Task created.");
+      resetTaskForm();
+      setStatus(isEditing ? "Task updated." : "Task created.");
       await load();
     } catch (e) {
-      setStatus(`Error creating task: ${(e as Error).message}`);
+      setStatus(`Error saving task: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -710,36 +798,33 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
           </Card>
         ) : null}
 
-        {showTasks ? (
-          <Card>
+      {showTasks ? (
+          <Card className="w-full">
             <CardHeader><CardTitle>Internal Tasks</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3 w-full">
               <div className="space-y-2">
                 <Label>Task Title</Label>
-                <Input value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} />
+                <Input value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} className="w-full" />
               </div>
               <div className="space-y-2">
                 <Label>Details</Label>
-                <Textarea value={taskDetails} onChange={(e) => setTaskDetails(e.target.value)} rows={4} />
+                <Textarea value={taskDetails} onChange={(e) => setTaskDetails(e.target.value)} rows={5} className="w-full" />
               </div>
               <div className="space-y-2">
                 <Label>Assign To</Label>
-                <Select value={taskAssignee} onValueChange={setTaskAssignee}>
-                  <SelectTrigger><SelectValue placeholder="Select team member" /></SelectTrigger>
-                  <SelectContent>
-                    {teamUsers.map((u) => (
-                      <SelectItem key={u.email || u.full_name} value={u.email || u.full_name}>
-                        {u.full_name || u.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <TaskAssigneePicker
+                  value={taskAssignees}
+                  options={taskAssigneeOptions}
+                  onChange={setTaskAssignees}
+                  placeholder="Search team members or contacts..."
+                  emptyMessage="No assignees match your search."
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Priority</Label>
                   <Select value={taskPriority} onValueChange={setTaskPriority}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="low">Low</SelectItem>
                       <SelectItem value="normal">Normal</SelectItem>
@@ -750,10 +835,31 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                 </div>
                 <div className="space-y-2">
                   <Label>Due Date</Label>
-                  <Input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} />
+                  <Input type="date" value={taskDueDate} onChange={(e) => setTaskDueDate(e.target.value)} className="w-full" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={taskStatus} onValueChange={setTaskStatus}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="done">Done</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <Button onClick={addTask} disabled={saving}>Create Task</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => void saveTask()} disabled={saving}>
+                  {taskEditingId ? "Update Task" : "Create Task"}
+                </Button>
+                {taskEditingId ? (
+                  <Button variant="outline" onClick={resetTaskForm} disabled={saving}>
+                    Cancel Edit
+                  </Button>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         ) : null}
@@ -789,7 +895,7 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
       ) : null}
 
       {!showNotes ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className={mainPanelGridClass}>
           {showTimeline ? (
             <Card>
               <CardHeader>
@@ -830,23 +936,35 @@ export default function JobCommunications({ jobId, baseUrl, mode = "all" }: Prop
                   <div className="text-sm text-muted-foreground">No tasks yet.</div>
                 ) : (
                   tasks.map((t) => (
-                    <div key={t.task_id} className="rounded-md border p-3">
+                    <div key={t.task_id} className="w-full rounded-md border p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="font-medium">{t.title}</div>
                         <div className="text-xs text-muted-foreground">{t.priority}</div>
                       </div>
                       {t.details ? <div className="mt-1 text-sm text-muted-foreground">{t.details}</div> : null}
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <div className="text-xs text-muted-foreground">Assigned: {t.assigned_to || "-"} | Due: {t.due_date || "-"} | By: {t.created_by || "-"}</div>
-                        <Select value={t.status} onValueChange={(v) => void updateTaskStatus(t.task_id, v)}>
-                          <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="open">Open</SelectItem>
-                            <SelectItem value="in_progress">In Progress</SelectItem>
-                            <SelectItem value="done">Done</SelectItem>
-                            <SelectItem value="closed">Closed</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      {t.completed_at ? (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Completed: {formatDateTime(t.completed_at)}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">
+                          Assigned: {t.assigned_to || "-"} | Due: {t.due_date || "-"} | By: {t.created_by || "-"}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => openTaskEditor(t)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Select value={t.status} onValueChange={(v) => void updateTaskStatus(t.task_id, v)}>
+                            <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="in_progress">In Progress</SelectItem>
+                              <SelectItem value="done">Done</SelectItem>
+                              <SelectItem value="closed">Closed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   ))

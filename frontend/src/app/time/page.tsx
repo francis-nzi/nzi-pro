@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { Trash2, Edit } from "lucide-react";
 import { useConfirmDialog } from "@/components/ConfirmDialogProvider";
+import TaskAssigneePicker, { type TaskAssigneeOption } from "@/components/TaskAssigneePicker";
 
 function apiBaseUrl() {
   return "/api/backend";
@@ -90,12 +91,6 @@ interface JobDetail {
   client_db_id?: number | null;
 }
 
-interface TaskAssigneeOption {
-  value: string;
-  label: string;
-  sourceLabel: string;
-}
-
 function addDaysIso(sourceIso: string, days: number): string {
   const dt = new Date(`${sourceIso}T00:00:00`);
   if (Number.isNaN(dt.getTime())) return sourceIso;
@@ -153,7 +148,7 @@ function TimePageContent() {
       options.push({
         value: key,
         label,
-        sourceLabel: [member.position, member.role, member.email].filter(Boolean).join(" • "),
+        meta: [member.position, member.role, member.email].filter(Boolean).join(" • "),
       });
     });
 
@@ -166,7 +161,7 @@ function TimePageContent() {
       options.push({
         value: key,
         label,
-        sourceLabel: [contact.job_title, contact.email].filter(Boolean).join(" • "),
+        meta: [contact.job_title, contact.email].filter(Boolean).join(" • "),
       });
     });
 
@@ -671,50 +666,14 @@ function TimePageContent() {
                   </div>
                   <div className="space-y-2">
                     <Label>Assign to *</Label>
-                    <div className="rounded-md border bg-white p-3">
-                      {taskAssigneeLoading ? (
-                        <div className="text-sm text-muted-foreground">Loading assignees...</div>
-                      ) : taskAssigneeOptions.length === 0 ? (
-                        <div className="text-sm text-muted-foreground">
-                          Pick a job to load team members and client contacts.
-                        </div>
-                      ) : (
-                        <div className="grid gap-2 md:grid-cols-2">
-                          {taskAssigneeOptions.map((option) => {
-                            const checked = selectedTaskAssignees.includes(option.value);
-                            return (
-                              <label key={option.value} className="flex cursor-pointer items-start gap-3 rounded-md border p-2 hover:bg-slate-50">
-                                <input
-                                  type="checkbox"
-                                  className="mt-1 h-4 w-4 rounded border-slate-300"
-                                  checked={checked}
-                                  onChange={() => {
-                                    setSelectedTaskAssignees((prev) =>
-                                      checked ? prev.filter((value) => value !== option.value) : [...prev, option.value]
-                                    );
-                                  }}
-                                />
-                                <span className="min-w-0">
-                                  <span className="block text-sm font-medium text-slate-900">{option.label}</span>
-                                  <span className="block text-xs text-muted-foreground">
-                                    {option.sourceLabel || (option.value.startsWith("client:") ? "Client contact" : "Team member")}
-                                  </span>
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    {selectedTaskAssigneeLabels.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {selectedTaskAssigneeLabels.map((label) => (
-                          <span key={label} className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-800">
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
+                    <TaskAssigneePicker
+                      value={selectedTaskAssignees}
+                      options={taskAssigneeOptions}
+                      onChange={setSelectedTaskAssignees}
+                      loading={taskAssigneeLoading}
+                      placeholder={taskAssigneeOptions.length === 0 ? "Pick a job to load assignees..." : "Search team members or contacts..."}
+                      emptyMessage={selectedJobId ? "No assignees match your search." : "Pick a job to load assignees."}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="taskDetails">Task Details</Label>
