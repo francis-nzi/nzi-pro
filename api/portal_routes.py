@@ -318,6 +318,39 @@ def _portal_category_label(row) -> str:
     return "Uncategorized"
 
 
+def _portal_load_crp_entries(con, job_ids: list[int]):
+    """Return crp_scope_entries rows shaped like load_combined_reporting_rows output."""
+    import pandas as pd
+    if not job_ids:
+        return pd.DataFrame()
+    ph = ",".join(["%s"] * len(job_ids))
+    return con.execute(
+        f"""
+        SELECT
+            cse.job_id,
+            COALESCE(
+                EXTRACT(YEAR FROM j.reporting_period_end),
+                EXTRACT(YEAR FROM cjd.reporting_period_to),
+                j.reporting_year
+            ) AS dashboard_year,
+            cse.scope,
+            COALESCE(NULLIF(TRIM(CAST(cse.category AS VARCHAR)), ''), 'Uncategorized') AS dataset_category,
+            COALESCE(NULLIF(TRIM(CAST(cse.category AS VARCHAR)), ''), 'Uncategorized') AS category,
+            COALESCE(NULLIF(TRIM(CAST(cse.category AS VARCHAR)), ''), 'Uncategorized') AS lookup_category,
+            'source_register'::text AS record_type,
+            COALESCE(cse.tco2e, 0) AS calc_tco2e,
+            'No Site Assigned'::text AS site_name
+        FROM crp_scope_entries cse
+        JOIN jobs j ON j.job_id = cse.job_id
+        LEFT JOIN crp_job_details cjd ON cjd.job_id = cse.job_id
+        WHERE cse.job_id IN ({ph})
+          AND cse.is_archived = FALSE
+          AND COALESCE(cse.tco2e, 0) != 0
+        """,
+        job_ids,
+    ).df()
+
+
 def _portal_org_id(con, client_db_id: int) -> str | None:
     """Look up the org_id for this client so we can mirror the CRM's org context."""
     row = con.execute(
@@ -374,6 +407,7 @@ def portal_metrics(
 
             scope_df = None
             if job_ids:
+                import pandas as pd
                 try:
                     rows_df = load_combined_reporting_rows(con, job_ids)
                     if rows_df is not None and not rows_df.empty:
@@ -384,6 +418,21 @@ def portal_metrics(
                         client_db_id, job_ids,
                     )
                     scope_df = None
+
+                # Merge CRP scope entries (jobs that store data in crp_scope_entries
+                # rather than job_scope_rows / job_emission_sources)
+                try:
+                    crp_df = _portal_load_crp_entries(con, job_ids)
+                    if crp_df is not None and not crp_df.empty:
+                        crp_df["emissions"] = crp_df["calc_tco2e"].astype(float)
+                        if scope_df is None or scope_df.empty:
+                            scope_df = crp_df
+                        else:
+                            scope_df = pd.concat([scope_df, crp_df], ignore_index=True)
+                except Exception as exc:
+                    logger.exception(
+                        "portal_metrics: crp entries load failed client_db_id=%s", client_db_id,
+                    )
 
             try:
                 benchmark_metrics = get_client_benchmark_metrics(con, client_db_id)
@@ -556,6 +605,20 @@ def portal_reporting_data(current_user: dict = Depends(portal_user_dep)):
                     client_db_id, job_ids,
                 )
                 raise HTTPException(status_code=500, detail=f"Failed to load emissions data: {exc}") from exc
+
+            # Merge CRP scope entries for jobs that use crp_scope_entries
+            try:
+                import pandas as pd
+                crp_df = _portal_load_crp_entries(con, job_ids)
+                if crp_df is not None and not crp_df.empty:
+                    if scope_df is None or scope_df.empty:
+                        scope_df = crp_df
+                    else:
+                        scope_df = pd.concat([scope_df, crp_df], ignore_index=True)
+            except Exception as exc:
+                logger.exception(
+                    "portal_reporting_data: crp entries load failed client_db_id=%s", client_db_id,
+                )
 
             if scope_df is None or scope_df.empty:
                 avail = sorted({_portal_safe_year(y) for y in jobs_df["dashboard_year"].dropna().unique() if _portal_safe_year(y)})
