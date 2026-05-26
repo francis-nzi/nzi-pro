@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import { BadgeAlert, Building2, Database, FileCog, Gauge, History, Mail, Palette, Settings2, ShieldCheck, Sparkles, Table2, Users, Workflow, Boxes, FileSpreadsheet, Clock3, Layers3, UploadCloud, BellRing, ArchiveRestore, Folders } from "lucide-react";
 import { AdminCenterShell } from "@/components/admin-center/AdminCenterShell";
-import { AdminCenterSidebar } from "@/components/admin-center/AdminCenterSidebar";
 
 export type AdminDomain = "People & Access" | "Reference Data" | "Reporting & Delivery" | "System & Governance";
 
@@ -63,27 +62,6 @@ export function AdminSectionShell({
   pathname: string;
   children: React.ReactNode;
 }) {
-  const section = useMemo(() => getAdminSectionByPath(pathname), [pathname]);
-  const [selectedDomain, setSelectedDomain] = useState<AdminDomain>(section?.domain ?? DOMAIN_ORDER[0]);
-
-  useEffect(() => {
-    setSelectedDomain(section?.domain ?? DOMAIN_ORDER[0]);
-  }, [section?.domain]);
-
-  return (
-    <AdminCenterShell
-      label="Admin"
-      sidebar={
-        <AdminCenterSidebar
-          activeDomain={selectedDomain}
-          onSelectDomain={setSelectedDomain}
-          onNavigate={() => {
-            // The surrounding shell handles mobile chrome; links just need to close the drawer on navigation.
-          }}
-        />
-      }
-    >
-      {children}
-    </AdminCenterShell>
-  );
+  void useMemo(() => getAdminSectionByPath(pathname), [pathname]);
+  return <AdminCenterShell>{children}</AdminCenterShell>;
 }
