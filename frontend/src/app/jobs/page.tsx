@@ -96,7 +96,11 @@ export default function JobsPage() {
         const res = await fetch(`${baseUrl}/jobs?${params.toString()}`, {
           credentials: "include",
         });
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          const detail = body?.detail ?? res.statusText;
+          throw new Error(`${res.status}: ${detail}`);
+        }
         const json = await res.json();
         if (cancelled) return;
         setItems(json.items ?? []);

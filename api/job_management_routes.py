@@ -567,7 +567,7 @@ def list_jobs(
                     "title": _json_null_if_na(r.get("title")),
                     "reporting_year": (
                         int(r.get("reporting_period_end").year)
-                        if r.get("reporting_period_end") is not None and hasattr(r.get("reporting_period_end"), "year")
+                        if _json_null_if_na(r.get("reporting_period_end")) is not None and hasattr(r.get("reporting_period_end"), "year")
                         else (
                             int(r.get("reporting_year"))
                             if _json_null_if_na(r.get("reporting_year")) is not None
