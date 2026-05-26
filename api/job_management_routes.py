@@ -383,10 +383,11 @@ def list_jobs(
             has_job_crm_name = _col_exists(con, "jobs", "crm_name")
             has_job_plan = _table_exists(con, "job_plan")
 
-            reporting_period_start_expr = "j.reporting_period_start" if has_reporting_period_start else "NULL::date AS reporting_period_start"
-            reporting_period_end_expr = "j.reporting_period_end" if has_reporting_period_end else "NULL::date AS reporting_period_end"
+            # Cast dates to text so psycopg3 never tries to parse out-of-range years (e.g. 62024)
+            reporting_period_start_expr = "j.reporting_period_start::text AS reporting_period_start" if has_reporting_period_start else "NULL::text AS reporting_period_start"
+            reporting_period_end_expr = "j.reporting_period_end::text AS reporting_period_end" if has_reporting_period_end else "NULL::text AS reporting_period_end"
             is_benchmark_expr = "j.is_benchmark" if has_is_benchmark else "NULL::boolean AS is_benchmark"
-            due_date_expr = "j.due_date" if has_due_date else "NULL::date AS due_date"
+            due_date_expr = "j.due_date::text AS due_date" if has_due_date else "NULL::text AS due_date"
             if has_job_crm_name and has_client_crm_owner:
                 crm_name_value_expr = "COALESCE(NULLIF(j.crm_name, ''), NULLIF(c.crm_owner, ''))"
             elif has_job_crm_name:
@@ -452,9 +453,9 @@ def list_jobs(
             if has_job_plan:
                 job_plan_join_sql = "LEFT JOIN job_plan jp ON jp.job_id = j.job_id"
                 job_plan_select_sql = """
-                               , jp.data_collection_due, jp.data_collection_completed_at
-                               , jp.first_draft_due, jp.first_draft_completed_at
-                               , jp.final_report_due, jp.final_report_completed_at
+                               , jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at
+                               , jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at
+                               , jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
                 """
                 if db_backend() == "postgres":
                     milestone_sort_expr = """
@@ -513,27 +514,34 @@ def list_jobs(
 
     # Helper function to calculate milestone status
     def get_milestone_status(due_date, completed_at):
-        """Calculate traffic light status: green, amber, red, completed"""
-        from datetime import date
+        from datetime import date, datetime
         import pandas as pd
 
-        if completed_at is not None and not pd.isna(completed_at):
-            return "completed"
-        if due_date is None or pd.isna(due_date):
+        try:
+            if completed_at is not None and completed_at not in ("", "None") and not pd.isna(completed_at):
+                return "completed"
+        except Exception:
+            pass
+        try:
+            if due_date is None or due_date in ("", "None") or pd.isna(due_date):
+                return "green"
+        except Exception:
             return "green"
 
-        # Handle pandas/python datetime values safely.
-        if hasattr(due_date, "date"):
-            due_date = due_date.date()
-
-        today = date.today()
-        days_until_due = (due_date - today).days
-
-        if days_until_due < -1:  # Overdue by more than 1 day
-            return "red"
-        elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
-            return "amber"
-        else:
+        try:
+            if isinstance(due_date, str):
+                due_date = datetime.strptime(due_date[:10], "%Y-%m-%d").date()
+            elif hasattr(due_date, "date"):
+                due_date = due_date.date()
+            today = date.today()
+            days_until_due = (due_date - today).days
+            if days_until_due < -1:
+                return "red"
+            elif days_until_due <= 7:
+                return "amber"
+            else:
+                return "green"
+        except Exception:
             return "green"
     
     def get_overall_status(statuses):
@@ -566,24 +574,14 @@ def list_jobs(
                     "job_number": _json_null_if_na(r.get("job_number")),
                     "title": _json_null_if_na(r.get("title")),
                     "reporting_year": (
-                        int(r.get("reporting_period_end").year)
-                        if _json_null_if_na(r.get("reporting_period_end")) is not None and hasattr(r.get("reporting_period_end"), "year")
-                        else (
-                            int(r.get("reporting_year"))
-                            if _json_null_if_na(r.get("reporting_year")) is not None
-                            else None
+                        lambda rpe, ry: (
+                            (lambda y: y if 1900 <= y <= 9999 else None)(int(str(rpe)[:4]))
+                            if rpe and str(rpe)[:4].isdigit()
+                            else (int(ry) if ry is not None else None)
                         )
-                    ),
-                    "reporting_period_start": (
-                        str(r.get("reporting_period_start"))
-                        if _json_null_if_na(r.get("reporting_period_start")) is not None
-                        else None
-                    ),
-                    "reporting_period_end": (
-                        str(r.get("reporting_period_end"))
-                        if _json_null_if_na(r.get("reporting_period_end")) is not None
-                        else None
-                    ),
+                    )(_json_null_if_na(r.get("reporting_period_end")), _json_null_if_na(r.get("reporting_year"))),
+                    "reporting_period_start": _json_null_if_na(r.get("reporting_period_start")) or None,
+                    "reporting_period_end": _json_null_if_na(r.get("reporting_period_end")) or None,
                     "is_benchmark": (
                         bool(r.get("is_benchmark"))
                         if _json_null_if_na(r.get("is_benchmark")) is not None
