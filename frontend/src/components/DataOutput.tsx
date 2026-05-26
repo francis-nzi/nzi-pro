@@ -732,19 +732,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                           {scopeExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <span className="font-semibold">{scope.scope_name}</span>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm font-medium">{formatNumber(scope.total_emissions, 2)} tCO₂e</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                          onClick={async (e) => {
-                              e.stopPropagation();
-                              await openScopeDetails(scope);
-                            }}
-                          >
-                            View Details
-                          </Button>
-                        </div>
+                        <span className="text-sm font-medium">{formatNumber(scope.total_emissions, 2)} tCO₂e</span>
                       </div>
 
                       <div className="px-3 pb-3">
@@ -1282,98 +1270,6 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
         </TabsContent>
       </Tabs>
 
-      {/* Detailed View */}
-      {selectedScope && detailedData && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>{detailedData.scope} - Detailed Breakdown</CardTitle>
-              <Button variant="outline" size="sm" onClick={() => setSelectedScope(null)}>
-                Close Details
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {detailedData.categories.map((category) => {
-                const categoryKey = `detail-${category.category_name}`;
-                const categoryExpanded = expandedCategories.has(categoryKey);
-                const activities = category.sites.flatMap((site) =>
-                  (site.activities || []).map((activity) => ({
-                    ...activity,
-                    site_name: activity.site_name || site.site_name,
-                  }))
-                );
-
-                return (
-                  <div key={categoryKey} className="border rounded-md">
-                    {/* Category Header */}
-                    <div
-                      className="flex items-center justify-between p-3 bg-muted hover:bg-muted/80 cursor-pointer"
-                      onClick={() => toggleCategory(categoryKey)}
-                    >
-                      <div className="flex items-center gap-2">
-                        {categoryExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        <span className="font-semibold">{category.category_name}</span>
-                      </div>
-                      <span className="font-medium">{formatNumber(category.total_emissions, 2)} tCO₂e</span>
-                    </div>
-
-                    {/* Individual Data Lines */}
-                    {categoryExpanded && (
-                      <div className="p-2">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-muted/50">
-                              <tr>
-                                <th className="text-left p-2">Site</th>
-                                <th className="text-left p-2">Activity</th>
-                                <th className="text-left p-2">Level 3</th>
-                                <th className="text-left p-2">Level 4</th>
-                                <th className="text-right p-2">Quantity</th>
-                                <th className="text-left p-2">Unit</th>
-                                <th className="text-right p-2">Emissions Factor</th>
-                                <th className="text-right p-2">Emissions (tCO₂e)</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {activities.map((activity, actIdx) => (
-                                <tr key={actIdx} className="border-t hover:bg-muted/30">
-                                  <td className="p-2 text-muted-foreground">{activity.site_name || "-"}</td>
-                                  <td className="p-2">
-                                    <div className="flex items-center gap-2">
-                                      <span>{activity.activity_name || "-"}</span>
-                                      {activity.is_custom_entry ? (
-                                        <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                                          CUSTOM
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  </td>
-                                  <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
-                                  <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
-                                  <td className="p-2 text-right">
-                                    {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
-                                  </td>
-                                  <td className="p-2">{activity.unit || "-"}</td>
-                                  <td className="p-2 text-right text-muted-foreground">
-                                    {activity.factor != null && activity.factor !== 0 ? formatNumber(activity.factor, 6) : "-"}
-                                  </td>
-                                  <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
