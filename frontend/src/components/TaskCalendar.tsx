@@ -16,6 +16,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import TaskAssigneePicker, { type TaskAssigneeOption } from "@/components/TaskAssigneePicker";
 import { getToken } from "@/lib/auth-client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -40,6 +51,25 @@ type CalendarTask = {
   created_at?: string | null;
   completed_at?: string | null;
   source: "job_communication" | "crm";
+};
+
+type TaskEditDraft = {
+  title: string;
+  details: string;
+  assignees: string[];
+  assigneeLabels: Record<string, string>;
+  priority: TaskPriority;
+  dueDate: string;
+  status: TaskStatus;
+};
+
+type UserLookup = {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role?: string | null;
+  position?: string | null;
+  status?: string | null;
 };
 
 type Props = {
@@ -128,6 +158,17 @@ function shortTaskTitle(title: string, maxLength = 32): string {
   return `${cleaned.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+function splitAssigneeText(raw: string): string[] {
+  return String(raw || "")
+    .split(/[,;\n]/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeLookupText(raw: string): string {
+  return String(raw || "").trim().toLowerCase();
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
@@ -140,6 +181,12 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<CalendarTask | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<TaskEditDraft | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [users, setUsers] = useState<UserLookup[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
   const now = todayStr();
 
   // ─── Data fetching ──────────────────────────────────────────────────────────
@@ -251,6 +298,41 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
     void fetchTasks();
   }, [fetchTasks]);
 
+  useEffect(() => {
+    let alive = true;
+    async function loadUsers() {
+      setUsersLoading(true);
+      try {
+        const res = await fetch(`${baseUrl}/admin/users`, {
+          credentials: "include",
+          headers: authHeaders(),
+        });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as { items?: UserLookup[] };
+        const activeUsers = (data.items ?? [])
+          .filter((user) => String(user.status || "Active").toLowerCase() !== "inactive")
+          .map((user) => ({
+            user_id: String(user.user_id || ""),
+            full_name: String(user.full_name || ""),
+            email: String(user.email || ""),
+            role: user.role || null,
+            position: user.position || null,
+            status: user.status || null,
+          }))
+          .filter((user) => user.user_id || user.full_name || user.email)
+          .sort((a, b) => String(a.full_name || a.email || a.user_id).localeCompare(String(b.full_name || b.email || b.user_id)));
+        if (alive) setUsers(activeUsers);
+      } finally {
+        if (alive) setUsersLoading(false);
+      }
+    }
+
+    void loadUsers();
+    return () => {
+      alive = false;
+    };
+  }, [baseUrl]);
+
   // ─── Calendar grid ──────────────────────────────────────────────────────────
 
   const calendarDays = useMemo(() => {
@@ -312,6 +394,104 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
     t => t.due_date && t.due_date < now && t.status !== "done" && t.status !== "closed",
   ).length;
 
+  const assigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
+    return users.map((user) => ({
+      value: user.user_id,
+      label: String(user.full_name || user.email || user.user_id).trim() || user.user_id,
+      meta: [user.role, user.position].filter(Boolean).join(" • ") || user.email || null,
+    }));
+  }, [users]);
+
+  const assigneeOptionLookup = useMemo(() => {
+    const byValue = new Map<string, TaskAssigneeOption>();
+    const byLabel = new Map<string, TaskAssigneeOption>();
+    for (const option of assigneeOptions) {
+      byValue.set(normalizeLookupText(option.value), option);
+      byLabel.set(normalizeLookupText(option.label), option);
+      if (option.meta) {
+        byLabel.set(normalizeLookupText(option.meta), option);
+      }
+    }
+    return { byValue, byLabel };
+  }, [assigneeOptions]);
+
+  const editAssigneeOptions = useMemo<TaskAssigneeOption[]>(() => {
+    if (!selectedTask || !editDraft) return assigneeOptions;
+    const merged = [...assigneeOptions];
+    for (const value of editDraft.assignees) {
+      if (!value.startsWith("manual:")) continue;
+      if (merged.some((option) => option.value === value)) continue;
+      const label = editDraft.assigneeLabels[value] || value.replace(/^manual:\d+:/, "");
+      merged.push({ value, label, meta: "Manual entry" });
+    }
+    return merged;
+  }, [assigneeOptions, editDraft, selectedTask]);
+
+  const resolveTaskAssigneeSelection = useCallback((task: CalendarTask): TaskEditDraft => {
+    const currentText = String(task.assignee || "").trim();
+    const assignees: string[] = [];
+    const assigneeLabels: Record<string, string> = {};
+
+    const addResolved = (rawValue: string, labelHint?: string) => {
+      const token = normalizeLookupText(rawValue);
+      const resolved = assigneeOptionLookup.byValue.get(token) || assigneeOptionLookup.byLabel.get(token);
+      if (resolved) {
+        assignees.push(resolved.value);
+        assigneeLabels[resolved.value] = resolved.label;
+        return;
+      }
+      if (labelHint) {
+        assignees.push(rawValue);
+        assigneeLabels[rawValue] = labelHint;
+        return;
+      }
+      assignees.push(rawValue);
+      assigneeLabels[rawValue] = rawValue;
+    };
+
+    if (task.source === "job_communication") {
+      const parts = splitAssigneeText(currentText);
+      if (parts.length === 0 && currentText) {
+        addResolved(`manual:0:${currentText}`, currentText);
+      } else {
+        parts.forEach((part, index) => {
+          const token = normalizeLookupText(part);
+          const resolved = assigneeOptionLookup.byValue.get(token) || assigneeOptionLookup.byLabel.get(token);
+          if (resolved) {
+            assignees.push(resolved.value);
+            assigneeLabels[resolved.value] = resolved.label;
+            return;
+          }
+          const manualValue = `manual:${index}:${part}`;
+          assignees.push(manualValue);
+          assigneeLabels[manualValue] = part;
+        });
+      }
+    } else {
+      if (currentText) {
+        const token = normalizeLookupText(currentText);
+        const resolved = assigneeOptionLookup.byValue.get(token) || assigneeOptionLookup.byLabel.get(token);
+        if (resolved) {
+          assignees.push(resolved.value);
+          assigneeLabels[resolved.value] = resolved.label;
+        } else {
+          assignees.push(`manual:0:${currentText}`);
+          assigneeLabels[`manual:0:${currentText}`] = currentText;
+        }
+      }
+    }
+
+    return {
+      title: task.title || "",
+      details: task.details || "",
+      assignees,
+      assigneeLabels,
+      priority: task.priority,
+      dueDate: task.due_date || "",
+      status: task.status,
+    };
+  }, [assigneeOptionLookup]);
+
   // ─── Task status update ─────────────────────────────────────────────────────
 
   const updateStatus = useCallback(async (task: CalendarTask, newStatus: TaskStatus) => {
@@ -335,6 +515,110 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
       setUpdatingId(null);
     }
   }, [baseUrl, fetchTasks]);
+
+  const beginEditTask = useCallback((task: CalendarTask) => {
+    setSelectedTask(task);
+    setEditingTaskId(task.id);
+    setEditDraft(resolveTaskAssigneeSelection(task));
+    setEditError("");
+  }, [resolveTaskAssigneeSelection]);
+
+  const cancelEditTask = useCallback(() => {
+    setEditingTaskId(null);
+    setEditDraft(null);
+    setEditError("");
+  }, []);
+
+  const saveTaskEdit = useCallback(async () => {
+    if (!selectedTask || !editDraft) return;
+    setEditBusy(true);
+    setEditError("");
+    try {
+      const headers = { ...authHeaders(), "Content-Type": "application/json" };
+      const selectedAssignees = editDraft.assignees;
+      const selectedLabels = selectedAssignees.map((value) => {
+        if (value.startsWith("manual:")) {
+          return editDraft.assigneeLabels[value] || value.replace(/^manual:\d+:/, "");
+        }
+        const resolved = assigneeOptions.find((option) => option.value === value);
+        return resolved?.label || editDraft.assigneeLabels[value] || value;
+      }).filter(Boolean);
+      const payload = selectedTask.source === "job_communication"
+        ? {
+            title: editDraft.title.trim(),
+            details: editDraft.details.trim(),
+            assigned_to: selectedLabels.join(", ") || null,
+            priority: editDraft.priority,
+            due_date: editDraft.dueDate || null,
+            status: editDraft.status,
+          }
+        : {
+            title: editDraft.title.trim(),
+            details: editDraft.details.trim(),
+            assignee_user_id: (() => {
+              const selectedValue = selectedAssignees[0] || "";
+              if (!selectedValue) return null;
+              if (selectedValue.startsWith("manual:")) {
+                return editDraft.assigneeLabels[selectedValue] || selectedValue.replace(/^manual:\d+:/, "");
+              }
+              const resolved = assigneeOptions.find((option) => option.value === selectedValue);
+              return resolved?.value || editDraft.assigneeLabels[selectedValue] || selectedValue;
+            })(),
+            priority: editDraft.priority,
+            due_at: editDraft.dueDate || null,
+            status: editDraft.status,
+          };
+      const url = selectedTask.source === "job_communication"
+        ? `${baseUrl}/jobs/${selectedTask.job_id}/communications/tasks/${selectedTask.task_id}`
+        : `${baseUrl}/tasks/${selectedTask.task_id}`;
+      const res = await fetch(url, {
+        method: "PATCH",
+        credentials: "include",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`Task update failed: ${res.status}${t ? ` - ${t}` : ""}`);
+      }
+      const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      await fetchTasks();
+        if (json) {
+          setSelectedTask((prev) => {
+            if (!prev || prev.id !== selectedTask.id) return prev;
+            const resolvedAssignee = selectedAssignees.length > 0
+              ? (selectedTask.source === "job_communication"
+                ? selectedLabels.join(", ") || null
+                : (() => {
+                    const selectedValue = selectedAssignees[0] || "";
+                    if (!selectedValue) return null;
+                    if (selectedValue.startsWith("manual:")) {
+                      return editDraft.assigneeLabels[selectedValue] || selectedValue.replace(/^manual:\d+:/, "");
+                    }
+                    const resolved = assigneeOptions.find((option) => option.value === selectedValue);
+                    return resolved?.label || editDraft.assigneeLabels[selectedValue] || selectedValue;
+                  })())
+              : null;
+            return {
+              ...prev,
+              title: String(json.title ?? editDraft.title),
+              details: String(json.details ?? editDraft.details),
+              assignee: String((json.assigned_to ?? json.assignee_user_id) ?? resolvedAssignee ?? ""),
+              priority: (json.priority as TaskPriority) ?? editDraft.priority,
+              status: (json.status as TaskStatus) ?? editDraft.status,
+              due_date: String((json.due_date ?? json.due_at) || editDraft.dueDate || "") || null,
+              completed_at: (json.completed_at as string | null | undefined) ?? prev.completed_at ?? null,
+            };
+          });
+        }
+      setEditingTaskId(null);
+      setEditDraft(null);
+    } catch (e) {
+      setEditError((e as Error).message);
+    } finally {
+      setEditBusy(false);
+    }
+  }, [baseUrl, editDraft, fetchTasks, selectedTask]);
 
   // ─── Navigation ────────────────────────────────────────────────────────────
 
@@ -414,13 +698,19 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
               now={now}
               selectedDate={selectedDate}
               onSelectDate={d => setSelectedDate(prev => prev === d ? null : d)}
-              onSelectTask={setSelectedTask}
+              onSelectTask={(task) => {
+                cancelEditTask();
+                setSelectedTask(task);
+              }}
             />
           ) : (
             <AgendaView
               groups={agendaGroups}
               now={now}
-              onSelectTask={setSelectedTask}
+              onSelectTask={(task) => {
+                cancelEditTask();
+                setSelectedTask(task);
+              }}
               onStatusChange={updateStatus}
               updatingId={updatingId}
             />
@@ -450,7 +740,10 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
                 key={task.id}
                 task={task}
                 now={now}
-                onSelect={() => setSelectedTask(task)}
+                onSelect={() => {
+                  cancelEditTask();
+                  setSelectedTask(task);
+                }}
                 onStatusChange={s => void updateStatus(task, s)}
                 updating={updatingId === task.id}
               />
@@ -461,13 +754,26 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
 
       {/* Task detail modal */}
       {selectedTask && (
-        <TaskDetailModal
-          task={selectedTask}
-          now={now}
-          onClose={() => setSelectedTask(null)}
-          onStatusChange={s => void updateStatus(selectedTask, s)}
-          updating={updatingId === selectedTask.id}
-        />
+      <TaskDetailModal
+        task={selectedTask}
+        now={now}
+        isEditing={editingTaskId === selectedTask.id && Boolean(editDraft)}
+        draft={editDraft}
+        assigneeOptions={editAssigneeOptions}
+        editError={editError}
+        editBusy={editBusy}
+        onClose={() => {
+          setSelectedTask(null);
+          cancelEditTask();
+          }}
+          onBeginEdit={() => beginEditTask(selectedTask)}
+        onDraftChange={setEditDraft}
+        onSaveEdit={() => void saveTaskEdit()}
+        onCancelEdit={cancelEditTask}
+        onStatusChange={s => void updateStatus(selectedTask, s)}
+        updating={updatingId === selectedTask.id}
+        usersLoading={usersLoading}
+      />
       )}
 
       {/* Priority legend */}
@@ -751,32 +1057,87 @@ function TaskRow({
 function TaskDetailModal({
   task,
   now,
+  isEditing,
+  draft,
+  assigneeOptions,
+  editError,
+  editBusy,
   onClose,
+  onBeginEdit,
+  onDraftChange,
+  onSaveEdit,
+  onCancelEdit,
   onStatusChange,
   updating,
+  usersLoading,
 }: {
   task: CalendarTask;
   now: string;
+  isEditing: boolean;
+  draft: TaskEditDraft | null;
+  assigneeOptions: TaskAssigneeOption[];
+  editError: string;
+  editBusy: boolean;
   onClose: () => void;
+  onBeginEdit: () => void;
+  onDraftChange: (draft: TaskEditDraft | null) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
   onStatusChange: (s: TaskStatus) => void;
   updating: boolean;
+  usersLoading: boolean;
 }) {
   const isDone = task.status === "done" || task.status === "closed";
   const isOverdue = !isDone && task.due_date && task.due_date < now;
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-lg w-full mx-4">
+      <DialogContent className="w-[min(96vw,1100px)] max-w-none mx-4">
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
             <DialogTitle className={["text-base leading-snug", isDone ? "line-through text-muted-foreground" : ""].join(" ")}>
               {task.title}
             </DialogTitle>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5">
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+              {!isEditing ? (
+                <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={onBeginEdit}>
+                  Edit
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={onCancelEdit}
+                    disabled={editBusy}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={onSaveEdit}
+                    disabled={editBusy}
+                  >
+                    {editBusy ? "Saving..." : "Save"}
+                  </Button>
+                </>
+              )}
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground flex-shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </DialogHeader>
+
+        {editError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {editError}
+          </div>
+        )}
 
         {/* Meta */}
         <div className="space-y-3">
@@ -820,24 +1181,133 @@ function TaskDetailModal({
           )}
           {task.job_number && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{task.job_number}</span>
+            <span className="font-medium text-foreground">{task.job_number}</span>
               {task.job_title && <span className="truncate">{task.job_title}</span>}
             </div>
           )}
 
-          {/* Assignee */}
-          {task.assignee && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="h-4 w-4 flex-shrink-0" />
-              <span>{task.assignee}</span>
-            </div>
-          )}
+          {isEditing && draft ? (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2 space-y-2">
+                  <Label htmlFor="task-edit-title">Title</Label>
+                  <Input
+                    id="task-edit-title"
+                    value={draft.title}
+                    onChange={(e) => onDraftChange({ ...draft, title: e.target.value })}
+                    disabled={editBusy}
+                    className="w-full"
+                  />
+                </div>
 
-          {/* Details */}
-          {task.details && (
-            <div className="rounded-md bg-muted/50 p-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
-              {task.details}
+                <div className="md:col-span-2 space-y-2">
+                  <Label>Assign To</Label>
+                  <TaskAssigneePicker
+                    value={draft.assignees}
+                    options={assigneeOptions}
+                    loading={usersLoading}
+                    placeholder="Search team members..."
+                    emptyMessage="No team members found"
+                    onChange={(next) => {
+                      const assignees = task.source === "crm" ? next.slice(-1) : next;
+                      const assigneeLabels = { ...draft.assigneeLabels };
+                      for (const value of assignees) {
+                        if (!assigneeLabels[value]) {
+                          const resolved = assigneeOptions.find((option) => option.value === value);
+                          assigneeLabels[value] = resolved?.label || value.replace(/^manual:\d+:/, "");
+                        }
+                      }
+                      onDraftChange({ ...draft, assignees, assigneeLabels });
+                    }}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Search active team members. CRM tasks keep one assignee; job tasks can keep several.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Priority</Label>
+                  <Select
+                    value={draft.priority}
+                    onValueChange={(value) => onDraftChange({ ...draft, priority: value as TaskPriority })}
+                    disabled={editBusy}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["low", "normal", "high", "urgent"] as TaskPriority[]).map((priority) => (
+                        <SelectItem key={priority} value={priority}>
+                          {PRIORITY_LABEL[priority]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={draft.status}
+                    onValueChange={(value) => onDraftChange({ ...draft, status: value as TaskStatus })}
+                    disabled={editBusy}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(["open", "in_progress", "done", "closed"] as TaskStatus[]).map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {STATUS_LABEL[status]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="task-edit-due">Due Date</Label>
+                  <Input
+                    id="task-edit-due"
+                    type="date"
+                    value={draft.dueDate}
+                    onChange={(e) => onDraftChange({ ...draft, dueDate: e.target.value })}
+                    disabled={editBusy}
+                    className="w-full"
+                  />
+                </div>
+
+                <div className="md:col-span-2 space-y-2">
+                  <Label htmlFor="task-edit-details">Details</Label>
+                  <Textarea
+                    id="task-edit-details"
+                    value={draft.details}
+                    onChange={(e) => onDraftChange({ ...draft, details: e.target.value })}
+                    disabled={editBusy}
+                    className="min-h-48 w-full resize-y"
+                    rows={10}
+                  />
+                </div>
+              </div>
             </div>
+          ) : (
+            <>
+              {/* Assignee */}
+              {task.assignee && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <User className="h-4 w-4 flex-shrink-0" />
+                  <span>{task.assignee}</span>
+                </div>
+              )}
+
+              {/* Details */}
+              {task.details && (
+                <div className="rounded-md bg-muted/50 p-3 text-sm text-foreground whitespace-pre-wrap leading-relaxed">
+                  {task.details}
+                </div>
+              )}
+            </>
           )}
 
           {/* Completed at */}
@@ -859,20 +1329,22 @@ function TaskDetailModal({
         </div>
 
         {/* Status actions */}
-        <div className="flex flex-wrap gap-2 pt-4 border-t">
-          {(["open", "in_progress", "done", "closed"] as TaskStatus[]).map(s => (
-            <Button
-              key={s}
-              variant={task.status === s ? "default" : "outline"}
-              size="sm"
-              className="text-xs"
-              disabled={updating || task.status === s}
-              onClick={() => onStatusChange(s)}
-            >
-              {STATUS_LABEL[s]}
-            </Button>
-          ))}
-        </div>
+        {!isEditing && (
+          <div className="flex flex-wrap gap-2 pt-4 border-t">
+            {(["open", "in_progress", "done", "closed"] as TaskStatus[]).map(s => (
+              <Button
+                key={s}
+                variant={task.status === s ? "default" : "outline"}
+                size="sm"
+                className="text-xs"
+                disabled={updating || task.status === s}
+                onClick={() => onStatusChange(s)}
+              >
+                {STATUS_LABEL[s]}
+              </Button>
+            ))}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

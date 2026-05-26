@@ -25,6 +25,9 @@ function forwardHeaders(req: NextRequest): Headers {
   const auth = req.headers.get("authorization");
   if (auth) headers.set("authorization", auth);
 
+  const cookie = req.headers.get("cookie");
+  if (cookie) headers.set("cookie", cookie);
+
   return headers;
 }
 
@@ -48,6 +51,9 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const outHeaders = new Headers();
     const contentType = res.headers.get("content-type");
     if (contentType) outHeaders.set("content-type", contentType);
+    res.headers.forEach((value, key) => {
+      if (key.toLowerCase() === "set-cookie") outHeaders.append("set-cookie", value);
+    });
     if (probeRedirect) {
       outHeaders.set("x-proxy-probe-status", String(res.status));
       const location = res.headers.get("location");

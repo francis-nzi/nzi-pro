@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -198,6 +198,10 @@ type QuoteLookupItem = {
 };
 
 type ClientSection =
+  | "overview"
+  | "carbon"
+  | "profile"
+  | "financial"
   | "dashboard"
   | "timeline"
   | "notes"
@@ -206,22 +210,17 @@ type ClientSection =
   | "contacts"
   | "jobs"
   | "reporting"
-  | "custom-fields"
-  | "financial";
+  | "custom-fields";
+
+type ProfileSubSection = "details" | "contacts" | "sites" | "custom-fields";
 
 type FinancialView = "quotes" | "invoices" | "profit-loss";
 
 const SECTIONS: Array<{ id: ClientSection; label: string }> = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "timeline", label: "Communications" },
-  { id: "notes", label: "Notes" },
-  { id: "details", label: "Details" },
-  { id: "sites", label: "Sites" },
-  { id: "contacts", label: "Contacts" },
-  { id: "jobs", label: "Jobs" },
-  { id: "reporting", label: "Reporting" },
-  { id: "custom-fields", label: "Custom Fields" },
-  { id: "financial", label: "Financial" },
+  { id: "overview", label: "Overview" },
+  { id: "carbon", label: "Carbon Analytics" },
+  { id: "profile", label: "Company Profile" },
+  { id: "financial", label: "Financials" },
 ];
 
 function ClientDetailPageContent() {
@@ -253,7 +252,8 @@ function ClientDetailPageContent() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [clientNotFound, setClientNotFound] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<ClientSection>("dashboard");
+  const [activeSection, setActiveSection] = useState<ClientSection>("overview");
+  const [activeProfileSubTab, setActiveProfileSubTab] = useState<ProfileSubSection>("details");
   const [financialView, setFinancialView] = useState<FinancialView>("quotes");
   const [callPrepOpen, setCallPrepOpen] = useState<boolean>(false);
 
@@ -441,19 +441,69 @@ function ClientDetailPageContent() {
 
   useEffect(() => {
     const section = String(searchParams.get("section") || "").trim().toLowerCase();
-    const validSection = SECTIONS.find((s) => s.id === section);
-    if (validSection) {
-      setActiveSection(validSection.id);
+    let targetSection: ClientSection = "overview";
+    let targetSubTab: ProfileSubSection = "details";
+    
+    if (section === "carbon" || section === "dashboard" || section === "reporting") {
+      targetSection = "carbon";
+    } else if (section === "profile") {
+      targetSection = "profile";
+    } else if (section === "details") {
+      targetSection = "profile";
+      targetSubTab = "details";
+    } else if (section === "contacts") {
+      targetSection = "profile";
+      targetSubTab = "contacts";
+    } else if (section === "sites") {
+      targetSection = "profile";
+      targetSubTab = "sites";
+    } else if (section === "custom-fields") {
+      targetSection = "profile";
+      targetSubTab = "custom-fields";
+    } else if (section === "financial" || section === "financials") {
+      targetSection = "financial";
+    } else if (section === "overview") {
+      targetSection = "overview";
     }
+    
+    setActiveSection(targetSection);
+    setActiveProfileSubTab(targetSubTab);
   }, [searchParams]);
 
   function setSection(section: ClientSection) {
-    setActiveSection(section);
+    let targetSection: ClientSection = section;
+    let targetSubTab: ProfileSubSection = activeProfileSubTab;
+    
+    if (section === "dashboard" || section === "reporting" || section === "carbon") {
+      targetSection = "carbon";
+    } else if (section === "details") {
+      targetSection = "profile";
+      targetSubTab = "details";
+    } else if (section === "contacts") {
+      targetSection = "profile";
+      targetSubTab = "contacts";
+    } else if (section === "sites") {
+      targetSection = "profile";
+      targetSubTab = "sites";
+    } else if (section === "custom-fields") {
+      targetSection = "profile";
+      targetSubTab = "custom-fields";
+    } else if (section === "timeline" || section === "notes" || section === "jobs") {
+      targetSection = "overview";
+    } else if (section === "profile") {
+      targetSection = "profile";
+    } else if (section === "financial") {
+      targetSection = "financial";
+    }
+    
+    setActiveSection(targetSection);
+    setActiveProfileSubTab(targetSubTab);
+    
     const nextParams = new URLSearchParams(searchParams.toString());
-    if (section === "dashboard") {
+    if (targetSection === "overview") {
       nextParams.delete("section");
     } else {
-      nextParams.set("section", section);
+      nextParams.set("section", targetSection);
     }
     const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
     router.replace(nextUrl, { scroll: false });
@@ -546,6 +596,23 @@ function ClientDetailPageContent() {
 
   useEffect(() => {
     if (clientNotFound) return;
+    
+    // Overview tab pre-loads
+    if (activeSection === "overview") {
+      if (!jobsLoaded && !jobsLoading) void reloadJobs();
+      if (!contactsLoaded) void reloadContacts();
+      if (!financialLoaded) void reloadFinancialData();
+      if (!financialSummaryLoaded) void reloadFinancialSummary();
+      if (!sitesLoaded) void reloadSites();
+    }
+    
+    // Company Profile sub-tabs load triggers
+    if (activeSection === "profile") {
+      if (activeProfileSubTab === "contacts" && !contactsLoaded) void reloadContacts();
+      if ((activeProfileSubTab === "details" || activeProfileSubTab === "sites") && !sitesLoaded) void reloadSites();
+    }
+    
+    // Legacy support mapping triggers
     if (activeSection === "contacts" && !contactsLoaded) {
       void reloadContacts();
     }
@@ -566,6 +633,7 @@ function ClientDetailPageContent() {
     }
   }, [
     activeSection,
+    activeProfileSubTab,
     clientNotFound,
     contactsLoaded,
     jobsLoaded,
@@ -1652,8 +1720,292 @@ function ClientDetailPageContent() {
     </>
   );
 
+  function renderOverviewSection() {
+    const activeJobsCount = jobs.filter((j) => String(j.status || "").toLowerCase() !== "completed" && String(j.status || "").toLowerCase() !== "archived").length;
+    const unpaidInvoiceCount = invoices.filter((inv) => String(inv.status || "").toLowerCase() !== "paid" && String(inv.status || "").toLowerCase() !== "void").length;
+    const outstandingInvoicesTotal = financialSummary?.invoices.outstanding_total ?? 0;
+    const currencyFmt = new Intl.NumberFormat("en-GB", { style: "currency", currency: client?.currency || "GBP", minimumFractionDigits: 2 });
+    const primaryContact = contacts.find((c) => c.is_primary) ?? contacts[0] ?? null;
+
+    const commJobs = (jobs || []).map((j) => ({
+      ...j,
+      job_number: j.job_number ?? `Job ${j.job_id}`,
+      job_title: j.title ?? null,
+    }));
+
+    return (
+      <div className="space-y-6">
+        {/* Row 1: Jobs + Financial */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Active Jobs Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Active Jobs & Milestone Progress</CardTitle>
+              <Badge variant="outline" className="border-green-200 bg-green-50 text-green-800">
+                {activeJobsCount} active
+              </Badge>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {jobsLoading && jobs.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground animate-pulse">Loading jobs...</div>
+              ) : jobs.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">
+                  No active carbon reporting jobs found. Click &ldquo;+ Add Job&rdquo; above to get started!
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {jobs.map((j) => {
+                    const risk = j.milestone_status === "Overdue" ? "Overdue" : j.milestone_status === "Due" ? "Due" : "Healthy";
+                    const riskClass = risk === "Overdue" ? "bg-rose-100 text-rose-800" : risk === "Due" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
+                    return (
+                      <Link
+                        key={j.job_id}
+                        href={`/jobs/${j.job_id}`}
+                        className="flex items-center justify-between py-3 hover:bg-slate-50 rounded-lg px-2 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="font-medium text-slate-900">{j.job_number ?? `Job #${j.job_id}`}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2">
+                            <span>Reporting period: {j.reporting_year || "N/A"}</span>
+                            <span>•</span>
+                            <StatusBadge status={j.status} />
+                          </div>
+                        </div>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}>{risk}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Financial Summary Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Financial & Billing Status</CardTitle>
+              <Badge variant={unpaidInvoiceCount > 0 ? "destructive" : "outline"} className="border-orange-200">
+                {unpaidInvoiceCount} open invoices
+              </Badge>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-2 gap-4 pb-4 border-b border-slate-100">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase">Outstanding Balance</div>
+                  <div className="text-2xl font-bold tracking-tight text-slate-950 mt-1">
+                    {currencyFmt.format(outstandingInvoicesTotal)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground uppercase">Realization Rate</div>
+                  <div className="text-2xl font-bold tracking-tight text-emerald-700 mt-1">
+                    {Number(financialSummary?.analysis.realization_pct || 100).toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+              <div className="pt-4 space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Total Quotes:</span>
+                  <span className="font-semibold text-slate-800">{quotes.length} quotes</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Logged Consultant Time:</span>
+                  <span className="font-semibold text-slate-800">
+                    {Number(financialSummary?.analysis.logged_hours || 0).toFixed(1)} hours
+                  </span>
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSection("financial")}
+                    className="text-xs text-[#1c5026] hover:underline font-medium"
+                  >
+                    Open Financials →
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Row 2: Client Portal Access + CRM Owner quick-info */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Portal Access Status */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Client Portal & Contacts</CardTitle>
+              <button
+                type="button"
+                onClick={() => { setSection("profile"); setActiveProfileSubTab("contacts"); }}
+                className="text-xs text-[#1c5026] hover:underline font-medium"
+              >
+                Manage →
+              </button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {contacts.length === 0 ? (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  No contacts yet.{" "}
+                  <button
+                    type="button"
+                    onClick={() => { setSection("profile"); setActiveProfileSubTab("contacts"); }}
+                    className="underline"
+                  >
+                    Add a contact
+                  </button>{" "}
+                  to assign portal access.
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Portal Status</span>
+                      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                        Setup in Admin
+                      </Badge>
+                    </div>
+                    {primaryContact ? (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Primary: <span className="font-medium text-slate-900">{primaryContact.full_name}</span>
+                        {primaryContact.email ? ` — ${primaryContact.email}` : ""}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {contacts.slice(0, 4).map((c) => (
+                      <div key={c.contact_id} className="flex items-center justify-between py-2">
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium text-slate-900">{c.full_name}</div>
+                          <div className="text-xs text-muted-foreground">{c.email || "No email"}</div>
+                        </div>
+                        {c.is_primary ? (
+                          <Badge className="bg-[#1c5026] text-white hover:bg-[#153f1e] text-xs">Primary</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs">Contact</Badge>
+                        )}
+                      </div>
+                    ))}
+                    {contacts.length > 4 ? (
+                      <div className="pt-2 text-xs text-muted-foreground">
+                        +{contacts.length - 4} more —{" "}
+                        <button
+                          type="button"
+                          onClick={() => { setSection("profile"); setActiveProfileSubTab("contacts"); }}
+                          className="underline"
+                        >
+                          view all
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* CRM Quick-info */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold">Account Overview</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border bg-slate-50/50 px-3 py-2.5">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">CRM Owner</div>
+                  <div className="mt-1 font-semibold text-[#1c5026]">{client?.crm_owner ?? "Unassigned"}</div>
+                </div>
+                <div className="rounded-lg border bg-slate-50/50 px-3 py-2.5">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Net Zero Target</div>
+                  <div className="mt-1 font-semibold text-slate-800">{client?.net_zero_year ?? "Not set"}</div>
+                </div>
+                <div className="rounded-lg border bg-slate-50/50 px-3 py-2.5">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Industry</div>
+                  <div className="mt-1 font-medium text-slate-700 truncate">{client?.industry ?? "—"}</div>
+                </div>
+                <div className="rounded-lg border bg-slate-50/50 px-3 py-2.5">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Sites</div>
+                  <div className="mt-1 font-semibold text-slate-800">{sites.length}</div>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSection("profile")}
+                  className="text-xs text-[#1c5026] hover:underline font-medium"
+                >
+                  Company Profile →
+                </button>
+                <span className="text-muted-foreground">·</span>
+                <Link
+                  href={`/clients/${clientId}/edit`}
+                  className="text-xs text-[#1c5026] hover:underline font-medium"
+                >
+                  Edit Details →
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Row 3: Communications timeline — embedded so consultants can see touchpoints without leaving the cockpit */}
+        <div>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-900">Communications & Activity</h3>
+          </div>
+          <ClientCommunications clientId={clientId} baseUrl={baseUrl} jobs={commJobs} />
+        </div>
+      </div>
+    );
+  }
+
+  function renderProfileSection() {
+    return (
+      <div className="space-y-6">
+        {/* Profile Inner Tab Bar */}
+        <div className="flex border-b border-slate-200">
+          {[
+            { id: "details" as const, label: "Details & Targets" },
+            { id: "contacts" as const, label: "Contacts Management" },
+            { id: "sites" as const, label: "Sites Register" },
+            { id: "custom-fields" as const, label: "Custom Fields" },
+          ].map((subtab) => (
+            <button
+              key={subtab.id}
+              type="button"
+              onClick={() => setActiveProfileSubTab(subtab.id)}
+              className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                activeProfileSubTab === subtab.id
+                  ? "border-[#1c5026] text-[#1c5026]"
+                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
+              }`}
+            >
+              {subtab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Profile Subtab Content Area */}
+        <div className="mt-4">
+          {activeProfileSubTab === "details" && renderDetailsSection()}
+          {activeProfileSubTab === "contacts" && renderContactsSection()}
+          {activeProfileSubTab === "sites" && renderSitesSection()}
+          {activeProfileSubTab === "custom-fields" && (
+            <CustomFields entityId={clientId} entityType="client" baseUrl={baseUrl} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function renderActiveSection() {
-    if (activeSection === "dashboard") return <ClientDashboard clientId={clientId} baseUrl={baseUrl} />;
+    if (activeSection === "overview") return renderOverviewSection();
+    if (activeSection === "carbon" || activeSection === "dashboard") {
+      return <ClientDashboard clientId={clientId} baseUrl={baseUrl} />;
+    }
+    if (activeSection === "profile") return renderProfileSection();
+    if (activeSection === "financial") return renderFinancialSection();
+
+    // Fallbacks for direct legacy URL states
     if (activeSection === "timeline") {
       const commJobs = (jobs || []).map((j) => ({
         ...j,
