@@ -41,6 +41,22 @@ def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
     return fallback
 
 
+def _level1_category_label(row, fallback: str = "Uncategorized") -> str:
+    """High-level category label using level_1 from emission factors, falling back to detailed category."""
+    for value in (
+        row.get("lookup_level_1"),
+        row.get("level_1"),
+        row.get("lookup_category"),
+        row.get("category"),
+        row.get("dataset_category"),
+        row.get("level_2"),
+    ):
+        if _is_placeholder_category(value):
+            continue
+        return _clean_label(value, fallback)
+    return fallback
+
+
 def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
     if crp_only:
         return con.execute(
@@ -171,9 +187,8 @@ def get_client_reporting(
             scope_df['quantity'] = quantity_vals
             scope_df['scope'] = scope_df['scope'].apply(lambda value: _clean_label(value, 'Unknown'))
             scope_df['dataset_category'] = scope_df.apply(lambda row: _dataset_category_label(row), axis=1)
-            # Use dataset_category (full fallback chain: factor lookup → category → level_1 → level_2)
-            # rather than the raw category column which only checks jsr.category and falls to Uncategorized.
             scope_df['category'] = scope_df['dataset_category']
+            scope_df['level1_cat'] = scope_df.apply(lambda row: _level1_category_label(row), axis=1)
             scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
             
             # Get unique years
@@ -206,28 +221,26 @@ def get_client_reporting(
                 by_scope_volume.append(year_data)
             
             # === BY SCOPE AND CATEGORY ===
-            # Group by year, scope, and category for detailed breakdown
-            scope_cat_groups = scope_df.groupby(['dashboard_year', 'scope', 'category'])['emissions'].sum().reset_index()
-            
+            # Group by year, scope, and level_1 category (high-level grouping)
+            scope_cat_groups = scope_df.groupby(['dashboard_year', 'scope', 'level1_cat'])['emissions'].sum().reset_index()
+
             by_scope_category = []
             for year in years:
                 year_data = {"year": int(year)}
                 year_rows = scope_cat_groups[scope_cat_groups['dashboard_year'] == year]
-                
-                # Group by scope within this year
                 scope_cats = {}
                 for _, row in year_rows.iterrows():
                     scope_name = _clean_label(row['scope'], 'Unknown')
-                    cat_name = _clean_label(row['category'], 'Uncategorized')
+                    cat_name = _clean_label(row['level1_cat'], 'Uncategorized')
                     if scope_name not in scope_cats:
                         scope_cats[scope_name] = {}
                     scope_cats[scope_name][cat_name] = round(float(row['emissions']), 2)
-                
+
                 year_data['scopes'] = scope_cats
                 by_scope_category.append(year_data)
 
             # === BY SCOPE AND CATEGORY (VOLUME/QTY) ===
-            scope_cat_volume_groups = scope_df.groupby(['dashboard_year', 'scope', 'category'])['quantity'].sum().reset_index()
+            scope_cat_volume_groups = scope_df.groupby(['dashboard_year', 'scope', 'level1_cat'])['quantity'].sum().reset_index()
             by_scope_category_volume = []
             for year in years:
                 year_data = {"year": int(year)}
@@ -235,7 +248,7 @@ def get_client_reporting(
                 scope_cats = {}
                 for _, row in year_rows.iterrows():
                     scope_name = _clean_label(row['scope'], 'Unknown')
-                    cat_name = _clean_label(row['category'], 'Uncategorized')
+                    cat_name = _clean_label(row['level1_cat'], 'Uncategorized')
                     if scope_name not in scope_cats:
                         scope_cats[scope_name] = {}
                     scope_cats[scope_name][cat_name] = round(float(row['quantity']), 2)
