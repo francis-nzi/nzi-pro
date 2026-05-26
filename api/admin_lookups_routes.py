@@ -196,20 +196,16 @@ def list_lookup_items(
             if has_active_flag and not include_archived:
                 active_filter = "WHERE COALESCE(is_active, TRUE) = TRUE"
             if org_id is not None:
-                # portfolios_lookup also includes rows with org_id IS NULL (global defaults)
                 if table_name == "portfolios_lookup":
-                    active_filter = (
-                        f"{active_filter} AND (COALESCE(org_id, '') = %s OR org_id IS NULL)"
-                        if active_filter
-                        else "WHERE (COALESCE(org_id, '') = %s OR org_id IS NULL)"
-                    )
+                    # Portfolios are global — return all active regardless of org
+                    active_params = []
                 else:
                     active_filter = (
                         f"{active_filter} AND COALESCE(org_id, '') = %s"
                         if active_filter
                         else "WHERE COALESCE(org_id, '') = %s"
                     )
-                active_params = [org_match]
+                    active_params = [org_match]
             else:
                 active_params = []
             # Different tables might have different sort columns
@@ -459,31 +455,43 @@ def create_lookup_item(
                 if not name:
                     raise HTTPException(status_code=400, detail="Name is required")
 
-                existing = con.execute(
-                    f"""
-                    SELECT 1
-                    FROM {table_name}
-                    WHERE lower(name) = lower(%s)
-                      AND COALESCE(org_id, '') = %s
-                    LIMIT 1
-                    """,
-                    [name, org_match],
-                ).fetchone()
-                if existing:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"{table_name.replace('_', ' ').title()} '{name}' already exists",
+                if table_name == "portfolios_lookup":
+                    # Portfolios are global — check by name only, insert with org_id=NULL
+                    existing = con.execute(
+                        "SELECT 1 FROM portfolios_lookup WHERE lower(name) = lower(%s) LIMIT 1",
+                        [name],
+                    ).fetchone()
+                    if existing:
+                        raise HTTPException(status_code=409, detail=f"Portfolio '{name}' already exists")
+                    con.execute(
+                        "INSERT INTO portfolios_lookup (org_id, name, is_active) VALUES (NULL, %s, %s)",
+                        [name, body.get("is_active", True)],
                     )
-
-                columns = ["org_id", "name", "is_active"]
-                values = [org_id if org_match else None, name, body.get("is_active", True)]
-                if table_name == "time_subjects":
-                    columns.append("budget_hours")
-                    values.append(float(body.get("budget_hours", 0) or 0))
-                con.execute(
-                    f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(values))})",
-                    values,
-                )
+                else:
+                    existing = con.execute(
+                        f"""
+                        SELECT 1
+                        FROM {table_name}
+                        WHERE lower(name) = lower(%s)
+                          AND COALESCE(org_id, '') = %s
+                        LIMIT 1
+                        """,
+                        [name, org_match],
+                    ).fetchone()
+                    if existing:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"{table_name.replace('_', ' ').title()} '{name}' already exists",
+                        )
+                    columns = ["org_id", "name", "is_active"]
+                    values = [org_id if org_match else None, name, body.get("is_active", True)]
+                    if table_name == "time_subjects":
+                        columns.append("budget_hours")
+                        values.append(float(body.get("budget_hours", 0) or 0))
+                    con.execute(
+                        f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(values))})",
+                        values,
+                    )
             else:
                 name = str(body.get("name", "")).strip()
                 if not name:
@@ -619,7 +627,7 @@ def update_lookup_item(
                 return {"ok": True, "message": "No fields to update"}
             
             params.append(int(item_id))
-            if org_id is not None:
+            if org_id is not None and table_name != "portfolios_lookup":
                 params.append(org_match)
                 query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s AND COALESCE(org_id, '') = %s"
             else:
