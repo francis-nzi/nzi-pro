@@ -246,6 +246,7 @@ function ClientDetailPageContent() {
   const [contactsLoaded, setContactsLoaded] = useState<boolean>(false);
   const [jobsLoaded, setJobsLoaded] = useState<boolean>(false);
   const [jobsLoading, setJobsLoading] = useState<boolean>(false);
+  const [jobsError, setJobsError] = useState<string>("");
   const [financialLoaded, setFinancialLoaded] = useState<boolean>(false);
   const [financialSummaryLoaded, setFinancialSummaryLoaded] = useState<boolean>(false);
   const [quoteLookupsLoaded, setQuoteLookupsLoaded] = useState<boolean>(false);
@@ -361,13 +362,20 @@ function ClientDetailPageContent() {
 
   const reloadJobs = useCallback(async () => {
     setJobsLoading(true);
+    setJobsError("");
     try {
       const jobsRes = await fetch(`${baseUrl}/clients/${clientId}/jobs?limit=50&offset=0`, { credentials: "include" });
       if (jobsRes.ok) {
         const data = (await jobsRes.json()) as ClientJobsResponse;
         setJobs(data.items ?? []);
+      } else {
+        const body = await jobsRes.json().catch(() => null);
+        const detail = body?.detail ?? jobsRes.statusText;
+        setJobsError(`${jobsRes.status}: ${detail}`);
+        setJobs([]);
       }
-    } catch {
+    } catch (e) {
+      setJobsError((e as Error).message ?? "fetch failed");
       setJobs([]);
     } finally {
       setJobsLoaded(true);
@@ -1748,6 +1756,8 @@ function ClientDetailPageContent() {
             <CardContent className="pt-4">
               {jobsLoading && jobs.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground animate-pulse">Loading jobs...</div>
+              ) : jobsError ? (
+                <div className="py-8 text-center text-sm text-destructive">Error loading jobs: {jobsError}</div>
               ) : jobs.length === 0 ? (
                 <div className="py-8 text-center text-sm text-muted-foreground">
                   No active carbon reporting jobs found. Click &ldquo;+ Add Job&rdquo; above to get started!
