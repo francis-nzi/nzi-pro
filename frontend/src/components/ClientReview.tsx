@@ -125,6 +125,14 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
+  async function safeJson<T>(res: Response): Promise<T> {
+    try {
+      return await res.json() as T;
+    } catch {
+      throw new Error(`Server returned a non-JSON response (HTTP ${res.status}). Please try again.`);
+    }
+  }
+
   async function handleSendForReview() {
     setSending(true);
     setStatus("");
@@ -134,8 +142,8 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
         method: "POST",
         credentials: "include",
       });
-      const data = await res.json() as { ok?: boolean; notified_count?: number; review?: Review };
-      if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Failed to send");
+      const data = await safeJson<{ ok?: boolean; notified_count?: number; review?: Review; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? `Failed to send (HTTP ${res.status})`);
       setReview(data.review ?? null);
       setStatus(`Report sent for review. ${data.notified_count ?? 0} client user(s) notified by email.`);
     } catch (e) {
@@ -154,8 +162,8 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
         method: "POST",
         credentials: "include",
       });
-      const data = await res.json() as { ok?: boolean; message?: string };
-      if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Failed to generate snapshot");
+      const data = await safeJson<{ ok?: boolean; message?: string; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? `Failed to generate snapshot (HTTP ${res.status})`);
       setStatus(data.message ?? "Portal snapshot refreshed.");
     } catch (e) {
       setError((e as Error).message);
@@ -174,8 +182,8 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
         credentials: "include",
         body: JSON.stringify({ status: newStatus, crm_response: responseText.trim() || null }),
       });
-      const data = await res.json() as { ok?: boolean };
-      if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Failed to respond");
+      const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? "Failed to respond");
       setRespondingTo(null);
       setResponseText("");
       await load();
@@ -198,8 +206,8 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
         credentials: "include",
         body: JSON.stringify({ email: newEmail.trim(), full_name: newName.trim(), password: newPassword }),
       });
-      const data = await res.json() as { ok?: boolean };
-      if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Failed to create user");
+      const data = await safeJson<{ ok?: boolean; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? "Failed to create user");
       setShowAddUser(false);
       setNewEmail(""); setNewName(""); setNewPassword("");
       await load();
