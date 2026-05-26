@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
@@ -108,6 +109,32 @@ function hasAdminAccess(
   );
 }
 
+function BdSubNav({ accentColor, pathname }: { accentColor: string; pathname: string }) {
+  const searchParams = useSearchParams();
+  const activeSection = searchParams.get("section") || "overview";
+  if (pathname !== "/business-development") return null;
+  return (
+    <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
+      {BD_SECTIONS.map((section) => {
+        const sectionActive = activeSection === section.key;
+        return (
+          <Link
+            key={section.key}
+            href={`/business-development?section=${section.key}`}
+            className={cn(
+              "block rounded px-2 py-1 text-xs transition-colors",
+              sectionActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+            style={sectionActive ? { backgroundColor: accentColor } : undefined}
+          >
+            {section.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function Tooltip({ label, visible }: { label: string; visible: boolean }) {
   if (!visible) return null;
   return (
@@ -120,7 +147,6 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { theme } = useTheme();
   const authSession = useAuthSession();
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -320,9 +346,7 @@ export function AppSidebar() {
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = isActive(href, label);
-          const isSales = href === "/business-development";
-          const onSalesRoute = isSales && pathname === "/business-development";
-          const activeSection = onSalesRoute ? (searchParams.get("section") || "overview") : null;
+          const onSalesRoute = href === "/business-development" && pathname === "/business-development";
           return (
             <div key={href}>
               <div className="group relative">
@@ -341,24 +365,9 @@ export function AppSidebar() {
                 <Tooltip label={label} visible={!expanded} />
               </div>
               {expanded && onSalesRoute && (
-                <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
-                  {BD_SECTIONS.map((section) => {
-                    const sectionActive = activeSection === section.key;
-                    return (
-                      <Link
-                        key={section.key}
-                        href={`/business-development?section=${section.key}`}
-                        className={cn(
-                          "block rounded px-2 py-1 text-xs transition-colors",
-                          sectionActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                        )}
-                        style={sectionActive ? { backgroundColor: accentColor } : undefined}
-                      >
-                        {section.label}
-                      </Link>
-                    );
-                  })}
-                </div>
+                <Suspense fallback={null}>
+                  <BdSubNav accentColor={accentColor} pathname={pathname} />
+                </Suspense>
               )}
             </div>
           );
