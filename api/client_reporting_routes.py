@@ -42,13 +42,13 @@ def _dataset_category_label(row, fallback: str = "Uncategorized") -> str:
 
 
 def _level1_category_label(row, fallback: str = "Uncategorized") -> str:
-    """High-level category label using level_1 from emission factors, falling back to detailed category."""
+    """High-level category label using the emission factor's category field (fl.category = lookup_category)."""
     for value in (
-        row.get("lookup_level_1"),
-        row.get("level_1"),
         row.get("lookup_category"),
         row.get("category"),
         row.get("dataset_category"),
+        row.get("lookup_level_1"),
+        row.get("level_1"),
         row.get("level_2"),
     ):
         if _is_placeholder_category(value):
