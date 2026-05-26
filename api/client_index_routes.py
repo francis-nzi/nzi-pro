@@ -360,20 +360,31 @@ def client_jobs(
 ):
     def get_milestone_status(due_date, completed_at):
         """Calculate traffic light status: green, amber, red, completed."""
-        from datetime import date as _date
+        from datetime import date as _date, datetime as _dt
 
-        if completed_at is not None and not pd.isna(completed_at):
-            return "completed"
-        if due_date is None or pd.isna(due_date):
+        try:
+            if completed_at is not None and completed_at not in ("", "None") and not pd.isna(completed_at):
+                return "completed"
+        except Exception:
+            pass
+        try:
+            if due_date is None or due_date in ("", "None") or pd.isna(due_date):
+                return "green"
+        except Exception:
             return "green"
-        if hasattr(due_date, "date"):
-            due_date = due_date.date()
-        days_until_due = (due_date - _date.today()).days
-        if days_until_due < -1:
-            return "red"
-        if days_until_due <= 7:
-            return "amber"
-        return "green"
+        try:
+            if isinstance(due_date, str):
+                due_date = _dt.strptime(due_date[:10], "%Y-%m-%d").date()
+            elif hasattr(due_date, "date"):
+                due_date = due_date.date()
+            days_until_due = (due_date - _date.today()).days
+            if days_until_due < -1:
+                return "red"
+            if days_until_due <= 7:
+                return "amber"
+            return "green"
+        except Exception:
+            return "green"
 
     def get_overall_status(statuses: list[str]) -> str | None:
         if not statuses:
@@ -410,10 +421,10 @@ def client_jobs(
                     rows = con.execute(
                         """
                         SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end,
-                               jp.data_collection_due, jp.data_collection_completed_at,
-                               jp.first_draft_due, jp.first_draft_completed_at,
-                               jp.final_report_due, jp.final_report_completed_at
+                               j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                               jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
+                               jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
+                               jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
                         FROM jobs j
                         LEFT JOIN clients c ON c.db_id = j.client_db_id
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
@@ -437,10 +448,10 @@ def client_jobs(
                     rows = con.execute(
                         """
                         SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end,
-                               jp.data_collection_due, jp.data_collection_completed_at,
-                               jp.first_draft_due, jp.first_draft_completed_at,
-                               jp.final_report_due, jp.final_report_completed_at
+                               j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                               jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
+                               jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
+                               jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
                         FROM jobs j
                         LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                         WHERE j.client_db_id = ?
@@ -502,8 +513,10 @@ def client_jobs(
         reporting_period_end = row.get("reporting_period_end")
         if not _is_missing(reporting_period_end):
             try:
-                if hasattr(reporting_period_end, "year"):
-                    return int(reporting_period_end.year)
+                s = str(reporting_period_end)
+                year = int(s[:4])
+                if 1900 <= year <= 9999:
+                    return year
             except Exception:
                 pass
         return _int_or_none(row.get("reporting_year"))
