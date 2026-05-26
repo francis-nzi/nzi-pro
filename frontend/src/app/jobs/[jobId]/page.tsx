@@ -18,7 +18,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
-import type { WorkspaceBreadcrumb } from "@/components/job-workspace/types";
+import type { WorkspaceBreadcrumb, WorkspaceGroupKey } from "@/components/job-workspace/types";
 import {
   JOB_WORKSPACE_GROUPS,
   EMPTY_SCOPE_MAP,
@@ -505,7 +505,7 @@ export default function JobDetailPage() {
     jobType,
     setters: workspaceDataSetters,
   });
-  function handleWorkspaceGroupChange(groupKey: WorkspaceTab["key"]) {
+  function handleWorkspaceGroupChange(groupKey: WorkspaceGroupKey) {
     const group = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === groupKey);
     if (!group) return;
     setActiveTab(group.defaultTab);
