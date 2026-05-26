@@ -3,16 +3,12 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdminCenterShell } from "./AdminCenterShell";
-import { AdminCenterSidebar } from "./AdminCenterSidebar";
 import {
-  ADMIN_CENTER_GROUPS,
   getAdminCenterModuleByHref,
   toAdminHref,
-  type AdminDomain,
 } from "./adminCenterConfig";
 
 const modulePages = {
@@ -79,23 +75,11 @@ export function AdminCenterModuleRouteView({ slug }: { slug: string[] }) {
   const slugKey = slug.join("/") as ModuleSlug;
   const legacyHref = `/admin/${slugKey}`;
   const module = getAdminCenterModuleByHref(legacyHref);
-  const activeDomain: AdminDomain = module?.domain ?? ADMIN_CENTER_GROUPS[0].domain;
+  void module;
   const Page = modulePages[slugKey];
 
-  const sidebar = useMemo(
-    () => (
-      <AdminCenterSidebar
-        activeDomain={activeDomain}
-        onSelectDomain={() => {
-          // The sidebar is navigational first; selecting a category should not change the current module view.
-        }}
-      />
-    ),
-    [activeDomain],
-  );
-
   return (
-    <AdminCenterShell label="Admin" sidebar={sidebar}>
+    <AdminCenterShell>
       <div className="w-full min-w-0 space-y-6 overflow-x-hidden [&_.mx-auto]:mx-0 [&_.max-w-7xl]:max-w-none [&_.max-w-6xl]:max-w-none [&_.max-w-5xl]:max-w-none [&_.max-w-4xl]:max-w-none [&_.max-w-3xl]:max-w-none [&_.max-w-2xl]:max-w-none [&_.max-w-xl]:max-w-none">
         {Page ? <Page /> : <NotFoundState href={legacyHref} />}
       </div>

@@ -14,7 +14,6 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
-  Settings,
   Shield,
   TrendingUp,
   User,
@@ -25,49 +24,49 @@ import { apiUrl, clearAuthState } from "@/lib/auth-client";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuthSession } from "@/components/AuthContext";
 
-const ADMIN_DOMAINS = [
+const ADMIN_CENTER_DOMAINS = [
   "People & Access",
   "Reference Data",
   "Reporting & Delivery",
   "System & Governance",
 ] as const;
 
-const ADMIN_QUICK_LINKS = [
-  { label: "Organisation Management", href: "/admin/organisations", domain: "People & Access" },
-  { label: "Team Management", href: "/admin/team", domain: "People & Access" },
-  { label: "Lookups", href: "/admin/lookups", domain: "Reference Data" },
-  { label: "Job Items", href: "/admin/job-items", domain: "Reference Data" },
-  { label: "Suppliers", href: "/admin/suppliers", domain: "Reference Data" },
-  { label: "Datasets & Factors", href: "/admin/datasets", domain: "Reference Data" },
-  { label: "Reusable Factors", href: "/admin/custom-factors", domain: "Reference Data" },
-  { label: "Templates", href: "/admin/templates", domain: "Reporting & Delivery" },
-  { label: "Milestone Templates", href: "/admin/milestone-templates", domain: "Reporting & Delivery" },
-  { label: "Automation Rules", href: "/admin/automations", domain: "Reporting & Delivery" },
-  { label: "Action Options", href: "/admin/actions-options", domain: "Reporting & Delivery" },
-  { label: "Missing Data", href: "/admin/missing-data", domain: "Reporting & Delivery" },
-  { label: "Theme Settings", href: "/admin/theme", domain: "System & Governance" },
-  { label: "Custom Fields", href: "/admin/custom-fields", domain: "System & Governance" },
-  { label: "System Settings", href: "/admin/settings", domain: "System & Governance" },
-  { label: "Import / Export", href: "/admin/import-export", domain: "System & Governance" },
-  { label: "Email Outbox", href: "/admin/email-outbox", domain: "System & Governance" },
-  { label: "Archive Management", href: "/admin/archive", domain: "System & Governance" },
+const ADMIN_CENTER_LINKS = [
+  { label: "Organisation Management", href: "/admin-center/organisations", domain: "People & Access" },
+  { label: "Team Management",         href: "/admin-center/team",          domain: "People & Access" },
+  { label: "Lookups",                 href: "/admin-center/lookups",       domain: "Reference Data" },
+  { label: "Job Items",               href: "/admin-center/job-items",     domain: "Reference Data" },
+  { label: "Suppliers",               href: "/admin-center/suppliers",     domain: "Reference Data" },
+  { label: "Datasets & Factors",      href: "/admin-center/datasets",      domain: "Reference Data" },
+  { label: "Reusable Factors",        href: "/admin-center/custom-factors",domain: "Reference Data" },
+  { label: "Templates",               href: "/admin-center/templates",     domain: "Reporting & Delivery" },
+  { label: "Milestone Templates",     href: "/admin-center/milestone-templates", domain: "Reporting & Delivery" },
+  { label: "Automation Rules",        href: "/admin-center/automations",   domain: "Reporting & Delivery" },
+  { label: "Action Options",          href: "/admin-center/actions-options",domain: "Reporting & Delivery" },
+  { label: "Missing Data",            href: "/admin-center/missing-data",  domain: "Reporting & Delivery" },
+  { label: "Theme Settings",          href: "/admin-center/theme",         domain: "System & Governance" },
+  { label: "Custom Fields",           href: "/admin-center/custom-fields", domain: "System & Governance" },
+  { label: "System Settings",         href: "/admin-center/settings",      domain: "System & Governance" },
+  { label: "Import / Export",         href: "/admin-center/import-export", domain: "System & Governance" },
+  { label: "Email Outbox",            href: "/admin-center/email-outbox",  domain: "System & Governance" },
+  { label: "Archive Management",      href: "/admin-center/archive",       domain: "System & Governance" },
 ] as const;
 
 const HELP_LINKS = [
-  { label: "Support", href: "/support" },
+  { label: "Support",     href: "/support" },
   { label: "Methodology", href: "/support/methodology" },
-  { label: "Legal", href: "/support/legal" },
-  { label: "Data Bank", href: "/support/data-bank" },
-  { label: "Feedback", href: "/feedback" },
+  { label: "Legal",       href: "/support/legal" },
+  { label: "Data Bank",   href: "/support/data-bank" },
+  { label: "Feedback",    href: "/feedback" },
 ] as const;
 
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
-  { href: "/clients", label: "Clients", icon: Users },
-  { href: "/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/time", label: "Time", icon: Clock },
-  { href: "/business-development", label: "Sales", icon: TrendingUp },
+  { href: "/",                      label: "Dashboard", icon: LayoutDashboard },
+  { href: "/insights",              label: "Insights",  icon: BarChart3 },
+  { href: "/clients",               label: "Clients",   icon: Users },
+  { href: "/jobs",                  label: "Jobs",      icon: Briefcase },
+  { href: "/time",                  label: "Time",      icon: Clock },
+  { href: "/business-development",  label: "Sales",     icon: TrendingUp },
 ] as const;
 
 type NavOrganisation = {
@@ -103,9 +102,7 @@ function hasAdminAccess(
 function Tooltip({ label, visible }: { label: string; visible: boolean }) {
   if (!visible) return null;
   return (
-    <div
-      className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
-    >
+    <div className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-md opacity-0 group-hover:opacity-100 transition-opacity">
       {label}
     </div>
   );
@@ -119,7 +116,7 @@ export function AppSidebar() {
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
   const [expanded, setExpanded] = useState(false);
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminCenterOpen, setAdminCenterOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null);
@@ -140,24 +137,19 @@ export function AppSidebar() {
     organisations: [] as NavOrganisation[],
   });
 
-  // Restore collapsed/expanded preference
+  // Restore expanded preference
   useEffect(() => {
     try {
       const saved = localStorage.getItem("sidebar-expanded");
       if (saved !== null) setExpanded(saved === "true");
-    } catch {
-      // localStorage unavailable
-    }
+    } catch { /* */ }
   }, []);
 
   function toggleExpanded() {
     setExpanded((v) => {
       const next = !v;
       try { localStorage.setItem("sidebar-expanded", String(next)); } catch { /* */ }
-      if (!next) {
-        setAdminOpen(false);
-        setHelpOpen(false);
-      }
+      if (!next) { setAdminCenterOpen(false); setHelpOpen(false); }
       return next;
     });
   }
@@ -173,9 +165,8 @@ export function AppSidebar() {
       const currentOrg = (payload?.current_org || {}) as Record<string, unknown>;
       const adminAccess = hasAdminAccess(user, currentOrg);
       const userId = String(user?.email || user?.user_id || "").trim();
-      const userInitial = userId.charAt(0).toUpperCase() || "U";
       if (!cancelled) {
-        setAuthUi({ ready: true, authed: Boolean(authSession.payload), userId, userInitial, adminAccess });
+        setAuthUi({ ready: true, authed: Boolean(authSession.payload), userId, userInitial: userId.charAt(0).toUpperCase() || "U", adminAccess });
         setOrgUi({
           currentOrgId: String(currentOrg?.org_id || user?.org_id || "").trim(),
           currentOrgLabel: String(currentOrg?.name || "").trim(),
@@ -229,12 +220,8 @@ export function AppSidebar() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [pathname, authSession]);
 
-  // Close profile menu on route change
-  useEffect(() => {
-    setProfileOpen(false);
-  }, [pathname]);
+  useEffect(() => { setProfileOpen(false); }, [pathname]);
 
-  // Close profile menu on outside click
   useEffect(() => {
     if (!profileOpen) return;
     function handlePointerDown(e: PointerEvent) {
@@ -279,22 +266,16 @@ export function AppSidebar() {
     return raw;
   })();
 
-  // Hide on auth-only pages
   const hiddenRoutes = ["/login", "/change-password", "/legal"];
-  if (hiddenRoutes.some((r) => pathname === r || pathname?.startsWith(r + "/"))) {
-    return null;
-  }
+  if (hiddenRoutes.some((r) => pathname === r || pathname?.startsWith(r + "/"))) return null;
 
-  const isAdminRoute = pathname === "/admin" || pathname?.startsWith("/admin/");
+  const isAdminCenterRoute = pathname === "/admin-center" || pathname?.startsWith("/admin-center/");
   const isHelpRoute =
-    pathname === "/support" ||
-    pathname?.startsWith("/support/") ||
-    pathname === "/feedback" ||
-    pathname?.startsWith("/feedback/");
+    pathname === "/support" || pathname?.startsWith("/support/") ||
+    pathname === "/feedback" || pathname?.startsWith("/feedback/");
 
   function isActive(href: string, label?: string): boolean {
     if (label === "Help") return isHelpRoute;
-    if (label === "Admin") return isAdminRoute;
     if (href === "/") return pathname === "/";
     return pathname === href || Boolean(pathname?.startsWith(href + "/"));
   }
@@ -321,13 +302,11 @@ export function AppSidebar() {
           ) : (
             <div className="h-7 w-7 flex-shrink-0 rounded-full bg-emerald-700 flex items-center justify-center text-white text-xs font-bold">N</div>
           )}
-          {expanded && (
-            <span className="text-sm font-bold leading-tight truncate">NZ Insights Pro</span>
-          )}
+          {expanded && <span className="text-sm font-bold leading-tight truncate">NZ Insights Pro</span>}
         </Link>
       </div>
 
-      {/* Nav items */}
+      {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = isActive(href, label);
@@ -338,9 +317,7 @@ export function AppSidebar() {
                 className={cn(
                   "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
                   expanded ? "gap-3 px-3" : "justify-center",
-                  active
-                    ? "text-white"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 style={active ? { backgroundColor: accentColor } : undefined}
               >
@@ -352,7 +329,7 @@ export function AppSidebar() {
           );
         })}
 
-        {/* Admin */}
+        {/* Admin Center */}
         {authUi.adminAccess && (
           <div>
             <div className="group relative">
@@ -361,39 +338,37 @@ export function AppSidebar() {
                 className={cn(
                   "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
                   expanded ? "gap-3 px-3" : "justify-center",
-                  isAdminRoute
-                    ? "text-white"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  isAdminCenterRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
-                style={isAdminRoute ? { backgroundColor: accentColor } : undefined}
+                style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
                 onClick={() => {
                   if (!expanded) {
-                    router.push("/admin");
+                    router.push("/admin-center");
                   } else {
-                    setAdminOpen((v) => !v);
+                    setAdminCenterOpen((v) => !v);
                   }
                 }}
               >
-                <Settings className="h-4 w-4 flex-shrink-0" />
+                <Shield className="h-4 w-4 flex-shrink-0" />
                 {expanded && (
                   <>
-                    <span className="flex-1 truncate text-left">Admin</span>
-                    {adminOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    <span className="flex-1 truncate text-left">Admin Center</span>
+                    {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   </>
                 )}
               </button>
-              <Tooltip label="Admin" visible={!expanded} />
+              <Tooltip label="Admin Center" visible={!expanded} />
             </div>
 
-            {expanded && adminOpen && (
+            {expanded && adminCenterOpen && (
               <div className="ml-3 mt-0.5 space-y-3 border-l border-border pl-3 py-2">
-                {ADMIN_DOMAINS.map((domain) => (
+                {ADMIN_CENTER_DOMAINS.map((domain) => (
                   <div key={domain}>
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                       {domain}
                     </div>
                     <div className="space-y-0.5">
-                      {ADMIN_QUICK_LINKS.filter((l) => l.domain === domain).map((link) => {
+                      {ADMIN_CENTER_LINKS.filter((l) => l.domain === domain).map((link) => {
                         const active = pathname === link.href || pathname?.startsWith(link.href + "/");
                         return (
                           <Link
@@ -417,25 +392,6 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Admin Center */}
-        {authUi.adminAccess && (
-          <div className="group relative">
-            <Link
-              href="/admin-center"
-              className={cn(
-                "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
-                expanded ? "gap-3 px-3" : "justify-center",
-                isActive("/admin-center") ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-              style={isActive("/admin-center") ? { backgroundColor: accentColor } : undefined}
-            >
-              <Shield className="h-4 w-4 flex-shrink-0" />
-              {expanded && <span className="truncate">Admin Center</span>}
-            </Link>
-            <Tooltip label="Admin Center" visible={!expanded} />
-          </div>
-        )}
-
         {/* Help */}
         <div>
           <div className="group relative">
@@ -444,17 +400,11 @@ export function AppSidebar() {
               className={cn(
                 "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
                 expanded ? "gap-3 px-3" : "justify-center",
-                isHelpRoute
-                  ? "text-white"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                isHelpRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
               style={isHelpRoute ? { backgroundColor: accentColor } : undefined}
               onClick={() => {
-                if (!expanded) {
-                  router.push("/support");
-                } else {
-                  setHelpOpen((v) => !v);
-                }
+                if (!expanded) { router.push("/support"); } else { setHelpOpen((v) => !v); }
               }}
             >
               <HelpCircle className="h-4 w-4 flex-shrink-0" />
@@ -467,7 +417,6 @@ export function AppSidebar() {
             </button>
             <Tooltip label="Help" visible={!expanded} />
           </div>
-
           {expanded && helpOpen && (
             <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
               {HELP_LINKS.map((link) => {
@@ -493,29 +442,22 @@ export function AppSidebar() {
 
       {/* Bottom: user + toggle */}
       <div className="flex-shrink-0 border-t">
-        {/* Profile */}
         {authUi.ready && authUi.authed && (
           <div ref={profileMenuRef} className="relative">
             {profileOpen && (
-              <div
-                className={cn(
-                  "absolute bottom-full left-2 right-2 mb-1 rounded-md border bg-background p-2 shadow-lg z-50",
-                  !expanded && "left-14 right-auto w-72"
-                )}
-              >
+              <div className={cn(
+                "absolute bottom-full left-2 right-2 mb-1 rounded-md border bg-background p-2 shadow-lg z-50",
+                !expanded && "left-14 right-auto w-72"
+              )}>
                 <div className="px-2 py-1 text-xs text-muted-foreground">Signed in as</div>
                 <div className="truncate px-2 pb-2 text-sm font-medium">{authUi.userId}</div>
-
                 {currentOrgLabel && (
                   <div className="mb-2 rounded border bg-muted/20 px-2 py-2">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Organisation</div>
                     <div className="truncate text-sm font-medium">{currentOrgLabel}</div>
-                    {orgUi.currentOrgRole && (
-                      <div className="text-xs text-muted-foreground">{orgUi.currentOrgRole}</div>
-                    )}
+                    {orgUi.currentOrgRole && <div className="text-xs text-muted-foreground">{orgUi.currentOrgRole}</div>}
                   </div>
                 )}
-
                 {authUi.adminAccess && orgUi.organisations.length > 1 && (
                   <div className="mb-2 rounded border bg-muted/20 px-2 py-2">
                     <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Switch organisation</div>
@@ -543,7 +485,6 @@ export function AppSidebar() {
                     </div>
                   </div>
                 )}
-
                 <Link
                   href="/account/settings"
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
@@ -555,17 +496,13 @@ export function AppSidebar() {
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-destructive hover:bg-muted"
-                  onClick={() => {
-                    clearAuthState();
-                    router.replace("/login");
-                  }}
+                  onClick={() => { clearAuthState(); router.replace("/login"); }}
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   Sign out
                 </button>
               </div>
             )}
-
             <button
               type="button"
               className={cn(
@@ -584,16 +521,13 @@ export function AppSidebar() {
               {expanded && (
                 <div className="min-w-0 flex-1 text-left">
                   <div className="truncate text-xs font-medium">{authUi.userId}</div>
-                  {currentOrgLabel && (
-                    <div className="truncate text-[10px] text-muted-foreground">{currentOrgLabel}</div>
-                  )}
+                  {currentOrgLabel && <div className="truncate text-[10px] text-muted-foreground">{currentOrgLabel}</div>}
                 </div>
               )}
             </button>
           </div>
         )}
 
-        {/* Collapse / expand toggle */}
         <button
           type="button"
           onClick={toggleExpanded}
@@ -604,10 +538,7 @@ export function AppSidebar() {
           aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
         >
           {expanded ? (
-            <>
-              <ChevronLeft className="h-4 w-4 flex-shrink-0" />
-              <span>Collapse</span>
-            </>
+            <><ChevronLeft className="h-4 w-4 flex-shrink-0" /><span>Collapse</span></>
           ) : (
             <ChevronRight className="h-4 w-4 flex-shrink-0" />
           )}

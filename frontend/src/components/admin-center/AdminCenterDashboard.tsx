@@ -7,7 +7,6 @@ import { AdminCenterAlertBanner } from "./AdminCenterAlertBanner";
 import { AdminCenterModuleGrid } from "./AdminCenterModuleGrid";
 import { AdminCenterRecentlyVisited } from "./AdminCenterRecentlyVisited";
 import { AdminCenterShell } from "./AdminCenterShell";
-import { AdminCenterSidebar } from "./AdminCenterSidebar";
 import { AdminCenterStatsRow, type AdminCenterStat } from "./AdminCenterStatsRow";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,17 +66,7 @@ export function AdminCenterDashboard() {
   const criticalModule = getAdminCenterCriticalModule();
 
   return (
-    <AdminCenterShell
-      sidebar={
-        <AdminCenterSidebar
-          activeDomain={selectedDomain}
-          onSelectDomain={setSelectedDomain}
-          onNavigate={() => {
-            // Navigation is handled by the module links. The callback exists so the shell can close mobile chrome later.
-          }}
-        />
-      }
-    >
+    <AdminCenterShell>
       <div className="space-y-6">
         <section className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
           <div className="border-b border-slate-200/80 px-6 py-6 sm:px-8">
