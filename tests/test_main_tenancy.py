@@ -35,6 +35,103 @@ class _ClientConn(_FakeConn):
     def fetchone(self):
         return self.row
 
+    def fetchall(self):
+        if "information_schema.columns" in self.queries[-1][0]:
+            return [
+                ("db_id",),
+                ("client_name",),
+                ("industry",),
+                ("description_long",),
+                ("status",),
+                ("website",),
+                ("year_end_month",),
+                ("company_reg",),
+                ("sic_code",),
+                ("headquarters",),
+                ("addr_line1",),
+                ("addr_line2",),
+                ("addr_city",),
+                ("addr_region",),
+                ("addr_postcode",),
+                ("addr_country",),
+                ("logo_url",),
+                ("crm_owner",),
+                ("net_zero_year",),
+                ("interim_year",),
+                ("interim_s1_pct",),
+                ("interim_s2_pct",),
+                ("interim_s3_pct",),
+                ("portfolio",),
+                ("net_zero_target_reduction_pct",),
+                ("benchmark_year",),
+                ("benchmark_period_start",),
+                ("benchmark_period_end",),
+                ("currency",),
+                ("billing_same_as_main",),
+                ("billing_addr_line1",),
+                ("billing_addr_line2",),
+                ("billing_addr_city",),
+                ("billing_addr_region",),
+                ("billing_addr_postcode",),
+                ("billing_addr_country",),
+                ("create_site_from_address",),
+                ("benchmark_scope_1_tco2e",),
+                ("benchmark_scope_2_tco2e",),
+                ("benchmark_scope_3_tco2e",),
+                ("benchmark_total_tco2e",),
+                ("billing_company",),
+            ]
+        return []
+
+    def df(self):
+        if "SELECT c.db_id AS client_db_id" in self.queries[-1][0]:
+            columns = [
+                "client_db_id",
+                "client_name",
+                "industry",
+                "description_long",
+                "status",
+                "website",
+                "year_end_month",
+                "company_reg",
+                "sic_code",
+                "headquarters",
+                "addr_line1",
+                "addr_line2",
+                "addr_city",
+                "addr_region",
+                "addr_postcode",
+                "addr_country",
+                "logo_url",
+                "crm_owner",
+                "net_zero_year",
+                "interim_year",
+                "interim_s1_pct",
+                "interim_s2_pct",
+                "interim_s3_pct",
+                "portfolio",
+                "net_zero_target_reduction_pct",
+                "benchmark_year",
+                "benchmark_period_start",
+                "benchmark_period_end",
+                "currency",
+                "billing_same_as_main",
+                "billing_addr_line1",
+                "billing_addr_line2",
+                "billing_addr_city",
+                "billing_addr_region",
+                "billing_addr_postcode",
+                "billing_addr_country",
+                "create_site_from_address",
+                "benchmark_scope_1_tco2e",
+                "benchmark_scope_2_tco2e",
+                "benchmark_scope_3_tco2e",
+                "benchmark_total_tco2e",
+                "billing_company",
+            ]
+            return pd.DataFrame([self.row], columns=columns)
+        return pd.DataFrame([])
+
 
 class _ListClientsConn(_FakeConn):
     def __init__(self):
@@ -173,6 +270,49 @@ class _ClientJobsMismatchConn(_ClientJobsConn):
                 ]
             )
         return super().df()
+
+
+class _ClientJobsOrgMatchConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        if "COUNT(*)" in self._last_sql and "COALESCE(j.org_id, c.org_id) = ?" in self._last_sql:
+            return (1,)
+        if "COUNT(*)" in self._last_sql:
+            return (0,)
+        return None
+
+    def df(self):
+        if "FROM jobs j" in self._last_sql and "COALESCE(j.org_id, c.org_id) = ?" in self._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 640,
+                        "job_number": "J000640",
+                        "title": "Job title",
+                        "reporting_year": 2025,
+                        "reporting_period_end": pd.Timestamp("2026-03-31"),
+                        "status": "Open",
+                        "job_type": "CRP",
+                        "is_crp": True,
+                        "data_collection_due": None,
+                        "data_collection_completed_at": None,
+                        "first_draft_due": None,
+                        "first_draft_completed_at": None,
+                        "final_report_due": None,
+                        "final_report_completed_at": None,
+                        "total_emissions": 0,
+                    }
+                ]
+            )
+        return pd.DataFrame([])
 
 
 class _ClientLimitConn(_FakeConn):
@@ -417,6 +557,25 @@ def test_client_jobs_returns_client_rows_even_when_org_lookup_differs(monkeypatc
 
     assert result["total"] == 1
     assert result["items"][0]["job_id"] == 640
+
+
+def test_client_jobs_matches_client_org_when_scoping_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ClientJobsOrgMatchConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "require_org", lambda user: user["org_id"])
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    result = main.client_jobs(
+        58,
+        limit=50,
+        offset=0,
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["total"] == 1
+    assert result["items"][0]["job_id"] == 640
+    assert any("COALESCE(j.org_id, c.org_id) = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
 
 
 def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.MonkeyPatch) -> None:

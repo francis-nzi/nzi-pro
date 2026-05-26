@@ -5,10 +5,18 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import pytest
 import pandas as pd
 
 import api.client_dashboard_routes as client_dashboard_routes
 import api.quotes_routes as quotes_routes
+
+
+@pytest.fixture(autouse=True)
+def _clear_client_dashboard_cache():
+    client_dashboard_routes._dashboard_cache.clear()
+    yield
+    client_dashboard_routes._dashboard_cache.clear()
 
 
 class _FakeConn:
@@ -108,7 +116,7 @@ def test_client_dashboard_uses_exact_emissions_totals(monkeypatch) -> None:
     monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, rows_df: rows_df)
     monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
 
-    result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
+    result = client_dashboard_routes.get_client_dashboard(89, lite=False, _user={"user_id": "u1", "org_id": "org-a"})
 
     assert result["available_years"] == [2025]
     assert result["selected_year"] == 2025
@@ -151,7 +159,7 @@ def test_client_dashboard_falls_back_to_summary_when_exact_empty(monkeypatch) ->
     monkeypatch.setattr(client_dashboard_routes, "load_combined_emissions_summary_rows", lambda *_args, **_kwargs: summary_rows_df)
     monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
 
-    result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
+    result = client_dashboard_routes.get_client_dashboard(89, lite=False, _user={"user_id": "u1", "org_id": "org-a"})
 
     assert result["available_years"] == [2025]
     assert result["selected_year"] == 2025
@@ -205,7 +213,7 @@ def test_client_dashboard_falls_back_when_summary_years_are_missing(monkeypatch)
     monkeypatch.setattr(client_dashboard_routes, "attach_exact_emissions", lambda _con, rows_df: rows_df)
     monkeypatch.setattr(client_dashboard_routes, "get_client_benchmark_metrics", lambda *_args, **_kwargs: None)
 
-    result = client_dashboard_routes.get_client_dashboard(89, _user={"user_id": "u1", "org_id": "org-a"})
+    result = client_dashboard_routes.get_client_dashboard(89, lite=False, _user={"user_id": "u1", "org_id": "org-a"})
 
     assert result["available_years"] == [2025]
     assert result["selected_year"] == 2025
