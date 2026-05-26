@@ -219,6 +219,7 @@ type FinancialView = "quotes" | "invoices" | "profit-loss";
 const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "carbon", label: "Carbon Analytics" },
+  { id: "reporting", label: "Reporting" },
   { id: "profile", label: "Company Profile" },
   { id: "financial", label: "Financials" },
 ];
@@ -452,8 +453,10 @@ function ClientDetailPageContent() {
     let targetSection: ClientSection = "overview";
     let targetSubTab: ProfileSubSection = "details";
     
-    if (section === "carbon" || section === "dashboard" || section === "reporting") {
+    if (section === "carbon" || section === "dashboard") {
       targetSection = "carbon";
+    } else if (section === "reporting") {
+      targetSection = "reporting";
     } else if (section === "profile") {
       targetSection = "profile";
     } else if (section === "details") {
@@ -482,8 +485,10 @@ function ClientDetailPageContent() {
     let targetSection: ClientSection = section;
     let targetSubTab: ProfileSubSection = activeProfileSubTab;
     
-    if (section === "dashboard" || section === "reporting" || section === "carbon") {
+    if (section === "dashboard" || section === "carbon") {
       targetSection = "carbon";
+    } else if (section === "reporting") {
+      targetSection = "reporting";
     } else if (section === "details") {
       targetSection = "profile";
       targetSubTab = "details";
