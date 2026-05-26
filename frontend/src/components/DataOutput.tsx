@@ -79,6 +79,15 @@ type ScopeCategoryData = {
   };
 };
 
+type ActivityDetailRow = {
+  year: number;
+  scope: string;
+  category: string;
+  activity: string;
+  emissions?: number;
+  quantity?: number;
+};
+
 type ClientReportingComparisonData = {
   years: number[];
   by_scope: Array<{
@@ -101,6 +110,8 @@ type ClientReportingComparisonData = {
     year: number;
     scopes: ScopeCategoryData;
   }>;
+  by_activity_detail?: ActivityDetailRow[];
+  by_activity_detail_volume?: ActivityDetailRow[];
 };
 
 type AuditRow = {
@@ -642,6 +653,67 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     return buildSiteComparisonRows(comparisonData.by_site || []);
   }, [buildSiteComparisonRows, comparisonData, comparisonYears]);
 
+  type DetailTableRow =
+    | { type: "activity"; scope: string; category: string; activity: string; values: number[] }
+    | { type: "cat-subtotal"; scope: string; category: string; values: number[] }
+    | { type: "scope-subtotal"; scope: string; values: number[] }
+    | { type: "total"; values: number[] };
+
+  const buildDetailTableRows = useCallback(
+    (rows: ActivityDetailRow[], valueKey: "emissions" | "quantity"): DetailTableRow[] => {
+      if (!rows.length || !comparisonYears.length) return [];
+      const lookup = new Map<string, number>();
+      for (const r of rows) {
+        lookup.set(`${r.scope}||${r.category}||${r.activity}||${r.year}`, r[valueKey] ?? 0);
+      }
+      // Collect ordered unique (scope, category, activity) combos
+      const scopeOrder: string[] = [];
+      const catOrder = new Map<string, string[]>();
+      const actOrder = new Map<string, string[]>();
+      for (const r of rows) {
+        if (!scopeOrder.includes(r.scope)) scopeOrder.push(r.scope);
+        const catKey = r.scope;
+        if (!catOrder.has(catKey)) catOrder.set(catKey, []);
+        if (!catOrder.get(catKey)!.includes(r.category)) catOrder.get(catKey)!.push(r.category);
+        const actKey = `${r.scope}||${r.category}`;
+        if (!actOrder.has(actKey)) actOrder.set(actKey, []);
+        if (!actOrder.get(actKey)!.includes(r.activity)) actOrder.get(actKey)!.push(r.activity);
+      }
+      const result: DetailTableRow[] = [];
+      const totals = comparisonYears.map(() => 0);
+      for (const scope of scopeOrder) {
+        const scopeTotals = comparisonYears.map(() => 0);
+        for (const cat of catOrder.get(scope) || []) {
+          const catTotals = comparisonYears.map(() => 0);
+          for (const activity of actOrder.get(`${scope}||${cat}`) || []) {
+            const values = comparisonYears.map((yr, i) => {
+              const v = lookup.get(`${scope}||${cat}||${activity}||${yr}`) ?? 0;
+              catTotals[i] += v;
+              scopeTotals[i] += v;
+              totals[i] += v;
+              return v;
+            });
+            result.push({ type: "activity", scope, category: cat, activity, values });
+          }
+          result.push({ type: "cat-subtotal", scope, category: cat, values: catTotals });
+        }
+        result.push({ type: "scope-subtotal", scope, values: scopeTotals });
+      }
+      result.push({ type: "total", values: totals });
+      return result;
+    },
+    [comparisonYears]
+  );
+
+  const detailEmissionsRows = useMemo(
+    () => buildDetailTableRows(comparisonData?.by_activity_detail || [], "emissions"),
+    [buildDetailTableRows, comparisonData]
+  );
+  const detailVolumeRows = useMemo(
+    () => buildDetailTableRows(comparisonData?.by_activity_detail_volume || [], "quantity"),
+    [buildDetailTableRows, comparisonData]
+  );
+
   if (loading) {
     return (
       <Card>
@@ -1031,8 +1103,111 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               )}
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Year-over-Year Detailed Activity Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {comparisonLoading ? (
+                <div className="text-sm text-muted-foreground">Loading...</div>
+              ) : comparisonYears.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No data available.</div>
+              ) : (
+                <Tabs defaultValue="emissions" className="w-full">
+                  <TabsList>
+                    <TabsTrigger value="emissions">Emissions (tCO₂e)</TabsTrigger>
+                    <TabsTrigger value="volume">Volume</TabsTrigger>
+                  </TabsList>
+                  {(["emissions", "volume"] as const).map((tab) => {
+                    const rows = tab === "emissions" ? detailEmissionsRows : detailVolumeRows;
+                    return (
+                      <TabsContent key={tab} value={tab} className="pt-2">
+                        {rows.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No data available.</div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm border-collapse">
+                              <thead>
+                                <tr className="bg-muted">
+                                  <th className="text-left p-2 border">Scope</th>
+                                  <th className="text-left p-2 border">Category</th>
+                                  <th className="text-left p-2 border">Activity</th>
+                                  {comparisonYears.map((year) => (
+                                    <th key={year} className="text-right p-2 border">{year}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map((row, idx) => {
+                                  if (row.type === "activity") {
+                                    return (
+                                      <tr key={idx} className="hover:bg-muted/30">
+                                        <td className="p-2 border text-muted-foreground">{row.scope}</td>
+                                        <td className="p-2 border text-muted-foreground">{row.category}</td>
+                                        <td className="p-2 border">{row.activity}</td>
+                                        {row.values.map((v, ci) => (
+                                          <td key={ci} className="text-right p-2 border">
+                                            {v > 0 ? formatNumber(v, 2) : "-"}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  }
+                                  if (row.type === "cat-subtotal") {
+                                    return (
+                                      <tr key={idx} className="bg-muted/40 font-semibold text-xs">
+                                        <td className="p-2 border">{row.scope}</td>
+                                        <td className="p-2 border">{row.category} – Subtotal</td>
+                                        <td className="p-2 border"></td>
+                                        {row.values.map((v, ci) => (
+                                          <td key={ci} className="text-right p-2 border">
+                                            {v > 0 ? formatNumber(v, 2) : "-"}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  }
+                                  if (row.type === "scope-subtotal") {
+                                    return (
+                                      <tr key={idx} className="bg-muted/60 font-semibold">
+                                        <td className="p-2 border">{row.scope}</td>
+                                        <td className="p-2 border">Subtotal</td>
+                                        <td className="p-2 border"></td>
+                                        {row.values.map((v, ci) => (
+                                          <td key={ci} className="text-right p-2 border">
+                                            {v > 0 ? formatNumber(v, 2) : "-"}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    );
+                                  }
+                                  return (
+                                    <tr key={idx} className="bg-muted font-bold">
+                                      <td className="p-2 border">All Scopes</td>
+                                      <td className="p-2 border">Total</td>
+                                      <td className="p-2 border"></td>
+                                      {row.values.map((v, ci) => (
+                                        <td key={ci} className="text-right p-2 border">
+                                          {v > 0 ? formatNumber(v, 2) : "-"}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </TabsContent>
+                    );
+                  })}
+                </Tabs>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
-        
+
         <TabsContent value="by-site" className="space-y-4">
           <Card>
             <CardHeader>

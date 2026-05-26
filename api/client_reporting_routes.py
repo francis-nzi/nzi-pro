@@ -190,6 +190,10 @@ def get_client_reporting(
             scope_df['category'] = scope_df['dataset_category']
             scope_df['level1_cat'] = scope_df.apply(lambda row: _level1_category_label(row), axis=1)
             scope_df['site_name'] = scope_df['site_name'].apply(lambda value: _clean_label(value, 'Unknown'))
+            if 'activity_name' in scope_df.columns:
+                scope_df['activity_name'] = scope_df['activity_name'].apply(lambda v: _clean_label(v, 'Unknown'))
+            else:
+                scope_df['activity_name'] = scope_df['category']
             
             # Get unique years
             years = sorted([int(y) for y in scope_df['dashboard_year'].dropna().unique().tolist()])
@@ -272,7 +276,7 @@ def get_client_reporting(
             # === BY SITE ===
             # Group by year and site
             site_groups = scope_df.groupby(['dashboard_year', 'site_name'])['emissions'].sum().reset_index()
-            
+
             by_site = []
             for year in years:
                 year_data = {"year": int(year)}
@@ -282,7 +286,37 @@ def get_client_reporting(
                     year_data[site_name] = round(float(row['emissions']), 2)
                 year_data['total'] = round(year_rows['emissions'].sum(), 2)
                 by_site.append(year_data)
-            
+
+            # === BY ACTIVITY DETAIL ===
+            # Flat list of individual activity lines grouped by year, scope, high-level category, activity name
+            detail_groups = scope_df.groupby(
+                ['dashboard_year', 'scope', 'level1_cat', 'activity_name']
+            )['emissions'].sum().reset_index()
+
+            by_activity_detail = []
+            for _, row in detail_groups.iterrows():
+                by_activity_detail.append({
+                    "year": int(row['dashboard_year']),
+                    "scope": _clean_label(row['scope'], 'Unknown'),
+                    "category": _clean_label(row['level1_cat'], 'Uncategorized'),
+                    "activity": _clean_label(row['activity_name'], 'Unknown'),
+                    "emissions": round(float(row['emissions']), 2),
+                })
+
+            detail_vol_groups = scope_df.groupby(
+                ['dashboard_year', 'scope', 'level1_cat', 'activity_name']
+            )['quantity'].sum().reset_index()
+
+            by_activity_detail_volume = []
+            for _, row in detail_vol_groups.iterrows():
+                by_activity_detail_volume.append({
+                    "year": int(row['dashboard_year']),
+                    "scope": _clean_label(row['scope'], 'Unknown'),
+                    "category": _clean_label(row['level1_cat'], 'Uncategorized'),
+                    "activity": _clean_label(row['activity_name'], 'Unknown'),
+                    "quantity": round(float(row['quantity']), 2),
+                })
+
             return {
                 "client_db_id": int(client_db_id),
                 "client_name": client_check[0],
@@ -292,7 +326,9 @@ def get_client_reporting(
                 "by_scope_volume": by_scope_volume,
                 "by_scope_category_volume": by_scope_category_volume,
                 "by_activity": by_activity,
-                "by_site": by_site
+                "by_site": by_site,
+                "by_activity_detail": by_activity_detail,
+                "by_activity_detail_volume": by_activity_detail_volume,
             }
             
     except HTTPException:

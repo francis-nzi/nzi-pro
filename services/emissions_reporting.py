@@ -202,6 +202,7 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 NULL::text AS group_name,
                 NULL::text AS asset_identifier,
                 NULL::text AS employee_name,
+                COALESCE(jsr.column_text, jsr.report_label) AS activity_name,
                 jsr.month_1, jsr.month_2, jsr.month_3, jsr.month_4,
                 jsr.month_5, jsr.month_6, jsr.month_7, jsr.month_8,
                 jsr.month_9, jsr.month_10, jsr.month_11, jsr.month_12
@@ -255,6 +256,13 @@ def load_combined_reporting_rows(con, job_ids: list[int]):
                 g.group_name,
                 js.asset_identifier,
                 js.employee_name,
+                COALESCE(
+                    NULLIF(TRIM(CAST(js.source_name AS VARCHAR)), ''),
+                    NULLIF(TRIM(CAST(g.group_name AS VARCHAR)), ''),
+                    NULLIF(TRIM(CAST(js.category AS VARCHAR)), ''),
+                    NULLIF(TRIM(CAST(g.category AS VARCHAR)), ''),
+                    'Unknown'
+                ) AS activity_name,
                 NULL::numeric AS month_1, NULL::numeric AS month_2, NULL::numeric AS month_3, NULL::numeric AS month_4,
                 NULL::numeric AS month_5, NULL::numeric AS month_6, NULL::numeric AS month_7, NULL::numeric AS month_8,
                 NULL::numeric AS month_9, NULL::numeric AS month_10, NULL::numeric AS month_11, NULL::numeric AS month_12
