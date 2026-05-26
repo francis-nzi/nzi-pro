@@ -1489,6 +1489,83 @@
                 </div>
             </div>
 
+            {% set _bns = namespace(has_bm=false) %}
+            {% for _sc in scope_comparison %}{% if _sc.benchmark > 0 %}{% set _bns.has_bm = true %}{% endif %}{% endfor %}
+            {% if _bns.has_bm %}
+            <div class="no-break" style="margin: 24px 0 8px 0;">
+                <h4 style="margin-bottom: 14px; font-size: 14px; color: #334155;">Year-on-Year Comparison by Scope</h4>
+                {% set _ml = 68 %}
+                {% set _mt = 48 %}
+                {% set _mb = 72 %}
+                {% set _mr = 24 %}
+                {% set _sw = 660 %}
+                {% set _sh = 340 %}
+                {% set _pw = _sw - _ml - _mr %}
+                {% set _ph = _sh - _mt - _mb %}
+                {% set _mns = namespace(mv=1.0) %}
+                {% for _sc in scope_comparison %}
+                    {% if _sc.current > _mns.mv %}{% set _mns.mv = _sc.current %}{% endif %}
+                    {% if _sc.benchmark > _mns.mv %}{% set _mns.mv = _sc.benchmark %}{% endif %}
+                {% endfor %}
+                {% set _mv = _mns.mv %}
+                {% set _gw = _pw / 4 %}
+                {% set _bw = 44 %}
+                {% set _bgap = 8 %}
+                {% set _pw2 = _bw * 2 + _bgap %}
+                {% set _boff = (_gw - _pw2) / 2 %}
+                <svg width="{{ _sw }}" height="{{ _sh }}" viewBox="0 0 {{ _sw }} {{ _sh }}" xmlns="http://www.w3.org/2000/svg" style="font-family: inherit; display: block;">
+                    <!-- Gridlines and Y-axis labels -->
+                    {% for _i in range(5) %}
+                        {% set _yv = _mv * (4 - _i) / 4 %}
+                        {% set _yp = _mt + _ph * _i / 4 %}
+                        <line x1="{{ _ml }}" y1="{{ _yp }}" x2="{{ _sw - _mr }}" y2="{{ _yp }}" stroke="#e2e8f0" stroke-width="1"/>
+                        <text x="{{ _ml - 6 }}" y="{{ _yp + 4 }}" text-anchor="end" font-size="10" fill="#64748b">{{ '{:,.0f}'.format(_yv) }}</text>
+                    {% endfor %}
+                    <!-- Axes -->
+                    <line x1="{{ _ml }}" y1="{{ _mt }}" x2="{{ _ml }}" y2="{{ _mt + _ph }}" stroke="#94a3b8" stroke-width="1.5"/>
+                    <line x1="{{ _ml }}" y1="{{ _mt + _ph }}" x2="{{ _sw - _mr }}" y2="{{ _mt + _ph }}" stroke="#94a3b8" stroke-width="1.5"/>
+                    <!-- Y-axis unit -->
+                    <text x="14" y="{{ _mt + _ph / 2 }}" text-anchor="middle" font-size="10" fill="#64748b" transform="rotate(-90, 14, {{ _mt + _ph / 2 }})">tCO&#x2082;e</text>
+                    <!-- Bars -->
+                    {% for _sc in scope_comparison %}
+                        {% set _gi = loop.index0 %}
+                        {% set _gx = _ml + _gi * _gw %}
+                        {% set _bh = _ph * _sc.benchmark / _mv %}
+                        {% set _bx = _gx + _boff %}
+                        {% set _by = _mt + _ph - _bh %}
+                        <rect x="{{ _bx }}" y="{{ _by }}" width="{{ _bw }}" height="{{ _bh }}" fill="#94a3b8" rx="2"/>
+                        {% if _sc.benchmark > 0 %}
+                            <text x="{{ _bx + _bw / 2 }}" y="{{ _by - 4 }}" text-anchor="middle" font-size="9" fill="#475569">{{ '{:,.0f}'.format(_sc.benchmark) }}</text>
+                        {% endif %}
+                        {% set _ch = _ph * _sc.current / _mv %}
+                        {% set _cx = _gx + _boff + _bw + _bgap %}
+                        {% set _cy = _mt + _ph - _ch %}
+                        <rect x="{{ _cx }}" y="{{ _cy }}" width="{{ _bw }}" height="{{ _ch }}" fill="#1c5026" rx="2"/>
+                        {% if _sc.current > 0 %}
+                            <text x="{{ _cx + _bw / 2 }}" y="{{ _cy - 4 }}" text-anchor="middle" font-size="9" fill="#1c5026">{{ '{:,.0f}'.format(_sc.current) }}</text>
+                        {% endif %}
+                        <!-- Group label -->
+                        <text x="{{ _gx + _gw / 2 }}" y="{{ _mt + _ph + 18 }}" text-anchor="middle" font-size="11" fill="#334155" font-weight="600">{{ _sc.label }}</text>
+                        <!-- % change -->
+                        {% if _sc.change_pct is not none %}
+                            {% if _sc.change_pct < 0 %}
+                                <text x="{{ _gx + _gw / 2 }}" y="{{ _mt + _ph + 34 }}" text-anchor="middle" font-size="10" fill="#16a34a">{{ _sc.change_pct }}%</text>
+                            {% else %}
+                                <text x="{{ _gx + _gw / 2 }}" y="{{ _mt + _ph + 34 }}" text-anchor="middle" font-size="10" fill="#dc2626">+{{ _sc.change_pct }}%</text>
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+                    <!-- Legend -->
+                    {% set _legy = _mt + _ph + 52 %}
+                    {% set _legx = _ml + _pw / 2 - 110 %}
+                    <rect x="{{ _legx }}" y="{{ _legy }}" width="13" height="13" fill="#94a3b8" rx="2"/>
+                    <text x="{{ _legx + 17 }}" y="{{ _legy + 10 }}" font-size="11" fill="#334155">Benchmark Year</text>
+                    <rect x="{{ _legx + 128 }}" y="{{ _legy }}" width="13" height="13" fill="#1c5026" rx="2"/>
+                    <text x="{{ _legx + 145 }}" y="{{ _legy + 10 }}" font-size="11" fill="#334155">Current Year</text>
+                </svg>
+            </div>
+            {% endif %}
+
             <h3>Scope Descriptions</h3>
             <table class="data-table no-break">
                 <thead>
