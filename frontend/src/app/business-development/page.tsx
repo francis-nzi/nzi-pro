@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -267,7 +269,7 @@ const LEAD_GENERATOR_PROFILE_TEMPLATES: LeadGeneratorProfile[] = [
   },
 ];
 
-export default function BusinessDevelopmentPage() {
+function BusinessDevelopmentContent() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [loading, setLoading] = useState(false);
@@ -312,7 +314,12 @@ export default function BusinessDevelopmentPage() {
   const [binReasonByLead, setBinReasonByLead] = useState<Record<string, string>>({});
   const [binNoteByLead, setBinNoteByLead] = useState<Record<string, string>>({});
   const [activeServiceFilter, setActiveServiceFilter] = useState("all");
-  const [activeSection, setActiveSection] = useState<BdSection>("overview");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeSection: BdSection = (searchParams.get("section") as BdSection) || "overview";
+  function setActiveSection(section: BdSection) {
+    router.push(`/business-development?section=${section}`, { scroll: false });
+  }
   const [focusLeadId, setFocusLeadId] = useState<number | null>(null);
   const [totals, setTotals] = useState({ lead_count: 0, open_opportunities: 0, pipeline_value: 0 });
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
@@ -1080,24 +1087,6 @@ export default function BusinessDevelopmentPage() {
         </div>
 
         {status ? <div className="rounded-md bg-muted p-3 text-sm">{status}</div> : null}
-
-        <Card>
-          <CardHeader><CardTitle className="text-base">Business Development Sections</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {sectionButtons.map((section) => (
-                <Button
-                  key={section.key}
-                  size="sm"
-                  variant={activeSection === section.key ? "default" : "outline"}
-                  onClick={() => setActiveSection(section.key)}
-                >
-                  {section.label}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
         {(activeSection === "overview" || activeSection === "funnel-settings") ? (
         <div className="grid gap-4 md:grid-cols-3">
@@ -1932,5 +1921,13 @@ export default function BusinessDevelopmentPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+export default function BusinessDevelopmentPage() {
+  return (
+    <Suspense>
+      <BusinessDevelopmentContent />
+    </Suspense>
   );
 }

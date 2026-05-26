@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
@@ -69,6 +69,15 @@ const NAV_ITEMS = [
   { href: "/business-development",  label: "Sales",     icon: TrendingUp },
 ] as const;
 
+const BD_SECTIONS = [
+  { key: "overview",          label: "Overview" },
+  { key: "lead-generator",    label: "Lead Generator" },
+  { key: "market-database",   label: "Market Database" },
+  { key: "leads",             label: "Leads" },
+  { key: "opportunities",     label: "Opportunities" },
+  { key: "funnel-settings",   label: "Funnel Settings" },
+] as const;
+
 type NavOrganisation = {
   org_id: string;
   name?: string | null;
@@ -111,6 +120,7 @@ function Tooltip({ label, visible }: { label: string; visible: boolean }) {
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme } = useTheme();
   const authSession = useAuthSession();
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -310,21 +320,46 @@ export function AppSidebar() {
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = isActive(href, label);
+          const isSales = href === "/business-development";
+          const onSalesRoute = isSales && pathname === "/business-development";
+          const activeSection = onSalesRoute ? (searchParams.get("section") || "overview") : null;
           return (
-            <div key={href} className="group relative">
-              <Link
-                href={href}
-                className={cn(
-                  "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
-                  expanded ? "gap-3 px-3" : "justify-center",
-                  active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-                style={active ? { backgroundColor: accentColor } : undefined}
-              >
-                <Icon className="h-4 w-4 flex-shrink-0" />
-                {expanded && <span className="truncate">{label}</span>}
-              </Link>
-              <Tooltip label={label} visible={!expanded} />
+            <div key={href}>
+              <div className="group relative">
+                <Link
+                  href={href}
+                  className={cn(
+                    "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
+                    expanded ? "gap-3 px-3" : "justify-center",
+                    active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  style={active ? { backgroundColor: accentColor } : undefined}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {expanded && <span className="truncate">{label}</span>}
+                </Link>
+                <Tooltip label={label} visible={!expanded} />
+              </div>
+              {expanded && onSalesRoute && (
+                <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
+                  {BD_SECTIONS.map((section) => {
+                    const sectionActive = activeSection === section.key;
+                    return (
+                      <Link
+                        key={section.key}
+                        href={`/business-development?section=${section.key}`}
+                        className={cn(
+                          "block rounded px-2 py-1 text-xs transition-colors",
+                          sectionActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        style={sectionActive ? { backgroundColor: accentColor } : undefined}
+                      >
+                        {section.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
