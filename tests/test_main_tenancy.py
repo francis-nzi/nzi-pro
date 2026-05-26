@@ -315,6 +315,49 @@ class _ClientJobsOrgMatchConn(_FakeConn):
         return pd.DataFrame([])
 
 
+class _ClientJobsLegacyConn(_FakeConn):
+    def __init__(self):
+        self.queries = []
+        self._last_sql = ""
+
+    def execute(self, sql: str, params: list[object] | None = None):
+        self.queries.append((sql, params))
+        self._last_sql = sql
+        return self
+
+    def fetchone(self):
+        if "COUNT(*)" in self._last_sql and "COALESCE(j.org_id, c.org_id) = ?" in self._last_sql:
+            return (0,)
+        if "COUNT(*)" in self._last_sql and "WHERE j.client_db_id = ?" in self._last_sql:
+            return (1,)
+        return None
+
+    def df(self):
+        if "FROM jobs j" in self._last_sql and "WHERE j.client_db_id = ?" in self._last_sql and "COALESCE(j.org_id, c.org_id) = ?" not in self._last_sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 777,
+                        "job_number": "J000777",
+                        "title": "Legacy Job",
+                        "reporting_year": 2024,
+                        "reporting_period_end": pd.Timestamp("2024-12-31"),
+                        "status": "Open",
+                        "job_type": "CRP",
+                        "is_crp": True,
+                        "data_collection_due": None,
+                        "data_collection_completed_at": None,
+                        "first_draft_due": None,
+                        "first_draft_completed_at": None,
+                        "final_report_due": None,
+                        "final_report_completed_at": None,
+                        "total_emissions": 0,
+                    }
+                ]
+            )
+        return pd.DataFrame([])
+
+
 class _ClientLimitConn(_FakeConn):
     def __init__(self):
         self.queries = []
@@ -576,6 +619,25 @@ def test_client_jobs_matches_client_org_when_scoping_jobs(monkeypatch: pytest.Mo
     assert result["total"] == 1
     assert result["items"][0]["job_id"] == 640
     assert any("COALESCE(j.org_id, c.org_id) = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
+
+
+def test_client_jobs_falls_back_to_legacy_client_scope_when_org_match_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _ClientJobsLegacyConn()
+    monkeypatch.setattr(main, "assert_permission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "assert_client_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+
+    result = main.client_jobs(
+        58,
+        limit=50,
+        offset=0,
+        _user={"user_id": "u1", "org_id": "org-a"},
+    )
+
+    assert result["total"] == 1
+    assert result["items"][0]["job_id"] == 777
+    assert any("COALESCE(j.org_id, c.org_id) = ?" in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
+    assert any("WHERE j.client_db_id = ?" in sql and "COALESCE(j.org_id, c.org_id) = ?" not in sql for sql, _ in conn.queries if "FROM jobs j" in sql)
 
 
 def test_create_client_rejects_when_org_at_client_limit(monkeypatch: pytest.MonkeyPatch) -> None:
