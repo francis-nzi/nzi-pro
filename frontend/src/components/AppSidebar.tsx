@@ -258,6 +258,13 @@ export function AppSidebar() {
 
   useEffect(() => { setProfileOpen(false); }, [pathname]);
 
+  // Auto-open Admin Center accordion when on any admin-center route
+  useEffect(() => {
+    if (pathname === "/admin-center" || pathname?.startsWith("/admin-center/")) {
+      setAdminCenterOpen(true);
+    }
+  }, [pathname]);
+
   useEffect(() => {
     if (!profileOpen) return;
     function handlePointerDown(e: PointerEvent) {
@@ -376,31 +383,33 @@ export function AppSidebar() {
         {/* Admin Center */}
         {authUi.adminAccess && (
           <div>
-            <div className="group relative">
-              <button
-                type="button"
+            <div className="group relative flex items-center rounded-md">
+              <Link
+                href="/admin-center"
                 className={cn(
-                  "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
+                  "flex h-10 flex-1 items-center rounded-md transition-colors text-sm font-medium",
                   expanded ? "gap-3 px-3" : "justify-center",
                   isAdminCenterRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
-                onClick={() => {
-                  if (!expanded) {
-                    router.push("/admin-center");
-                  } else {
-                    setAdminCenterOpen((v) => !v);
-                  }
-                }}
               >
                 <Shield className="h-4 w-4 flex-shrink-0" />
-                {expanded && (
-                  <>
-                    <span className="flex-1 truncate text-left">Admin Center</span>
-                    {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  </>
-                )}
-              </button>
+                {expanded && <span className="flex-1 truncate">Admin Center</span>}
+              </Link>
+              {expanded && (
+                <button
+                  type="button"
+                  aria-label="Toggle Admin Center menu"
+                  className={cn(
+                    "flex h-10 w-8 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                    isAdminCenterRoute ? "text-white/80 hover:text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
+                  onClick={() => setAdminCenterOpen((v) => !v)}
+                >
+                  {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              )}
               <Tooltip label="Admin Center" visible={!expanded} />
             </div>
 
