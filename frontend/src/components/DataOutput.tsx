@@ -17,6 +17,7 @@ type Activity = {
   activity_name: string | null;
   quantity: number | null;
   unit: string | null;
+  factor?: number | null;
   emissions: number;
   is_custom_entry?: boolean;
   scope?: string;
@@ -313,21 +314,12 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
 
   async function openScopeDetails(scope: Scope) {
     const scopeName = scope.scope_name;
-    if (!expandedScopes.has(scopeName)) {
-      const newExpanded = new Set(expandedScopes);
-      newExpanded.add(scopeName);
-      setExpandedScopes(newExpanded);
+    if (selectedScope === scopeName && detailedData?.scope === scopeName) {
+      setSelectedScope(null);
+      setDetailedData(null);
+      return;
     }
-    const data = selectedScope === scopeName && detailedData?.scope === scopeName ? detailedData : await loadScopeDetails(scopeName);
-    if (data?.categories?.length) {
-      setExpandedCategories((prev) => {
-        const next = new Set(prev);
-        for (const category of data.categories) {
-          next.add(`${scopeName}-${category.category_name}`);
-        }
-        return next;
-      });
-    }
+    await loadScopeDetails(scopeName);
   }
 
   function toggleCategory(categoryKey: string) {
@@ -850,11 +842,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                                 <tr>
                                                   <th className="text-left p-2">Site</th>
                                                   <th className="text-left p-2">Activity</th>
-                                                  <th className="text-left p-2">Source Family</th>
                                                   <th className="text-left p-2">Level 3</th>
                                                   <th className="text-left p-2">Level 4</th>
                                                   <th className="text-right p-2">Quantity</th>
                                                   <th className="text-left p-2">Unit</th>
+                                                  <th className="text-right p-2">Emissions Factor</th>
                                                   <th className="text-right p-2">Emissions (tCO₂e)</th>
                                                 </tr>
                                               </thead>
@@ -872,17 +864,15 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                                         ) : null}
                                                       </div>
                                                     </td>
-                                                    <td className="p-2">
-                                                      <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
-                                                        {activity.source_family || "-"}
-                                                      </span>
-                                                    </td>
                                                     <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
                                                     <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
                                                     <td className="p-2 text-right">
                                                       {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
                                                     </td>
                                                     <td className="p-2">{activity.unit || "-"}</td>
+                                                    <td className="p-2 text-right text-muted-foreground">
+                                                      {activity.factor != null && activity.factor !== 0 ? formatNumber(activity.factor, 6) : "-"}
+                                                    </td>
                                                     <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
                                                   </tr>
                                                 ))}
@@ -1338,11 +1328,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                               <tr>
                                 <th className="text-left p-2">Site</th>
                                 <th className="text-left p-2">Activity</th>
-                                <th className="text-left p-2">Source Family</th>
                                 <th className="text-left p-2">Level 3</th>
                                 <th className="text-left p-2">Level 4</th>
                                 <th className="text-right p-2">Quantity</th>
                                 <th className="text-left p-2">Unit</th>
+                                <th className="text-right p-2">Emissions Factor</th>
                                 <th className="text-right p-2">Emissions (tCO₂e)</th>
                               </tr>
                             </thead>
@@ -1360,17 +1350,15 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                       ) : null}
                                     </div>
                                   </td>
-                                  <td className="p-2">
-                                    <span className="inline-flex rounded-full bg-muted px-2 py-1 text-[11px] font-medium">
-                                      {activity.source_family || "-"}
-                                    </span>
-                                  </td>
                                   <td className="p-2 text-muted-foreground">{activity.level_3 || "-"}</td>
                                   <td className="p-2 text-muted-foreground">{activity.level_4 || "-"}</td>
                                   <td className="p-2 text-right">
                                     {activity.quantity !== null ? formatNumber(activity.quantity, 2) : "-"}
                                   </td>
                                   <td className="p-2">{activity.unit || "-"}</td>
+                                  <td className="p-2 text-right text-muted-foreground">
+                                    {activity.factor != null && activity.factor !== 0 ? formatNumber(activity.factor, 6) : "-"}
+                                  </td>
                                   <td className="p-2 text-right font-medium">{formatNumber(activity.emissions, 2)}</td>
                                 </tr>
                               ))}

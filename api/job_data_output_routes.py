@@ -455,6 +455,7 @@ def get_job_data_output(
                         "activity_name": _safe_text(row.get('activity_name')),
                         "quantity": qty_val if qty_val > 0 else None,
                         "unit": metrics.get("display_uom"),
+                        "factor": round(float(metrics.get("display_factor") or 0.0), 6),
                         "emissions": emission_display,
                         "is_custom_entry": bool(row.get("is_custom_entry") or False),
                         "record_type": _safe_text(row.get("record_type")) or "legacy",
