@@ -201,6 +201,7 @@
       padding: 2mm 2.2mm;
       text-align: left;
     }
+    .no-tx { text-transform: none; }
     td { padding: 2mm 2.2mm; border-bottom: 1px solid var(--line); vertical-align: top; }
     tr:last-child td { border-bottom: none; }
     .row-total td { font-weight: 700; background: var(--surface); }
@@ -364,8 +365,8 @@
           <thead>
             <tr>
               <th>Scope</th>
-              <th class="num">Current Year (tCO₂e)</th>
-              <th class="num">Benchmark Year (tCO₂e)</th>
+              <th class="num">Current Year (<span class="no-tx">tCO₂e</span>)</th>
+              <th class="num">Benchmark Year (<span class="no-tx">tCO₂e</span>)</th>
               <th class="num">Change (%)</th>
             </tr>
           </thead>
@@ -544,7 +545,7 @@
     <div class="sub-head">Scope Descriptions</div>
     <table>
       <thead>
-        <tr><th>Scope</th><th>Description</th><th class="num">tCO₂e</th><th class="num">%</th></tr>
+        <tr><th>Scope</th><th>Description</th><th class="num"><span class="no-tx">tCO₂e</span></th><th class="num">%</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -627,7 +628,7 @@
         <tr>
           <th>Scope</th>
           <th>Category</th>
-          <th class="num">tCO₂e</th>
+          <th class="num"><span class="no-tx">tCO₂e</span></th>
           <th class="num">%</th>
           <th>Data Source</th>
           <th>Source Family</th>
@@ -1070,7 +1071,7 @@
           <th>Factor ID</th>
           <th class="num">Qty</th>
           <th>UOM</th>
-          <th class="num">tCO₂e</th>
+          <th class="num"><span class="no-tx">tCO₂e</span></th>
         </tr>
       </thead>
       <tbody>
