@@ -418,7 +418,7 @@ def client_jobs(
                     FROM jobs j
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
                     WHERE j.client_db_id = {ph}
-                      AND COALESCE(j.org_id, c.org_id) = {ph}
+                      AND COALESCE(j.org_id::text, c.org_id::text) = {ph}
                     """,
                     [int(client_db_id), org_id],
                 ).fetchone()
@@ -433,7 +433,7 @@ def client_jobs(
                     LEFT JOIN clients c ON c.db_id = j.client_db_id
                     LEFT JOIN job_plan jp ON jp.job_id = j.job_id
                     WHERE j.client_db_id = {ph}
-                      AND COALESCE(j.org_id, c.org_id) = {ph}
+                      AND COALESCE(j.org_id::text, c.org_id::text) = {ph}
                     ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
                     LIMIT {ph} OFFSET {ph}
                     """,
