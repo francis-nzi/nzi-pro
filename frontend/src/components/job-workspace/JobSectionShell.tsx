@@ -4,9 +4,8 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import JobWorkspaceHeader from "./JobWorkspaceHeader";
-import JobWorkspaceTabs from "./JobWorkspaceTabs";
-import JobWorkspaceSubtabs from "./JobWorkspaceSubtabs";
-import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab, WorkspaceTab } from "./types";
+import JobWorkspaceLeftNav from "./JobWorkspaceLeftNav";
+import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab } from "./types";
 import { getCachedJobShellData, loadJobShellData } from "@/lib/job-shell-data";
 import type { JobShellJob } from "@/lib/job-shell-data";
 import LoadingOrbit from "@/components/LoadingOrbit";
@@ -206,25 +205,9 @@ export default function JobSectionShell({
     : [{ label: sectionLabel, href: sectionHref ?? `/jobs/${jobId}` }];
 
   const activeWorkspaceGroup = activeGroup || "setup";
-  const workspaceTabs: WorkspaceTab[] = [
-    { key: "setup", label: "Setup", href: `/jobs/${jobId}/setup` },
-    { key: "data", label: "Data", href: `/jobs/${jobId}/data-entry` },
-    { key: "outputs", label: "Outputs", href: `/jobs/${jobId}/outputs` },
-    { key: "report", label: "Report", href: `/jobs/${jobId}/report-new` },
-    { key: "analysis", label: "Analysis", href: `/jobs/${jobId}/lca` },
-    { key: "insights", label: "Insights", href: `/jobs/${jobId}/insights` },
-    { key: "communications", label: "Communications", href: `/jobs/${jobId}/communications/timeline` },
-    { key: "financial", label: "Financial", href: `/jobs/${jobId}/financial/quotes` },
-    { key: "job-notes", label: "Notes", href: `/jobs/${jobId}/communications/notes` },
-    { key: "admin", label: "Admin", href: `/jobs/${jobId}/admin/files` },
-  ];
-  const activeWorkspaceSubtabs = (GROUP_SUBTABS[activeWorkspaceGroup] || []).map((subtab) => ({
-    ...subtab,
-    href: subtab.href?.replaceAll("__JOB_ID__", String(jobId)),
-  }));
   const activeWorkspaceSubtab =
     activeSubtab ||
-    activeWorkspaceSubtabs[0]?.key ||
+    (GROUP_SUBTABS[activeWorkspaceGroup]?.[0]?.key ?? "") ||
     (activeWorkspaceGroup === "setup" ? "setup-overview" : "");
 
   return (
@@ -233,25 +216,18 @@ export default function JobSectionShell({
         {workspaceJob ? (
           <JobWorkspaceHeader breadcrumbs={breadcrumbs} jobId={jobId} baseUrl={baseUrl} job={workspaceJob} />
         ) : null}
-        <div className="mt-4">
-          <JobWorkspaceTabs
-            activeTab={activeWorkspaceGroup}
-            tabs={workspaceTabs}
-            onTabChange={() => undefined}
+        <div className="mt-6 flex items-start gap-6">
+          <JobWorkspaceLeftNav
+            jobId={jobId}
+            activeGroup={activeWorkspaceGroup as WorkspaceGroupKey}
+            activeSubtab={activeWorkspaceSubtab}
           />
-        </div>
-        {activeWorkspaceSubtabs.length > 0 ? (
-          <div className="mt-4">
-            <JobWorkspaceSubtabs
-              activeSubtab={activeWorkspaceSubtab}
-              subtabs={activeWorkspaceSubtabs}
-              onSubtabChange={() => undefined}
-            />
+          <div className="min-w-0 flex-1">
+            {loading ? <LoadingOrbit className="py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
+            {error ? <div className="text-sm text-destructive">{error}</div> : null}
+            <div>{renderContent ? (job ? renderContent(job) : null) : children}</div>
           </div>
-        ) : null}
-        {loading ? <LoadingOrbit className="mt-4 py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
-        {error ? <div className="mt-4 text-sm text-destructive">{error}</div> : null}
-        <div className="mt-6">{renderContent ? (job ? renderContent(job) : null) : children}</div>
+        </div>
       </div>
     </div>
   );

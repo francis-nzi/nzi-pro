@@ -7,18 +7,18 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
-import JobWorkspaceTabs from "@/components/job-workspace/JobWorkspaceTabs";
-import JobWorkspaceSubtabs from "@/components/job-workspace/JobWorkspaceSubtabs";
+import JobWorkspaceLeftNav from "@/components/job-workspace/JobWorkspaceLeftNav";
 import JobSetupOverviewSection from "@/components/job-workspace/JobSetupOverviewSection";
 import JobScopeDatasetSection from "@/components/job-workspace/JobScopeDatasetSection";
 import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
 import JobCommunicationsTabs from "@/components/job-workspace/JobCommunicationsTabs";
 import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
+import { useTheme } from "@/components/ThemeProvider";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
-import type { WorkspaceBreadcrumb, WorkspaceTab } from "@/components/job-workspace/types";
+import type { WorkspaceBreadcrumb } from "@/components/job-workspace/types";
 import {
   JOB_WORKSPACE_GROUPS,
   EMPTY_SCOPE_MAP,
@@ -442,7 +442,6 @@ export default function JobDetailPage() {
 
   const {
     activeWorkspaceGroup,
-    activeWorkspaceSubtabs,
     activeWorkspaceSubtab,
     benchmarkPeriodLabel,
     periodStartLabel,
@@ -697,43 +696,11 @@ export default function JobDetailPage() {
     selectedMilestoneTemplateId,
   });
 
+  const { theme } = useTheme();
+  const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
+
   const isSetupOverview = activeWorkspaceSubtab === "setup-overview";
   const isSetupCustomFields = activeWorkspaceSubtab === "setup-custom-fields";
-  const activeWorkspaceSubtabsWithRoutes = useMemo(
-    () =>
-      activeWorkspaceSubtabs.map((subtab: { href?: string; key: string; label: string }) => {
-        if (subtab.href) return subtab;
-        const routeHrefByKey: Record<string, string> = {
-          "data-entry": `/jobs/${jobId}/data-entry`,
-          "employee-commuting": `/jobs/${jobId}/data-entry/employee-commuting`,
-          "asset-register": `/jobs/${jobId}/data-entry/asset-register`,
-          "business-travel": `/jobs/${jobId}/data-entry/business-travel`,
-          "upload": `/jobs/${jobId}/data-entry?tab=upload`,
-          "custom-dataset": `/jobs/${jobId}/data-entry/custom-dataset`,
-          "custom-factors": `/jobs/${jobId}/data-entry/custom-factors`,
-          "spend-data": `/jobs/${jobId}/data-entry/spend-data`,
-          "notes": `/jobs/${jobId}/data-entry/notes`,
-          "report-new": `/jobs/${jobId}/report-new`,
-          "advanced-reports": `/jobs/${jobId}/advanced-reports`,
-          "communications-timeline": `/jobs/${jobId}/communications/timeline`,
-          "communications-inbox": `/jobs/${jobId}/communications/inbox`,
-          "communications-notes": `/jobs/${jobId}/communications/notes`,
-          "communications-email": `/jobs/${jobId}/communications/email`,
-          "communications-tasks": `/jobs/${jobId}/communications/tasks`,
-          "communications-automation": `/jobs/${jobId}/communications/automation`,
-          "communications-crm": `/jobs/${jobId}/communications/crm`,
-          "financial-quotes": `/jobs/${jobId}/financial/quotes`,
-          "financial-invoices": `/jobs/${jobId}/financial/invoices`,
-          "financial-other-costs": `/jobs/${jobId}/financial/other-costs`,
-          "financial-profit-loss": `/jobs/${jobId}/financial/profit-loss`,
-          lca: `/jobs/${jobId}/lca`,
-          files: `/jobs/${jobId}/admin/files`,
-          time: `/jobs/${jobId}/admin/time`,
-        };
-        return routeHrefByKey[subtab.key] ? { ...subtab, href: routeHrefByKey[subtab.key] } : subtab;
-      }),
-    [activeWorkspaceSubtabs, jobId]
-  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -749,33 +716,15 @@ export default function JobDetailPage() {
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="space-y-4">
-            <JobWorkspaceTabs
-              activeTab={activeWorkspaceGroup}
-              tabs={JOB_WORKSPACE_GROUPS.map((group) => ({
-                key: group.key,
-                label: group.label,
-                href:
-                  group.key === "setup" ? `/jobs/${jobId}/setup` :
-                  group.key === "data" ? `/jobs/${jobId}/data-entry` :
-                  group.key === "outputs" ? `/jobs/${jobId}/outputs` :
-                  group.key === "report" ? `/jobs/${jobId}/report-new` :
-                  group.key === "analysis" ? `/jobs/${jobId}/lca` :
-                  group.key === "insights" ? `/jobs/${jobId}/insights` :
-                  group.key === "communications" ? `/jobs/${jobId}/communications/timeline` :
-                  group.key === "financial" ? `/jobs/${jobId}/financial/quotes` :
-                  group.key === "job-notes" ? `/jobs/${jobId}/communications/notes` :
-                  group.key === "admin" ? `/jobs/${jobId}/admin/files` :
-                  undefined,
-              }))}
-              onTabChange={handleWorkspaceGroupChange}
-            />
-            <JobWorkspaceSubtabs
+          <div className="mt-6 flex items-start gap-6">
+            <JobWorkspaceLeftNav
+              jobId={jobId}
+              activeGroup={activeWorkspaceGroup}
               activeSubtab={activeWorkspaceSubtab}
-              subtabs={activeWorkspaceSubtabsWithRoutes}
+              accentColor={accentColor}
               onSubtabChange={handleWorkspaceSubtabChange}
             />
-          </div>
+            <div className="min-w-0 flex-1">
 
           <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
@@ -1089,6 +1038,9 @@ export default function JobDetailPage() {
           <TabsContent value="time" className="mt-0">
             <JobTimeEntries jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
+
+            </div>
+          </div>
         </Tabs>
       </div>
     </div>
