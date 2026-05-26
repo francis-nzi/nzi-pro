@@ -143,7 +143,11 @@ export default function JobSetupOverviewSection({
               <SearchableStringSelect
                 id="originalPortfolio"
                 value={originalPortfolio || "NZI"}
-                options={portfolios}
+                options={(() => {
+                  const base = portfolios.length > 0 ? portfolios : ["NZI", "NZN"];
+                  const cur = (originalPortfolio || "NZI").trim();
+                  return cur && !base.includes(cur) ? [cur, ...base] : base;
+                })()}
                 placeholder="Search portfolios..."
                 noMatchesText="Type a portfolio name and press Enter"
                 onValueChange={onOriginalPortfolioChange}

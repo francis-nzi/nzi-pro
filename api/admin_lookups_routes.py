@@ -196,11 +196,19 @@ def list_lookup_items(
             if has_active_flag and not include_archived:
                 active_filter = "WHERE COALESCE(is_active, TRUE) = TRUE"
             if org_id is not None:
-                active_filter = (
-                    f"{active_filter} AND COALESCE(org_id, '') = %s"
-                    if active_filter
-                    else "WHERE COALESCE(org_id, '') = %s"
-                )
+                # portfolios_lookup also includes rows with org_id IS NULL (global defaults)
+                if table_name == "portfolios_lookup":
+                    active_filter = (
+                        f"{active_filter} AND (COALESCE(org_id, '') = %s OR org_id IS NULL)"
+                        if active_filter
+                        else "WHERE (COALESCE(org_id, '') = %s OR org_id IS NULL)"
+                    )
+                else:
+                    active_filter = (
+                        f"{active_filter} AND COALESCE(org_id, '') = %s"
+                        if active_filter
+                        else "WHERE COALESCE(org_id, '') = %s"
+                    )
                 active_params = [org_match]
             else:
                 active_params = []
