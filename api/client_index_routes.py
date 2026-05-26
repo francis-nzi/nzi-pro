@@ -398,85 +398,87 @@ def client_jobs(
         return "completed" if "completed" in statuses else None
 
     total_emissions_by_job: dict[int, float] = {}
+    ph = "%s" if db_backend() == "postgres" else "?"
 
     try:
         assert_permission(_user, "jobs.view")
         assert_client_access(_user, int(client_db_id))
-        org_id = str(_user.get("org_id") or "").strip() or None
+    except Exception:
+        raise
+
+    org_id = str(_user.get("org_id") or "").strip() or None
+    try:
         with get_conn() as con:
             rows = pd.DataFrame()
             total_row = (0,)
-            try:
-                if org_id:
-                    total_row = con.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM jobs j
-                        LEFT JOIN clients c ON c.db_id = j.client_db_id
-                        WHERE j.client_db_id = ?
-                          AND COALESCE(j.org_id, c.org_id) = ?
-                        """,
-                        [int(client_db_id), org_id],
-                    ).fetchone()
-                    rows = con.execute(
-                        """
-                        SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
-                               jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
-                               jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
-                               jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
-                        FROM jobs j
-                        LEFT JOIN clients c ON c.db_id = j.client_db_id
-                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        WHERE j.client_db_id = ?
-                          AND COALESCE(j.org_id, c.org_id) = ?
-                        ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        [int(client_db_id), org_id, int(limit), int(offset)],
-                    ).df()
+            if org_id:
+                total_row = con.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM jobs j
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    WHERE j.client_db_id = {ph}
+                      AND COALESCE(j.org_id, c.org_id) = {ph}
+                    """,
+                    [int(client_db_id), org_id],
+                ).fetchone()
+                rows = con.execute(
+                    f"""
+                    SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                           j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
+                           jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
+                           jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
+                    FROM jobs j
+                    LEFT JOIN clients c ON c.db_id = j.client_db_id
+                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                    WHERE j.client_db_id = {ph}
+                      AND COALESCE(j.org_id, c.org_id) = {ph}
+                    ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
+                    LIMIT {ph} OFFSET {ph}
+                    """,
+                    [int(client_db_id), org_id, int(limit), int(offset)],
+                ).df()
 
-                if rows is None or rows.empty:
-                    total_row = con.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM jobs j
-                        WHERE j.client_db_id = ?
-                        """,
-                        [int(client_db_id)],
-                    ).fetchone()
-                    rows = con.execute(
-                        """
-                        SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                               j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
-                               jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
-                               jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
-                               jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
-                        FROM jobs j
-                        LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                        WHERE j.client_db_id = ?
-                        ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        [int(client_db_id), int(limit), int(offset)],
-                    ).df()
+            if rows is None or rows.empty:
+                total_row = con.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM jobs j
+                    WHERE j.client_db_id = {ph}
+                    """,
+                    [int(client_db_id)],
+                ).fetchone()
+                rows = con.execute(
+                    f"""
+                    SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
+                           j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
+                           jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
+                           jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
+                    FROM jobs j
+                    LEFT JOIN job_plan jp ON jp.job_id = j.job_id
+                    WHERE j.client_db_id = {ph}
+                    ORDER BY j.job_type, j.reporting_year DESC, j.job_id DESC
+                    LIMIT {ph} OFFSET {ph}
+                    """,
+                    [int(client_db_id), int(limit), int(offset)],
+                ).df()
 
-                total_emissions_by_job = {}
-                if rows is not None and not rows.empty:
-                    try:
-                        for job_id in [int(job_id) for job_id in rows["job_id"].dropna().tolist()]:
-                            try:
-                                total_emissions_by_job[job_id] = round(float(exact_job_total_emissions(con, job_id) or 0.0), 1)
-                            except Exception:
-                                total_emissions_by_job[job_id] = 0.0
-                    except Exception:
-                        total_emissions_by_job = {}
-            except Exception:
-                total_row = (0,)
-                rows = pd.DataFrame()
-    except Exception:
-        total_row = (0,)
-        rows = pd.DataFrame()
+            total_emissions_by_job = {}
+            if rows is not None and not rows.empty:
+                try:
+                    for job_id in [int(job_id) for job_id in rows["job_id"].dropna().tolist()]:
+                        try:
+                            total_emissions_by_job[job_id] = round(float(exact_job_total_emissions(con, job_id) or 0.0), 1)
+                        except Exception:
+                            total_emissions_by_job[job_id] = 0.0
+                except Exception:
+                    total_emissions_by_job = {}
+    except Exception as exc:
+        import traceback, sys
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(status_code=500, detail=f"client_jobs query failed: {exc}") from exc
 
     def _is_missing(value) -> bool:
         try:
