@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
+  BarChart2,
   BarChart3,
   Briefcase,
   ChevronDown,
@@ -12,10 +13,17 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
+  CreditCard,
+  Database,
+  FileText,
   HelpCircle,
   LayoutDashboard,
+  Lightbulb,
   LogOut,
+  MessageCircle,
+  Settings2,
   Shield,
+  ShieldCheck,
   TrendingUp,
   User,
   Users,
@@ -107,6 +115,116 @@ function hasAdminAccess(
     currentOrgRole === "admin" ||
     currentOrgRole === "owner"
   );
+}
+
+type JobNavSubtab = { key: string; label: string; href: (id: number) => string };
+type JobNavGroup = { key: string; label: string; icon: React.ComponentType<{ className?: string }>; href: (id: number) => string; subtabs: JobNavSubtab[] };
+
+const JOB_NAV_GROUPS: JobNavGroup[] = [
+  { key: "setup", label: "Setup", icon: Settings2, href: (j) => `/jobs/${j}/setup`,
+    subtabs: [
+      { key: "setup-overview",      label: "Setup Overview", href: (j) => `/jobs/${j}/setup` },
+      { key: "setup-custom-fields", label: "Custom Fields",  href: (j) => `/jobs/${j}/setup` },
+    ],
+  },
+  { key: "data", label: "Data", icon: Database, href: (j) => `/jobs/${j}/data-entry`,
+    subtabs: [
+      { key: "data-entry",         label: "Data Entry",         href: (j) => `/jobs/${j}/data-entry` },
+      { key: "employee-commuting", label: "Employee Commuting", href: (j) => `/jobs/${j}/data-entry/employee-commuting` },
+      { key: "asset-register",     label: "Asset Register",     href: (j) => `/jobs/${j}/data-entry/asset-register` },
+      { key: "business-travel",    label: "Business Travel",    href: (j) => `/jobs/${j}/data-entry/business-travel` },
+      { key: "upload",             label: "Data Upload",        href: (j) => `/jobs/${j}/data-entry?tab=upload` },
+      { key: "custom-dataset",     label: "Custom Dataset",     href: (j) => `/jobs/${j}/data-entry/custom-dataset` },
+      { key: "custom-factors",     label: "Job-Only Factors",   href: (j) => `/jobs/${j}/data-entry/custom-factors` },
+      { key: "spend-data",         label: "Spend Data",         href: (j) => `/jobs/${j}/data-entry/spend-data` },
+      { key: "notes",              label: "Notes",              href: (j) => `/jobs/${j}/data-entry/notes` },
+    ],
+  },
+  { key: "outputs", label: "Outputs", icon: BarChart2, href: (j) => `/jobs/${j}/outputs`,
+    subtabs: [
+      { key: "data-output", label: "Data Output", href: (j) => `/jobs/${j}/outputs` },
+      { key: "actions",     label: "Actions",     href: (j) => `/jobs/${j}?tab=actions` },
+    ],
+  },
+  { key: "report", label: "Report", icon: FileText, href: (j) => `/jobs/${j}/report-new`,
+    subtabs: [
+      { key: "report-new",       label: "Report Preparation", href: (j) => `/jobs/${j}/report-new` },
+      { key: "advanced-reports", label: "Report Printing",    href: (j) => `/jobs/${j}/advanced-reports` },
+      { key: "client-review",    label: "Client Review",      href: (j) => `/jobs/${j}/client-review` },
+    ],
+  },
+  { key: "analysis", label: "Analysis", icon: TrendingUp, href: (j) => `/jobs/${j}/lca`,
+    subtabs: [{ key: "lca", label: "Life Cycle Analysis", href: (j) => `/jobs/${j}/lca` }],
+  },
+  { key: "insights", label: "Insights", icon: Lightbulb, href: (j) => `/jobs/${j}/insights`, subtabs: [] },
+  { key: "communications", label: "Comms", icon: MessageCircle, href: (j) => `/jobs/${j}/communications/timeline`,
+    subtabs: [
+      { key: "communications-timeline",   label: "Timeline",     href: (j) => `/jobs/${j}/communications/timeline` },
+      { key: "communications-inbox",      label: "Inbox",        href: (j) => `/jobs/${j}/communications/inbox` },
+      { key: "communications-email",      label: "Email",        href: (j) => `/jobs/${j}/communications/email` },
+      { key: "communications-tasks",      label: "Tasks",        href: (j) => `/jobs/${j}/communications/tasks` },
+      { key: "communications-automation", label: "Automation",   href: (j) => `/jobs/${j}/communications/automation` },
+      { key: "communications-crm",        label: "CRM Timeline", href: (j) => `/jobs/${j}/communications/crm` },
+    ],
+  },
+  { key: "financial", label: "Financial", icon: CreditCard, href: (j) => `/jobs/${j}/financial/quotes`,
+    subtabs: [
+      { key: "financial-quotes",      label: "Quotes",        href: (j) => `/jobs/${j}/financial/quotes` },
+      { key: "financial-invoices",    label: "Invoices",      href: (j) => `/jobs/${j}/financial/invoices` },
+      { key: "financial-other-costs", label: "Other Costs",   href: (j) => `/jobs/${j}/financial/other-costs` },
+      { key: "financial-profit-loss", label: "Profit & Loss", href: (j) => `/jobs/${j}/financial/profit-loss` },
+    ],
+  },
+  { key: "admin", label: "Job Admin", icon: ShieldCheck, href: (j) => `/jobs/${j}/admin/files`,
+    subtabs: [
+      { key: "files",       label: "Files",        href: (j) => `/jobs/${j}/admin/files` },
+      { key: "time",        label: "Time Entries", href: (j) => `/jobs/${j}/admin/time` },
+      { key: "certificate", label: "Certificate",  href: (j) => `/jobs/${j}/admin/certificate` },
+    ],
+  },
+];
+
+function getJobActiveGroup(pathname: string, jobId: number): string {
+  const b = `/jobs/${jobId}`;
+  if (pathname?.startsWith(`${b}/data-entry`)) return "data";
+  if (pathname?.startsWith(`${b}/outputs`)) return "outputs";
+  if (pathname?.startsWith(`${b}/report-new`) || pathname?.startsWith(`${b}/advanced-reports`) || pathname?.startsWith(`${b}/client-review`)) return "report";
+  if (pathname?.startsWith(`${b}/lca`)) return "analysis";
+  if (pathname?.startsWith(`${b}/insights`)) return "insights";
+  if (pathname?.startsWith(`${b}/communications`)) return "communications";
+  if (pathname?.startsWith(`${b}/financial`)) return "financial";
+  if (pathname?.startsWith(`${b}/admin`)) return "admin";
+  return "setup";
+}
+
+function getJobActiveSubtab(pathname: string): string {
+  if (pathname?.includes("/data-entry/employee-commuting")) return "employee-commuting";
+  if (pathname?.includes("/data-entry/asset-register")) return "asset-register";
+  if (pathname?.includes("/data-entry/business-travel")) return "business-travel";
+  if (pathname?.includes("/data-entry/custom-dataset")) return "custom-dataset";
+  if (pathname?.includes("/data-entry/custom-factors")) return "custom-factors";
+  if (pathname?.includes("/data-entry/notes")) return "notes";
+  if (pathname?.includes("/data-entry/spend-data")) return "spend-data";
+  if (pathname?.includes("/data-entry")) return "data-entry";
+  if (pathname?.includes("/report-new")) return "report-new";
+  if (pathname?.includes("/advanced-reports")) return "advanced-reports";
+  if (pathname?.includes("/client-review")) return "client-review";
+  if (pathname?.includes("/communications/timeline")) return "communications-timeline";
+  if (pathname?.includes("/communications/inbox")) return "communications-inbox";
+  if (pathname?.includes("/communications/email")) return "communications-email";
+  if (pathname?.includes("/communications/tasks")) return "communications-tasks";
+  if (pathname?.includes("/communications/automation")) return "communications-automation";
+  if (pathname?.includes("/communications/crm")) return "communications-crm";
+  if (pathname?.includes("/financial/quotes")) return "financial-quotes";
+  if (pathname?.includes("/financial/invoices")) return "financial-invoices";
+  if (pathname?.includes("/financial/other-costs")) return "financial-other-costs";
+  if (pathname?.includes("/financial/profit-loss")) return "financial-profit-loss";
+  if (pathname?.includes("/lca")) return "lca";
+  if (pathname?.includes("/admin/files")) return "files";
+  if (pathname?.includes("/admin/time")) return "time";
+  if (pathname?.includes("/admin/certificate")) return "certificate";
+  if (pathname?.includes("/setup")) return "setup-overview";
+  return "";
 }
 
 function BdSubNav({ accentColor, pathname }: { accentColor: string; pathname: string }) {
@@ -300,6 +418,13 @@ export function AppSidebar() {
   }
 
   const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
+
+  const jobRouteMatch = pathname ? /^\/jobs\/(\d+)(\/.*)?$/.exec(pathname) : null;
+  const isOnJobRoute = Boolean(jobRouteMatch);
+  const jobIdFromPath = jobRouteMatch ? Number(jobRouteMatch[1]) : null;
+  const activeJobGroup = isOnJobRoute && jobIdFromPath ? getJobActiveGroup(pathname!, jobIdFromPath) : "";
+  const activeJobSubtab = isOnJobRoute && pathname ? getJobActiveSubtab(pathname) : "";
+
   const logoUrl = (() => {
     const raw = String(theme?.logo_url || "").trim();
     if (!raw) return "/api/backend/system-settings/logo/file";
@@ -351,146 +476,220 @@ export function AppSidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-          const active = isActive(href, label);
-          const onSalesRoute = href === "/business-development" && pathname === "/business-development";
-          return (
-            <div key={href}>
-              <div className="group relative">
-                <Link
-                  href={href}
-                  className={cn(
-                    "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
-                    expanded ? "gap-3 px-3" : "justify-center",
-                    active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  style={active ? { backgroundColor: accentColor } : undefined}
-                >
-                  <Icon className="h-4 w-4 flex-shrink-0" />
-                  {expanded && <span className="truncate">{label}</span>}
-                </Link>
-                <Tooltip label={label} visible={!expanded} />
-              </div>
-              {expanded && onSalesRoute && (
-                <Suspense fallback={null}>
-                  <BdSubNav accentColor={accentColor} pathname={pathname} />
-                </Suspense>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Admin Center */}
-        {authUi.adminAccess && (
-          <div>
-            <div className="group relative flex items-center rounded-md">
+        {isOnJobRoute && jobIdFromPath ? (
+          <>
+            {/* Back to all jobs */}
+            <div className="group relative">
               <Link
-                href="/admin-center"
+                href="/jobs"
                 className={cn(
-                  "flex h-10 flex-1 items-center rounded-md transition-colors text-sm font-medium",
-                  expanded ? "gap-3 px-3" : "justify-center",
-                  isAdminCenterRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
+                  expanded ? "gap-3 px-3" : "justify-center"
                 )}
-                style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
               >
-                <Shield className="h-4 w-4 flex-shrink-0" />
-                {expanded && <span className="flex-1 truncate">Admin Center</span>}
+                <ChevronLeft className="h-4 w-4 flex-shrink-0" />
+                {expanded && <span className="truncate">All Jobs</span>}
               </Link>
-              {expanded && (
-                <button
-                  type="button"
-                  aria-label="Toggle Admin Center menu"
-                  className={cn(
-                    "flex h-10 w-8 flex-shrink-0 items-center justify-center rounded-md transition-colors",
-                    isAdminCenterRoute ? "text-white/80 hover:text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
-                  onClick={() => setAdminCenterOpen((v) => !v)}
-                >
-                  {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
-              )}
-              <Tooltip label="Admin Center" visible={!expanded} />
+              <Tooltip label="All Jobs" visible={!expanded} />
             </div>
 
-            {expanded && adminCenterOpen && (
-              <div className="ml-3 mt-0.5 space-y-3 border-l border-border pl-3 py-2">
-                {ADMIN_CENTER_DOMAINS.map((domain) => (
-                  <div key={domain}>
-                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                      {domain}
-                    </div>
-                    <div className="space-y-0.5">
-                      {ADMIN_CENTER_LINKS.filter((l) => l.domain === domain).map((link) => {
-                        const active = pathname === link.href || pathname?.startsWith(link.href + "/");
+            {expanded && (
+              <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                Job Workspace
+              </div>
+            )}
+
+            {JOB_NAV_GROUPS.map((group) => {
+              const Icon = group.icon;
+              const groupHref = group.href(jobIdFromPath);
+              const isGroupActive = activeJobGroup === group.key;
+              const hasSubtabs = isGroupActive && group.subtabs.length > 0;
+              return (
+                <div key={group.key}>
+                  <div className="group relative">
+                    <Link
+                      href={groupHref}
+                      className={cn(
+                        "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
+                        expanded ? "gap-3 px-3" : "justify-center",
+                        isGroupActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                      style={isGroupActive ? { backgroundColor: accentColor } : undefined}
+                    >
+                      <Icon className="h-4 w-4 flex-shrink-0" />
+                      {expanded && <span className="truncate">{group.label}</span>}
+                    </Link>
+                    <Tooltip label={group.label} visible={!expanded} />
+                  </div>
+                  {expanded && hasSubtabs && (
+                    <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
+                      {group.subtabs.map((subtab) => {
+                        const isSubActive = activeJobSubtab === subtab.key;
                         return (
                           <Link
-                            key={link.href}
-                            href={link.href}
+                            key={subtab.key}
+                            href={subtab.href(jobIdFromPath)}
                             className={cn(
                               "block rounded px-2 py-1 text-xs transition-colors",
-                              active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                              isSubActive ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                             )}
-                            style={active ? { backgroundColor: accentColor } : undefined}
+                            style={isSubActive ? { backgroundColor: accentColor } : undefined}
                           >
-                            {link.label}
+                            {subtab.label}
                           </Link>
                         );
                       })}
                     </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            {/* Main nav */}
+            {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+              const active = isActive(href, label);
+              const onSalesRoute = href === "/business-development" && pathname === "/business-development";
+              return (
+                <div key={href}>
+                  <div className="group relative">
+                    <Link
+                      href={href}
+                      className={cn(
+                        "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
+                        expanded ? "gap-3 px-3" : "justify-center",
+                        active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                      style={active ? { backgroundColor: accentColor } : undefined}
+                    >
+                      <Icon className="h-4 w-4 flex-shrink-0" />
+                      {expanded && <span className="truncate">{label}</span>}
+                    </Link>
+                    <Tooltip label={label} visible={!expanded} />
                   </div>
-                ))}
+                  {expanded && onSalesRoute && (
+                    <Suspense fallback={null}>
+                      <BdSubNav accentColor={accentColor} pathname={pathname} />
+                    </Suspense>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Admin Center */}
+            {authUi.adminAccess && (
+              <div>
+                <div className="group relative flex items-center rounded-md">
+                  <Link
+                    href="/admin-center"
+                    className={cn(
+                      "flex h-10 flex-1 items-center rounded-md transition-colors text-sm font-medium",
+                      expanded ? "gap-3 px-3" : "justify-center",
+                      isAdminCenterRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
+                  >
+                    <Shield className="h-4 w-4 flex-shrink-0" />
+                    {expanded && <span className="flex-1 truncate">Admin Center</span>}
+                  </Link>
+                  {expanded && (
+                    <button
+                      type="button"
+                      aria-label="Toggle Admin Center menu"
+                      className={cn(
+                        "flex h-10 w-8 flex-shrink-0 items-center justify-center rounded-md transition-colors",
+                        isAdminCenterRoute ? "text-white/80 hover:text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                      style={isAdminCenterRoute ? { backgroundColor: accentColor } : undefined}
+                      onClick={() => setAdminCenterOpen((v) => !v)}
+                    >
+                      {adminCenterOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                  <Tooltip label="Admin Center" visible={!expanded} />
+                </div>
+
+                {expanded && adminCenterOpen && (
+                  <div className="ml-3 mt-0.5 space-y-3 border-l border-border pl-3 py-2">
+                    {ADMIN_CENTER_DOMAINS.map((domain) => (
+                      <div key={domain}>
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                          {domain}
+                        </div>
+                        <div className="space-y-0.5">
+                          {ADMIN_CENTER_LINKS.filter((l) => l.domain === domain).map((link) => {
+                            const active = pathname === link.href || pathname?.startsWith(link.href + "/");
+                            return (
+                              <Link
+                                key={link.href}
+                                href={link.href}
+                                className={cn(
+                                  "block rounded px-2 py-1 text-xs transition-colors",
+                                  active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                                )}
+                                style={active ? { backgroundColor: accentColor } : undefined}
+                              >
+                                {link.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Help */}
-        <div>
-          <div className="group relative">
-            <button
-              type="button"
-              className={cn(
-                "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
-                expanded ? "gap-3 px-3" : "justify-center",
-                isHelpRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            {/* Help */}
+            <div>
+              <div className="group relative">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-10 w-full items-center rounded-md transition-colors text-sm font-medium",
+                    expanded ? "gap-3 px-3" : "justify-center",
+                    isHelpRoute ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  style={isHelpRoute ? { backgroundColor: accentColor } : undefined}
+                  onClick={() => {
+                    if (!expanded) { router.push("/support"); } else { setHelpOpen((v) => !v); }
+                  }}
+                >
+                  <HelpCircle className="h-4 w-4 flex-shrink-0" />
+                  {expanded && (
+                    <>
+                      <span className="flex-1 truncate text-left">Help</span>
+                      {helpOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </>
+                  )}
+                </button>
+                <Tooltip label="Help" visible={!expanded} />
+              </div>
+              {expanded && helpOpen && (
+                <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
+                  {HELP_LINKS.map((link) => {
+                    const active = pathname === link.href || pathname?.startsWith(link.href + "/");
+                    return (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        className={cn(
+                          "block rounded px-2 py-1 text-xs transition-colors",
+                          active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        style={active ? { backgroundColor: accentColor } : undefined}
+                      >
+                        {link.label}
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-              style={isHelpRoute ? { backgroundColor: accentColor } : undefined}
-              onClick={() => {
-                if (!expanded) { router.push("/support"); } else { setHelpOpen((v) => !v); }
-              }}
-            >
-              <HelpCircle className="h-4 w-4 flex-shrink-0" />
-              {expanded && (
-                <>
-                  <span className="flex-1 truncate text-left">Help</span>
-                  {helpOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </>
-              )}
-            </button>
-            <Tooltip label="Help" visible={!expanded} />
-          </div>
-          {expanded && helpOpen && (
-            <div className="ml-3 mt-0.5 border-l border-border pl-3 py-1 space-y-0.5">
-              {HELP_LINKS.map((link) => {
-                const active = pathname === link.href || pathname?.startsWith(link.href + "/");
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={cn(
-                      "block rounded px-2 py-1 text-xs transition-colors",
-                      active ? "text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                    style={active ? { backgroundColor: accentColor } : undefined}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </nav>
 
       {/* Bottom: user + toggle */}

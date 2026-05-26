@@ -7,18 +7,16 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import JobWorkspaceHeader from "@/components/job-workspace/JobWorkspaceHeader";
-import JobWorkspaceLeftNav from "@/components/job-workspace/JobWorkspaceLeftNav";
 import JobSetupOverviewSection from "@/components/job-workspace/JobSetupOverviewSection";
 import JobScopeDatasetSection from "@/components/job-workspace/JobScopeDatasetSection";
 import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
 import JobCommunicationsTabs from "@/components/job-workspace/JobCommunicationsTabs";
 import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
-import { useTheme } from "@/components/ThemeProvider";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
-import type { WorkspaceBreadcrumb, WorkspaceGroupKey } from "@/components/job-workspace/types";
+import type { WorkspaceBreadcrumb } from "@/components/job-workspace/types";
 import {
   JOB_WORKSPACE_GROUPS,
   EMPTY_SCOPE_MAP,
@@ -441,7 +439,6 @@ export default function JobDetailPage() {
   );
 
   const {
-    activeWorkspaceGroup,
     activeWorkspaceSubtab,
     benchmarkPeriodLabel,
     periodStartLabel,
@@ -505,36 +502,6 @@ export default function JobDetailPage() {
     jobType,
     setters: workspaceDataSetters,
   });
-  function handleWorkspaceGroupChange(groupKey: WorkspaceGroupKey) {
-    const group = JOB_WORKSPACE_GROUPS.find((entry) => entry.key === groupKey);
-    if (!group) return;
-    setActiveTab(group.defaultTab);
-    if (groupKey === "setup") {
-      setActiveSetupSubtab("setup-overview");
-    }
-  }
-
-  function handleWorkspaceSubtabChange(subtabKey: string) {
-    if (activeWorkspaceGroup === "setup") {
-      setActiveSetupSubtab(subtabKey);
-      const setupAnchorByKey: Record<string, string> = {
-        "setup-overview": "job-details-section",
-        "setup-custom-fields": "custom-fields-section",
-        "setup-report-variables": "report-variables-section",
-      };
-      const anchorId = setupAnchorByKey[subtabKey];
-      if (anchorId) {
-        window.requestAnimationFrame(() => {
-          const el = document.getElementById(anchorId);
-          el?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      }
-      return;
-    }
-
-    setActiveTab(subtabKey);
-  }
-
   const workspaceBreadcrumbs: WorkspaceBreadcrumb[] = [
     { label: "Clients", href: "/clients" },
     {
@@ -696,12 +663,6 @@ export default function JobDetailPage() {
     selectedMilestoneTemplateId,
   });
 
-  const { theme } = useTheme();
-  const accentColor = theme?.button_color || theme?.primary_color || "#1c5026";
-
-  const isSetupOverview = activeWorkspaceSubtab === "setup-overview";
-  const isSetupCustomFields = activeWorkspaceSubtab === "setup-custom-fields";
-
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
@@ -716,15 +677,7 @@ export default function JobDetailPage() {
         {loading ? <div className="mb-4 text-sm text-muted-foreground">Loading...</div> : null}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="mt-6 flex items-start gap-6">
-            <JobWorkspaceLeftNav
-              jobId={jobId}
-              activeGroup={activeWorkspaceGroup}
-              activeSubtab={activeWorkspaceSubtab}
-              accentColor={accentColor}
-              onSubtabChange={handleWorkspaceSubtabChange}
-            />
-            <div className="min-w-0 flex-1">
+          <div className="mt-6">
 
           <TabsContent value="setup" className="mt-0">
             <div className="space-y-6">
@@ -734,7 +687,7 @@ export default function JobDetailPage() {
                 </div>
               ) : null}
               <JobSetupOverviewSection
-                hidden={!isSetupOverview}
+                hidden={false}
                 jobId={jobId}
                 busy={busy}
                 status={status}
@@ -811,7 +764,7 @@ export default function JobDetailPage() {
 
 
 
-              <Card id="custom-fields-section" className={isSetupCustomFields ? undefined : "hidden"}>
+              <Card id="custom-fields-section">
                 <CardHeader>
                   <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
                 </CardHeader>
@@ -826,7 +779,7 @@ export default function JobDetailPage() {
 
               {/* Scope Dataset Configuration */}
               <JobScopeDatasetSection
-                hidden={!isSetupOverview}
+                hidden={false}
                 busy={busy}
                 loadingScopeConfig={loadingScopeConfig}
                 datasetOverrideSummary={datasetOverrideSummary}
@@ -1039,7 +992,6 @@ export default function JobDetailPage() {
             <JobTimeEntries jobId={jobId} baseUrl={baseUrl} />
           </TabsContent>
 
-            </div>
           </div>
         </Tabs>
       </div>

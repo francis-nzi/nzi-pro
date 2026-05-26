@@ -4,8 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import JobWorkspaceHeader from "./JobWorkspaceHeader";
-import JobWorkspaceLeftNav from "./JobWorkspaceLeftNav";
-import type { JobWorkspaceJob, WorkspaceBreadcrumb, WorkspaceGroupKey, WorkspaceSubtab } from "./types";
+import type { JobWorkspaceJob, WorkspaceBreadcrumb } from "./types";
 import { getCachedJobShellData, loadJobShellData } from "@/lib/job-shell-data";
 import type { JobShellJob } from "@/lib/job-shell-data";
 import LoadingOrbit from "@/components/LoadingOrbit";
@@ -15,7 +14,9 @@ type JobSectionShellProps = {
   baseUrl?: string;
   sectionLabel: string;
   sectionHref?: string;
-  activeGroup?: WorkspaceGroupKey;
+  /** Accepted for backwards compat; sidebar now derives active state from pathname. */
+  activeGroup?: string;
+  /** Accepted for backwards compat; sidebar now derives active state from pathname. */
   activeSubtab?: string;
   children?: ReactNode;
   renderContent?: (job: JobShellJob) => ReactNode;
@@ -56,62 +57,13 @@ function buildSetupCompletion(job: JobShellJob): {
   };
 }
 
-const GROUP_SUBTABS: Record<WorkspaceGroupKey, WorkspaceSubtab[]> = {
-  setup: [
-    { key: "setup-overview", label: "Setup Overview", href: "/jobs/__JOB_ID__/setup" },
-    { key: "setup-custom-fields", label: "Custom Fields", href: "/jobs/__JOB_ID__/setup" },
-  ],
-  data: [
-    { key: "data-entry", label: "Data Entry", href: "/jobs/__JOB_ID__/data-entry" },
-    { key: "employee-commuting", label: "Employee Commuting", href: "/jobs/__JOB_ID__/data-entry/employee-commuting" },
-    { key: "asset-register", label: "Asset Register", href: "/jobs/__JOB_ID__/data-entry/asset-register" },
-    { key: "business-travel", label: "Business Travel", href: "/jobs/__JOB_ID__/data-entry/business-travel" },
-    { key: "upload", label: "Data Upload", href: "/jobs/__JOB_ID__?tab=upload" },
-    { key: "custom-dataset", label: "Custom Dataset", href: "/jobs/__JOB_ID__/data-entry/custom-dataset" },
-    { key: "custom-factors", label: "Job-Only Factors", href: "/jobs/__JOB_ID__/data-entry/custom-factors" },
-    { key: "spend-data", label: "Spend Data", href: "/jobs/__JOB_ID__/data-entry/spend-data" },
-    { key: "notes", label: "Notes", href: "/jobs/__JOB_ID__/data-entry/notes" },
-  ],
-  outputs: [
-    { key: "data-output", label: "Data Output", href: "/jobs/__JOB_ID__/outputs" },
-    { key: "actions", label: "Actions", href: "/jobs/__JOB_ID__?tab=actions" },
-  ],
-  report: [
-    { key: "report-new",       label: "Report Preparation", href: "/jobs/__JOB_ID__/report-new" },
-    { key: "advanced-reports", label: "Report Printing",    href: "/jobs/__JOB_ID__/advanced-reports" },
-    { key: "client-review",    label: "Client Review",      href: "/jobs/__JOB_ID__/client-review" },
-  ],
-  analysis: [{ key: "lca", label: "Life Cycle Analysis", href: "/jobs/__JOB_ID__/lca" }],
-  insights: [],
-  communications: [
-    { key: "communications-timeline", label: "Timeline", href: "/jobs/__JOB_ID__/communications/timeline" },
-    { key: "communications-inbox", label: "Inbox", href: "/jobs/__JOB_ID__/communications/inbox" },
-    { key: "communications-email", label: "Email", href: "/jobs/__JOB_ID__/communications/email" },
-    { key: "communications-tasks", label: "Tasks", href: "/jobs/__JOB_ID__/communications/tasks" },
-    { key: "communications-automation", label: "Automation", href: "/jobs/__JOB_ID__/communications/automation" },
-    { key: "communications-crm", label: "CRM Timeline", href: "/jobs/__JOB_ID__/communications/crm" },
-  ],
-  financial: [
-    { key: "financial-quotes", label: "Quotes", href: "/jobs/__JOB_ID__/financial/quotes" },
-    { key: "financial-invoices", label: "Invoices", href: "/jobs/__JOB_ID__/financial/invoices" },
-    { key: "financial-other-costs", label: "Other Costs", href: "/jobs/__JOB_ID__/financial/other-costs" },
-    { key: "financial-profit-loss", label: "Profit & Loss", href: "/jobs/__JOB_ID__/financial/profit-loss" },
-  ],
-  "job-notes": [],
-  admin: [
-    { key: "files", label: "Files", href: "/jobs/__JOB_ID__/admin/files" },
-    { key: "time", label: "Time Entries", href: "/jobs/__JOB_ID__/admin/time" },
-    { key: "certificate", label: "Certificate", href: "/jobs/__JOB_ID__/admin/certificate" },
-  ],
-};
-
 export default function JobSectionShell({
   jobId,
   baseUrl = apiBaseUrl(),
   sectionLabel,
   sectionHref,
-  activeGroup,
-  activeSubtab,
+  activeGroup: _activeGroup,
+  activeSubtab: _activeSubtab,
   children,
   renderContent,
 }: JobSectionShellProps) {
@@ -204,29 +156,16 @@ export default function JobSectionShell({
       ]
     : [{ label: sectionLabel, href: sectionHref ?? `/jobs/${jobId}` }];
 
-  const activeWorkspaceGroup = activeGroup || "setup";
-  const activeWorkspaceSubtab =
-    activeSubtab ||
-    (GROUP_SUBTABS[activeWorkspaceGroup]?.[0]?.key ?? "") ||
-    (activeWorkspaceGroup === "setup" ? "setup-overview" : "");
-
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto w-full max-w-7xl px-6 py-10">
         {workspaceJob ? (
           <JobWorkspaceHeader breadcrumbs={breadcrumbs} jobId={jobId} baseUrl={baseUrl} job={workspaceJob} />
         ) : null}
-        <div className="mt-6 flex items-start gap-6">
-          <JobWorkspaceLeftNav
-            jobId={jobId}
-            activeGroup={activeWorkspaceGroup as WorkspaceGroupKey}
-            activeSubtab={activeWorkspaceSubtab}
-          />
-          <div className="min-w-0 flex-1">
-            {loading ? <LoadingOrbit className="py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
-            {error ? <div className="text-sm text-destructive">{error}</div> : null}
-            <div>{renderContent ? (job ? renderContent(job) : null) : children}</div>
-          </div>
+        <div className="mt-6">
+          {loading ? <LoadingOrbit className="py-6" label={`Loading ${sectionLabel.toLowerCase()}...`} /> : null}
+          {error ? <div className="text-sm text-destructive">{error}</div> : null}
+          <div>{renderContent ? (job ? renderContent(job) : null) : children}</div>
         </div>
       </div>
     </div>
