@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthContext";
-import { MainNav } from "@/components/MainNav";
+import { AppSidebar } from "@/components/AppSidebar";
 import { AuthBootstrap } from "@/components/AuthBootstrap";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -31,16 +31,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} flex min-h-screen flex-col antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
           <ThemeProvider>
             <ConfirmDialogProvider>
               <Suspense fallback={null}>
                 <AuthBootstrap />
               </Suspense>
-              <div className="print:hidden"><MainNav /></div>
-              <main className="flex-1">{children}</main>
-              <div className="print:hidden"><SiteFooter /></div>
+              <div className="flex min-h-screen">
+                <AppSidebar />
+                <div className="flex flex-1 flex-col overflow-x-hidden min-w-0">
+                  <main className="flex-1">{children}</main>
+                  <div className="print:hidden">
+                    <SiteFooter />
+                  </div>
+                </div>
+              </div>
             </ConfirmDialogProvider>
           </ThemeProvider>
         </AuthProvider>
