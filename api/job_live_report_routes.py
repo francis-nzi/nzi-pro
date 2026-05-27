@@ -441,9 +441,12 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             }])
         try:
             page = context.new_page()
-            page.goto(report_url, wait_until="networkidle", timeout=90000)
-            page.locator(".live-report-section").first.wait_for(state="visible", timeout=60000)
-            page.wait_for_timeout(1500)
+            # Use domcontentloaded instead of networkidle — the advanced-reports page
+            # makes continuous background API calls so networkidle never fires.
+            # The .live-report-section visibility check below is the correct signal.
+            page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
+            page.locator(".live-report-section").first.wait_for(state="visible", timeout=90000)
+            page.wait_for_timeout(2000)
             # Shrink viewport to ~A4 content width so Recharts ResizeObserver
             # re-measures containers before PDF generation.  At 700px the
             # CardContent inner width is 652px, which is less than the PDF's
