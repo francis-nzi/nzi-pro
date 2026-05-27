@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
   LabelList,
+  type XAxisTickContentProps,
 } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -1201,7 +1202,7 @@ export default function JobAdvancedReports({
         </div>
         {versions.length === 0 && !versionsLoading ? (
           <p className="px-5 py-4 text-xs text-gray-400">
-            No saved versions yet — click "Save for Review" to create one.
+            No saved versions yet — click &quot;Save for Review&quot; to create one.
           </p>
         ) : (
           <table className="w-full text-xs">
@@ -1793,8 +1794,8 @@ export default function JobAdvancedReports({
               ];
 
               // Custom XAxis tick showing scope label + % change
-              const ScopeTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => {
-                const row = barData.find(d => d.scope === payload?.value);
+              const ScopeTick = ({ x, y, payload }: XAxisTickContentProps) => {
+                const row = barData.find(d => d.scope === String(payload?.value));
                 const pct = row?.pct ?? null;
                 return (
                   <g transform={`translate(${x ?? 0},${y ?? 0})`}>
@@ -1814,7 +1815,7 @@ export default function JobAdvancedReports({
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
-                      <XAxis dataKey="scope" tick={ScopeTick as React.FC} axisLine={false} tickLine={false} interval={0} />
+                      <XAxis dataKey="scope" tick={ScopeTick} axisLine={false} tickLine={false} interval={0} />
                       <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
                       <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
                       <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />

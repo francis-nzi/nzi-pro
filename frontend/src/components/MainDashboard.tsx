@@ -139,6 +139,18 @@ function normalizeSearchText(value: string): string {
   return String(value || "").trim().toLowerCase();
 }
 
+type DashboardTab = "today" | "portfolio" | "financial" | "delivery" | "emissions" | "tasks";
+
+function normalizeDashboardTab(value: string | null | undefined): DashboardTab {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "overview" || raw === "insights" || raw === "") return "today";
+  if (raw === "operations") return "delivery";
+  if (raw === "today" || raw === "portfolio" || raw === "financial" || raw === "delivery" || raw === "emissions" || raw === "tasks") {
+    return raw as DashboardTab;
+  }
+  return "today";
+}
+
 // â”€â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
@@ -161,12 +173,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [crm,  setCrm]  = useState<string | null>(null);
   const [currentUserLabel, setCurrentUserLabel] = useState<string>("");
   const [showFilters, setShowFilters] = useState(true);
-  const tabFromUrl = useMemo(() => {
-    const raw = String(searchParams.get("section") || "").trim().toLowerCase();
-    return (["overview", "intelligence", "financial", "operations", "emissions", "tasks"].includes(raw) ? raw : "overview") as
-      "overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks";
-  }, [searchParams]);
-  const [activeTab, setActiveTab] = useState<"overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks">(tabFromUrl);
+  const tabFromUrl = useMemo(() => normalizeDashboardTab(searchParams.get("section")), [searchParams]);
+  const [activeTab, setActiveTab] = useState<DashboardTab>(tabFromUrl);
 
   useEffect(() => {
     setActiveTab(tabFromUrl);
@@ -202,10 +210,10 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
     };
   }, [api]);
 
-  const updateActiveTab = useCallback((nextTab: typeof activeTab) => {
+  const updateActiveTab = useCallback((nextTab: DashboardTab) => {
     setActiveTab(nextTab);
     const params = new URLSearchParams(searchParams.toString());
-    if (nextTab === "overview") params.delete("section");
+    if (nextTab === "today") params.delete("section");
     else params.set("section", nextTab);
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -352,226 +360,22 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       {(ov || !loading) && (
         <Tabs value={activeTab} onValueChange={(value) => updateActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="intelligence">Insights</TabsTrigger>
+            <TabsTrigger value="today">Today</TabsTrigger>
+            <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
-            <TabsTrigger value="operations">Operations</TabsTrigger>
+            <TabsTrigger value="delivery">Delivery</TabsTrigger>
             <TabsTrigger value="emissions">Emissions</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
 
-          {/* Insights */}
-          <TabsContent value="intelligence" className="space-y-5 pt-3">
+          {/* Today */}
+          <TabsContent value="today" className="space-y-5 pt-3">
             <IntelligenceDashboard baseUrl={api} crmOwner={crm} />
           </TabsContent>
 
-          {/* Overview */}
-          <TabsContent value="overview" className="space-y-5 pt-3">
-
-            {/* KPI strip */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <Kpi label="Active Jobs"     value={ops?.metrics.active_jobs ?? ov?.metrics.active_jobs ?? "—"}              icon={<Briefcase className="h-4 w-4" />}    accent="blue"   />
-              <Kpi label="Overdue Jobs"    value={ops?.metrics.overdue_jobs ?? mil?.red ?? "—"}                            icon={<Flame className="h-4 w-4" />}         accent="red"    sub="milestone overdue" />
-              <Kpi label="Due Soon"        value={ops?.metrics.due_soon_jobs ?? mil?.amber ?? "—"}                         icon={<AlertTriangle className="h-4 w-4" />} accent="amber"  sub="within 7 days" />
-              <Kpi label="Outstanding"     value={fin ? formatCurrency(fin.metrics.outstanding_total) : "—"}                  icon={<Layers className="h-4 w-4" />}        accent="orange" sub={fin ? `${fin.metrics.overdue_invoice_count} overdue inv.` : undefined} />
-              <Kpi label="Quote Pipeline"  value={fin ? formatCurrency(fin.metrics.quote_value_total) : "—"}                  icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
-              <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${formatNumber(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
-            </div>
-
-            {/* Current Jobs */}
-            {ops?.current_jobs && ops.current_jobs.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">Current Jobs</CardTitle>
-                    <Badge variant="outline" className="text-[10px] h-5 px-1.5">{ops.current_jobs.length}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-xs text-muted-foreground">
-                        <th className="text-left pb-2 font-medium">Job</th>
-                        <th className="text-left pb-2 font-medium">Client</th>
-                        <th className="text-left pb-2 font-medium">CRM</th>
-                        <th className="text-left pb-2 font-medium">Final Report Due</th>
-                        <th className="text-right pb-2 font-medium">Days</th>
-                        <th className="text-left pb-2 font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ops.current_jobs.map((job) => (
-                        <tr key={job.job_id} className="border-b last:border-0 hover:bg-accent/40 transition-colors">
-                          <td className="py-2.5">
-                            <Link href={`/jobs/${job.job_id}`} className="hover:underline flex items-center gap-1 group font-medium">
-                              <span className="text-muted-foreground text-xs">{job.job_number}</span>
-                              <span className="truncate max-w-[180px]">{job.title}</span>
-                              <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
-                            </Link>
-                          </td>
-                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[160px]">{job.client_name}</td>
-                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name}</td>
-                          <td className="py-2.5 text-xs">
-                            <div className="font-medium">{formatDate(job.final_report_due, { day: "numeric", month: "short" })}</div>
-                          </td>
-                          <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_final_report_due == null ? "text-muted-foreground" : job.days_to_final_report_due < 0 ? "text-red-600" : job.days_to_final_report_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
-                            {job.days_to_final_report_due != null ? (job.days_to_final_report_due < 0 ? `${Math.abs(job.days_to_final_report_due)}d late` : `${job.days_to_final_report_due}d`) : "—"}
-                          </td>
-                          <td className="py-2.5">
-                            <StatusBadge status={job.status} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* CRM Workload */}
-            {ops?.crm_workload && ops.crm_workload.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">CRM Workload</CardTitle>
-                    {crm && <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setCrm(null)}>← All CRMs</Button>}
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-xs text-muted-foreground">
-                        <th className="text-left pb-2 font-medium">CRM</th>
-                        <th className="text-right pb-2 font-medium">Jobs</th>
-                        <th className="pb-2 font-medium w-48 text-center">Health</th>
-                        <th className="text-right pb-2 font-medium">Avg Health</th>
-                        <th className="text-left pb-2 font-medium">Last Contact</th>
-                        <th className="text-right pb-2 font-medium">Logged</th>
-                        <th className="text-right pb-2 font-medium">Est.</th>
-                        <th className="text-right pb-2 font-medium">Util.</th>
-                        <th className="w-5" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ops.crm_workload.map(c => {
-                        const t = c.total_jobs || 1;
-                        const gp = (c.green_jobs / t) * 100;
-                        const ap = (c.amber_jobs / t) * 100;
-                        const rp = (c.red_jobs   / t) * 100;
-                        const u  = c.utilisation_pct;
-                        const isActive = crm === c.crm_name;
-                        return (
-                          <tr key={c.crm_name} className={`border-b last:border-0 cursor-pointer transition-colors ${isActive ? "bg-accent" : "hover:bg-accent/40"}`} onClick={() => setCrm(isActive ? null : c.crm_name)}>
-                            <td className="py-2.5 font-medium">{c.crm_name}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.total_jobs}</td>
-                            <td className="py-2.5 px-3">
-                              <div className="h-2 rounded-full overflow-hidden bg-muted flex">
-                                {gp > 0 && <div style={{ width: `${gp}%`, backgroundColor: MS_COLORS.green }} />}
-                                {ap > 0 && <div style={{ width: `${ap}%`, backgroundColor: MS_COLORS.amber }} />}
-                                {rp > 0 && <div style={{ width: `${rp}%`, backgroundColor: MS_COLORS.red }} />}
-                              </div>
-                              <div className="flex justify-between mt-0.5 text-[10px]">
-                                <span className="text-green-600">{c.green_jobs} ✓</span>
-                                <span className="text-amber-600">{c.amber_jobs} ⚠</span>
-                                <span className="text-red-600">{c.red_jobs} ✕</span>
-                              </div>
-                            </td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.avg_health_score != null ? formatNumber(c.avg_health_score, 1) : "—"}</td>
-                            <td className="py-2.5 text-muted-foreground">{formatDate(c.last_contact_date, { day: "numeric", month: "short", year: "numeric" })}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{formatHours(c.logged_hours)}</td>
-                            <td className="text-right py-2.5 text-muted-foreground">{c.estimated_hours > 0 ? formatHours(c.estimated_hours) : "—"}</td>
-                            <td className={`text-right py-2.5 font-semibold ${u == null ? "text-muted-foreground" : u > 100 ? "text-red-600" : u > 85 ? "text-amber-600" : "text-green-600"}`}>{u != null ? formatPercent(u) : "—"}</td>
-                            <td className="py-2.5 pl-1"><ChevronRight className="h-3.5 w-3.5 text-muted-foreground" /></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Jobs needing attention */}
-            {ops?.jobs_needing_attention && ops.jobs_needing_attention.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    Jobs Needing Attention
-                    <Badge variant="destructive" className="text-[10px] h-5 px-1.5 ml-0.5">{ops.jobs_needing_attention.length}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-xs text-muted-foreground">
-                        <th className="text-left pb-2 font-medium w-3" />
-                        <th className="text-left pb-2 font-medium">Job</th>
-                        <th className="text-left pb-2 font-medium">Client</th>
-                        <th className="text-left pb-2 font-medium">CRM</th>
-                        <th className="text-left pb-2 font-medium">Next Due</th>
-                        <th className="text-right pb-2 font-medium">Days</th>
-                        <th className="text-left pb-2 font-medium pl-3">Flags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ops.jobs_needing_attention.map(job => (
-                        <tr key={job.job_id} className="border-b last:border-0 hover:bg-accent/40 transition-colors">
-                          <td className="py-2.5 pr-2"><div className={`w-2.5 h-2.5 rounded-full ${milestoneDotClass(job.milestone_status)}`} /></td>
-                          <td className="py-2.5">
-                            <Link href={`/jobs/${job.job_id}`} className="hover:underline flex items-center gap-1 group font-medium">
-                              <span className="text-muted-foreground text-xs">{job.job_number}</span>
-                              <span className="truncate max-w-[150px]">{job.title}</span>
-                              <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
-                            </Link>
-                          </td>
-                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[110px]">{job.client_name}</td>
-                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name}</td>
-                          <td className="py-2.5 text-xs">
-                            <div className="text-muted-foreground capitalize">{job.next_due_name?.replace(/_/g, " ")}</div>
-                            <div className="font-medium">{formatDate(job.next_due_date, { day: "numeric", month: "short" })}</div>
-                          </td>
-                          <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_next_due == null ? "text-muted-foreground" : job.days_to_next_due < 0 ? "text-red-600" : job.days_to_next_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
-                            {job.days_to_next_due != null ? (job.days_to_next_due < 0 ? `${Math.abs(job.days_to_next_due)}d late` : `${job.days_to_next_due}d`) : "—"}
-                          </td>
-                          <td className="py-2.5 pl-3">
-                            <div className="flex flex-wrap gap-1">
-                              {job.reason.split(",").map(r => r.trim()).filter(Boolean).map(r => (
-                                <span key={r} className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 whitespace-nowrap">{r}</span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Recent jobs */}
-            {ov?.recent_activity && ov.recent_activity.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-semibold">Recent Jobs</CardTitle>
-                    <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/jobs">View all</Link></Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {ov.recent_activity.map(job => (
-                    <div key={job.job_id} className="flex items-center gap-3 py-2.5 border-b last:border-0 hover:bg-accent/30 rounded px-1 transition-colors">
-                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${milestoneDotClass(job.milestone_status)}`} />
-                      <div className="flex-1 min-w-0">
-                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-sm hover:underline truncate block">{job.title || `Job #${job.job_id}`}</Link>
-                        <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
-                      </div>
-                      <StatusBadge status={job.status} />
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
+          {/* Portfolio */}
+          <TabsContent value="portfolio" className="space-y-5 pt-3">
+            <PortfolioSummaryTab overview={ov} />
           </TabsContent>
 
           {/* Financial */}
@@ -579,8 +383,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             <MainDashboardCharts section="financial" overview={ov} financial={fin} operations={ops} />
           </TabsContent>
 
-          {/* Operations */}
-          <TabsContent value="operations" className="space-y-5 pt-3">
+          {/* Delivery */}
+          <TabsContent value="delivery" className="space-y-5 pt-3">
             <MainDashboardCharts section="operations" overview={ov} financial={fin} operations={ops} />
           </TabsContent>
 
@@ -601,21 +405,148 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 
 // â”€â”€â”€ Reusable sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function Kpi({ label, value, sub, icon, accent = "blue" }: { label: string; value: string | number; sub?: string; icon?: React.ReactNode; accent?: string }) {
-  const s = ACCENT[accent as keyof typeof ACCENT] ?? ACCENT.blue;
+function PortfolioSummaryTab({ overview }: { overview: OverviewData | null }) {
+  if (!overview) {
+    return <Loading />;
+  }
+
+  const totalJobs = overview.metrics.active_jobs;
+  const totalClients = overview.metrics.total_clients;
+  const totalEmissions = overview.metrics.total_emissions;
+  const yoy = overview.metrics.yoy_change;
+  const activeCrms = overview.jobs_per_crm.filter((crm) => crm.total_jobs > 0).length;
+  const mostActiveCrm = [...overview.jobs_per_crm]
+    .sort((a, b) => b.total_jobs - a.total_jobs)
+    .at(0);
+
   return (
-    <Card className={`border-l-4 ${s.border}`}>
-      <CardContent className="pt-4 pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-xs text-muted-foreground leading-tight mb-1">{label}</div>
-            <div className="text-2xl font-semibold leading-tight truncate">{value}</div>
-            {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+    <div className="space-y-5">
+      <Card className="border-border/70 shadow-sm">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-sm font-semibold">Portfolio Snapshot</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">A compact view of the client portfolio, active work, and recent account activity.</p>
+            </div>
+            <Badge variant="outline" className="text-[10px] h-5 px-1.5">Scope: {overview.selected_year}</Badge>
           </div>
-          {icon && <div className={`flex-shrink-0 mt-1 ${s.icon} opacity-60`}>{icon}</div>}
-        </div>
-      </CardContent>
-    </Card>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <MiniStat label="Total Clients" value={totalClients} />
+          <MiniStat label="Active Jobs" value={totalJobs} />
+          <MiniStat label="Active CRMs" value={activeCrms} />
+          <MiniStat label="YoY Emissions" value={yoy != null ? `${yoy > 0 ? "+" : ""}${formatNumber(yoy)}%` : "—"} />
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card className="border-border/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Industry Mix</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            {(overview.industry_breakdown ?? []).slice(0, 8).map((row) => {
+              const total = overview.metrics.total_clients || 1;
+              const pct = (row.client_count / total) * 100;
+              return (
+                <div key={row.industry} className="space-y-0.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium">{row.industry}</span>
+                    <span className="text-muted-foreground">{row.client_count} clients</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.max(pct, 2)}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Top Emitting Clients</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            {(overview.top_emitting_clients ?? []).slice(0, 8).map((client, index) => (
+              <div key={client.client_id} className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{client.client_name}</div>
+                  <div className="text-xs text-muted-foreground">Rank {index + 1}</div>
+                </div>
+                <div className="text-sm font-semibold text-muted-foreground">{formatNumber(client.emissions, 1)}</div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Card className="border-border/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Jobs by CRM</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto pt-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="text-left pb-2 font-medium">CRM</th>
+                  <th className="text-right pb-2 font-medium">Jobs</th>
+                  <th className="text-right pb-2 font-medium">Open</th>
+                  <th className="text-right pb-2 font-medium">Completed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(overview.jobs_per_crm ?? []).map((row) => {
+                  const open = Object.entries(row.statuses ?? {}).reduce((sum, [status, count]) => {
+                    const normalized = status.toLowerCase();
+                    return sum + (normalized === "completed" || normalized === "archived" || normalized === "cancelled" ? 0 : count);
+                  }, 0);
+                  const completed = Object.entries(row.statuses ?? {}).reduce((sum, [status, count]) => {
+                    const normalized = status.toLowerCase();
+                    return sum + (normalized === "completed" ? count : 0);
+                  }, 0);
+                  return (
+                    <tr key={row.crm_name} className="border-b last:border-0">
+                      <td className="py-2.5 font-medium">{row.crm_name}</td>
+                      <td className="py-2.5 text-right text-muted-foreground">{row.total_jobs}</td>
+                      <td className="py-2.5 text-right text-muted-foreground">{open}</td>
+                      <td className="py-2.5 text-right text-muted-foreground">{completed}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/70">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">Recently Active Accounts</CardTitle>
+              {mostActiveCrm ? <Badge variant="outline" className="text-[10px] h-5 px-1.5">{mostActiveCrm.crm_name}</Badge> : null}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {(overview.recent_activity ?? []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">No recent activity to show.</div>
+            ) : (
+              <div className="space-y-2">
+                {overview.recent_activity.slice(0, 8).map((job) => (
+                  <div key={job.job_id} className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{job.title || `Job #${job.job_id}`}</div>
+                      <div className="text-xs text-muted-foreground">{job.client_name} · {job.reporting_year ?? "N/A"}</div>
+                    </div>
+                    <StatusBadge status={job.status} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
@@ -627,6 +558,15 @@ function FilterSelect({ label, value, onValue, options, placeholder, w }: { labe
         <SelectTrigger className={`h-8 ${w} text-xs`}><SelectValue placeholder={placeholder} /></SelectTrigger>
         <SelectContent>{options.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
       </Select>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border bg-muted/20 p-4">
+      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-semibold">{value}</div>
     </div>
   );
 }
