@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { apiUrl, clearAuthState } from "@/lib/auth-client";
+import { apiUrl, performLogout } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuthSession } from "@/components/AuthContext";
@@ -453,8 +453,8 @@ export function MainNav() {
                     variant="ghost"
                     size="sm"
                     className="w-full justify-start"
-                    onClick={() => {
-                      clearAuthState();
+                    onClick={async () => {
+                      await performLogout();
                       router.replace("/login");
                     }}
                   >

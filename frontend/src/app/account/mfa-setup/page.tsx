@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiUrl, clearAuthState, setAuthState } from "@/lib/auth-client";
+import { apiUrl, performLogout, setAuthState } from "@/lib/auth-client";
 
 function MfaSetupContent() {
   const router = useRouter();
@@ -123,9 +123,8 @@ function MfaSetupContent() {
       }
       const json = await res.json();
       const accessToken = String(json?.access_token || "");
-      const userIdentity = String(json?.user?.email || json?.user?.user_id || "");
-      if (accessToken || userIdentity) {
-        setAuthState(accessToken || null, userIdentity || null);
+      if (accessToken) {
+        setAuthState(accessToken || null);
       }
       setRecoveryCodes(Array.isArray(json?.recovery_codes) ? json.recovery_codes : []);
       setOtpCode("");
@@ -244,8 +243,8 @@ function MfaSetupContent() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  clearAuthState();
+                onClick={async () => {
+                  await performLogout();
                   router.replace("/login");
                 }}
               >

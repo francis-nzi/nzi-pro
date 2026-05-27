@@ -54,7 +54,7 @@ export function hasAuthState(): boolean {
   return Boolean(getToken());
 }
 
-export function setAuthState(token: string | null, userIdentifier: string | null): void {
+export function setAuthState(token: string | null): void {
   if (token) setCookie(TOKEN_COOKIE, token);
   else clearCookie(TOKEN_COOKIE);
 }
@@ -63,6 +63,22 @@ export function clearAuthState(): void {
   clearCookie(TOKEN_COOKIE);
   clearCookie(FORCE_PASSWORD_CHANGE_COOKIE);
   clearCookie(ACCEPT_TERMS_COOKIE);
+}
+
+export async function performLogout(): Promise<void> {
+  try {
+    await fetch(apiUrl("/auth/logout"), {
+      method: "POST",
+      headers: {
+        "X-NZI-Skip-Auth-Redirect": "1",
+      },
+      credentials: "include",
+    });
+  } catch {
+    // Logout should always complete client-side even if the audit call fails.
+  } finally {
+    clearAuthState();
+  }
 }
 
 export function setMustChangePassword(value: boolean): void {

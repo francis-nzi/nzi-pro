@@ -29,7 +29,7 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiUrl, clearAuthState } from "@/lib/auth-client";
+import { apiUrl, performLogout } from "@/lib/auth-client";
 import { useTheme } from "@/components/ThemeProvider";
 import { useAuthSession } from "@/components/AuthContext";
 
@@ -748,7 +748,7 @@ export function AppSidebar() {
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-destructive hover:bg-muted"
-                  onClick={() => { clearAuthState(); router.replace("/login"); }}
+                  onClick={async () => { await performLogout(); router.replace("/login"); }}
                 >
                   <LogOut className="h-3.5 w-3.5" />
                   Sign out

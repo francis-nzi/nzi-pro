@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { apiUrl, clearAuthState, setMustAcceptPortalTerms } from "@/lib/auth-client";
+import { apiUrl, performLogout, setMustAcceptPortalTerms } from "@/lib/auth-client";
 
 function AcceptTermsContent() {
   const router = useRouter();
@@ -72,8 +72,8 @@ function AcceptTermsContent() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                clearAuthState();
+              onClick={async () => {
+                await performLogout();
                 setMustAcceptPortalTerms(false);
                 router.replace("/login");
               }}

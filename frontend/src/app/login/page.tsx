@@ -104,8 +104,7 @@ function LoginPageContent() {
       }
 
       const token = payload.access_token || null;
-      const userIdentity = payload.user?.email || payload.user?.user_id || identifier.trim();
-      setAuthState(token, userIdentity || null);
+      setAuthState(token);
       setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);
@@ -149,8 +148,7 @@ function LoginPageContent() {
       }
 
       const token = payload.access_token || null;
-      const userIdentity = payload.user?.email || payload.user?.user_id || identifier.trim();
-      setAuthState(token, userIdentity || null);
+      setAuthState(token);
       setMustAcceptPortalTerms(Boolean(payload.must_accept_portal_terms));
 
       const forceChange = Boolean(payload.must_change_password || payload.user?.must_change_password);

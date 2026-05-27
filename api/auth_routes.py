@@ -7,7 +7,7 @@ import secrets
 import string
 from typing import Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.org_admin_helpers import _ensure_org_entitlement_schema, _ensure_org_lifecycle_schema, _slugify_org_name
 from core.auth import authenticate_user, create_user, get_user_by_id, set_user_password
@@ -15,6 +15,7 @@ from core.database import get_conn
 from api.auth import _current_user, _mfa_required_for_all_users
 from services.messaging_templates import build_email_content
 from services.outbound_email import send_tracked_email
+from services.audit_log import record_audit_event
 from services.permissions import enrich_user_permissions
 
 try:
@@ -65,6 +66,29 @@ def _mfa_remember_days() -> int:
     except Exception:
         days = 30
     return max(1, min(days, 365))
+
+
+def _record_auth_audit_event(
+    *,
+    request: Request | None,
+    action: str,
+    actor: Dict | None = None,
+    identifier: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    try:
+        with get_conn() as con:
+            record_audit_event(
+                con,
+                request=request,
+                actor=actor,
+                action=action,
+                entity_type="auth_session",
+                entity_id=str((actor or {}).get("user_id") or identifier or "").strip() or None,
+                metadata=metadata or {},
+            )
+    except Exception:
+        pass
 
 
 def _ensure_mfa_columns(con) -> None:
@@ -633,7 +657,7 @@ def _verify_mfa_remember_token(token: str, user: Dict, encrypted_secret: str) ->
 
 
 @router.post("/login")
-def login(body: Dict):
+def login(body: Dict, request: Request):
     identifier = (body.get("identifier") or "").strip()
     password = body.get("password") or ""
     if not identifier or not password:
@@ -641,6 +665,12 @@ def login(body: Dict):
 
     user = authenticate_user(identifier, password)
     if not user:
+        _record_auth_audit_event(
+            request=request,
+            action="login_failed",
+            identifier=identifier,
+            metadata={"reason": "invalid_credentials"},
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user = enrich_user_permissions(user) or user
@@ -654,8 +684,22 @@ def login(body: Dict):
             result["mfa_required"] = False
             result["mfa_remember_token"] = remember_token
             result["mfa_remember_days"] = _mfa_remember_days()
+            _record_auth_audit_event(
+                request=request,
+                action="login_success",
+                actor=user,
+                identifier=identifier,
+                metadata={"mfa": True, "method": "remember_token"},
+            )
             return result
         challenge_token = _issue_mfa_challenge(user)
+        _record_auth_audit_event(
+            request=request,
+            action="login_mfa_challenge_issued",
+            actor=user,
+            identifier=identifier,
+            metadata={"mfa": True, "method": "password"},
+        )
         return {
             "mfa_required": True,
             "mfa_challenge_token": challenge_token,
@@ -673,11 +717,18 @@ def login(body: Dict):
     user = enrich_user_permissions(user) or user
     result = _issue_login_result(user, setup_required=_mfa_required_for_all_users())
     result["mfa_required"] = False
+    _record_auth_audit_event(
+        request=request,
+        action="login_success",
+        actor=user,
+        identifier=identifier,
+        metadata={"mfa": False},
+    )
     return result
 
 
 @router.post("/login/mfa/verify")
-def login_mfa_verify(body: Dict):
+def login_mfa_verify(body: Dict, request: Request):
     if jwt is None:
         raise HTTPException(status_code=500, detail="MFA unavailable: PyJWT missing")
     if pyotp is None:
@@ -695,15 +746,35 @@ def login_mfa_verify(body: Dict):
     try:
         payload = jwt.decode(challenge, _challenge_secret(), algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
+        _record_auth_audit_event(
+            request=request,
+            action="mfa_verification_failed",
+            metadata={"reason": "expired_challenge"},
+        )
         raise HTTPException(status_code=401, detail="MFA challenge expired")
     except Exception:
+        _record_auth_audit_event(
+            request=request,
+            action="mfa_verification_failed",
+            metadata={"reason": "invalid_challenge"},
+        )
         raise HTTPException(status_code=401, detail="Invalid MFA challenge token")
 
     if str(payload.get("kind") or "") != "mfa_challenge":
+        _record_auth_audit_event(
+            request=request,
+            action="mfa_verification_failed",
+            metadata={"reason": "invalid_challenge_kind"},
+        )
         raise HTTPException(status_code=401, detail="Invalid MFA challenge token")
 
     ident = str(payload.get("email") or payload.get("sub") or "").strip()
     if not ident:
+        _record_auth_audit_event(
+            request=request,
+            action="mfa_verification_failed",
+            metadata={"reason": "missing_identity"},
+        )
         raise HTTPException(status_code=401, detail="Invalid MFA challenge token")
 
     user = get_user_by_id(str(payload.get("sub") or ""))
@@ -713,6 +784,12 @@ def login_mfa_verify(body: Dict):
         if auth_user:
             user = get_user_by_id(str(auth_user[0] or ""))
     if not user:
+        _record_auth_audit_event(
+            request=request,
+            action="mfa_verification_failed",
+            identifier=ident,
+            metadata={"reason": "unknown_or_inactive_user"},
+        )
         raise HTTPException(status_code=401, detail="Unknown or inactive user")
 
     with get_conn() as con:
@@ -727,10 +804,24 @@ def login_mfa_verify(body: Dict):
             [ident, ident],
         ).fetchone()
         if not row or not bool(row[0]):
+            _record_auth_audit_event(
+                request=request,
+                action="mfa_verification_failed",
+                actor=user,
+                identifier=ident,
+                metadata={"reason": "mfa_not_enabled"},
+            )
             raise HTTPException(status_code=400, detail="MFA is not enabled for this user")
         secret_encrypted = str(row[1] or "")
         secret = _decrypt_secret(secret_encrypted)
         if not secret:
+            _record_auth_audit_event(
+                request=request,
+                action="mfa_verification_failed",
+                actor=user,
+                identifier=ident,
+                metadata={"reason": "invalid_secret"},
+            )
             raise HTTPException(status_code=500, detail="MFA secret is invalid")
 
         codes_raw = str(row[2] or "[]")
@@ -752,6 +843,13 @@ def login_mfa_verify(body: Dict):
                 used_recovery_hash = candidate
 
         if not verified:
+            _record_auth_audit_event(
+                request=request,
+                action="mfa_verification_failed",
+                actor=user,
+                identifier=ident,
+                metadata={"reason": "invalid_code"},
+            )
             raise HTTPException(status_code=401, detail="Invalid MFA code")
 
         updated_hashes = [h for h in recovery_hashes if h != used_recovery_hash] if used_recovery_hash else recovery_hashes
@@ -769,7 +867,33 @@ def login_mfa_verify(body: Dict):
     if remember_device:
         result["mfa_remember_token"] = _issue_mfa_remember_token(user, secret_encrypted)
         result["mfa_remember_days"] = _mfa_remember_days()
+    _record_auth_audit_event(
+        request=request,
+        action="mfa_verification_success",
+        actor=user,
+        identifier=ident,
+        metadata={"method": "otp" if otp_code else "recovery_code"},
+    )
+    _record_auth_audit_event(
+        request=request,
+        action="login_success",
+        actor=user,
+        identifier=ident,
+        metadata={"mfa": True, "method": "otp" if otp_code else "recovery_code"},
+    )
     return result
+
+
+@router.post("/logout")
+def logout(request: Request, user: Dict[str, str] = Depends(_current_user)):
+    _record_auth_audit_event(
+        request=request,
+        action="logout",
+        actor=user,
+        identifier=str(user.get("user_id") or user.get("email") or "").strip() or None,
+        metadata={"mfa": bool(user.get("mfa_enabled"))},
+    )
+    return {"ok": True}
 
 
 @router.get("/mfa/status")

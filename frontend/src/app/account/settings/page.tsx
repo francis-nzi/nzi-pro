@@ -296,9 +296,8 @@ function AccountSettingsContent() {
       }
       const json = await res.json();
       const accessToken = String(json?.access_token || "");
-      const userIdentity = String(json?.user?.email || json?.user?.user_id || "");
-      if (accessToken || userIdentity) {
-        setAuthState(accessToken || null, userIdentity || null);
+      if (accessToken) {
+        setAuthState(accessToken || null);
       }
       setMfaRecoveryCodes(Array.isArray(json?.recovery_codes) ? json.recovery_codes : []);
       setMfaOtp("");

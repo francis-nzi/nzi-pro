@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiUrl, clearAuthState, mustAcceptPortalTerms, setMustChangePassword } from "@/lib/auth-client";
+import { apiUrl, mustAcceptPortalTerms, performLogout, setMustChangePassword } from "@/lib/auth-client";
 
 function ChangePasswordContent() {
   const router = useRouter();
@@ -119,8 +119,8 @@ function ChangePasswordContent() {
           <div className="mt-4 text-center">
             <Button
               variant="ghost"
-              onClick={() => {
-                clearAuthState();
+              onClick={async () => {
+                await performLogout();
                 router.replace("/login");
               }}
             >

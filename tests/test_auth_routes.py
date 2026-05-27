@@ -33,6 +33,8 @@ class _AuthConn:
             return _FakeRow("Admin", True, True)
         if "FROM organisations" in sql:
             return _FakeRow("org-123", "Acme Org", "acme-org", "trial", "active", False)
+        if "FROM users" in sql and "COALESCE(mfa_enabled, FALSE)" in sql:
+            return _FakeRow(True, "encrypted-secret", "[]")
         return None
 
     def __enter__(self):
@@ -115,3 +117,78 @@ def test_issue_login_result_uses_24_hour_expiry(monkeypatch):
     assert captured["secret"] == "secret"
     assert captured["algorithm"] == "HS256"
     assert int(captured["payload"]["exp"]) - int(captured["payload"]["iat"]) == 24 * 60 * 60
+
+
+def test_login_records_failed_attempt(monkeypatch):
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth_routes, "authenticate_user", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(auth_routes, "record_audit_event", lambda _con, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth_routes, "get_conn", lambda: _AuthConn())
+
+    with pytest.raises(HTTPException, match="Invalid credentials"):
+        auth_routes.login({"identifier": "owner@example.com", "password": "bad"}, request=_FakeRequest("/auth/login", method="POST"))
+
+    assert calls and calls[0]["action"] == "login_failed"
+    assert calls[0]["metadata"]["reason"] == "invalid_credentials"
+
+
+def test_login_records_success(monkeypatch):
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth_routes, "authenticate_user", lambda *_args, **_kwargs: {"user_id": "u1", "email": "owner@example.com", "full_name": "Owner", "role": "admin", "must_change_password": False})
+    monkeypatch.setattr(auth_routes, "enrich_user_permissions", lambda user: user)
+    monkeypatch.setattr(auth_routes, "_user_mfa_row", lambda _ident: None)
+    monkeypatch.setattr(auth_routes, "_issue_login_result", lambda user, **_kwargs: {"user": user, "mfa_required": False})
+    monkeypatch.setattr(auth_routes, "record_audit_event", lambda _con, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth_routes, "get_conn", lambda: _AuthConn())
+
+    result = auth_routes.login({"identifier": "owner@example.com", "password": "good"}, request=_FakeRequest("/auth/login", method="POST"))
+
+    assert result["mfa_required"] is False
+    assert any(call["action"] == "login_success" for call in calls)
+    assert any(call["metadata"].get("mfa") is False for call in calls)
+
+
+def test_login_mfa_verify_records_success_and_failure(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    class _FakeTotp:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def verify(self, *_args, **_kwargs):
+            return True
+
+    monkeypatch.setattr(auth_routes, "jwt", auth_routes.jwt)
+    monkeypatch.setattr(auth_routes.jwt, "decode", lambda *_args, **_kwargs: {"kind": "mfa_challenge", "sub": "u1", "email": "owner@example.com"})
+    monkeypatch.setattr(auth_routes, "get_user_by_id", lambda _user_id: {"user_id": "u1", "email": "owner@example.com", "full_name": "Owner", "role": "admin", "must_change_password": False})
+    monkeypatch.setattr(auth_routes, "_decrypt_secret", lambda _value: "secret")
+    monkeypatch.setattr(auth_routes, "_issue_login_result", lambda user, **_kwargs: {"user": user, "mfa_required": False})
+    monkeypatch.setattr(auth_routes, "record_audit_event", lambda _con, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth_routes, "get_conn", lambda: _AuthConn())
+    monkeypatch.setattr(auth_routes, "pyotp", type("_PyOtp", (), {"TOTP": _FakeTotp}))
+
+    result = auth_routes.login_mfa_verify({"mfa_challenge_token": "challenge", "otp_code": "123456"}, request=_FakeRequest("/auth/login/mfa/verify", method="POST"))
+
+    assert result["mfa_required"] is False
+    assert any(call["action"] == "mfa_verification_success" for call in calls)
+    assert any(call["action"] == "login_success" for call in calls)
+
+    calls.clear()
+    monkeypatch.setattr(auth_routes, "pyotp", type("_PyOtpFail", (), {"TOTP": type("_T", (), {"__init__": lambda self, *_a, **_k: None, "verify": lambda self, *_a, **_k: False})}))
+
+    with pytest.raises(HTTPException, match="Invalid MFA code"):
+        auth_routes.login_mfa_verify({"mfa_challenge_token": "challenge", "otp_code": "000000"}, request=_FakeRequest("/auth/login/mfa/verify", method="POST"))
+
+    assert any(call["action"] == "mfa_verification_failed" for call in calls)
+
+
+def test_logout_records_audit_event(monkeypatch):
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(auth_routes, "record_audit_event", lambda _con, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(auth_routes, "get_conn", lambda: _AuthConn())
+
+    result = auth_routes.logout(user={"user_id": "u1", "email": "owner@example.com", "mfa_enabled": True}, request=_FakeRequest("/auth/logout", method="POST"))
+
+    assert result == {"ok": True}
+    assert calls and calls[0]["action"] == "logout"
+    assert calls[0]["metadata"]["mfa"] is True
