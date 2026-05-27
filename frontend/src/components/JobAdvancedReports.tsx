@@ -381,28 +381,32 @@ function NetZeroTrendChart({
           <ReferenceLine x={endYear} stroke="#16a34a" strokeDasharray="3 3"
             label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
 
-          <Line type="monotone" dataKey="actual_total" name="Total (actual)"
+          {/* Actual lines shown in legend; target lines hidden (dashed, same colour) */}
+          <Line type="monotone" dataKey="actual_total" name="Total"
             stroke="#0f766e" strokeWidth={3} dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />
-          <Line type="monotone" dataKey="actual_s1" name="Scope 1 (actual)"
+          <Line type="monotone" dataKey="actual_s1" name="Scope 1"
             stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
           {hasScope2 && (
-            <Line type="monotone" dataKey="actual_s2" name="Scope 2 (actual)"
+            <Line type="monotone" dataKey="actual_s2" name="Scope 2"
               stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
           )}
-          <Line type="monotone" dataKey="actual_s3" name="Scope 3 (actual)"
+          <Line type="monotone" dataKey="actual_s3" name="Scope 3"
             stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} />
-          <Line type="monotone" dataKey="target_total" name="Total (target)"
+          <Line type="monotone" dataKey="target_total" legendType="none"
             stroke="#0f766e" strokeWidth={2} strokeDasharray="5 4" dot={false} />
-          <Line type="monotone" dataKey="target_s1" name="Scope 1 (target)"
+          <Line type="monotone" dataKey="target_s1" legendType="none"
             stroke={SCOPE_COLORS["Scope 1"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
           {hasScope2 && (
-            <Line type="monotone" dataKey="target_s2" name="Scope 2 (target)"
+            <Line type="monotone" dataKey="target_s2" legendType="none"
               stroke={SCOPE_COLORS["Scope 2"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
           )}
-          <Line type="monotone" dataKey="target_s3" name="Scope 3 (target)"
+          <Line type="monotone" dataKey="target_s3" legendType="none"
             stroke={SCOPE_COLORS["Scope 3"]} strokeWidth={1.5} strokeDasharray="5 4" dot={false} />
         </LineChart>
       </ResponsiveContainer>
+      <p className="mt-1 text-[10px] text-gray-400 text-center">
+        Solid lines = actual emissions &nbsp;·&nbsp; Dashed lines = reduction target pathway
+      </p>
     </div>
   );
 }
@@ -541,16 +545,19 @@ function IntensityPathwayChart({
             label={{ value: "Net Zero", position: "top", fill: "#16a34a", fontSize: 9 }} />
           {metricEntries.flatMap((entry, index) => [
             <Line key={`${entry.key}_actual`} type="monotone" dataKey={`${entry.label}_actual`}
-              name={`${entry.label} (actual)`}
+              name={entry.label}
               stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={2.5}
               dot={{ r: 5 }} activeDot={{ r: 6 }} connectNulls={false} />,
             <Line key={`${entry.key}_target`} type="monotone" dataKey={`${entry.label}_target`}
-              name={`${entry.label} (target)`}
+              legendType="none"
               stroke={INTENSITY_COLORS[index % INTENSITY_COLORS.length]} strokeWidth={1.5}
               strokeDasharray="5 4" dot={false} />,
           ])}
         </LineChart>
       </ResponsiveContainer>
+      <p className="mt-1 text-[10px] text-gray-400 text-center">
+        Solid lines = actual &nbsp;·&nbsp; Dashed lines = target pathway
+      </p>
     </div>
   );
 }
