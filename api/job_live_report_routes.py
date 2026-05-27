@@ -442,15 +442,12 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
                 "path": "/",
             }])
         try:
+            import sys
             page = context.new_page()
-            # Use domcontentloaded instead of networkidle — the advanced-reports page
-            # makes continuous background API calls so networkidle never fires.
-            # The .live-report-section visibility check below is the correct signal.
             page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
             page.locator(".live-report-section").first.wait_for(state="visible", timeout=90000)
 
-            # Scroll each section into view individually so any
-            # intersection-observer-based rendering triggers for every section.
+            # Scroll each section into view to trigger any observer-based renders.
             page.evaluate("""
                 async () => {
                     const delay = ms => new Promise(r => setTimeout(r, ms));
@@ -463,11 +460,40 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
                 }
             """)
 
-            # Wait for the last section to be visible before capturing.
+            # Wait until at least 11 sections are present (cover + 2..10 + 12 + 13).
             try:
-                page.locator(".live-report-section").last.wait_for(state="visible", timeout=30000)
+                page.wait_for_function(
+                    "() => document.querySelectorAll('.live-report-section').length >= 11",
+                    timeout=30000,
+                )
             except Exception:
                 pass
+
+            # --- Diagnostic: log which sections are in the DOM ---
+            section_info = page.evaluate("""
+                () => {
+                    const nodes = document.querySelectorAll('.live-report-section');
+                    return Array.from(nodes).map((n, i) => {
+                        const h = n.querySelector('h2,h3,[class*="SectionHeader"]');
+                        const r = n.getBoundingClientRect();
+                        return i + ':' + (h ? h.textContent.trim().slice(0, 25) : '?') +
+                               '(h=' + Math.round(n.scrollHeight) + ')';
+                    }).join(' | ');
+                }
+            """)
+            print(f"[PDF] job={job_id} sections={section_info}", file=sys.stderr, flush=True)
+
+            # Force every section to block/visible so no CSS rule can hide it.
+            page.evaluate("""
+                () => {
+                    document.querySelectorAll('.live-report-section').forEach(el => {
+                        el.style.setProperty('display', 'block', 'important');
+                        el.style.setProperty('visibility', 'visible', 'important');
+                        el.style.setProperty('overflow', 'visible', 'important');
+                    });
+                }
+            """)
+
             page.wait_for_timeout(3000)
 
             return page.pdf(
