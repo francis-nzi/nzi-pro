@@ -841,6 +841,15 @@ def get_dashboard(
                 else:
                     at_risk += 1
 
+                _flag_details: dict[str, str] = {
+                    "RENEWAL_30": "Engagement ending soon — prioritise renewal conversation.",
+                    "RENEWAL_90": "Engagement ending within 90 days — begin renewal planning.",
+                    "MILESTONE_RED": "Job milestone is overdue — check delivery status.",
+                    "INVOICE_OVERDUE": "Outstanding invoice requires follow-up.",
+                    "OVERDUE_CALL": "No recent contact logged — schedule a call.",
+                    "EMISSIONS_OFF_TRACK": "Emissions reporting behind schedule.",
+                    "NO_ACTIVE_JOB": "No active job in portfolio — consider re-engagement.",
+                }
                 flags = [flag for flag in str(record.get("risk_flags") or "").split(",") if flag]
                 for flag in flags:
                     action_queue.append(
@@ -859,7 +868,7 @@ def get_dashboard(
                                 "EMISSIONS_OFF_TRACK": "Emissions off track",
                                 "NO_ACTIVE_JOB": "No active job",
                             }.get(flag, flag),
-                            "detail": f"Health score {score}.",
+                            "detail": _flag_details.get(flag, ""),
                             "due_date": record.get("engagement_end_date") if flag in {"RENEWAL_30", "RENEWAL_90"} else record.get("touchpoint_due_date"),
                         }
                     )

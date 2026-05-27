@@ -168,16 +168,26 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
     };
   }, [baseUrl, ready, scopeOwner, refreshToken, viewMode, isSuperAdmin]);
 
+  const hasHealthData = (data?.portfolio_summary.avg_health_score ?? 0) > 0;
+
   const summaryCards = useMemo(() => {
     if (!data) return [];
+    if (hasHealthData) {
+      return [
+        { label: "Total Clients", value: data.portfolio_summary.total_clients, icon: <Users className="h-4 w-4" /> },
+        { label: "Healthy", value: data.portfolio_summary.healthy, icon: <ShieldCheck className="h-4 w-4" /> },
+        { label: "Needs Attention", value: data.portfolio_summary.needs_attention, icon: <AlertCircle className="h-4 w-4" /> },
+        { label: "At Risk", value: data.portfolio_summary.at_risk, icon: <AlertCircle className="h-4 w-4" /> },
+        { label: "Avg Health Score", value: formatNumber(data.portfolio_summary.avg_health_score, 1), icon: <TrendingUp className="h-4 w-4" /> },
+      ];
+    }
     return [
       { label: "Total Clients", value: data.portfolio_summary.total_clients, icon: <Users className="h-4 w-4" /> },
-      { label: "Healthy", value: data.portfolio_summary.healthy, icon: <ShieldCheck className="h-4 w-4" /> },
-      { label: "Needs Attention", value: data.portfolio_summary.needs_attention, icon: <AlertCircle className="h-4 w-4" /> },
-      { label: "At Risk", value: data.portfolio_summary.at_risk, icon: <AlertCircle className="h-4 w-4" /> },
-      { label: "Avg Health Score", value: formatNumber(data.portfolio_summary.avg_health_score, 1), icon: <TrendingUp className="h-4 w-4" /> },
+      { label: "Actions Required", value: data.action_queue.length, icon: <AlertCircle className="h-4 w-4" /> },
+      { label: "Touchpoints Due", value: data.upcoming_touchpoints.length, icon: <AlertCircle className="h-4 w-4" /> },
+      { label: "Renewals (90 days)", value: data.renewal_pipeline.length, icon: <TrendingUp className="h-4 w-4" /> },
     ];
-  }, [data]);
+  }, [data, hasHealthData]);
 
   const openCallPrep = (clientId: number, clientName: string) => {
     setCallPrepClient({ id: clientId, name: clientName });
@@ -258,9 +268,9 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className={`grid gap-4 ${hasHealthData ? "md:grid-cols-2 xl:grid-cols-5" : "md:grid-cols-2 xl:grid-cols-4"}`}>
             {summaryCards.map((card) => (
-              <Card key={card.label} className={`overflow-hidden border-border/70 bg-gradient-to-br ${scoreAccent(Number(card.value) || 0)}`}>
+              <Card key={card.label} className="overflow-hidden border-border/70">
                 <CardContent className="flex items-center justify-between gap-3 p-4">
                   <div>
                     <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{card.label}</div>
@@ -293,10 +303,12 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                             <Badge variant="outline" className="text-[10px] uppercase tracking-[0.18em]">{item.action_type.replace(/_/g, " ")}</Badge>
                           </div>
                           <div className="mt-1 text-sm text-muted-foreground">{item.headline}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            Due: {item.due_date ? formatDate(item.due_date, { day: "numeric", month: "short" }) : "No due date"}
-                          </div>
+                          {item.detail && <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>}
+                          {item.due_date && (
+                            <div className="mt-2 text-xs text-muted-foreground">
+                              Due: {formatDate(item.due_date, { day: "numeric", month: "short" })}
+                            </div>
+                          )}
                         </div>
                         <div className="flex shrink-0 gap-2">
                           <Button size="sm" variant="outline" onClick={() => openCallPrep(item.client_db_id, item.client_name)}>
@@ -374,7 +386,9 @@ export default function IntelligenceDashboard({ baseUrl, crmOwner }: Intelligenc
                         <div className="font-medium">{item.client_name}</div>
                         <div className="text-xs text-muted-foreground">CRM: {item.crm_owner}</div>
                       </div>
-                      <Badge className={scoreTone(item.health_score)}>{item.health_score}/100</Badge>
+                      {item.health_score > 0 && (
+                        <Badge className={scoreTone(item.health_score)}>{item.health_score}/100</Badge>
+                      )}
                     </div>
                     <div className="mt-3 text-sm text-muted-foreground">
                       Renewal due: {item.engagement_end_date ? formatDate(item.engagement_end_date, { day: "numeric", month: "short", year: "numeric" }) : "Not set"}
