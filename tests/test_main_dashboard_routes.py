@@ -203,6 +203,36 @@ def test_dashboard_operations_overview_includes_crm_health_fields(monkeypatch):
     assert result["current_jobs"][0]["final_report_due"] == "2025-05-20"
 
 
+def test_dashboard_milestone_summary_handles_nat_dates(monkeypatch):
+    class _NatConn(_FakeConn):
+        def df(self):
+            sql = self._last_sql
+            if "SELECT" in sql and "jp.data_collection_due" in sql and "FROM jobs j" in sql:
+                return pd.DataFrame(
+                    [
+                        {
+                            "job_id": 664,
+                            "data_collection_due": pd.NaT,
+                            "data_collection_completed_at": pd.NaT,
+                            "first_draft_due": pd.NaT,
+                            "first_draft_completed_at": pd.NaT,
+                            "final_report_due": pd.NaT,
+                            "final_report_completed_at": pd.NaT,
+                        }
+                    ]
+                )
+            return super().df()
+
+    conn = _NatConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: table == "job_plan" or table == "jobs")
+
+    result = main_dashboard_routes.get_jobs_by_milestone_status(_user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["total"] == 1
+    assert result["no_milestones"] == 1
+
+
 def test_dashboard_tasks_orders_by_priority_and_due_date(monkeypatch):
     conn = _FakeConn()
     monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)

@@ -190,9 +190,14 @@ def _financial_year_filter(
 def _normalize_to_date(value):
     if value is None:
         return None
+    if value != value:
+        return None
     if hasattr(value, "date"):
         try:
-            return value.date()
+            normalized = value.date()
+            if normalized != normalized:
+                return None
+            return normalized
         except Exception:
             logger.debug("Failed to normalize date-like dashboard value; returning None", exc_info=True)
     if isinstance(value, str):
@@ -295,7 +300,7 @@ def _attach_dashboard_emissions(con, scope_df):
 
 
 def _milestone_status(due_date, completed_at) -> str:
-    if completed_at:
+    if _normalize_to_date(completed_at) is not None:
         return "completed"
     due = _normalize_to_date(due_date)
     if not due:
@@ -705,11 +710,11 @@ def get_dashboard_overview(
                 for _, row in recent_jobs_df.iterrows():
                     # Calculate individual milestone statuses
                     milestone_statuses = []
-                    if row.get("data_collection_due"):
+                    if _normalize_to_date(row.get("data_collection_due")) is not None:
                         milestone_statuses.append(get_milestone_status(row.get("data_collection_due"), row.get("data_collection_completed_at")))
-                    if row.get("first_draft_due"):
+                    if _normalize_to_date(row.get("first_draft_due")) is not None:
                         milestone_statuses.append(get_milestone_status(row.get("first_draft_due"), row.get("first_draft_completed_at")))
-                    if row.get("final_report_due"):
+                    if _normalize_to_date(row.get("final_report_due")) is not None:
                         milestone_statuses.append(get_milestone_status(row.get("final_report_due"), row.get("final_report_completed_at")))
                     
                     # Calculate overall status
@@ -1188,19 +1193,15 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
     """
     try:
         from datetime import date
-        import pandas as pd
         
         def get_milestone_status(due_date, completed_at):
             """Calculate traffic light status: green, amber, red, completed"""
-            if completed_at:
+            if _normalize_to_date(completed_at) is not None:
                 return "completed"
+            due_date = _normalize_to_date(due_date)
             if not due_date:
                 return "green"
-            
-            # Handle pandas Timestamp
-            if isinstance(due_date, pd.Timestamp):
-                due_date = due_date.date()
-            
+
             today = date.today()
             days_until_due = (due_date - today).days
             
@@ -1267,17 +1268,17 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
                 for _, row in jobs_df.iterrows():
                     milestone_statuses = []
                     
-                    if row.get("data_collection_due"):
+                    if _normalize_to_date(row.get("data_collection_due")) is not None:
                         milestone_statuses.append(get_milestone_status(
                             row.get("data_collection_due"), 
                             row.get("data_collection_completed_at")
                         ))
-                    if row.get("first_draft_due"):
+                    if _normalize_to_date(row.get("first_draft_due")) is not None:
                         milestone_statuses.append(get_milestone_status(
                             row.get("first_draft_due"), 
                             row.get("first_draft_completed_at")
                         ))
-                    if row.get("final_report_due"):
+                    if _normalize_to_date(row.get("final_report_due")) is not None:
                         milestone_statuses.append(get_milestone_status(
                             row.get("final_report_due"), 
                             row.get("final_report_completed_at")
@@ -1624,7 +1625,7 @@ def get_dashboard_operations_overview(
                         ("First Draft", row.get("first_draft_due"), row.get("first_draft_completed_at")),
                         ("Final Report", row.get("final_report_due"), row.get("final_report_completed_at")),
                     ]
-                    available_milestones = [item for item in milestone_rows if item[1] is not None]
+                    available_milestones = [item for item in milestone_rows if _normalize_to_date(item[1]) is not None]
                     milestone_statuses = [_milestone_status(due_date, completed_at) for _, due_date, completed_at in available_milestones]
                     overall_status = _overall_milestone_status(milestone_statuses)
 
@@ -1636,9 +1637,9 @@ def get_dashboard_operations_overview(
                     for milestone_name, due_date, completed_at in available_milestones:
                         due_obj = _normalize_to_date(due_date)
                         completed_obj = _normalize_to_date(completed_at) if completed_at is not None else completed_at
-                        if completed_at:
+                        if completed_obj is not None:
                             completed_count += 1
-                        if due_obj and not completed_at:
+                        if due_obj and completed_obj is None:
                             days_until_due = (due_obj - date.today()).days
                             if days_until_due <= 30:
                                 upcoming_count += 1
@@ -1697,7 +1698,7 @@ def get_dashboard_operations_overview(
 
                         final_report_due = _normalize_to_date(row.get("final_report_due"))
                         final_report_completed = _normalize_to_date(row.get("final_report_completed_at"))
-                        days_to_final_report = (final_report_due - date.today()).days if final_report_due and not final_report_completed else None
+                        days_to_final_report = (final_report_due - date.today()).days if final_report_due and final_report_completed is None else None
                         current_jobs.append({
                             "job_id": job_id,
                             "job_number": row["job_number"],
