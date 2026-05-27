@@ -386,6 +386,24 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
       .map(([dateStr, ts]) => ({ dateStr, tasks: ts }));
   }, [tasks]);
 
+  const priorityQueue = useMemo(() => {
+    const weight: Record<TaskPriority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+    return [...tasks]
+      .filter((task) => task.status !== "done" && task.status !== "closed")
+      .sort((a, b) => {
+        const aOverdue = a.due_date && a.due_date < now;
+        const bOverdue = b.due_date && b.due_date < now;
+        if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+        const aDue = a.due_date || "9999-12-31";
+        const bDue = b.due_date || "9999-12-31";
+        if (aDue !== bDue) return aDue.localeCompare(bDue);
+        const priorityDelta = weight[a.priority] - weight[b.priority];
+        if (priorityDelta !== 0) return priorityDelta;
+        return String(a.title || "").localeCompare(String(b.title || ""));
+      })
+      .slice(0, 8);
+  }, [tasks, now]);
+
   // ─── Stats ──────────────────────────────────────────────────────────────────
 
   const statsOpen = tasks.filter(t => t.status === "open" || t.status === "in_progress").length;
@@ -643,6 +661,35 @@ export default function TaskCalendar({ clientId, baseUrl, crmOwner }: Props) {
 
   return (
     <div className="space-y-4">
+
+      {priorityQueue.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                Priority Queue
+              </CardTitle>
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5">{priorityQueue.length}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {priorityQueue.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                now={now}
+                onSelect={() => {
+                  cancelEditTask();
+                  setSelectedTask(task);
+                }}
+                onStatusChange={(s) => void updateStatus(task, s)}
+                updating={updatingId === task.id}
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats strip */}
       <div className="grid grid-cols-3 gap-3">

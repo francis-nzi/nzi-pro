@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Briefcase, CheckCircle2, ChevronRight,
   Clock, Flame, Layers, Shield, TrendingDown, TrendingUp, Users,
@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ClientReviewNotifications from "@/components/ClientReviewNotifications";
@@ -31,6 +32,7 @@ export type OverviewData = {
   available_years: number[];
   available_industries: string[];
   available_crm: string[];
+  crm_options?: Array<{ value: string; label: string; meta?: string | null }>;
   year_trend: Array<{ year: number | null; total_emissions: number }>;
   industry_breakdown: Array<{ industry: string; client_count: number }>;
   metrics: {
@@ -48,6 +50,18 @@ export type OverviewData = {
     milestone_status?: string | null;
   }>;
   jobs_per_crm: Array<{ crm_name: string; total_jobs: number; statuses: Record<string, number> }>;
+  current_jobs?: Array<{
+    job_id: number;
+    job_number: string;
+    title: string;
+    client_name: string;
+    crm_name: string;
+    status: string;
+    milestone_status: string | null;
+    final_report_due: string | null;
+    final_report_completed_at: string | null;
+    days_to_final_report_due: number | null;
+  }>;
 };
 
 export type FinancialData = {
@@ -83,6 +97,18 @@ export type OperationsData = {
     next_due_date: string | null; next_due_name: string; days_to_next_due: number | null;
     logged_hours: number; estimated_hours: number; utilisation_pct: number | null; reason: string;
   }>;
+  current_jobs?: Array<{
+    job_id: number;
+    job_number: string;
+    title: string;
+    client_name: string;
+    crm_name: string;
+    status: string;
+    milestone_status: string | null;
+    final_report_due: string | null;
+    final_report_completed_at: string | null;
+    days_to_final_report_due: number | null;
+  }>;
 };
 
 type MilestoneStatus = { green: number; amber: number; red: number; no_milestones: number; total: number };
@@ -108,6 +134,10 @@ const ACCENT: Record<string, { border: string; icon: string }> = {
 
 function norm(url: string) { return String(url || "").trim().replace(/\/+$/, ""); }
 
+function normalizeSearchText(value: string): string {
+  return String(value || "").trim().toLowerCase();
+}
+
 // â”€â”€â”€ Main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
@@ -125,8 +155,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [year, setYear] = useState<number | null>(currentYear);
   const [ind,  setInd]  = useState<string | null>(null);
   const [crm,  setCrm]  = useState<string | null>(null);
+  const [currentUserLabel, setCurrentUserLabel] = useState<string>("");
   const [showFilters, setShowFilters] = useState(true);
-  const [activeTab, setActiveTab] = useState<"intelligence" | "overview" | "financial" | "operations" | "emissions" | "tasks">("intelligence");
+  const [activeTab, setActiveTab] = useState<"overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks">("overview");
 
   useEffect(() => {
     if (!api) return;
@@ -139,6 +170,9 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
         const payload = await res.json().catch(() => ({})) as { user?: { full_name?: string | null; email?: string | null; user_id?: string | null } };
         const user = payload?.user || {};
         const defaultCrm = String(user.full_name || user.email || user.user_id || "").trim();
+        if (!cancelled) {
+          setCurrentUserLabel(defaultCrm);
+        }
         if (!cancelled && defaultCrm) {
           setCrm((current) => current ?? defaultCrm);
         }
@@ -244,7 +278,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
     if (!years.includes(currentYear)) years.unshift(currentYear);
     return years;
   }, [ov, currentYear]);
-  const crmOpts  = useMemo(() => ov?.available_crm ?? [], [ov]);
+  const crmOpts = useMemo(() => ov?.crm_options ?? (ov?.available_crm ?? []).map((value) => ({ value, label: value, meta: null })), [ov]);
   const indOpts  = useMemo(() => ov?.available_industries ?? [], [ov]);
   const isSuperuser = crm === null;
 
@@ -261,7 +295,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
           <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Dashboard</h2>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-            <span>{isSuperuser ? "All CRMs — Superuser View" : `Viewing: ${crm}`}</span>
+            <span>{isSuperuser ? "All CRMs — Superuser View" : `Viewing: ${crm || currentUserLabel || "Selected CRM"}`}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -269,7 +303,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
             <>
               <FilterSelect label="Year"     value={year?.toString() ?? ""}    onValue={v => setYear(+v)}             options={yearOpts.map(y => ({ label: String(y), value: String(y) }))} placeholder="Year…"    w="w-28" />
               {indOpts.length > 0 && <FilterSelect label="Industry" value={ind ?? ALL} onValue={v => setInd(v === ALL ? null : v)} options={[{ label: "All", value: ALL }, ...indOpts.map(i => ({ label: i, value: i }))]} placeholder="All" w="w-40" />}
-              {crmOpts.length > 0 && <FilterSelect label="CRM"      value={crm ?? ALL} onValue={v => setCrm(v === ALL ? null : v)} options={[{ label: "All CRMs", value: ALL }, ...crmOpts.map(c => ({ label: c, value: c }))]} placeholder="All CRMs" w="w-44" />}
+              {crmOpts.length > 0 && <CrmSearchSelect label="CRM" value={crm ?? ALL} onValue={(v) => setCrm(v === ALL ? null : v)} options={crmOpts} placeholder="Search team members..." w="w-64" />}
             </>
           )}
           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setShowFilters(v => !v)}>
@@ -277,15 +311,6 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
           </Button>
         </div>
       </div>
-
-      {/* CRM quick-select strip */}
-      {crmOpts.length > 1 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-muted-foreground">View:</span>
-          <Pill active={isSuperuser} onClick={() => setCrm(null)}>All CRMs</Pill>
-          {crmOpts.map(c => <Pill key={c} active={crm === c} onClick={() => setCrm(crm === c ? null : c)}>{c}</Pill>)}
-        </div>
-      )}
 
       {/* Loading skeleton */}
       {loading && !ov && (
@@ -305,8 +330,8 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       {(ov || !loading) && (
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
-            <TabsTrigger value="intelligence">Insights</TabsTrigger>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="intelligence">Insights</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
             <TabsTrigger value="operations">Operations</TabsTrigger>
             <TabsTrigger value="emissions">Emissions</TabsTrigger>
@@ -330,6 +355,56 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
               <Kpi label="Quote Pipeline"  value={fin ? formatCurrency(fin.metrics.quote_value_total) : "—"}                  icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub={fin ? `${fin.metrics.quote_count} quotes` : undefined} />
               <Kpi label="YoY Emissions"   value={ov?.metrics.yoy_change != null ? `${ov.metrics.yoy_change > 0 ? "+" : ""}${formatNumber(ov.metrics.yoy_change)}%` : "—"} icon={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />} accent={ov?.metrics.yoy_change != null && ov.metrics.yoy_change < 0 ? "green" : "red"} sub="vs prior year" />
             </div>
+
+            {/* Current Jobs */}
+            {ops?.current_jobs && ops.current_jobs.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold">Current Jobs</CardTitle>
+                    <Badge variant="outline" className="text-[10px] h-5 px-1.5">{ops.current_jobs.length}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="text-left pb-2 font-medium">Job</th>
+                        <th className="text-left pb-2 font-medium">Client</th>
+                        <th className="text-left pb-2 font-medium">CRM</th>
+                        <th className="text-left pb-2 font-medium">Final Report Due</th>
+                        <th className="text-right pb-2 font-medium">Days</th>
+                        <th className="text-left pb-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ops.current_jobs.map((job) => (
+                        <tr key={job.job_id} className="border-b last:border-0 hover:bg-accent/40 transition-colors">
+                          <td className="py-2.5">
+                            <Link href={`/jobs/${job.job_id}`} className="hover:underline flex items-center gap-1 group font-medium">
+                              <span className="text-muted-foreground text-xs">{job.job_number}</span>
+                              <span className="truncate max-w-[180px]">{job.title}</span>
+                              <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                            </Link>
+                          </td>
+                          <td className="py-2.5 text-muted-foreground text-xs truncate max-w-[160px]">{job.client_name}</td>
+                          <td className="py-2.5 text-muted-foreground text-xs">{job.crm_name}</td>
+                          <td className="py-2.5 text-xs">
+                            <div className="font-medium">{formatDate(job.final_report_due, { day: "numeric", month: "short" })}</div>
+                          </td>
+                          <td className={`py-2.5 text-right font-semibold text-sm ${job.days_to_final_report_due == null ? "text-muted-foreground" : job.days_to_final_report_due < 0 ? "text-red-600" : job.days_to_final_report_due <= 7 ? "text-amber-600" : "text-foreground"}`}>
+                            {job.days_to_final_report_due != null ? (job.days_to_final_report_due < 0 ? `${Math.abs(job.days_to_final_report_due)}d late` : `${job.days_to_final_report_due}d`) : "—"}
+                          </td>
+                          <td className="py-2.5">
+                            <StatusBadge status={job.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            )}
 
             {/* CRM Workload */}
             {ops?.crm_workload && ops.crm_workload.length > 0 && (
@@ -522,14 +597,6 @@ function Kpi({ label, value, sub, icon, accent = "blue" }: { label: string; valu
   );
 }
 
-function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button onClick={onClick} className={`text-xs px-3 py-1 rounded-full border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}>
-      {children}
-    </button>
-  );
-}
-
 function FilterSelect({ label, value, onValue, options, placeholder, w }: { label: string; value: string; onValue: (v: string) => void; options: Array<{ label: string; value: string }>; placeholder: string; w: string }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -538,6 +605,120 @@ function FilterSelect({ label, value, onValue, options, placeholder, w }: { labe
         <SelectTrigger className={`h-8 ${w} text-xs`}><SelectValue placeholder={placeholder} /></SelectTrigger>
         <SelectContent>{options.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
       </Select>
+    </div>
+  );
+}
+
+function CrmSearchSelect({
+  label,
+  value,
+  onValue,
+  options,
+  placeholder,
+  w,
+}: {
+  label: string;
+  value: string;
+  onValue: (v: string) => void;
+  options: Array<{ value: string; label: string; meta?: string | null }>;
+  placeholder: string;
+  w: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleMouseDown(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = normalizeSearchText(query);
+    if (!q) return options;
+    return options.filter((option) => {
+      const haystack = `${option.label} ${option.meta || ""} ${option.value}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [options, query]);
+
+  const selectedLabel = value === ALL
+    ? "All CRMs"
+    : options.find((option) => option.value === value)?.label || value;
+
+  return (
+    <div className="flex items-center gap-1.5" ref={containerRef}>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className={`flex h-8 ${w} items-center justify-between rounded-md border bg-background px-3 text-left text-xs shadow-sm transition-colors hover:border-primary/40`}
+        >
+          <span className="truncate">{selectedLabel || placeholder}</span>
+          <ChevronRight className={`h-3.5 w-3.5 flex-shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+        </button>
+        {open && (
+          <div className="absolute right-0 z-50 mt-1 w-full min-w-[18rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg">
+            <div className="border-b p-2">
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={placeholder}
+                className="h-8 text-xs"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-72 overflow-y-auto p-1">
+              <button
+                type="button"
+                className={`flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left text-xs hover:bg-accent ${value === ALL ? "bg-accent/60" : ""}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onValue(ALL);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <span className="min-w-0">
+                  <span className="block font-medium">All CRMs</span>
+                  <span className="block text-[11px] text-muted-foreground">Show the full portfolio</span>
+                </span>
+              </button>
+              {filtered.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted-foreground">No team members found</div>
+              ) : (
+                filtered.map((option) => {
+                  const active = value === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left text-xs hover:bg-accent ${active ? "bg-accent/60" : ""}`}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        onValue(option.value);
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-medium">{option.label}</span>
+                        {option.meta ? <span className="block text-[11px] text-muted-foreground">{option.meta}</span> : null}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

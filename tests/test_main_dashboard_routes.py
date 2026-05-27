@@ -25,6 +25,8 @@ class _FakeConn:
             return (2025,)
         if "SELECT COUNT(*) FROM clients" in sql:
             return (1,)
+        if "SELECT COUNT(*)" in sql and "FROM crm_tasks" in sql:
+            return (2,)
         if "SELECT COUNT(*) FROM jobs" in sql and "job_plan" not in sql:
             return (1,)
         return (0,)
@@ -51,6 +53,53 @@ class _FakeConn:
             return pd.DataFrame([{"crm_name": "Unassigned", "status": "Open", "count": 1}])
         if "COALESCE(j.status, 'Unknown') as status" in sql:
             return pd.DataFrame([{"status": "Open", "count": 1}])
+        if "FROM crm_tasks t" in sql and "ORDER BY" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "task_id": 1,
+                        "event_id": None,
+                        "client_db_id": 205,
+                        "job_id": 664,
+                        "title": "Call client",
+                        "details": "Follow up on outstanding actions",
+                        "assignee_user_id": "francis",
+                        "priority": "urgent",
+                        "sla_due_at": pd.Timestamp("2026-05-28"),
+                        "due_at": pd.Timestamp("2026-05-27"),
+                        "status": "open",
+                        "completed_at": None,
+                        "created_by": "francis",
+                        "created_at": pd.Timestamp("2026-05-20"),
+                        "updated_at": pd.Timestamp("2026-05-20"),
+                        "client_name": "Shredit ME",
+                        "job_number": "J000664",
+                        "job_title": "Shredit ME Carbon Reduction Plan 2023",
+                        "crm_name": "Unassigned",
+                    },
+                    {
+                        "task_id": 2,
+                        "event_id": None,
+                        "client_db_id": 205,
+                        "job_id": 664,
+                        "title": "Prepare report",
+                        "details": "",
+                        "assignee_user_id": "francis",
+                        "priority": "normal",
+                        "sla_due_at": pd.Timestamp("2026-06-01"),
+                        "due_at": pd.Timestamp("2026-06-01"),
+                        "status": "open",
+                        "completed_at": None,
+                        "created_by": "francis",
+                        "created_at": pd.Timestamp("2026-05-21"),
+                        "updated_at": pd.Timestamp("2026-05-21"),
+                        "client_name": "Shredit ME",
+                        "job_number": "J000664",
+                        "job_title": "Shredit ME Carbon Reduction Plan 2023",
+                        "crm_name": "Unassigned",
+                    },
+                ]
+            )
         if "SELECT" in sql and "COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status" in sql and "FROM jobs j" in sql:
             return pd.DataFrame(
                 [
@@ -68,7 +117,7 @@ class _FakeConn:
                         "data_collection_completed_at": None,
                         "first_draft_due": None,
                         "first_draft_completed_at": None,
-                        "final_report_due": None,
+                        "final_report_due": pd.Timestamp("2025-05-20"),
                         "final_report_completed_at": None,
                         "created_at": pd.Timestamp("2023-01-15"),
                     }
@@ -89,7 +138,7 @@ class _FakeConn:
                         "data_collection_completed_at": None,
                         "first_draft_due": None,
                         "first_draft_completed_at": None,
-                        "final_report_due": None,
+                        "final_report_due": pd.Timestamp("2025-05-20"),
                         "final_report_completed_at": None,
                     }
                 ]
@@ -149,3 +198,19 @@ def test_dashboard_operations_overview_includes_crm_health_fields(monkeypatch):
     assert row["crm_name"] == "Unassigned"
     assert row["avg_health_score"] == 88.4
     assert row["last_contact_date"] == "2025-04-10T09:30:00+00:00"
+    assert result["current_jobs"], "expected current jobs to be returned"
+    assert result["current_jobs"][0]["job_id"] == 664
+    assert result["current_jobs"][0]["final_report_due"] == "2025-05-20"
+
+
+def test_dashboard_tasks_orders_by_priority_and_due_date(monkeypatch):
+    conn = _FakeConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: True)
+    monkeypatch.setattr(main_dashboard_routes, "_column_exists", lambda *_args, **_kwargs: True)
+
+    result = main_dashboard_routes.get_dashboard_tasks(crm_owner=None, include_done=False, limit=2, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["count"] == 2
+    assert result["items"][0]["priority"] == "urgent"
+    assert result["items"][0]["due_at"] == "2026-05-27T00:00:00"

@@ -97,6 +97,82 @@ def _apply_client_filters(
             params.append(crm_value)
 
 
+def _load_dashboard_crm_options(con, org_id: str) -> list[dict[str, str]]:
+    """Return selectable CRM/team options for the dashboard filters."""
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def _add_option(value: str, label: str, meta: str) -> None:
+        value_norm = str(value or "").strip()
+        label_norm = str(label or value_norm).strip()
+        if not value_norm or not label_norm:
+            return
+        key = label_norm.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        options.append({
+            "value": value_norm,
+            "label": label_norm,
+            "meta": meta,
+        })
+
+    try:
+        users_df = con.execute(
+            """
+            SELECT
+                COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(email), ''), NULLIF(TRIM(user_id), ''), '') AS display_name,
+                COALESCE(NULLIF(TRIM(email), ''), NULLIF(TRIM(user_id), ''), '') AS email,
+                COALESCE(NULLIF(TRIM(role), ''), 'Team Member') AS role,
+                COALESCE(NULLIF(TRIM(position), ''), '') AS position
+            FROM users
+            WHERE org_id = ?
+              AND LOWER(COALESCE(status, 'active')) = 'active'
+            ORDER BY COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(email), ''), NULLIF(TRIM(user_id), ''))
+            """,
+            [str(org_id)],
+        ).df()
+    except Exception:
+        users_df = None
+
+    if users_df is not None and not users_df.empty:
+        for _, row in users_df.iterrows():
+            label = str(row.get("display_name") or "").strip()
+            if not label:
+                continue
+            meta_bits = [
+                str(row.get("role") or "").strip(),
+                str(row.get("position") or "").strip(),
+                str(row.get("email") or "").strip(),
+            ]
+            meta = " • ".join(bit for bit in meta_bits if bit)
+            _add_option(label, label, meta)
+
+    for table, column in (("clients", "crm_owner"), ("jobs", "crm_name")):
+        try:
+            legacy_df = con.execute(
+                f"""
+                SELECT DISTINCT COALESCE(NULLIF(TRIM({column}), ''), '') AS crm_value
+                FROM {table}
+                WHERE org_id = ?
+                ORDER BY crm_value
+                """,
+                [str(org_id)],
+            ).df()
+        except Exception:
+            legacy_df = None
+
+        if legacy_df is None or legacy_df.empty:
+            continue
+        for _, row in legacy_df.iterrows():
+            value = str(row.get("crm_value") or "").strip()
+            if not value:
+                continue
+            _add_option(value, value, "Legacy CRM owner")
+
+    return options
+
+
 def _financial_year_filter(
     where_parts: list[str],
     params: list[object],
@@ -329,6 +405,7 @@ def get_dashboard_overview(
     - Top emitting clients
     """
     try:
+        org_id = require_org(_user)
         with get_conn() as con:
             # build filters for industry / crm owner
             client_filters: list[str] = []
@@ -489,11 +566,8 @@ def get_dashboard_overview(
             ).df()
             available_industries = [row['industry'] for _, row in industries_df.iterrows()] if industries_df is not None else []
 
-            # Available CRM owners (from client table)
-            crm_list_df = con.execute(
-                "SELECT DISTINCT COALESCE(crm_owner, 'Unassigned') AS crm_owner FROM clients ORDER BY crm_owner"
-            ).df()
-            available_crm = [row['crm_owner'] for _, row in crm_list_df.iterrows()] if crm_list_df is not None else []
+            crm_options = _load_dashboard_crm_options(con, org_id)
+            available_crm = [str(option.get("label") or option.get("value") or "").strip() for option in crm_options if str(option.get("label") or option.get("value") or "").strip()]
 
             # Industry breakdown (count of active clients by industry)
             industry_breakdown = []
@@ -598,13 +672,14 @@ def get_dashboard_overview(
                 """Calculate traffic light status: green, amber, red, completed"""
                 if completed_at:
                     return "completed"
-                if not due_date:
+                due = _normalize_to_date(due_date)
+                if not due:
                     return "green"
-                
-                from datetime import date, timedelta
+
+                from datetime import date
                 today = date.today()
-                days_until_due = (due_date - today).days
-                
+                days_until_due = (due - today).days
+
                 if days_until_due < -1:  # Overdue by more than 1 day
                     return "red"
                 elif days_until_due <= 7:  # Due within 7 days or 1 day overdue
@@ -696,6 +771,7 @@ def get_dashboard_overview(
                 "available_years": years_list,
                 "available_industries": available_industries,
                 "available_crm": available_crm,
+                "crm_options": crm_options,
                 "year_trend": year_trend,
                 "industry_breakdown": industry_breakdown,
                 "metrics": {
@@ -1225,6 +1301,118 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
         raise HTTPException(status_code=500, detail=f"Failed to fetch jobs by milestone status: {e}")
 
 
+@router.get("/dashboard/tasks")
+def get_dashboard_tasks(
+    crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    include_done: bool = Query(default=False, description="Include completed tasks"),
+    limit: int = Query(default=300, ge=1, le=500),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    """Portfolio-wide CRM tasks for the dashboard calendar and priority queue."""
+    try:
+        org_id = require_org(_user)
+        with get_conn() as con:
+            if not _table_exists(con, "crm_tasks"):
+                return {"items": [], "count": 0}
+
+            where_parts = ["c.org_id = ?"]
+            params: list[object] = [org_id]
+            if not include_done:
+                where_parts.append("LOWER(COALESCE(t.status, 'open')) NOT IN ('done', 'closed')")
+            if crm_owner:
+                crm_value = str(crm_owner).strip()
+                if crm_value.lower() == "unassigned":
+                    where_parts.append("(COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') = 'Unassigned' OR COALESCE(NULLIF(TRIM(j.crm_name), ''), 'Unassigned') = 'Unassigned')")
+                else:
+                    where_parts.append("(COALESCE(NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') = ? OR COALESCE(NULLIF(TRIM(j.crm_name), ''), 'Unassigned') = ?)")
+                    params.extend([crm_value, crm_value])
+
+            where_sql = " AND ".join(where_parts)
+
+            count_row = con.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM crm_tasks t
+                LEFT JOIN clients c ON c.db_id = t.client_db_id
+                LEFT JOIN jobs j ON j.job_id = t.job_id
+                WHERE {where_sql}
+                """,
+                params,
+            ).fetchone()
+            total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
+
+            df = con.execute(
+                f"""
+                SELECT
+                    t.task_id,
+                    t.event_id,
+                    t.client_db_id,
+                    t.job_id,
+                    t.title,
+                    t.details,
+                    t.assignee_user_id,
+                    t.priority,
+                    t.sla_due_at,
+                    t.due_at,
+                    t.status,
+                    t.completed_at,
+                    t.created_by,
+                    t.created_at,
+                    t.updated_at,
+                    c.client_name,
+                    j.job_number,
+                    j.title AS job_title,
+                    COALESCE(NULLIF(TRIM(j.crm_name), ''), NULLIF(TRIM(c.crm_owner), ''), 'Unassigned') AS crm_name
+                FROM crm_tasks t
+                LEFT JOIN clients c ON c.db_id = t.client_db_id
+                LEFT JOIN jobs j ON j.job_id = t.job_id
+                WHERE {where_sql}
+                ORDER BY
+                    CASE LOWER(COALESCE(t.priority, 'normal'))
+                        WHEN 'urgent' THEN 0
+                        WHEN 'high' THEN 1
+                        WHEN 'normal' THEN 2
+                        ELSE 3
+                    END,
+                    COALESCE(t.due_at, t.sla_due_at, t.created_at) ASC,
+                    t.task_id DESC
+                LIMIT ?
+                """,
+                [*params, int(limit)],
+            ).df()
+
+            items: list[dict[str, Any]] = []
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    items.append({
+                        "id": f"task-{int(row['task_id'])}",
+                        "task_id": int(row["task_id"]),
+                        "event_id": int(row["event_id"]) if row.get("event_id") is not None else None,
+                        "client_db_id": int(row["client_db_id"]) if row.get("client_db_id") is not None else None,
+                        "job_id": int(row["job_id"]) if row.get("job_id") is not None else None,
+                        "title": str(row.get("title") or ""),
+                        "details": str(row.get("details") or "") or None,
+                        "assignee_user_id": str(row.get("assignee_user_id") or ""),
+                        "priority": str(row.get("priority") or "normal"),
+                        "sla_due_at": row["sla_due_at"].isoformat() if row.get("sla_due_at") else None,
+                        "due_at": row["due_at"].isoformat() if row.get("due_at") else None,
+                        "status": str(row.get("status") or "open"),
+                        "completed_at": row["completed_at"].isoformat() if row.get("completed_at") else None,
+                        "created_by": str(row.get("created_by") or ""),
+                        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                        "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+                        "client_name": str(row.get("client_name") or ""),
+                        "job_number": str(row.get("job_number") or "") or None,
+                        "job_title": str(row.get("job_title") or "") or None,
+                        "crm_name": str(row.get("crm_name") or "Unassigned"),
+                        "source": "crm",
+                    })
+
+            return {"items": items, "count": total_count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard tasks: {e}")
+
+
 @router.get("/dashboard/operations-overview")
 def get_dashboard_operations_overview(
     year: int = Query(None, description="Reporting year filter"),
@@ -1419,6 +1607,7 @@ def get_dashboard_operations_overview(
             }
             crm_workload_map: dict[str, dict[str, object]] = {}
             attention_rows: list[dict[str, object]] = []
+            current_jobs: list[dict[str, object]] = []
 
             if jobs_df is not None and not jobs_df.empty:
                 for _, row in jobs_df.iterrows():
@@ -1505,6 +1694,22 @@ def get_dashboard_operations_overview(
                             crm_bucket["green_jobs"] = int(crm_bucket["green_jobs"]) + 1
                         else:
                             crm_bucket["no_milestone_jobs"] = int(crm_bucket["no_milestone_jobs"]) + 1
+
+                        final_report_due = _normalize_to_date(row.get("final_report_due"))
+                        final_report_completed = _normalize_to_date(row.get("final_report_completed_at"))
+                        days_to_final_report = (final_report_due - date.today()).days if final_report_due and not final_report_completed else None
+                        current_jobs.append({
+                            "job_id": job_id,
+                            "job_number": row["job_number"],
+                            "title": row["title"],
+                            "client_name": row["client_name"],
+                            "crm_name": crm_name,
+                            "status": job_status,
+                            "milestone_status": overall_status,
+                            "final_report_due": final_report_due.isoformat() if final_report_due else None,
+                            "final_report_completed_at": final_report_completed.isoformat() if final_report_completed else None,
+                            "days_to_final_report_due": days_to_final_report,
+                        })
 
                     utilisation_pct = (logged_hours / estimated_hours * 100.0) if estimated_hours > 0 else None
                     reason_parts: list[str] = []
@@ -1627,6 +1832,14 @@ def get_dashboard_operations_overview(
                     str(item.get("job_number") or ""),
                 )
             )
+            current_jobs.sort(
+                key=lambda item: (
+                    0 if item.get("final_report_due") else 1,
+                    item.get("days_to_final_report_due") if item.get("days_to_final_report_due") is not None else 99999,
+                    status_priority.get(item.get("milestone_status"), 4),
+                    str(item.get("job_number") or ""),
+                )
+            )
 
             return {
                 "metrics": metrics,
@@ -1634,6 +1847,7 @@ def get_dashboard_operations_overview(
                 "time_by_subject": time_by_subject,
                 "crm_workload": crm_workload[:8],
                 "jobs_needing_attention": attention_rows[:8],
+                "current_jobs": current_jobs[:8],
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch dashboard operations overview: {e}")
