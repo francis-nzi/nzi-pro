@@ -1036,7 +1036,7 @@ export default function JobAdvancedReports({
             line-height: 1.4 !important;
           }
           .live-report-section {
-            overflow: hidden !important;
+            overflow: visible !important;
             border: none !important;
             box-shadow: none !important;
             border-radius: 0 !important;

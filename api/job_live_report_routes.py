@@ -425,7 +425,9 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(
-            viewport={"width": 1440, "height": 2200},
+            # Start at the target A4 content width so Recharts measures correctly
+            # from the first render — no later viewport resize needed.
+            viewport={"width": 700, "height": 2200},
             extra_http_headers=extra_headers,
         )
         # Inject the JWT as the nzi_token cookie so the auth-client.ts global
@@ -447,34 +449,27 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             page.goto(report_url, wait_until="domcontentloaded", timeout=30000)
             page.locator(".live-report-section").first.wait_for(state="visible", timeout=90000)
 
-            # Scroll through the full page so every section below the initial
-            # viewport triggers its render (intersection observers / lazy mounts).
+            # Scroll each section into view individually so any
+            # intersection-observer-based rendering triggers for every section.
             page.evaluate("""
                 async () => {
                     const delay = ms => new Promise(r => setTimeout(r, ms));
-                    const step = 900;
-                    for (let pos = 0; pos <= document.body.scrollHeight; pos += step) {
-                        window.scrollTo(0, pos);
-                        await delay(80);
+                    const sections = document.querySelectorAll('.live-report-section');
+                    for (const section of sections) {
+                        section.scrollIntoView();
+                        await delay(150);
                     }
                     window.scrollTo(0, 0);
                 }
             """)
-            # Wait for the last section to confirm all content has rendered
+
+            # Wait for the last section to be visible before capturing.
             try:
-                page.locator(".live-report-section").last.wait_for(state="visible", timeout=20000)
+                page.locator(".live-report-section").last.wait_for(state="visible", timeout=30000)
             except Exception:
                 pass
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(3000)
 
-            # Shrink viewport to ~A4 content width so Recharts ResizeObserver
-            # re-measures containers before PDF generation.  At 700px the
-            # CardContent inner width is 652px, which is less than the PDF's
-            # CardContent inner width of ~658px (12mm margins, 24px padding),
-            # so SVGs never overflow the page and the right-drift disappears.
-            page.set_viewport_size({"width": 700, "height": 2200})
-            page.wait_for_timeout(2500)
-            page.emulate_media(media="print")
             return page.pdf(
                 format="A4",
                 print_background=True,
