@@ -469,38 +469,38 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
-            # Switch to print media so heights/breaks are measured in the print layout.
+            # Apply print media so measurements reflect the actual print layout.
             page.emulate_media(media="print")
 
-            # --- Diagnostic: heights in print mode ---
-            section_info = page.evaluate("""
+            # --- Diagnostic: container scroll heights (confirm scroll-clip theory) ---
+            container_info = page.evaluate("""
                 () => {
-                    const nodes = document.querySelectorAll('.live-report-section');
-                    return Array.from(nodes).map((n, i) =>
-                        i + ':h' + n.offsetHeight + '/s' + n.scrollHeight
-                    ).join('|');
+                    const w = document.querySelector('.overflow-x-hidden');
+                    const p = document.querySelector('.advanced-report-preview');
+                    return [
+                        'wrapper:' + (w ? w.clientHeight+'c/'+w.scrollHeight+'s' : 'none'),
+                        'preview:' + (p ? p.clientHeight+'c/'+p.scrollHeight+'s' : 'none'),
+                        'body:' + document.body.clientHeight+'c/'+document.body.scrollHeight+'s',
+                    ].join(' | ');
                 }
             """)
-            print(f"[PDF PRINT] job={job_id} {section_info}", file=sys.stderr, flush=True)
+            print(f"[PDF CONTAINERS] job={job_id} {container_info}", file=sys.stderr, flush=True)
 
-            # Force page-break rules inline so they survive any CSS-cascade issue
-            # between @media print and inline styles set earlier.
+            # ROOT CAUSE FIX: The layout wrapper has `overflow-x-hidden` which the
+            # CSS spec silently promotes overflow-y to `auto`, creating a scroll
+            # container.  Chrome's print engine clips output at the scroll container's
+            # scrollHeight — so pages beyond that cutoff never generate.
+            # Removing all overflow constraints forces Chrome to print the full document.
             page.evaluate("""
                 () => {
-                    const sections = document.querySelectorAll('.live-report-section');
-                    sections.forEach((el, i) => {
-                        // Every section after the first must start on a new page.
-                        if (i > 0) {
-                            el.style.setProperty('break-before', 'page', 'important');
-                            el.style.setProperty('page-break-before', 'always', 'important');
-                        }
-                        // Also set break-after on every section except the last
-                        // so Chrome generates the next page even after a very
-                        // tall section (h=4700+) where break-before alone can fail.
-                        if (i < sections.length - 1) {
-                            el.style.setProperty('break-after', 'page', 'important');
-                            el.style.setProperty('page-break-after', 'always', 'important');
-                        }
+                    // Main content wrapper (overflow-x-hidden → scroll container)
+                    document.querySelectorAll('.overflow-x-hidden').forEach(el => {
+                        el.style.setProperty('overflow', 'visible', 'important');
+                    });
+                    // Root flex shell (min-h-screen constrains flex children)
+                    document.querySelectorAll('.min-h-screen').forEach(el => {
+                        el.style.setProperty('min-height', '0', 'important');
+                        el.style.setProperty('height', 'auto', 'important');
                     });
                 }
             """)
