@@ -226,6 +226,47 @@ def _normalize_int_value(value) -> int | None:
             return None
 
 
+def _is_missing_value(value) -> bool:
+    if value is None:
+        return True
+    try:
+        import pandas as pd
+
+        if value is pd.NA or value is pd.NaT:
+            return True
+    except Exception:
+        pass
+    try:
+        compared = value != value
+        return compared is True
+    except Exception:
+        return False
+
+
+def _normalize_text_value(value, default: str = "") -> str:
+    if _is_missing_value(value):
+        return default
+    try:
+        text = str(value).strip()
+    except Exception:
+        return default
+    if not text or text.lower() == "nan":
+        return default
+    return text
+
+
+def _normalize_float_value(value, default: float = 0.0) -> float:
+    if _is_missing_value(value):
+        return default
+    try:
+        number = float(value)
+    except Exception:
+        return default
+    if math.isnan(number):
+        return default
+    return number
+
+
 def _load_dashboard_emissions_jobs(
     con,
     *,
@@ -1613,12 +1654,12 @@ def get_dashboard_operations_overview(
             if jobs_df is not None and not jobs_df.empty:
                 for _, row in jobs_df.iterrows():
                     job_id = int(row["job_id"])
-                    job_status = str(row["status"] or "Unknown")
+                    job_status = _normalize_text_value(row.get("status"), "Unknown")
                     normalized_job_status = job_status.strip().lower()
                     is_active = normalized_job_status not in ("completed", "archived", "cancelled")
-                    crm_name = str(row["crm_name"] or "Unassigned")
-                    estimated_hours = float(row["estimated_hours"] or 0.0)
-                    logged_hours = float((time_by_job.get(job_id) or {}).get("hours") or 0.0)
+                    crm_name = _normalize_text_value(row.get("crm_name"), "Unassigned")
+                    estimated_hours = _normalize_float_value(row.get("estimated_hours"), 0.0)
+                    logged_hours = _normalize_float_value((time_by_job.get(job_id) or {}).get("hours"), 0.0)
 
                     milestone_rows = [
                         ("Data Collection", row.get("data_collection_due"), row.get("data_collection_completed_at")),
@@ -1701,9 +1742,9 @@ def get_dashboard_operations_overview(
                         days_to_final_report = (final_report_due - date.today()).days if final_report_due and final_report_completed is None else None
                         current_jobs.append({
                             "job_id": job_id,
-                            "job_number": row["job_number"],
-                            "title": row["title"],
-                            "client_name": row["client_name"],
+                            "job_number": _normalize_text_value(row.get("job_number"), ""),
+                            "title": _normalize_text_value(row.get("title"), ""),
+                            "client_name": _normalize_text_value(row.get("client_name"), ""),
                             "crm_name": crm_name,
                             "status": job_status,
                             "milestone_status": overall_status,
@@ -1726,9 +1767,9 @@ def get_dashboard_operations_overview(
                     if reason_parts:
                         attention_rows.append({
                             "job_id": job_id,
-                            "job_number": row["job_number"],
-                            "title": row["title"],
-                            "client_name": row["client_name"],
+                            "job_number": _normalize_text_value(row.get("job_number"), ""),
+                            "title": _normalize_text_value(row.get("title"), ""),
+                            "client_name": _normalize_text_value(row.get("client_name"), ""),
                             "crm_name": crm_name,
                             "status": job_status,
                             "milestone_status": overall_status,

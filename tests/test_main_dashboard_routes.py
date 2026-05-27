@@ -233,6 +233,47 @@ def test_dashboard_milestone_summary_handles_nat_dates(monkeypatch):
     assert result["no_milestones"] == 1
 
 
+def test_dashboard_operations_overview_handles_missing_numeric_and_text_values(monkeypatch):
+    class _MissingValueConn(_FakeConn):
+        def df(self):
+            sql = self._last_sql
+            if "SELECT" in sql and "COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status" in sql:
+                return pd.DataFrame(
+                    [
+                        {
+                            "job_id": 664,
+                            "job_number": pd.NA,
+                            "title": pd.NA,
+                            "status": pd.NA,
+                            "client_name": pd.NA,
+                            "crm_name": pd.NA,
+                            "estimated_hours": pd.NA,
+                            "start_date": pd.NaT,
+                            "due_date": pd.NaT,
+                            "data_collection_due": pd.NaT,
+                            "data_collection_completed_at": pd.NaT,
+                            "first_draft_due": pd.NaT,
+                            "first_draft_completed_at": pd.NaT,
+                            "final_report_due": pd.NaT,
+                            "final_report_completed_at": pd.NaT,
+                            "created_at": pd.NaT,
+                        }
+                    ]
+                )
+            return super().df()
+
+    conn = _MissingValueConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: table != "time_logs")
+    monkeypatch.setattr(main_dashboard_routes, "_column_exists", lambda *_args, **_kwargs: True)
+
+    result = main_dashboard_routes.get_dashboard_operations_overview(year=2025, industry=None, crm_owner=None, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["metrics"]["active_jobs"] == 1
+    assert result["current_jobs"], "expected current jobs to be returned"
+    assert result["current_jobs"][0]["crm_name"] == "Unassigned"
+
+
 def test_dashboard_tasks_orders_by_priority_and_due_date(monkeypatch):
     conn = _FakeConn()
     monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
