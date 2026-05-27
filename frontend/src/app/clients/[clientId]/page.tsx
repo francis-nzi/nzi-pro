@@ -220,6 +220,8 @@ const SECTIONS: Array<{ id: ClientSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "carbon", label: "Carbon Analytics" },
   { id: "reporting", label: "Reporting" },
+  { id: "notes", label: "Notes" },
+  { id: "timeline", label: "Communications" },
   { id: "profile", label: "Company Profile" },
   { id: "financial", label: "Financials" },
 ];

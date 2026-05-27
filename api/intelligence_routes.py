@@ -846,6 +846,134 @@ def _serialize_job_full(job: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _load_recent_notes(con, client_db_id: int, limit: int = 5) -> list[dict[str, Any]]:
+    """Load recent notes for a client from client_notes, crm_events, and job_communications."""
+    notes: list[dict[str, Any]] = []
+
+    # 1. client_notes table
+    try:
+        rows = con.execute(
+            """
+            SELECT
+                cn.note_id,
+                cn.subject,
+                cn.note_text,
+                cn.author,
+                cn.job_id,
+                j.job_number,
+                j.title AS job_title,
+                COALESCE(cn.updated_at, cn.created_at) AS note_at
+            FROM client_notes cn
+            LEFT JOIN jobs j ON j.job_id = cn.job_id
+            WHERE cn.client_db_id = ?
+              AND COALESCE(cn.archived, FALSE) = FALSE
+              AND cn.note_text IS NOT NULL AND cn.note_text != ''
+            ORDER BY COALESCE(cn.updated_at, cn.created_at) DESC NULLS LAST
+            LIMIT ?
+            """,
+            [int(client_db_id), limit],
+        ).fetchall()
+        for row in rows or []:
+            notes.append({
+                "source": "client_note",
+                "source_label": "Client Note",
+                "note_id": int(row[0]),
+                "subject": _normalize_text(row[1], "") or None,
+                "note_text": _normalize_text(row[2], ""),
+                "author": _normalize_text(row[3], ""),
+                "job_id": int(row[4]) if row[4] is not None else None,
+                "job_number": _normalize_text(row[5], "") or None,
+                "job_title": _normalize_text(row[6], "") or None,
+                "note_at": _safe_datetime(row[7]).isoformat() if _safe_datetime(row[7]) else None,
+            })
+    except Exception:
+        pass
+
+    # 2. crm_events (event_type = 'note')
+    try:
+        rows = con.execute(
+            """
+            SELECT
+                e.event_id,
+                e.subject,
+                e.body_text,
+                e.created_by,
+                e.job_id,
+                j.job_number,
+                j.title AS job_title,
+                COALESCE(e.event_at, e.updated_at, e.created_at) AS note_at
+            FROM crm_events e
+            LEFT JOIN jobs j ON j.job_id = e.job_id
+            WHERE e.client_db_id = ?
+              AND lower(COALESCE(e.event_type, '')) = 'note'
+              AND COALESCE(e.archived, FALSE) = FALSE
+              AND e.body_text IS NOT NULL AND e.body_text != ''
+            ORDER BY COALESCE(e.event_at, e.updated_at, e.created_at) DESC NULLS LAST
+            LIMIT ?
+            """,
+            [int(client_db_id), limit],
+        ).fetchall()
+        for row in rows or []:
+            notes.append({
+                "source": "crm_event",
+                "source_label": "CRM Note",
+                "note_id": int(row[0]),
+                "subject": _normalize_text(row[1], "") or None,
+                "note_text": _normalize_text(row[2], ""),
+                "author": _normalize_text(row[3], ""),
+                "job_id": int(row[4]) if row[4] is not None else None,
+                "job_number": _normalize_text(row[5], "") or None,
+                "job_title": _normalize_text(row[6], "") or None,
+                "note_at": _safe_datetime(row[7]).isoformat() if _safe_datetime(row[7]) else None,
+            })
+    except Exception:
+        pass
+
+    # 3. job_communications (channel = 'note') for this client's jobs
+    try:
+        rows = con.execute(
+            """
+            SELECT
+                jc.communication_id,
+                jc.subject,
+                jc.message_text,
+                jc.created_by,
+                jc.job_id,
+                j.job_number,
+                j.title AS job_title,
+                COALESCE(jc.event_at, jc.updated_at, jc.created_at) AS note_at
+            FROM job_communications jc
+            JOIN jobs j ON j.job_id = jc.job_id
+            WHERE j.client_db_id = ?
+              AND lower(COALESCE(jc.channel, '')) = 'note'
+              AND COALESCE(jc.archived, FALSE) = FALSE
+              AND jc.message_text IS NOT NULL AND jc.message_text != ''
+            ORDER BY COALESCE(jc.event_at, jc.updated_at, jc.created_at) DESC NULLS LAST
+            LIMIT ?
+            """,
+            [int(client_db_id), limit],
+        ).fetchall()
+        for row in rows or []:
+            notes.append({
+                "source": "job_note",
+                "source_label": "Job Note",
+                "note_id": int(row[0]),
+                "subject": _normalize_text(row[1], "") or None,
+                "note_text": _normalize_text(row[2], ""),
+                "author": _normalize_text(row[3], ""),
+                "job_id": int(row[4]) if row[4] is not None else None,
+                "job_number": _normalize_text(row[5], "") or None,
+                "job_title": _normalize_text(row[6], "") or None,
+                "note_at": _safe_datetime(row[7]).isoformat() if _safe_datetime(row[7]) else None,
+            })
+    except Exception:
+        pass
+
+    # Sort all combined notes by date descending, return top N
+    notes.sort(key=lambda n: str(n.get("note_at") or ""), reverse=True)
+    return notes[:limit]
+
+
 def _load_crm_tasks(con, client_db_id: int) -> list[dict[str, Any]]:
     if not _table_exists(con, "crm_tasks"):
         return []
@@ -922,6 +1050,7 @@ def _build_call_prep_full(
     recent_touchpoints: list[dict[str, Any]],
     jobs: list[dict[str, Any]],
     open_tasks: list[dict[str, Any]],
+    recent_notes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     active_job_raw = record.get("active_job")
     active_job_full = _serialize_job_full(active_job_raw)
@@ -962,6 +1091,7 @@ def _build_call_prep_full(
             "open": record.get("open_invoices", 0),
             "overdue": record.get("overdue_invoices", 0),
         },
+        "recent_notes": recent_notes or [],
         "talking_points": talking_points,
     }
 
@@ -1200,6 +1330,7 @@ def get_call_prep(
             job_ids = [int(j["job_id"]) for j in jobs]
             emissions_by_job = _aggregate_emissions(con, job_ids) if job_ids else {}
             open_tasks = _load_crm_tasks(con, int(client_db_id))
+            recent_notes = _load_recent_notes(con, int(client_db_id), limit=5)
 
             # Live compute (not snapshot-based) so active_job and emissions are current
             record = _compute_client_record(
@@ -1212,7 +1343,7 @@ def get_call_prep(
 
             # Pass last 5 touchpoints for the recent contacts section
             recent_touchpoints = all_touchpoints[:5]
-            return _build_call_prep_full(record, client, recent_touchpoints, jobs, open_tasks)
+            return _build_call_prep_full(record, client, recent_touchpoints, jobs, open_tasks, recent_notes)
         except HTTPException:
             raise
         except Exception:

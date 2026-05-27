@@ -9,6 +9,7 @@ import {
   CircleDot,
   ClipboardList,
   Clock,
+  FileText,
   MessageSquare,
   Phone,
   Sparkles,
@@ -64,6 +65,19 @@ type Task = {
   status: string;
 };
 
+type Note = {
+  source: string;
+  source_label: string;
+  note_id: number;
+  subject: string | null;
+  note_text: string;
+  author: string;
+  job_id: number | null;
+  job_number: string | null;
+  job_title: string | null;
+  note_at: string | null;
+};
+
 type CallPrepData = {
   client_name: string;
   crm_owner: string;
@@ -88,6 +102,7 @@ type CallPrepData = {
     vs_trajectory_pct: number | null;
   } | null;
   invoices: { open: number; overdue: number };
+  recent_notes: Note[];
   talking_points: string[];
 };
 
@@ -243,6 +258,7 @@ export default function CallPrepPanel({
   const openTasks = data?.open_tasks ?? [];
   const clientTasks = openTasks.filter(t => t.job_id == null);
   const jobTasks = openTasks.filter(t => t.job_id != null);
+  const recentNotes = data?.recent_notes ?? [];
 
   return (
     <>
@@ -468,6 +484,45 @@ export default function CallPrepPanel({
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Recent Notes */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Recent Notes</CardTitle>
+                      <Badge variant="secondary">{recentNotes.length}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {recentNotes.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">No notes logged yet.</div>
+                    ) : recentNotes.map((note, idx) => (
+                      <div key={`${note.source}-${note.note_id}-${idx}`} className="rounded-lg border bg-muted/20 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>{note.source_label}</span>
+                          </div>
+                          {note.job_number && (
+                            <span className="text-xs text-muted-foreground">· Job {note.job_number}{note.job_title ? ` — ${note.job_title}` : ""}</span>
+                          )}
+                          {note.note_at && (
+                            <span className="text-xs text-muted-foreground">
+                              · {formatDate(note.note_at, { day: "numeric", month: "short", year: "numeric" })}
+                            </span>
+                          )}
+                        </div>
+                        {note.subject && (
+                          <div className="mt-1.5 text-sm font-medium">{note.subject}</div>
+                        )}
+                        <div className="mt-1 text-sm leading-relaxed line-clamp-3">{note.note_text}</div>
+                        {note.author && (
+                          <div className="mt-1.5 text-xs text-muted-foreground">{note.author}</div>
+                        )}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
 
                 {/* Snapshot Stats */}
                 <div className="grid gap-3 md:grid-cols-4">
