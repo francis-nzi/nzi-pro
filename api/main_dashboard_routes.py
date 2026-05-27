@@ -188,14 +188,12 @@ def _financial_year_filter(
 
 
 def _normalize_to_date(value):
-    if value is None:
-        return None
-    if value != value:
+    if _is_missing_value(value):
         return None
     if hasattr(value, "date"):
         try:
             normalized = value.date()
-            if normalized != normalized:
+            if _is_missing_value(normalized):
                 return None
             return normalized
         except Exception:
