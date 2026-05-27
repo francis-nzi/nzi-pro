@@ -17,7 +17,6 @@ import {
   XAxis,
   YAxis,
   LabelList,
-  type XAxisTickContentProps,
 } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -1793,29 +1792,34 @@ export default function JobAdvancedReports({
                 { scope: "Total",   benchmark: bTotal,  current: totalEmissions, pct: changePct(totalEmissions, bTotal) },
               ];
 
-              // Custom XAxis tick showing scope label + % change
-              const ScopeTick = ({ x, y, payload }: XAxisTickContentProps) => {
-                const row = barData.find(d => d.scope === String(payload?.value));
-                const pct = row?.pct ?? null;
-                return (
-                  <g transform={`translate(${x ?? 0},${y ?? 0})`}>
-                    <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
-                    {pct != null && (
-                      <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
-                        {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
-                      </text>
-                    )}
-                  </g>
-                );
-              };
-
               return (
                 <div>
                   <p className="text-sm font-semibold text-gray-700 mb-3">Year-on-Year Comparison by Scope</p>
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={barData} margin={{ top: 20, right: 24, left: 8, bottom: 32 }} barCategoryGap="30%" barGap={4}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
-                      <XAxis dataKey="scope" tick={ScopeTick} axisLine={false} tickLine={false} interval={0} />
+                      <XAxis
+                        dataKey="scope"
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        tick={(tickProps: any) => {
+                          const { x, y, payload } = tickProps as { x: number; y: number; payload: { value: string } };
+                          const row = barData.find(d => d.scope === payload?.value);
+                          const pct = row?.pct ?? null;
+                          return (
+                            <g transform={`translate(${x},${y})`}>
+                              <text textAnchor="middle" fontSize={11} fill="#334155" y={14}>{payload?.value}</text>
+                              {pct != null && (
+                                <text textAnchor="middle" fontSize={10} fill={pct < 0 ? "#16a34a" : "#dc2626"} y={28}>
+                                  {pct < 0 ? "" : "+"}{pct.toFixed(1)}%
+                                </text>
+                              )}
+                            </g>
+                          );
+                        }}
+                      />
                       <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} label={{ value: "tCO₂e", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "#94a3b8" } }} />
                       <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
                       <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
