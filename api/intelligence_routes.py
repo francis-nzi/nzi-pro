@@ -1100,17 +1100,24 @@ def _build_fallback_call_prep(client_name: str, crm_owner: str, detail: str) -> 
     return {
         "client_name": client_name,
         "crm_owner": crm_owner,
-        "last_touchpoint": None,
-        "days_since_contact": None,
         "health_score": 0,
-        "risk_flags": ["OVERDUE_CALL"],
+        "risk_flags": [],
+        "engagement": {
+            "start_date": None,
+            "end_date": None,
+            "net_zero_year": None,
+            "benchmark_year": None,
+            "touchpoint_cadence": None,
+        },
+        "recent_touchpoints": [],
+        "days_since_contact": None,
         "active_job": None,
+        "all_jobs": [],
+        "open_tasks": [],
         "emissions_summary": None,
-        "open_invoices": 0,
-        "overdue_invoices": 0,
+        "invoices": {"open": 0, "overdue": 0},
+        "recent_notes": [],
         "talking_points": [detail],
-        "engagement_end_date": None,
-        "detail": detail,
     }
 
 

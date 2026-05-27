@@ -402,9 +402,9 @@ export default function CallPrepPanel({
                     ) : (
                       <div className="space-y-2">
                         <div className="text-sm text-muted-foreground">No active job.</div>
-                        {data.all_jobs.length > 0 && (
+                        {(data.all_jobs?.length ?? 0) > 0 && (
                           <div className="space-y-1">
-                            {data.all_jobs.slice(0, 3).map((j) => (
+                            {(data.all_jobs ?? []).slice(0, 3).map((j) => (
                               <div key={j.job_id} className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Badge variant="outline" className="text-[10px]">{j.status}</Badge>
                                 <span>{j.title}{j.reporting_year ? ` (${j.reporting_year})` : ""}</span>
@@ -541,7 +541,7 @@ export default function CallPrepPanel({
                   />
                   <MiniStat
                     label="Invoices"
-                    value={`${data.invoices.open} open${data.invoices.overdue > 0 ? ` / ${data.invoices.overdue} overdue` : ""}`}
+                    value={`${data.invoices?.open ?? 0} open${(data.invoices?.overdue ?? 0) > 0 ? ` / ${data.invoices?.overdue} overdue` : ""}`}
                   />
                 </div>
 
