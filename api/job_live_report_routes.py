@@ -469,32 +469,43 @@ def _render_live_report_pdf_bytes(job_id: int, request: Request) -> bytes:
             except Exception:
                 pass
 
-            # --- Diagnostic: log which sections are in the DOM ---
+            # Switch to print media so heights/breaks are measured in the print layout.
+            page.emulate_media(media="print")
+
+            # --- Diagnostic: heights in print mode ---
             section_info = page.evaluate("""
                 () => {
                     const nodes = document.querySelectorAll('.live-report-section');
-                    return Array.from(nodes).map((n, i) => {
-                        const h = n.querySelector('h2,h3,[class*="SectionHeader"]');
-                        const r = n.getBoundingClientRect();
-                        return i + ':' + (h ? h.textContent.trim().slice(0, 25) : '?') +
-                               '(h=' + Math.round(n.scrollHeight) + ')';
-                    }).join(' | ');
+                    return Array.from(nodes).map((n, i) =>
+                        i + ':h' + n.offsetHeight + '/s' + n.scrollHeight
+                    ).join('|');
                 }
             """)
-            print(f"[PDF] job={job_id} sections={section_info}", file=sys.stderr, flush=True)
+            print(f"[PDF PRINT] job={job_id} {section_info}", file=sys.stderr, flush=True)
 
-            # Force every section to block/visible so no CSS rule can hide it.
+            # Force page-break rules inline so they survive any CSS-cascade issue
+            # between @media print and inline styles set earlier.
             page.evaluate("""
                 () => {
-                    document.querySelectorAll('.live-report-section').forEach(el => {
-                        el.style.setProperty('display', 'block', 'important');
-                        el.style.setProperty('visibility', 'visible', 'important');
-                        el.style.setProperty('overflow', 'visible', 'important');
+                    const sections = document.querySelectorAll('.live-report-section');
+                    sections.forEach((el, i) => {
+                        // Every section after the first must start on a new page.
+                        if (i > 0) {
+                            el.style.setProperty('break-before', 'page', 'important');
+                            el.style.setProperty('page-break-before', 'always', 'important');
+                        }
+                        // Also set break-after on every section except the last
+                        // so Chrome generates the next page even after a very
+                        // tall section (h=4700+) where break-before alone can fail.
+                        if (i < sections.length - 1) {
+                            el.style.setProperty('break-after', 'page', 'important');
+                            el.style.setProperty('page-break-after', 'always', 'important');
+                        }
                     });
                 }
             """)
 
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(2000)
 
             return page.pdf(
                 format="A4",
