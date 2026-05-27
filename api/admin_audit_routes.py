@@ -19,6 +19,15 @@ router = APIRouter(
     dependencies=[Depends(require_permission(ADMIN_ACCESS_PERMISSION))],
 )
 
+AUTH_EVENT_ACTIONS = (
+    "login_success",
+    "login_failed",
+    "login_mfa_challenge_issued",
+    "mfa_verification_success",
+    "mfa_verification_failed",
+    "logout",
+)
+
 
 def _optional_int_param(value: object | None) -> int | None:
     if value in (None, ""):
@@ -29,11 +38,24 @@ def _optional_int_param(value: object | None) -> int | None:
         return None
 
 
+def _apply_event_group_filter(where_parts: list[str], params: list[object], event_group: str | None) -> None:
+    group = str(event_group or "").strip().lower()
+    if not group or group == "all":
+        return
+    if group == "auth":
+        placeholders = ", ".join(["%s"] * len(AUTH_EVENT_ACTIONS))
+        where_parts.append(
+            f"(LOWER(COALESCE(entity_type, '')) = 'auth_session' OR LOWER(COALESCE(action, '')) IN ({placeholders}))"
+        )
+        params.extend(list(AUTH_EVENT_ACTIONS))
+
+
 @router.get("/audit-log")
 def get_audit_log(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     org_id: str | None = Query(None),
+    event_group: str | None = Query(None),
     actor_email: str | None = Query(None),
     entity_type: str | None = Query(None),
     action: str | None = Query(None),
@@ -51,6 +73,7 @@ def get_audit_log(
 
             where_parts: list[str] = []
             params: list[object] = []
+            _apply_event_group_filter(where_parts, params, event_group)
 
             if org_id:
                 where_parts.append("LOWER(COALESCE(org_id, '')) = LOWER(%s)")
@@ -149,6 +172,7 @@ def get_audit_log(
 @router.get("/audit-log/export")
 def export_audit_log(
     org_id: str | None = Query(None),
+    event_group: str | None = Query(None),
     actor_email: str | None = Query(None),
     entity_type: str | None = Query(None),
     action: str | None = Query(None),
@@ -169,6 +193,7 @@ def export_audit_log(
 
             where_parts: list[str] = []
             params: list[object] = []
+            _apply_event_group_filter(where_parts, params, event_group)
 
             if org_id:
                 where_parts.append("LOWER(COALESCE(org_id, '')) = LOWER(%s)")

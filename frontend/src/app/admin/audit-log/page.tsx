@@ -51,6 +51,7 @@ type AuditLogResponse = {
 
 type FilterState = {
   orgId: string;
+  eventGroup: string;
   q: string;
   actorEmail: string;
   entityType: string;
@@ -61,6 +62,7 @@ type FilterState = {
 
 const DEFAULT_FILTERS: FilterState = {
   orgId: "",
+  eventGroup: "",
   q: "",
   actorEmail: "",
   entityType: "",
@@ -97,6 +99,7 @@ export default function AuditLogPage() {
   const baseQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (appliedFilters.orgId.trim()) params.set("org_id", appliedFilters.orgId.trim());
+    if (appliedFilters.eventGroup.trim()) params.set("event_group", appliedFilters.eventGroup.trim());
     if (appliedFilters.q.trim()) params.set("q", appliedFilters.q.trim());
     if (appliedFilters.actorEmail.trim()) params.set("actor_email", appliedFilters.actorEmail.trim());
     if (appliedFilters.entityType.trim()) params.set("entity_type", appliedFilters.entityType.trim());
@@ -212,6 +215,28 @@ export default function AuditLogPage() {
             <CardDescription>Filter by actor, entity, action, client, job, or free-text match.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2 rounded-md border bg-muted/30 p-4">
+              <div className="text-sm font-medium">Auth Events</div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: "All events", value: "" },
+                  { label: "Auth only", value: "auth" },
+                ].map((item) => (
+                  <Button
+                    key={item.label}
+                    type="button"
+                    variant={filters.eventGroup === item.value ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilters((prev) => ({ ...prev, eventGroup: item.value }))}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Narrow the audit log to login, MFA, and logout activity.
+              </p>
+            </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Input
                 placeholder="Organisation ID"

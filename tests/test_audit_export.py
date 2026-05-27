@@ -7,6 +7,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import api.admin_routes as admin_routes
+import api.admin_audit_routes as admin_audit_routes
 from services.audit_log import record_audit_event
 
 
@@ -121,10 +122,10 @@ def test_record_audit_event_includes_org_id(monkeypatch):
 
 def test_audit_log_filter_and_export_include_org_id(monkeypatch):
     fake = _AuditConn()
-    monkeypatch.setattr(admin_routes, "get_conn", lambda: fake)
-    monkeypatch.setattr(admin_routes, "ensure_audit_log_table", lambda con: None)
+    monkeypatch.setattr(admin_audit_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_audit_routes, "ensure_audit_log_table", lambda con: None)
 
-    result = admin_routes.get_audit_log(
+    result = admin_audit_routes.get_audit_log(
         org_id="org-123",
         limit=50,
         offset=0,
@@ -134,7 +135,7 @@ def test_audit_log_filter_and_export_include_org_id(monkeypatch):
     assert result["total"] == 1
     assert any("LOWER(COALESCE(org_id, ''))" in sql for sql, _ in fake.executed)
 
-    export_response = admin_routes.export_audit_log(
+    export_response = admin_audit_routes.export_audit_log(
         org_id="org-123",
         _user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123", "role": "Owner"},
     )
@@ -148,3 +149,20 @@ def test_audit_log_filter_and_export_include_org_id(monkeypatch):
     csv_text = asyncio.run(_read_stream())
     assert "org_id" in csv_text.splitlines()[0]
     assert "org-123" in csv_text
+
+
+def test_audit_log_auth_filter_limits_to_auth_events(monkeypatch):
+    fake = _AuditConn()
+    monkeypatch.setattr(admin_audit_routes, "get_conn", lambda: fake)
+    monkeypatch.setattr(admin_audit_routes, "ensure_audit_log_table", lambda con: None)
+
+    result = admin_audit_routes.get_audit_log(
+        event_group="auth",
+        limit=50,
+        offset=0,
+        _user={"user_id": "u1", "email": "owner@example.com", "org_id": "org-123", "role": "Owner"},
+    )
+
+    assert result["total"] == 1
+    assert any("entity_type" in sql and "auth_session" in sql for sql, _ in fake.executed)
+    assert any("login_success" in (params or []) for _, params in fake.executed)
