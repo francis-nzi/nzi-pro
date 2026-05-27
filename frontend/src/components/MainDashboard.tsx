@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle, Briefcase, CheckCircle2, ChevronRight,
@@ -142,6 +143,9 @@ function normalizeSearchText(value: string): string {
 
 export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const api = useMemo(() => norm(baseUrl), [baseUrl]);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
   const [ov,  setOv]  = useState<OverviewData | null>(null);
@@ -157,7 +161,16 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
   const [crm,  setCrm]  = useState<string | null>(null);
   const [currentUserLabel, setCurrentUserLabel] = useState<string>("");
   const [showFilters, setShowFilters] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks">("overview");
+  const tabFromUrl = useMemo(() => {
+    const raw = String(searchParams.get("section") || "").trim().toLowerCase();
+    return (["overview", "intelligence", "financial", "operations", "emissions", "tasks"].includes(raw) ? raw : "overview") as
+      "overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks";
+  }, [searchParams]);
+  const [activeTab, setActiveTab] = useState<"overview" | "intelligence" | "financial" | "operations" | "emissions" | "tasks">(tabFromUrl);
+
+  useEffect(() => {
+    setActiveTab(tabFromUrl);
+  }, [tabFromUrl]);
 
   useEffect(() => {
     if (!api) return;
@@ -188,6 +201,15 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
       cancelled = true;
     };
   }, [api]);
+
+  const updateActiveTab = useCallback((nextTab: typeof activeTab) => {
+    setActiveTab(nextTab);
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextTab === "overview") params.delete("section");
+    else params.set("section", nextTab);
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   const load = useCallback(async () => {
     if (!api || !authReady) return;
@@ -328,7 +350,7 @@ export default function MainDashboard({ baseUrl }: { baseUrl: string }) {
 
       {/* Tabs */}
       {(ov || !loading) && (
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => updateActiveTab(value as typeof activeTab)} className="w-full">
           <TabsList className="mb-1">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="intelligence">Insights</TabsTrigger>

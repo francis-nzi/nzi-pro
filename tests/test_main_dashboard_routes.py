@@ -314,6 +314,27 @@ def test_dashboard_operations_overview_handles_pd_na_dates(monkeypatch):
     assert result["current_jobs"][0]["final_report_due"] is None
 
 
+def test_dashboard_operations_overview_handles_missing_crm_aggregates(monkeypatch):
+    class _AggregateNaConn(_FakeConn):
+        def fetchall(self):
+            sql = self._last_sql
+            if "AVG(s.health_score) AS avg_health_score" in sql:
+                return [(pd.NA, pd.NA)]
+            if "MAX(ct.occurred_at) AS last_contact_at" in sql:
+                return [(pd.NA, pd.NaT)]
+            return super().fetchall()
+
+    conn = _AggregateNaConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: table != "time_logs")
+    monkeypatch.setattr(main_dashboard_routes, "_column_exists", lambda *_args, **_kwargs: True)
+
+    result = main_dashboard_routes.get_dashboard_operations_overview(year=2025, industry=None, crm_owner=None, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["crm_workload"], "expected CRM workload to be returned"
+    assert result["crm_workload"][0]["crm_name"] == "Unassigned"
+
+
 def test_dashboard_tasks_orders_by_priority_and_due_date(monkeypatch):
     conn = _FakeConn()
     monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)

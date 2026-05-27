@@ -188,8 +188,6 @@ def _financial_year_filter(
 
 
 def _normalize_to_date(value):
-    if _is_missing_value(value):
-        return None
     if hasattr(value, "date"):
         try:
             normalized = value.date()
@@ -198,6 +196,8 @@ def _normalize_to_date(value):
             return normalized
         except Exception:
             logger.debug("Failed to normalize date-like dashboard value; returning None", exc_info=True)
+    if _is_missing_value(value):
+        return None
     if isinstance(value, str):
         txt = value.strip()
         if not txt:
@@ -1798,8 +1798,8 @@ def get_dashboard_operations_overview(
 
             crm_workload = []
             for bucket in crm_workload_map.values():
-                est = float(bucket["estimated_hours"] or 0.0)
-                logged = float(bucket["logged_hours"] or 0.0)
+                est = _normalize_float_value(bucket["estimated_hours"], 0.0)
+                logged = _normalize_float_value(bucket["logged_hours"], 0.0)
                 crm_workload.append({
                     "crm_name": bucket["crm_name"],
                     "total_jobs": int(bucket["total_jobs"]),
@@ -1830,7 +1830,8 @@ def get_dashboard_operations_overview(
                     [org_id],
                 ).fetchall()
                 for row in health_rows or []:
-                    avg_health_by_crm[str(row[0] or "Unassigned")] = round(float(row[1]), 1) if row[1] is not None else None
+                    crm_key = _normalize_text_value(row[0], "Unassigned")
+                    avg_health_by_crm[crm_key] = round(_normalize_float_value(row[1], 0.0), 1) if not _is_missing_value(row[1]) else None
             if _table_exists(con, "client_touchpoints"):
                 touch_rows = con.execute(
                     """
@@ -1847,10 +1848,17 @@ def get_dashboard_operations_overview(
                     [org_id],
                 ).fetchall()
                 for row in touch_rows or []:
-                    last_contact_by_crm[str(row[0] or "Unassigned")] = row[1].isoformat() if row[1] is not None else None
+                    crm_key = _normalize_text_value(row[0], "Unassigned")
+                    if _is_missing_value(row[1]):
+                        last_contact_by_crm[crm_key] = None
+                    else:
+                        try:
+                            last_contact_by_crm[crm_key] = row[1].isoformat()
+                        except Exception:
+                            last_contact_by_crm[crm_key] = _normalize_text_value(row[1], None)  # type: ignore[arg-type]
 
             for item in crm_workload:
-                crm_name = str(item["crm_name"] or "Unassigned")
+                crm_name = _normalize_text_value(item.get("crm_name"), "Unassigned")
                 item["avg_health_score"] = avg_health_by_crm.get(crm_name)
                 item["last_contact_date"] = last_contact_by_crm.get(crm_name)
 
@@ -1858,8 +1866,8 @@ def get_dashboard_operations_overview(
                 key=lambda item: (
                     -int(item["red_jobs"]),
                     -int(item["amber_jobs"]),
-                    -(float(item["logged_hours"]) if item["logged_hours"] is not None else 0.0),
-                    str(item["crm_name"]),
+                    -_normalize_float_value(item.get("logged_hours"), 0.0),
+                    _normalize_text_value(item.get("crm_name"), "Unassigned"),
                 )
             )
 
