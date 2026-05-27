@@ -1667,7 +1667,15 @@ export default function JobAdvancedReports({
                     <span className="text-xs font-semibold text-gray-700 text-right">100.0%</span>
                   </div>
                 </div>
+                {footprintSummaryText && (
+                  <p className="mt-4 text-sm leading-relaxed text-gray-700">{footprintSummaryText}</p>
+                )}
               </div>
+            )}
+
+            {/* Footprint summary when no site breakdown is available */}
+            {(site_breakdowns?.overall?.length ?? 0) === 0 && footprintSummaryText && (
+              <p className="text-sm leading-relaxed text-gray-700">{footprintSummaryText}</p>
             )}
 
           </CardContent>
@@ -1836,7 +1844,7 @@ export default function JobAdvancedReports({
 
             {/* Scope 3 note */}
             <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-              <p className="text-xs italic text-gray-600">
+              <p className="text-xs text-gray-600">
                 Reported Scope 3 emissions may increase in future years as more detailed data and information become available.
               </p>
             </div>
@@ -1954,7 +1962,7 @@ export default function JobAdvancedReports({
               {/* Rounding note */}
               <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
                 <p className="text-xs text-gray-700">
-                  <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.
+                  <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
                 </p>
               </div>
 
@@ -2047,10 +2055,26 @@ export default function JobAdvancedReports({
                   <div className="grid grid-cols-[80px_1fr_120px_120px_60px] px-3 py-2" style={{ backgroundColor: BRAND }}>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Scope</span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white">Category</span>
-                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">
-                      {hasBenchmark ? `${data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"} tCO₂e` : "Benchmark tCO₂e"}
+                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+                      {hasBenchmark ? (
+                        <>
+                          <span className="block">
+                            {data.job_data.benchmark_period_start ? formatDate(data.job_data.benchmark_period_start) : "Benchmark"}
+                            {data.job_data.benchmark_period_end ? ` – ${formatDate(data.job_data.benchmark_period_end)}` : ""}
+                          </span>
+                          <span className="block">tCO₂e</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="block">Benchmark</span>
+                          <span className="block">tCO₂e</span>
+                        </>
+                      )}
                     </span>
-                    <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">Current Year tCO₂e</span>
+                    <span className="text-xs font-semibold text-white text-right leading-tight" style={{ textTransform: 'none' }}>
+                      <span className="block">Current Year</span>
+                      <span className="block">tCO₂e</span>
+                    </span>
                     <span className="text-xs font-semibold uppercase tracking-wide text-white text-right">%</span>
                   </div>
                   {tableRows}
@@ -2064,10 +2088,12 @@ export default function JobAdvancedReports({
                     <span className="text-xs font-bold text-gray-700 text-right">100.0%</span>
                   </div>
                 </div>
+                {/* Appendix reference note */}
+                <p className="text-xs text-gray-600">A detailed breakdown of emissions is set out in Appendix 1.</p>
                 {/* Rounding note */}
                 <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3">
                   <p className="text-xs text-gray-700">
-                    <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 2 decimal places. As a consequence, small differences in totals may occur due to rounding.
+                    <span className="font-semibold">Note:</span> Emissions figures are rounded to the nearest 1 decimal place. As a consequence, small differences in totals may occur due to rounding.
                   </p>
                 </div>
               </CardContent>
@@ -2099,14 +2125,33 @@ export default function JobAdvancedReports({
             return d === 1 ? `Per ${label}` : `Per ${d.toLocaleString()} ${label}`;
           };
 
-          const MetricIcon = ({ metricKey }: { metricKey: string }) => {
+          const currencySymbol = (() => {
+            const country = String(data.job_data?.country ?? "").toLowerCase().trim();
+            if (country.includes("united states") || country.includes("usa") || country === "us") return "$";
+            if (country.includes("europe") || country.includes("germany") || country.includes("france") || country.includes("spain") || country.includes("italy") || country.includes("netherlands") || country.includes("belgium") || country.includes("austria") || country.includes("portugal") || country.includes("ireland")) return "€";
+            if (country.includes("australia")) return "A$";
+            if (country.includes("canada")) return "C$";
+            if (country.includes("new zealand")) return "NZ$";
+            if (country.includes("japan")) return "¥";
+            if (country.includes("switzerland")) return "CHF";
+            if (country.includes("sweden") || country.includes("norway") || country.includes("denmark")) return "kr";
+            return "£";
+          })();
+
+          const MetricIcon = ({ metricKey, label }: { metricKey: string; label?: string | null }) => {
             if (metricKey === "employees") return (
               <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
             );
+            const lbl = String(label ?? metricKey ?? "").toLowerCase();
+            if (lbl.includes("m2") || lbl.includes("m²") || lbl.includes("sqm") || lbl.includes("floor") || lbl.includes("office") || lbl.includes("space") || lbl.includes("area") || lbl.includes("building")) return (
+              <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: BRAND }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+              </svg>
+            );
             return (
-              <span className="text-2xl font-bold" style={{ color: BRAND }}>£</span>
+              <span className="text-2xl font-bold" style={{ color: BRAND }}>{currencySymbol}</span>
             );
           };
 
@@ -2162,7 +2207,7 @@ export default function JobAdvancedReports({
                       const intensity = calcIntensity(m);
                       return (
                         <div key={key} className={`grid grid-cols-[56px_1fr_160px_120px] items-center border-b border-gray-100 last:border-0 px-3 py-4 ${i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                          <div className="flex items-center justify-center"><MetricIcon metricKey={key} /></div>
+                          <div className="flex items-center justify-center"><MetricIcon metricKey={key} label={m.label} /></div>
                           <span className="text-sm font-medium text-gray-700">{perLabel(key, m)}</span>
                           <span className="text-xs text-gray-500">Scopes 1, 2 and 3</span>
                           <span className="text-right text-sm font-semibold text-gray-800">{intensity != null ? fmt(intensity) : "—"}</span>
@@ -2492,11 +2537,11 @@ export default function JobAdvancedReports({
           </Card>
         )}
 
-        {/* ── 15. Appendix — Full Emissions Audit ────────────────────────── */}
+        {/* ── 15. Appendix 1 — Full Emissions Audit ──────────────────────── */}
         {hasAppendix && (
           <Card className="live-report-section">
             <CardHeader className="pb-3">
-              <SectionHeader title="Appendix — Full Emissions Audit" />
+              <SectionHeader title="Appendix 1 — Full Emissions Audit" />
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -2632,12 +2677,17 @@ export default function JobAdvancedReports({
                   </tbody>
                 </table>
               </div>
-              {report_metadata?.energy_reporting_basis ? (
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  <span className="font-semibold">Basis of energy reporting: </span>
-                  {report_metadata?.energy_reporting_basis}
-                </p>
-              ) : null}
+              {(() => {
+                const effectiveBasis = renewablePct >= 100
+                  ? "Market-based"
+                  : (report_metadata?.energy_reporting_basis || "Location-based");
+                return (
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    <span className="font-semibold">Basis of energy reporting: </span>
+                    {effectiveBasis}
+                  </p>
+                );
+              })()}
             </CardContent>
           </Card>
 
