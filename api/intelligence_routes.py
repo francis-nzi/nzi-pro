@@ -697,6 +697,73 @@ def _build_talking_points(record: dict[str, Any], client: dict[str, Any]) -> lis
     return points
 
 
+def _build_talking_points_enhanced(
+    record: dict[str, Any],
+    client: dict[str, Any],
+    recent_touchpoints: list[dict[str, Any]],
+    active_job_full: dict[str, Any] | None,
+    open_tasks: list[dict[str, Any]],
+) -> list[str]:
+    points: list[str] = []
+    flags = {flag.strip() for flag in str(record.get("risk_flags") or "").split(",") if flag.strip()}
+
+    # 1. Agreed next action from last touchpoint
+    last_tp = recent_touchpoints[0] if recent_touchpoints else None
+    if last_tp and last_tp.get("next_action"):
+        action = last_tp["next_action"]
+        due = last_tp.get("next_action_due")
+        if due:
+            points.append(f"Agreed next action: {action} (due {due})")
+        else:
+            points.append(f"Agreed next action: {action}")
+
+    # 2. Imminent renewal
+    if "RENEWAL_30" in flags and record.get("engagement_end_date"):
+        points.append(f"Engagement ends {record['engagement_end_date']} — confirm renewal or exit plan")
+    elif "RENEWAL_90" in flags and record.get("engagement_end_date"):
+        points.append(f"Contract renewal due {record['engagement_end_date']} — begin renewal conversation")
+
+    # 3. Overdue milestones (specific)
+    if active_job_full:
+        for m in active_job_full.get("milestones", []):
+            if m.get("status") == "red" and not m.get("completed"):
+                points.append(f"{m['name']} milestone overdue (was due {m['due']}) — confirm delivery timeline")
+            elif m.get("status") == "amber" and not m.get("completed"):
+                points.append(f"{m['name']} deadline approaching — due {m['due']}")
+
+    # 4. Overdue invoice
+    if "INVOICE_OVERDUE" in flags:
+        overdue = record.get("overdue_invoices", 0)
+        points.append(f"{overdue} invoice{'s' if overdue != 1 else ''} overdue — confirm payment status")
+
+    # 5. Emissions off track
+    if "EMISSIONS_OFF_TRACK" in flags and record.get("emissions_variance_pct") is not None:
+        pct = round(float(record["emissions_variance_pct"]), 1)
+        points.append(f"Emissions {pct}% above target trajectory — discuss reduction actions")
+
+    # 6. Overdue call (if no next action covered it above)
+    if "OVERDUE_CALL" in flags and not (last_tp and last_tp.get("next_action")):
+        days = record.get("days_since_contact")
+        if days is not None:
+            points.append(f"Check in — last contact was {days} days ago")
+        else:
+            points.append("No contact logged yet — this is the first touch")
+
+    # 7. High-priority open tasks
+    urgent = [t for t in open_tasks if t.get("priority") in ("urgent", "high")]
+    if urgent:
+        names = ", ".join(t["title"] for t in urgent[:3] if t.get("title"))
+        if names:
+            points.append(f"High-priority tasks open: {names}")
+
+    # 8. Net zero progress (always)
+    net_zero = client.get("net_zero_year")
+    if net_zero:
+        points.append(f"Review progress against net zero target ({net_zero})")
+
+    return points
+
+
 def _serialize_job(job: dict[str, Any] | None) -> dict[str, Any] | None:
     if not job:
         return None
@@ -732,6 +799,98 @@ def _serialize_job(job: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _serialize_job_full(job: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not job:
+        return None
+    milestones = []
+    for name, due_key, completed_key in (
+        ("Data Collection", "data_collection_due", "data_collection_completed_at"),
+        ("First Draft", "first_draft_due", "first_draft_completed_at"),
+        ("Final Report", "final_report_due", "final_report_completed_at"),
+    ):
+        due = job.get(due_key)
+        completed = job.get(completed_key)
+        status = _milestone_status(due, completed)
+        milestones.append({
+            "name": name,
+            "due": _safe_date(due).isoformat() if _safe_date(due) else None,
+            "completed": bool(completed),
+            "completed_at": _safe_datetime(completed).isoformat() if _safe_datetime(completed) else None,
+            "status": status,
+        })
+    overall_status = _overall_milestone_status([m["status"] for m in milestones])
+    next_milestone_name = None
+    next_milestone_due_str = None
+    days_to_milestone = None
+    for m in milestones:
+        if not m["completed"] and m["due"]:
+            next_milestone_name = m["name"]
+            next_milestone_due_str = m["due"]
+            due_date = _safe_date(m["due"])
+            if due_date:
+                days_to_milestone = (due_date - date.today()).days
+            break
+    due_date = _safe_date(job.get("due_date"))
+    return {
+        "job_id": int(job["job_id"]),
+        "job_number": job.get("job_number"),
+        "title": job.get("title"),
+        "status": job.get("status"),
+        "reporting_year": job.get("reporting_year"),
+        "milestone_status": overall_status,
+        "milestones": milestones,
+        "next_milestone": next_milestone_name,
+        "next_milestone_due": next_milestone_due_str,
+        "days_to_milestone": days_to_milestone,
+        "due_date": due_date.isoformat() if due_date else None,
+    }
+
+
+def _load_crm_tasks(con, client_db_id: int) -> list[dict[str, Any]]:
+    if not _table_exists(con, "crm_tasks"):
+        return []
+    try:
+        rows = con.execute(
+            """
+            SELECT task_id, client_db_id, job_id, title, details, assignee_user_id,
+                   priority, due_at, status, created_at
+            FROM crm_tasks
+            WHERE client_db_id = ?
+              AND status NOT IN ('completed', 'cancelled', 'archived')
+            ORDER BY
+                CASE priority
+                    WHEN 'urgent' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'normal' THEN 3
+                    ELSE 4
+                END,
+                due_at ASC NULLS LAST,
+                task_id ASC
+            LIMIT 20
+            """,
+            [int(client_db_id)],
+        ).fetchall()
+    except Exception:
+        return []
+    tasks: list[dict[str, Any]] = []
+    for row in rows or []:
+        tasks.append(
+            {
+                "task_id": int(row[0]),
+                "client_db_id": int(row[1]),
+                "job_id": int(row[2]) if row[2] is not None else None,
+                "title": _normalize_text(row[3], ""),
+                "details": _normalize_text(row[4], ""),
+                "assignee_user_id": _normalize_text(row[5], ""),
+                "priority": _normalize_text(row[6], "normal"),
+                "due_at": _safe_datetime(row[7]).isoformat() if _safe_datetime(row[7]) else None,
+                "status": _normalize_text(row[8], "open"),
+                "created_at": _safe_datetime(row[9]).isoformat() if _safe_datetime(row[9]) else None,
+            }
+        )
+    return tasks
+
+
 def _build_call_prep(record: dict[str, Any], client: dict[str, Any], touchpoints: list[dict[str, Any]]) -> dict[str, Any]:
     active_job = _serialize_job(record.get("active_job"))
     last_touchpoint = touchpoints[0] if touchpoints else None
@@ -754,6 +913,56 @@ def _build_call_prep(record: dict[str, Any], client: dict[str, Any], touchpoints
         "overdue_invoices": record.get("overdue_invoices", 0),
         "talking_points": talking_points,
         "engagement_end_date": record.get("engagement_end_date"),
+    }
+
+
+def _build_call_prep_full(
+    record: dict[str, Any],
+    client: dict[str, Any],
+    recent_touchpoints: list[dict[str, Any]],
+    jobs: list[dict[str, Any]],
+    open_tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active_job_raw = record.get("active_job")
+    active_job_full = _serialize_job_full(active_job_raw)
+    all_jobs_brief = [
+        {
+            "job_id": int(j["job_id"]),
+            "title": j.get("title"),
+            "status": j.get("status"),
+            "reporting_year": j.get("reporting_year"),
+        }
+        for j in jobs[:10]
+    ]
+    talking_points = _build_talking_points_enhanced(record, client, recent_touchpoints, active_job_full, open_tasks)
+    return {
+        "client_name": client["client_name"],
+        "crm_owner": client["crm_owner"],
+        "health_score": record["health_score"],
+        "risk_flags": [flag for flag in str(record.get("risk_flags") or "").split(",") if flag],
+        "engagement": {
+            "start_date": _safe_date(client.get("engagement_start_date")).isoformat() if _safe_date(client.get("engagement_start_date")) else None,
+            "end_date": record.get("engagement_end_date"),
+            "net_zero_year": client.get("net_zero_year"),
+            "benchmark_year": client.get("benchmark_year"),
+            "touchpoint_cadence": client.get("touchpoint_cadence"),
+        },
+        "recent_touchpoints": recent_touchpoints,
+        "days_since_contact": record.get("days_since_contact"),
+        "active_job": active_job_full,
+        "all_jobs": all_jobs_brief,
+        "open_tasks": open_tasks,
+        "emissions_summary": {
+            "latest_year": record.get("latest_year"),
+            "latest_tco2e": record.get("latest_total_tco2e"),
+            "yoy_change_pct": None,
+            "vs_trajectory_pct": record.get("emissions_variance_pct"),
+        } if record.get("latest_year") is not None else None,
+        "invoices": {
+            "open": record.get("open_invoices", 0),
+            "overdue": record.get("overdue_invoices", 0),
+        },
+        "talking_points": talking_points,
     }
 
 
@@ -983,20 +1192,27 @@ def get_call_prep(
                 "engagement_end_date": _safe_date(client_row[7]),
                 "touchpoint_cadence": _normalize_text(client_row[8], "monthly"),
             }
-            touchpoints = _load_touchpoints(con, org_id, [int(client_db_id)]).get(int(client_db_id), [])
+
+            # Load all supporting data for a live, comprehensive call prep
+            all_touchpoints = _load_touchpoints(con, org_id, [int(client_db_id)]).get(int(client_db_id), [])
             invoice_stats = _load_invoice_stats(con, org_id, [int(client_db_id)]).get(int(client_db_id), {})
-            snapshot = _load_health_snapshots(con, org_id, [int(client_db_id)]).get(int(client_db_id))
-            record = _build_dashboard_record(
+            jobs = _load_jobs(con, org_id, [int(client_db_id)]).get(int(client_db_id), [])
+            job_ids = [int(j["job_id"]) for j in jobs]
+            emissions_by_job = _aggregate_emissions(con, job_ids) if job_ids else {}
+            open_tasks = _load_crm_tasks(con, int(client_db_id))
+
+            # Live compute (not snapshot-based) so active_job and emissions are current
+            record = _compute_client_record(
                 client=client,
-                snapshot=snapshot,
-                touchpoints=touchpoints,
+                jobs=jobs,
+                touchpoints=all_touchpoints,
                 invoice_stats=invoice_stats,
+                emissions_by_job=emissions_by_job,
             )
-            record["active_job"] = None
-            record["latest_year"] = None
-            record["latest_total_tco2e"] = None
-            record["emissions_variance_pct"] = None
-            return _build_call_prep(record, client, touchpoints[:1])
+
+            # Pass last 5 touchpoints for the recent contacts section
+            recent_touchpoints = all_touchpoints[:5]
+            return _build_call_prep_full(record, client, recent_touchpoints, jobs, open_tasks)
         except HTTPException:
             raise
         except Exception:
