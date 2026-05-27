@@ -1758,6 +1758,55 @@ export default function JobAdvancedReports({
               </div>
             </div>
 
+            {/* Benchmark vs Current Year — Scope Comparison */}
+            {(() => {
+              const bScope1 = toNum(benchmark_totals?.["Scope 1"]);
+              const bScope2 = toNum(benchmark_totals?.["Scope 2"]);
+              const bScope3 = toNum(benchmark_totals?.["Scope 3"]);
+              const bTotal  = toNum(benchmark_totals?.Total) || (bScope1 + bScope2 + bScope3);
+              if (bTotal <= 0) return null;
+
+              const benchmarkLabel = (() => {
+                const s = data.job_data.benchmark_period_start;
+                const e = data.job_data.benchmark_period_end;
+                if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
+                if (s) return formatDate(s);
+                return "Benchmark Year";
+              })();
+
+              const currentLabel = (() => {
+                const s = data.job_data.reporting_period_start;
+                const e = data.job_data.reporting_period_end;
+                if (s && e) return `${formatDate(s)} – ${formatDate(e)}`;
+                if (s) return formatDate(s);
+                return "Current Year";
+              })();
+
+              const barData = [
+                { scope: "Scope 1", benchmark: bScope1, current: scope1 },
+                { scope: "Scope 2", benchmark: bScope2, current: scope2 },
+                { scope: "Scope 3", benchmark: bScope3, current: scope3 },
+                { scope: "Total",   benchmark: bTotal,  current: totalEmissions },
+              ];
+
+              return (
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Benchmark vs Current Year — Emissions by Scope</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={barData} margin={{ top: 8, right: 24, left: 8, bottom: 4 }} barCategoryGap="30%" barGap={4}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F0F0F0" />
+                      <XAxis dataKey="scope" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 })} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v: number | undefined, name: string | undefined) => [v != null ? `${fmt(v)} tCO₂e` : "—", name ?? ""]} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="benchmark" name={benchmarkLabel} fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="current" name={currentLabel} fill={BRAND} radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
+
             {/* Scope Descriptions table */}
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Scope Descriptions</p>
