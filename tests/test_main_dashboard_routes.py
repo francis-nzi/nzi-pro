@@ -335,6 +335,42 @@ def test_dashboard_operations_overview_handles_missing_crm_aggregates(monkeypatc
     assert result["crm_workload"][0]["crm_name"] == "Unassigned"
 
 
+def test_dashboard_operations_overview_returns_fallback_on_unhandled_error(monkeypatch):
+    class _ExplodingConn(_FakeConn):
+        def execute(self, sql: str, params: list[object] | None = None):
+            if "FROM jobs j" in sql and "COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status" in sql:
+                raise RuntimeError("boom")
+            return super().execute(sql, params)
+
+    conn = _ExplodingConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+    monkeypatch.setattr(main_dashboard_routes, "_table_exists", lambda _con, table: table != "time_logs")
+    monkeypatch.setattr(main_dashboard_routes, "_column_exists", lambda *_args, **_kwargs: True)
+
+    result = main_dashboard_routes.get_dashboard_operations_overview(year=2025, industry=None, crm_owner=None, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["metrics"]["active_jobs"] == 0
+    assert result["crm_workload"] == []
+    assert result["warning"] == "operations_overview_unavailable"
+
+
+def test_dashboard_review_notifications_returns_empty_fallback_on_error(monkeypatch):
+    class _ExplodingConn(_FakeConn):
+        def execute(self, sql: str, params: list[object] | None = None):
+            if "FROM report_reviews rr" in sql:
+                raise RuntimeError("boom")
+            return super().execute(sql, params)
+
+    conn = _ExplodingConn()
+    monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
+
+    result = main_dashboard_routes.get_review_notifications(crm_owner=None, _user={"user_id": "u1", "org_id": "org-a"})
+
+    assert result["ok"] is True
+    assert result["items"] == []
+    assert result["total"] == 0
+
+
 def test_dashboard_tasks_orders_by_priority_and_due_date(monkeypatch):
     conn = _FakeConn()
     monkeypatch.setattr(main_dashboard_routes, "get_conn", lambda: conn)
