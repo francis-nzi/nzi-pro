@@ -68,6 +68,15 @@ type InboxItem = {
 
 type SortCol = "type" | "title" | "contact" | "job" | "due" | "status";
 
+const PAGE_SIZE = 25;
+
+function getPageRange(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  if (current <= 4) return [1, 2, 3, 4, 5, "…", total];
+  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
+  return [1, "…", current - 1, current, current + 1, "…", total];
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function resolveDisplayName(
@@ -218,6 +227,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [feedFilter, setFeedFilter] = useState<"all" | "touchpoints" | "communications">("all");
   const [sortCol, setSortCol] = useState<SortCol>("due");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(1);
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -404,6 +414,11 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [filteredItems, sortCol, sortDir, resolve]);
+
+  useEffect(() => { setPage(1); }, [query, jobFilter, typeFilter, directionFilter, taskStatusFilter, feedFilter, sortCol, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+  const pagedItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   function handleSort(col: SortCol) {
     if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -625,7 +640,14 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
 
       <Card>
         <CardHeader>
-          <CardTitle>Communications Inbox ({sortedItems.length})</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Communications Inbox ({sortedItems.length})</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setActiveModal("log")}>Log Communication</Button>
+              <Button variant="outline" size="sm" onClick={() => setActiveModal("task")}>Create Task</Button>
+              <Button size="sm" onClick={() => setActiveModal("email")}>Email Client / Contact</Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Filters */}
@@ -750,7 +772,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {sortedItems.map((item, idx) => {
+                  {pagedItems.map((item, idx) => {
                     const isOverdue =
                       item.kind === "task" &&
                       !!item.dueAt &&
@@ -817,15 +839,26 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
               </table>
             </div>
           )}
+
+          {/* Pagination */}
+          {sortedItems.length > PAGE_SIZE && (
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-sm">
+              <span className="text-muted-foreground">
+                {`${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, sortedItems.length)} of ${sortedItems.length}`}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>← Prev</Button>
+                {getPageRange(page, totalPages).map((p, i) =>
+                  p === "…"
+                    ? <span key={`e${i}`} className="px-1 text-muted-foreground">…</span>
+                    : <Button key={p} size="sm" variant={p === page ? "default" : "outline"} onClick={() => setPage(p as number)}>{p}</Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-3">
-        <Button variant="outline" onClick={() => setActiveModal("log")}>Log Communication</Button>
-        <Button variant="outline" onClick={() => setActiveModal("task")}>Create Task</Button>
-        <Button onClick={() => setActiveModal("email")}>Email Client / Contact</Button>
-      </div>
 
       {/* Recipient datalist */}
       <datalist id={`recipients-${clientId}`}>
