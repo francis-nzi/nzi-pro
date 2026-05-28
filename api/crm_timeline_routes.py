@@ -17,6 +17,20 @@ def _actor(user: dict) -> str:
     return str(user.get("email") or user.get("user_id") or "system").strip()
 
 
+def _safe_int(v) -> int | None:
+    """Convert a value to int, returning None for NULL/NaN (DuckDB returns NaN for NULL ints)."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        import math
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return int(f)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ensure_tables(con) -> None:
     global _timeline_schema_seeded
     if _timeline_schema_seeded:
@@ -157,9 +171,9 @@ def _ensure_tables(con) -> None:
 
 def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "event_id": int(row.get("event_id") or 0),
-        "client_db_id": int(row.get("client_db_id") or 0),
-        "job_id": int(row.get("job_id")) if row.get("job_id") is not None else None,
+        "event_id": _safe_int(row.get("event_id")) or 0,
+        "client_db_id": _safe_int(row.get("client_db_id")) or 0,
+        "job_id": _safe_int(row.get("job_id")),
         "event_type": str(row.get("event_type") or ""),
         "channel": str(row.get("channel") or ""),
         "direction": str(row.get("direction") or ""),
@@ -186,10 +200,10 @@ def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_task(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "task_id": int(row.get("task_id") or 0),
-        "event_id": int(row.get("event_id")) if row.get("event_id") is not None else None,
-        "client_db_id": int(row.get("client_db_id") or 0),
-        "job_id": int(row.get("job_id")) if row.get("job_id") is not None else None,
+        "task_id": _safe_int(row.get("task_id")) or 0,
+        "event_id": _safe_int(row.get("event_id")),
+        "client_db_id": _safe_int(row.get("client_db_id")) or 0,
+        "job_id": _safe_int(row.get("job_id")),
         "title": str(row.get("title") or ""),
         "details": str(row.get("details") or ""),
         "assignee_user_id": str(row.get("assignee_user_id") or ""),
