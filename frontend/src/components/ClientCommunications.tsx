@@ -248,6 +248,8 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [emailBcc, setEmailBcc] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailErrors, setEmailErrors] = useState<{ job?: string; to?: string; subject?: string; message?: string }>({});
   const [clientContacts, setClientContacts] = useState<Array<{ name: string; email: string; group: string }>>([]);
   const [teamMembers, setTeamMembers] = useState<Array<{ name: string; email: string; group: string }>>([]);
   const [localFiles, setLocalFiles] = useState<File[]>([]);
@@ -561,10 +563,16 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   }
 
   async function sendEmail() {
-    if (emailJobId === "none") { setStatus("Select a job to send email from."); return; }
-    if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) { setStatus("To, Subject, and Message are required."); return; }
+    const errs: { job?: string; to?: string; subject?: string; message?: string } = {};
+    if (emailJobId === "none") errs.job = "Please select a job.";
+    if (!emailTo.trim()) errs.to = "Recipient email is required.";
+    if (!emailSubject.trim()) errs.subject = "Subject is required.";
+    if (!emailBody.trim()) errs.message = "Message is required.";
+    if (Object.keys(errs).length > 0) { setEmailErrors(errs); return; }
+    setEmailErrors({});
     const parseCsv = (s: string) => s.split(",").map((e) => e.trim()).filter(Boolean);
     if (localFiles.reduce((s, f) => s + f.size, 0) > 25 * 1024 * 1024) { setStatus("Total attachment size exceeds 25 MB."); return; }
+    setEmailSending(true);
     try {
       const fd = new FormData();
       fd.append("to_email", emailTo.trim());
@@ -575,11 +583,15 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       fd.append("job_file_ids", JSON.stringify([...selectedJobFileIds]));
       for (const f of localFiles) fd.append("files", f);
       const res = await fetch(`${baseUrl}/jobs/${Number(emailJobId)}/communications/email`, { method: "POST", credentials: "include", body: fd });
-      if (!res.ok) throw new Error(`Failed to send email (${res.status})`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail || `Failed to send email (${res.status})`);
+      }
       setEmailSubject(""); setEmailBody(""); setEmailCc(""); setEmailBcc("");
       setLocalFiles([]); setSelectedJobFileIds(new Set()); setShowJobFiles(false);
       setActiveModal(null); setStatus("Email sent and logged."); await load();
     } catch (e) { setStatus((e as Error).message); }
+    finally { setEmailSending(false); }
   }
 
   async function runAutomation() {
@@ -1138,7 +1150,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       </Dialog>
 
       {/* ── Email modal ────────────────────────────────────────────────────── */}
-      <Dialog open={activeModal === "email"} onOpenChange={(o) => { if (!o) setActiveModal(null); }}>
+      <Dialog open={activeModal === "email"} onOpenChange={(o) => { if (!o) { setActiveModal(null); setEmailErrors({}); } }}>
         <DialogContent className="max-w-2xl w-full">
           <DialogHeader>
             <DialogTitle>Email Client / Contact</DialogTitle>
@@ -1146,36 +1158,40 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>Job (required)</Label>
-                <Select value={emailJobId} onValueChange={setEmailJobId}>
+                <Select value={emailJobId} onValueChange={(v) => { setEmailJobId(v); if (v !== "none") setEmailErrors((p) => ({ ...p, job: undefined })); }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Select job</SelectItem>
                     {jobs.map((j) => <SelectItem key={j.job_id} value={String(j.job_id)}>{j.job_number || `Job ${j.job_id}`}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {emailErrors.job && <p className="text-xs font-medium text-red-600">{emailErrors.job}</p>}
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>To</Label>
-                <Input list={`recipients-${clientId}`} value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="name@client.com" />
+                <Input list={`recipients-${clientId}`} value={emailTo} onChange={(e) => { setEmailTo(e.target.value); if (e.target.value.trim()) setEmailErrors((p) => ({ ...p, to: undefined })); }} placeholder="name@client.com" className="min-w-0 w-full" />
+                {emailErrors.to && <p className="text-xs font-medium text-red-600">{emailErrors.to}</p>}
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>CC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
-                <Input list={`recipients-${clientId}`} value={emailCc} onChange={(e) => setEmailCc(e.target.value)} placeholder="cc@example.com" />
+                <Input list={`recipients-${clientId}`} value={emailCc} onChange={(e) => setEmailCc(e.target.value)} placeholder="cc@example.com" className="min-w-0 w-full" />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>BCC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
-                <Input list={`recipients-${clientId}`} value={emailBcc} onChange={(e) => setEmailBcc(e.target.value)} placeholder="bcc@example.com" />
+                <Input list={`recipients-${clientId}`} value={emailBcc} onChange={(e) => setEmailBcc(e.target.value)} placeholder="bcc@example.com" className="min-w-0 w-full" />
               </div>
             </div>
             <div className="space-y-1.5">
               <Label>Subject</Label>
-              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Re: Carbon report..." />
+              <Input value={emailSubject} onChange={(e) => { setEmailSubject(e.target.value); if (e.target.value.trim()) setEmailErrors((p) => ({ ...p, subject: undefined })); }} placeholder="Re: Carbon report..." />
+              {emailErrors.subject && <p className="text-xs font-medium text-red-600">{emailErrors.subject}</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Message</Label>
-              <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={5} placeholder="Type your message here..." />
+              <Textarea value={emailBody} onChange={(e) => { setEmailBody(e.target.value); if (e.target.value.trim()) setEmailErrors((p) => ({ ...p, message: undefined })); }} rows={5} placeholder="Type your message here..." />
+              {emailErrors.message && <p className="text-xs font-medium text-red-600">{emailErrors.message}</p>}
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -1223,8 +1239,10 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
             </div>
             <div className="flex items-center justify-between gap-3 pt-1">
               <div className="flex gap-2">
-                <Button onClick={() => void sendEmail()}>Send Email</Button>
-                <Button variant="ghost" onClick={() => setActiveModal(null)}>Cancel</Button>
+                <Button onClick={() => void sendEmail()} disabled={emailSending}>
+                  {emailSending ? "Sending…" : "Send Email"}
+                </Button>
+                <Button variant="ghost" onClick={() => setActiveModal(null)} disabled={emailSending}>Cancel</Button>
               </div>
               {emailTo && emailSubject && <span className="text-xs text-muted-foreground">To: {emailTo}{emailCc ? ` · CC: ${emailCc}` : ""}</span>}
             </div>

@@ -1406,6 +1406,7 @@ async def send_job_communication_email(
             comm_status = "sent" if str(send_res.get("status") or "") == "sent" else "failed"
             cc_str = ", ".join(cc_list) if cc_list else None
             att_note = f"\n\nAttachments: {', '.join(a['filename'] for a in attachments)}" if attachments else ""
+            logged_body = message_text + (f"\n\nCC: {cc_str}" if cc_str else "") + att_note
             con.execute(
                 """
                 INSERT INTO job_communications (
@@ -1414,10 +1415,23 @@ async def send_job_communication_email(
                 )
                 VALUES (%s, %s, 'outbound', 'email', %s, %s, %s, %s, NOW(), %s, NOW())
                 """,
-                [int(job_id), client_db_id, subject,
-                 message_text + (f"\n\nCC: {cc_str}" if cc_str else "") + att_note,
-                 to_email, comm_status, actor],
+                [int(job_id), client_db_id, subject, logged_body, to_email, comm_status, actor],
             )
+            # Mirror into crm_events so the email appears in the client Communications inbox
+            if client_db_id is not None:
+                try:
+                    con.execute(
+                        """
+                        INSERT INTO crm_events (
+                          client_db_id, job_id, event_type, channel, direction, subject,
+                          body_text, status, source, created_by, created_at, updated_at
+                        )
+                        VALUES (%s, %s, 'email', 'email', 'outbound', %s, %s, %s, 'manual', %s, NOW(), NOW())
+                        """,
+                        [client_db_id, int(job_id), subject, logged_body, comm_status, actor],
+                    )
+                except Exception:
+                    pass  # Non-fatal — job_communications record already written
             if comm_status != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
         return {"ok": True, "sent_to": to_email, "email_id": int(send_res.get("email_id") or 0), "attachments": len(attachments)}
