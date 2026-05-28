@@ -2063,6 +2063,62 @@ def renew_m365_subscription(body: dict = Body(default={}), _user: dict = Depends
         raise HTTPException(status_code=500, detail=f"Failed to renew M365 subscription: {e}")
 
 
+def renew_m365_subscriptions_due(threshold_hours: int = 24) -> dict:
+    """
+    Renew all active M365 subscriptions expiring within threshold_hours.
+    Returns {"renewed": [...], "skipped": int, "errors": [...]}
+    Called by the internal cron endpoint.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    cfg = _m365_config()
+    if not all([cfg["tenant_id"], cfg["client_id"], cfg["client_secret"]]):
+        return {"renewed": [], "skipped": 0, "errors": ["M365 env vars not configured"]}
+
+    renewed = []
+    errors = []
+
+    with get_conn() as con:
+        _ensure_m365_subscription_table(con)
+        cutoff = datetime.now(timezone.utc) + timedelta(hours=threshold_hours)
+        rows = con.execute(
+            """
+            SELECT subscription_id FROM crm_m365_subscriptions
+            WHERE is_active = TRUE AND expiration_datetime < %s
+            ORDER BY expiration_datetime ASC
+            """,
+            [cutoff.replace(tzinfo=None)],
+        ).fetchall()
+
+        if not rows:
+            return {"renewed": [], "skipped": 0, "errors": []}
+
+        try:
+            token = _m365_token(cfg)
+        except Exception as e:
+            return {"renewed": [], "skipped": len(rows), "errors": [f"Token error: {e}"]}
+
+        expiry = datetime.now(timezone.utc) + timedelta(minutes=4200)
+        expiry_str = expiry.strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
+
+        for (subscription_id,) in rows:
+            try:
+                _m365_graph_patch(
+                    token,
+                    f"https://graph.microsoft.com/v1.0/subscriptions/{urlparse.quote(subscription_id)}",
+                    {"expirationDateTime": expiry_str},
+                )
+                con.execute(
+                    "UPDATE crm_m365_subscriptions SET expiration_datetime = %s, renewed_at = NOW() WHERE subscription_id = %s",
+                    [expiry.replace(tzinfo=None), subscription_id],
+                )
+                renewed.append({"subscription_id": subscription_id, "renewed_until": expiry_str})
+            except Exception as e:
+                errors.append({"subscription_id": subscription_id, "error": str(e)})
+
+    return {"renewed": renewed, "skipped": 0, "errors": errors}
+
+
 @router.get("/communications/inbound/m365/subscription/status")
 def m365_subscription_status(_user: dict = Depends(_current_user)):
     """List all registered M365 subscriptions and their expiry status."""

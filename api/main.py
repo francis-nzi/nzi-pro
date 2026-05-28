@@ -135,6 +135,7 @@ from api.messaging_templates_routes import router as messaging_templates_router
 from api.user_settings_routes import router as user_settings_router
 from api.crm_timeline_routes import router as crm_timeline_router
 from api.crm_automation_routes import router as crm_automation_router
+from api.internal_cron_routes import router as internal_cron_router
 from api.business_development_routes import router as business_development_router
 from api.lca_routes import router as lca_router
 from api.onedrive_routes import router as onedrive_router
@@ -328,6 +329,7 @@ app.include_router(messaging_templates_router)
 app.include_router(user_settings_router)
 app.include_router(crm_timeline_router)
 app.include_router(crm_automation_router)
+app.include_router(internal_cron_router)
 app.include_router(business_development_router)
 app.include_router(lca_router)
 app.include_router(onedrive_router)
