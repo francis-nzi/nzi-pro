@@ -89,8 +89,12 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [taskDueAt, setTaskDueAt] = useState("");
   const [emailJobId, setEmailJobId] = useState<string>("none");
   const [emailTo, setEmailTo] = useState("");
+  const [emailCc, setEmailCc] = useState("");
+  const [emailBcc, setEmailBcc] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [clientContacts, setClientContacts] = useState<Array<{ name: string; email: string; group: string }>>([]);
+  const [teamMembers, setTeamMembers] = useState<Array<{ name: string; email: string; group: string }>>([]);
   const [automationTrigger, setAutomationTrigger] = useState("milestone_status");
   const [automationMode, setAutomationMode] = useState("preview");
   const [automationJobId, setAutomationJobId] = useState<string>("none");
@@ -138,6 +142,24 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    fetch(`${baseUrl}/clients/${clientId}/email-recipients`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setClientContacts(Array.isArray(data.contacts) ? data.contacts : []);
+        setTeamMembers(Array.isArray(data.team) ? data.team : []);
+      })
+      .catch(() => {});
+  }, [baseUrl, clientId]);
+
+  // Pre-set To field with primary contact when contacts load
+  useEffect(() => {
+    if (clientContacts.length > 0 && !emailTo) {
+      setEmailTo(clientContacts[0].email);
+    }
+  }, [clientContacts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const communicationEvents = useMemo(
     () => events.filter((ev) => (ev.event_type || "").toLowerCase() !== "note"),
@@ -281,9 +303,10 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       return;
     }
     if (!emailTo.trim() || !emailSubject.trim() || !emailBody.trim()) {
-      setStatus("Email To, Subject, and Message are required.");
+      setStatus("To, Subject, and Message are required.");
       return;
     }
+    const parseCsv = (s: string) => s.split(",").map((e) => e.trim()).filter(Boolean);
     try {
       const res = await fetch(`${baseUrl}/jobs/${Number(emailJobId)}/communications/email`, {
         method: "POST",
@@ -293,6 +316,8 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
           to_email: emailTo.trim(),
           subject: emailSubject.trim(),
           message_text: emailBody.trim(),
+          cc: emailCc.trim() ? parseCsv(emailCc) : [],
+          bcc: emailBcc.trim() ? parseCsv(emailBcc) : [],
         }),
       });
       if (!res.ok) {
@@ -301,6 +326,8 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       }
       setEmailSubject("");
       setEmailBody("");
+      setEmailCc("");
+      setEmailBcc("");
       setStatus("Email sent and logged.");
       await load();
     } catch (e) {
@@ -605,12 +632,27 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Email Client / Contact</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <Label>Job (required for email logging)</Label>
+      {/* Recipient datalist shared across To/CC/BCC fields */}
+      <datalist id={`recipients-${clientId}`}>
+        {clientContacts.map((r) => (
+          <option key={`c-${r.email}`} value={r.email} label={`${r.name} (Client)`} />
+        ))}
+        {teamMembers.map((r) => (
+          <option key={`t-${r.email}`} value={r.email} label={`${r.name} (Team)`} />
+        ))}
+      </datalist>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Email Client / Contact</CardTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Sent via admin@netzero.international · your name and signature auto-applied · client replies go to your inbox
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Job (required)</Label>
               <Select value={emailJobId} onValueChange={setEmailJobId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -623,22 +665,60 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Email To</Label>
-              <Input value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="name@client.com" />
-            </div>
-            <div className="space-y-2">
-              <Label>Subject</Label>
-              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Message</Label>
-              <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={5} />
-            </div>
-            <Button onClick={() => void sendEmail()}>Send Email</Button>
-          </CardContent>
-        </Card>
 
+            <div className="space-y-1.5">
+              <Label>To</Label>
+              <Input
+                list={`recipients-${clientId}`}
+                value={emailTo}
+                onChange={(e) => setEmailTo(e.target.value)}
+                placeholder="name@client.com"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>CC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
+              <Input
+                list={`recipients-${clientId}`}
+                value={emailCc}
+                onChange={(e) => setEmailCc(e.target.value)}
+                placeholder="cc@example.com, another@example.com"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>BCC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
+              <Input
+                list={`recipients-${clientId}`}
+                value={emailBcc}
+                onChange={(e) => setEmailBcc(e.target.value)}
+                placeholder="bcc@example.com"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Subject</Label>
+            <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Re: Carbon report..." />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Message</Label>
+            <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={6} placeholder="Type your message here..." />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <Button onClick={() => void sendEmail()}>Send Email</Button>
+            {emailTo && emailSubject && (
+              <span className="text-xs text-muted-foreground">
+                To: {emailTo}{emailCc ? ` · CC: ${emailCc}` : ""}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Automation Runner</CardTitle></CardHeader>
           <CardContent className="space-y-3">

@@ -530,6 +530,53 @@ def list_client_tasks(
         raise HTTPException(status_code=500, detail=f"Failed to load tasks: {e}")
 
 
+@router.get("/clients/{client_id}/email-recipients")
+def get_email_recipients(client_id: int, _user: dict = Depends(_current_user)):
+    """Returns client contacts + active team members for To/CC/BCC autocomplete in the email composer."""
+    try:
+        with get_conn() as con:
+            contacts_df = con.execute(
+                """
+                SELECT full_name, email, TRUE AS is_contact
+                FROM client_contacts
+                WHERE client_db_id = %s
+                  AND email IS NOT NULL AND trim(email) <> ''
+                ORDER BY COALESCE(is_primary, FALSE) DESC, lower(full_name)
+                """,
+                [int(client_id)],
+            ).df()
+
+            users_df = con.execute(
+                """
+                SELECT full_name, email, FALSE AS is_contact
+                FROM users
+                WHERE COALESCE(status, 'Active') = 'Active'
+                  AND email IS NOT NULL AND trim(email) <> ''
+                ORDER BY lower(full_name)
+                """
+            ).df()
+
+        contacts = []
+        if contacts_df is not None and not contacts_df.empty:
+            for _, r in contacts_df.iterrows():
+                name = str(r.get("full_name") or "").strip()
+                email = str(r.get("email") or "").strip()
+                if email:
+                    contacts.append({"name": name, "email": email, "group": "Client Contacts"})
+
+        team = []
+        if users_df is not None and not users_df.empty:
+            for _, r in users_df.iterrows():
+                name = str(r.get("full_name") or "").strip()
+                email = str(r.get("email") or "").strip()
+                if email:
+                    team.append({"name": name, "email": email, "group": "Team"})
+
+        return {"contacts": contacts, "team": team}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load email recipients: {e}")
+
+
 @router.post("/timeline/events/{event_id}/tags")
 def replace_event_tags(event_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:

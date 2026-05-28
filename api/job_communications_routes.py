@@ -1272,6 +1272,17 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
         raise HTTPException(status_code=400, detail="subject is required")
     if not message_text:
         raise HTTPException(status_code=400, detail="message_text is required")
+
+    def _parse_addresses(raw) -> list[str]:
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [str(e).strip() for e in raw if str(e or "").strip()]
+        return [e.strip() for e in str(raw).split(",") if e.strip()]
+
+    cc = _parse_addresses(body.get("cc"))
+    bcc = _parse_addresses(body.get("bcc"))
+
     try:
         with get_conn() as con:
             _ensure_tables(con)
@@ -1290,6 +1301,8 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
                 body_text=message_text,
                 body_html=body_html,
                 created_by=actor,
+                cc=cc or None,
+                bcc=bcc or None,
                 entity_type="job_communication",
                 entity_id=None,
                 job_id=int(job_id),
@@ -1299,6 +1312,7 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
                 raise_on_error=False,
             )
             comm_status = "sent" if str(send_res.get("status") or "") == "sent" else "failed"
+            cc_str = ", ".join(cc) if cc else None
             con.execute(
                 """
                 INSERT INTO job_communications (
@@ -1307,7 +1321,9 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
                 )
                 VALUES (%s, %s, 'outbound', 'email', %s, %s, %s, %s, NOW(), %s, NOW())
                 """,
-                [int(job_id), client_db_id, subject, message_text, to_email, comm_status, actor],
+                [int(job_id), client_db_id, subject,
+                 message_text + (f"\n\nCC: {cc_str}" if cc_str else ""),
+                 to_email, comm_status, actor],
             )
             if comm_status != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
@@ -1875,3 +1891,211 @@ def inbound_m365_sync(
         raise HTTPException(status_code=500, detail=f"Microsoft Graph error: {details}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to sync inbound m365 emails: {e}")
+
+
+def _ensure_m365_subscription_table(con) -> None:
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_m365_subscriptions (
+          id SERIAL PRIMARY KEY,
+          subscription_id VARCHAR NOT NULL UNIQUE,
+          resource VARCHAR NOT NULL,
+          notification_url VARCHAR NOT NULL,
+          expiration_datetime TIMESTAMP NOT NULL,
+          client_state VARCHAR,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          renewed_at TIMESTAMP,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+        """
+    )
+
+
+def _m365_graph_post(token: str, url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urlrequest.Request(url, data=data, method="POST")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    with urlrequest.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _m365_graph_patch(token: str, url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urlrequest.Request(url, data=data, method="PATCH")
+    req.add_header("Authorization", f"Bearer {token}")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    with urlrequest.urlopen(req, timeout=30) as resp:
+        body = resp.read()
+        return json.loads(body.decode("utf-8")) if body.strip() else {}
+
+
+@router.post("/communications/inbound/m365/subscription/register")
+def register_m365_subscription(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    """
+    Register a Microsoft Graph webhook subscription so inbound emails to the admin
+    mailbox are pushed to /communications/inbound/m365/notifications in real time.
+
+    Requires env vars: M365_TENANT_ID, M365_CLIENT_ID, M365_CLIENT_SECRET, M365_MAILBOX_USER
+    Optional: M365_CLIENT_STATE (secret used to verify notifications), APP_PUBLIC_URL
+
+    The Azure app registration needs Mail.Read application permission (admin-consented).
+    Subscriptions expire after ~3 days — call /renew to extend.
+    """
+    cfg = _m365_config()
+    if not all([cfg["tenant_id"], cfg["client_id"], cfg["client_secret"], cfg["mailbox_user"]]):
+        raise HTTPException(status_code=503, detail="M365 env vars not fully configured (need TENANT_ID, CLIENT_ID, CLIENT_SECRET, MAILBOX_USER)")
+
+    app_url = str(body.get("app_public_url") or os.getenv("APP_PUBLIC_URL") or "").strip().rstrip("/")
+    if not app_url:
+        raise HTTPException(status_code=400, detail="Provide app_public_url in body or set APP_PUBLIC_URL env var (e.g. https://your-app.onrender.com/api/backend)")
+
+    notification_url = f"{app_url}/communications/inbound/m365/notifications"
+    resource = f"users/{cfg['mailbox_user']}/mailFolders/inbox/messages"
+
+    from datetime import datetime, timedelta, timezone
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=4200)
+    expiry_str = expiry.strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
+
+    try:
+        token = _m365_token(cfg)
+        payload = {
+            "changeType": "created",
+            "notificationUrl": notification_url,
+            "resource": resource,
+            "expirationDateTime": expiry_str,
+            "latestSupportedTlsVersion": "v1_2",
+        }
+        if cfg["client_state"]:
+            payload["clientState"] = cfg["client_state"]
+
+        result = _m365_graph_post(token, "https://graph.microsoft.com/v1.0/subscriptions", payload)
+        subscription_id = str(result.get("id") or "").strip()
+        if not subscription_id:
+            raise HTTPException(status_code=500, detail=f"Graph did not return a subscription id: {result}")
+
+        with get_conn() as con:
+            _ensure_m365_subscription_table(con)
+            con.execute(
+                """
+                INSERT INTO crm_m365_subscriptions (subscription_id, resource, notification_url, expiration_datetime, client_state, is_active)
+                VALUES (%s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (subscription_id) DO UPDATE
+                  SET is_active = TRUE, renewed_at = NOW(), expiration_datetime = EXCLUDED.expiration_datetime
+                """,
+                [subscription_id, resource, notification_url, expiry.replace(tzinfo=None), cfg["client_state"] or None],
+            )
+
+        return {
+            "ok": True,
+            "subscription_id": subscription_id,
+            "notification_url": notification_url,
+            "resource": resource,
+            "expires": expiry_str,
+            "note": "Subscription expires in ~3 days. Call /renew before then to keep it active.",
+        }
+    except HTTPError as e:
+        try:
+            details = e.read().decode("utf-8")
+        except Exception:
+            details = str(e)
+        raise HTTPException(status_code=500, detail=f"Graph error registering subscription: {details}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to register M365 subscription: {e}")
+
+
+@router.post("/communications/inbound/m365/subscription/renew")
+def renew_m365_subscription(body: dict = Body(default={}), _user: dict = Depends(_current_user)):
+    """
+    Renew an existing M365 Graph subscription before it expires (~3-day lifetime).
+    Pass subscription_id in body, or omit to renew the most recent active one.
+    """
+    cfg = _m365_config()
+    if not all([cfg["tenant_id"], cfg["client_id"], cfg["client_secret"]]):
+        raise HTTPException(status_code=503, detail="M365 env vars not configured")
+
+    subscription_id = str(body.get("subscription_id") or "").strip()
+
+    try:
+        with get_conn() as con:
+            _ensure_m365_subscription_table(con)
+            if not subscription_id:
+                row = con.execute(
+                    "SELECT subscription_id FROM crm_m365_subscriptions WHERE is_active = TRUE ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="No active subscription found. Register one first.")
+                subscription_id = str(row[0])
+
+            from datetime import datetime, timedelta, timezone
+            expiry = datetime.now(timezone.utc) + timedelta(minutes=4200)
+            expiry_str = expiry.strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
+
+            token = _m365_token(cfg)
+            _m365_graph_patch(
+                token,
+                f"https://graph.microsoft.com/v1.0/subscriptions/{urlparse.quote(subscription_id)}",
+                {"expirationDateTime": expiry_str},
+            )
+            con.execute(
+                """
+                UPDATE crm_m365_subscriptions
+                SET expiration_datetime = %s, renewed_at = NOW()
+                WHERE subscription_id = %s
+                """,
+                [expiry.replace(tzinfo=None), subscription_id],
+            )
+
+        return {"ok": True, "subscription_id": subscription_id, "renewed_until": expiry_str}
+    except HTTPError as e:
+        try:
+            details = e.read().decode("utf-8")
+        except Exception:
+            details = str(e)
+        raise HTTPException(status_code=500, detail=f"Graph error renewing subscription: {details}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to renew M365 subscription: {e}")
+
+
+@router.get("/communications/inbound/m365/subscription/status")
+def m365_subscription_status(_user: dict = Depends(_current_user)):
+    """List all registered M365 subscriptions and their expiry status."""
+    try:
+        with get_conn() as con:
+            _ensure_m365_subscription_table(con)
+            df = con.execute(
+                """
+                SELECT subscription_id, resource, notification_url, expiration_datetime,
+                       is_active, created_at, renewed_at
+                FROM crm_m365_subscriptions
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            ).df()
+        items = []
+        if df is not None and not df.empty:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            for _, r in df.iterrows():
+                exp = r.get("expiration_datetime")
+                exp_iso = exp.isoformat() if exp else None
+                expired = (exp.replace(tzinfo=timezone.utc) < now) if exp else True
+                items.append({
+                    "subscription_id": str(r.get("subscription_id") or ""),
+                    "resource": str(r.get("resource") or ""),
+                    "notification_url": str(r.get("notification_url") or ""),
+                    "expiration_datetime": exp_iso,
+                    "is_active": bool(r.get("is_active")),
+                    "expired": expired,
+                    "created_at": r.get("created_at").isoformat() if r.get("created_at") else None,
+                    "renewed_at": r.get("renewed_at").isoformat() if r.get("renewed_at") else None,
+                })
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load subscription status: {e}")

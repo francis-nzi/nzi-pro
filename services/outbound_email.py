@@ -37,6 +37,23 @@ def ensure_outbound_email_tables(con) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS ix_outbound_email_job ON outbound_email_log (job_id, created_at DESC)")
     con.execute("CREATE INDEX IF NOT EXISTS ix_outbound_email_client ON outbound_email_log (client_db_id, created_at DESC)")
     con.execute("CREATE INDEX IF NOT EXISTS ix_outbound_email_status ON outbound_email_log (status, created_at DESC)")
+    con.execute("ALTER TABLE outbound_email_log ADD COLUMN IF NOT EXISTS from_name VARCHAR")
+    con.execute("ALTER TABLE outbound_email_log ADD COLUMN IF NOT EXISTS cc_addresses TEXT")
+    con.execute("ALTER TABLE outbound_email_log ADD COLUMN IF NOT EXISTS bcc_addresses TEXT")
+
+
+def _lookup_sender_name(con, identifier: str) -> str | None:
+    ident = str(identifier or "").strip()
+    if not ident:
+        return None
+    try:
+        row = con.execute(
+            "SELECT full_name FROM users WHERE lower(email) = lower(%s) OR lower(user_id) = lower(%s) LIMIT 1",
+            [ident, ident],
+        ).fetchone()
+        return str(row[0] or "").strip() or None if row else None
+    except Exception:
+        return None
 
 
 def _safe_json(value: Any) -> str:
@@ -61,6 +78,9 @@ def send_tracked_email(
     body_text: str,
     body_html: str | None = None,
     created_by: str | None = None,
+    from_name: str | None = None,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
     template_key: str | None = None,
     entity_type: str | None = None,
     entity_id: int | None = None,
@@ -73,19 +93,27 @@ def send_tracked_email(
 ) -> dict[str, Any]:
     ensure_outbound_email_tables(con)
 
+    # Resolve sender display name from users table if not explicitly provided
+    resolved_from_name = str(from_name or "").strip() or _lookup_sender_name(con, created_by or "") or None
+
     attachment_count = 1 if attachment else 0
     attachment_name = str((attachment or {}).get("filename") or "").strip()
+    cc_str = ", ".join([e.strip() for e in (cc or []) if str(e or "").strip()]) or None
+    bcc_str = ", ".join([e.strip() for e in (bcc or []) if str(e or "").strip()]) or None
+
     row = con.execute(
         """
         INSERT INTO outbound_email_log (
           channel, template_key, entity_type, entity_id, job_id, client_db_id,
           to_email, subject, body_text, body_html, attachment_count, attachment_names,
-          metadata_json, status, created_by, created_at, updated_at
+          metadata_json, status, created_by, from_name, cc_addresses, bcc_addresses,
+          created_at, updated_at
         )
         VALUES (
           'email', %s, %s, %s, %s, %s,
           %s, %s, %s, %s, %s, %s,
-          %s::jsonb, 'pending', %s, NOW(), NOW()
+          %s::jsonb, 'pending', %s, %s, %s, %s,
+          NOW(), NOW()
         )
         RETURNING email_id
         """,
@@ -103,6 +131,9 @@ def send_tracked_email(
             attachment_name or None,
             _safe_json(metadata or {}),
             str(created_by or "").strip() or None,
+            resolved_from_name,
+            cc_str,
+            bcc_str,
         ],
     ).fetchone()
     email_id = int(row[0])
@@ -118,6 +149,9 @@ def send_tracked_email(
                 body_text=str(body_text or ""),
                 body_html=body_html,
                 reply_to=derived_reply_to,
+                from_name=resolved_from_name,
+                cc=cc,
+                bcc=bcc,
                 attachment_bytes=bytes(attachment.get("bytes") or b""),
                 attachment_filename=str(attachment.get("filename") or "attachment.bin"),
                 attachment_mime=str(attachment.get("mime") or "application/octet-stream"),
@@ -129,6 +163,9 @@ def send_tracked_email(
                 body_text=str(body_text or ""),
                 body_html=body_html,
                 reply_to=derived_reply_to,
+                from_name=resolved_from_name,
+                cc=cc,
+                bcc=bcc,
             )
         con.execute(
             """
