@@ -87,6 +87,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [taskTitle, setTaskTitle] = useState("");
   const [taskDetails, setTaskDetails] = useState("");
   const [taskAssignee, setTaskAssignee] = useState("");
+  const [taskNotifyAssignee, setTaskNotifyAssignee] = useState(false);
   const [taskPriority, setTaskPriority] = useState("normal");
   const [taskDueAt, setTaskDueAt] = useState("");
   const [emailJobId, setEmailJobId] = useState<string>("none");
@@ -276,6 +277,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         title: taskTitle.trim(),
         details: taskDetails.trim(),
         assignee_user_id: taskAssignee.trim() || null,
+        notify_assignee: taskNotifyAssignee && !!taskAssignee.trim(),
         priority: taskPriority,
         due_at: taskDueAt || null,
         status: "open",
@@ -290,12 +292,14 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         const txt = await res.text().catch(() => "");
         throw new Error(`Failed to create task (${res.status})${txt ? `: ${txt}` : ""}`);
       }
+      const notified = taskNotifyAssignee && !!taskAssignee.trim();
       setTaskTitle("");
       setTaskDetails("");
       setTaskAssignee("");
+      setTaskNotifyAssignee(false);
       setTaskPriority("normal");
       setTaskDueAt("");
-      setStatus("Task created.");
+      setStatus(`Task created.${notified ? " Assignee notified by email." : ""}`);
       await load();
     } catch (e) {
       setStatus((e as Error).message);
@@ -657,14 +661,30 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Assignee</Label>
-                <Input value={taskAssignee} onChange={(e) => setTaskAssignee(e.target.value)} placeholder="user email or name" />
+                <Label>Assignee <span className="text-xs font-normal text-muted-foreground">team or contact</span></Label>
+                <Input
+                  list={`recipients-${clientId}`}
+                  value={taskAssignee}
+                  onChange={(e) => setTaskAssignee(e.target.value)}
+                  placeholder="Search team or contacts..."
+                />
               </div>
               <div className="space-y-2">
                 <Label>Due Date</Label>
                 <Input type="date" value={taskDueAt} onChange={(e) => setTaskDueAt(e.target.value)} />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={taskNotifyAssignee}
+                onChange={(e) => setTaskNotifyAssignee(e.target.checked)}
+                disabled={!taskAssignee.trim()}
+                className="h-4 w-4"
+              />
+              Notify assignee by email when task is created
+              {!taskAssignee.trim() && <span className="text-xs text-muted-foreground">(select assignee first)</span>}
+            </label>
             <Button onClick={() => void createTask()}>Create Task</Button>
           </CardContent>
         </Card>

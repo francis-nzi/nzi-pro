@@ -128,6 +128,7 @@ function TimePageContent() {
   const [taskPriority, setTaskPriority] = useState<string>("normal");
   const [selectedTaskAssignees, setSelectedTaskAssignees] = useState<string[]>([]);
   const [taskAssigneeLoading, setTaskAssigneeLoading] = useState(false);
+  const [notifyTaskAssignee, setNotifyTaskAssignee] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
   const activeTeamMembers = useMemo(
@@ -375,6 +376,20 @@ function TimePageContent() {
       setStatus(editingId ? "Time log updated!" : "Time log added!");
 
       if (createTask) {
+        // Resolve first assignee's email/identifier for backend notification lookup
+        const firstAssignee = selectedTaskAssignees[0] ?? null;
+        let assigneeUserId: string | null = null;
+        if (firstAssignee) {
+          if (firstAssignee.startsWith("team:")) {
+            assigneeUserId = firstAssignee.slice(5); // user_id is their email
+          } else if (firstAssignee.startsWith("client:")) {
+            const contactId = parseInt(firstAssignee.slice(7));
+            const contact = clientContacts.find((c) => c.contact_id === contactId);
+            assigneeUserId = contact?.email ?? null;
+          } else {
+            assigneeUserId = firstAssignee;
+          }
+        }
         const taskResponse = await fetch(`${baseUrl}/jobs/${parseInt(selectedJobId)}/communications/tasks`, {
           method: "POST",
           credentials: "include",
@@ -382,10 +397,13 @@ function TimePageContent() {
           body: JSON.stringify({
             title: taskTitle.trim(),
             details: taskDetails.trim() || notes.trim() || "",
+            assignee_user_id: assigneeUserId,
             assigned_to: selectedTaskAssigneeLabels.join(", "),
             priority: taskPriority,
+            due_at: taskDueDate,
             due_date: taskDueDate,
             status: "open",
+            notify_assignee: notifyTaskAssignee && !!assigneeUserId,
           }),
         });
 
@@ -417,6 +435,7 @@ function TimePageContent() {
     setTaskDueDate("");
     setTaskPriority("normal");
     setSelectedTaskAssignees([]);
+    setNotifyTaskAssignee(false);
     setClientContacts([]);
     setSelectedJobClientId(null);
     setEditingId(null);
@@ -685,6 +704,19 @@ function TimePageContent() {
                       rows={4}
                     />
                   </div>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={notifyTaskAssignee}
+                      onChange={(e) => setNotifyTaskAssignee(e.target.checked)}
+                      disabled={selectedTaskAssignees.length === 0}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    Notify assignee by email when task is created
+                    {selectedTaskAssignees.length === 0 && (
+                      <span className="text-xs text-muted-foreground">(select assignee first)</span>
+                    )}
+                  </label>
                 </>
               ) : null}
             </div>

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from api.auth import _current_user
 from core.database import get_conn
+from services.outbound_email import send_tracked_email
 
 router = APIRouter(tags=["crm-timeline"])
 
@@ -391,6 +392,107 @@ def archive_timeline_event(event_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to archive event: {e}")
 
 
+def _lookup_assignee_email(con, assignee: str, client_db_id: int | None = None) -> str | None:
+    """Resolve an assignee identifier to an email address for notification."""
+    s = str(assignee or "").strip()
+    if not s:
+        return None
+    # Strip frontend picker prefixes
+    if s.startswith("team:"):
+        s = s[5:].strip()
+    elif s.startswith("client:"):
+        tail = s[7:].strip()
+        # If it looks like a contact_id integer, look it up in client_contacts
+        if tail.isdigit():
+            try:
+                row = con.execute(
+                    "SELECT email FROM client_contacts WHERE contact_id = %s AND email IS NOT NULL LIMIT 1",
+                    [int(tail)],
+                ).fetchone()
+                return str(row[0] or "").strip() or None if row else None
+            except Exception:
+                return None
+        s = tail  # might already be an email
+    # If it looks like an email, try users table first then accept as-is
+    if "@" in s:
+        try:
+            row = con.execute(
+                "SELECT email FROM users WHERE lower(email) = lower(%s) LIMIT 1", [s]
+            ).fetchone()
+            if row:
+                return str(row[0] or "").strip() or None
+        except Exception:
+            pass
+        # Accept the email directly
+        if "." in s.split("@")[-1]:
+            return s
+    # Try matching as user_id
+    try:
+        row = con.execute(
+            "SELECT email FROM users WHERE lower(user_id) = lower(%s) LIMIT 1", [s]
+        ).fetchone()
+        if row:
+            return str(row[0] or "").strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _send_task_assignment_email(
+    con,
+    *,
+    task_id: int,
+    title: str,
+    details: str | None,
+    due_at: str | None,
+    priority: str,
+    assignee: str | None,
+    job_id: int | None,
+    client_db_id: int | None,
+    actor: str,
+) -> None:
+    if not assignee:
+        return
+    to_email = _lookup_assignee_email(con, assignee, client_db_id)
+    if not to_email:
+        return
+    # Try to get job name
+    job_name: str | None = None
+    if job_id:
+        try:
+            row = con.execute(
+                "SELECT job_number, title FROM jobs WHERE job_id = %s LIMIT 1", [int(job_id)]
+            ).fetchone()
+            if row:
+                job_name = f"{row[0]} – {row[1]}".strip(" –")
+        except Exception:
+            pass
+    lines = [f"A task has been assigned to you."]
+    lines.append(f"\nTitle: {title}")
+    if job_name:
+        lines.append(f"Job: {job_name}")
+    if due_at:
+        lines.append(f"Due: {due_at}")
+    if priority and priority != "normal":
+        lines.append(f"Priority: {priority.title()}")
+    if details:
+        lines.append(f"\nDetails:\n{details}")
+    lines.append("\nLog in to the app to update the status.")
+    send_tracked_email(
+        con,
+        to_email=to_email,
+        subject=f"Task assigned to you: {title}",
+        body_text="\n".join(lines),
+        created_by=actor,
+        entity_type="task",
+        entity_id=task_id,
+        job_id=job_id,
+        client_db_id=client_db_id,
+        template_key="task_assignment",
+        raise_on_error=False,
+    )
+
+
 @router.post("/clients/{client_id}/tasks")
 def create_client_task(client_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
     try:
@@ -398,35 +500,54 @@ def create_client_task(client_id: int, body: dict = Body(...), _user: dict = Dep
         title = str(body.get("title") or "").strip()
         if not title:
             raise HTTPException(status_code=400, detail="title is required")
+        notify = bool(body.get("notify_assignee", False))
+        assignee = str(body.get("assignee_user_id") or "").strip() or None
+        job_id = int(body["job_id"]) if body.get("job_id") is not None else None
+        due_at = str(body.get("due_at") or "").strip() or None
 
         with get_conn() as con:
             _ensure_tables(con)
-            con.execute(
+            row = con.execute(
                 """
                 INSERT INTO crm_tasks (
                   event_id, client_db_id, job_id, title, details, assignee_user_id,
                   priority, sla_due_at, due_at, status, created_by, created_at, updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                RETURNING task_id
                 """,
                 [
                     int(body["event_id"]) if body.get("event_id") is not None else None,
                     int(client_id),
-                    int(body["job_id"]) if body.get("job_id") is not None else None,
+                    job_id,
                     title,
                     str(body.get("details") or "").strip() or None,
-                    str(body.get("assignee_user_id") or "").strip() or None,
+                    assignee,
                     str(body.get("priority") or "normal"),
                     str(body.get("sla_due_at") or "").strip() or None,
-                    str(body.get("due_at") or "").strip() or None,
+                    due_at,
                     str(body.get("status") or "open"),
                     actor,
                 ],
-            )
-            row = con.execute("SELECT MAX(task_id) FROM crm_tasks WHERE client_db_id = %s", [int(client_id)]).fetchone()
-            if not row or row[0] is None:
+            ).fetchone()
+            if not row:
                 raise HTTPException(status_code=500, detail="Failed to create task")
             task_id = int(row[0])
+
+            if notify and assignee:
+                _send_task_assignment_email(
+                    con,
+                    task_id=task_id,
+                    title=title,
+                    details=str(body.get("details") or "").strip() or None,
+                    due_at=due_at,
+                    priority=str(body.get("priority") or "normal"),
+                    assignee=assignee,
+                    job_id=job_id,
+                    client_db_id=int(client_id),
+                    actor=actor,
+                )
+
             df = con.execute("SELECT * FROM crm_tasks WHERE task_id = %s", [task_id]).df()
             return _serialize_task(df.iloc[0].to_dict()) if df is not None and not df.empty else {"task_id": task_id}
     except HTTPException:

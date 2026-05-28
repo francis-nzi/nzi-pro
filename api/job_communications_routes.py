@@ -20,6 +20,7 @@ from services.company_profile import company_address_html, company_footer_text, 
 from services.messaging_templates import build_email_content, get_user_signature_html
 from services.outbound_email import list_outbound_emails, send_tracked_email
 from api.job_files_routes import _read_job_file_bytes
+from api.crm_timeline_routes import _lookup_assignee_email, _send_task_assignment_email
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -1174,13 +1175,24 @@ def create_job_communication_task(job_id: int, body: dict = Body(...), _user: di
     title = str(body.get("title") or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="title is required")
+    notify = bool(body.get("notify_assignee", False))
+    # Accept assignee_user_id (new) or assigned_to (legacy label) - prefer user_id
+    assignee = str(body.get("assignee_user_id") or body.get("assigned_to") or "").strip() or None
+    priority = str(body.get("priority") or "normal")
+    due_at = str(body.get("due_at") or body.get("due_date") or "").strip() or None
+
     try:
         with get_conn() as con:
             _ensure_tables(con)
-            exists = con.execute("SELECT 1 FROM jobs WHERE job_id = %s", [int(job_id)]).fetchone()
-            if not exists:
+            job_row = con.execute(
+                "SELECT client_db_id FROM jobs WHERE job_id = %s", [int(job_id)]
+            ).fetchone()
+            if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
-            row = con.execute(
+            client_db_id = int(job_row[0]) if job_row[0] is not None else None
+
+            # Legacy insert into job_communication_tasks (for communication-linked views)
+            legacy_row = con.execute(
                 """
                 INSERT INTO job_communication_tasks (
                   job_id, communication_id, title, details, assigned_to, priority, status, due_date, created_by, updated_at
@@ -1193,14 +1205,55 @@ def create_job_communication_task(job_id: int, body: dict = Body(...), _user: di
                     int(body.get("communication_id")) if body.get("communication_id") is not None else None,
                     title,
                     str(body.get("details") or "").strip() or None,
-                    str(body.get("assigned_to") or "").strip() or None,
-                    str(body.get("priority") or "normal"),
+                    assignee,
+                    priority,
                     str(body.get("status") or "open"),
-                    str(body.get("due_date") or "").strip() or None,
+                    due_at,
                     actor,
                 ],
             ).fetchone()
-        return {"ok": True, "task_id": int(row[0])}
+            legacy_task_id = int(legacy_row[0])
+
+            # Primary insert into crm_tasks so task appears in client Communications inbox
+            if client_db_id is not None:
+                crm_row = con.execute(
+                    """
+                    INSERT INTO crm_tasks (
+                      client_db_id, job_id, title, details, assignee_user_id,
+                      priority, due_at, status, created_by, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    RETURNING task_id
+                    """,
+                    [
+                        client_db_id,
+                        int(job_id),
+                        title,
+                        str(body.get("details") or "").strip() or None,
+                        assignee,
+                        priority,
+                        due_at,
+                        str(body.get("status") or "open"),
+                        actor,
+                    ],
+                ).fetchone()
+                crm_task_id = int(crm_row[0])
+
+                if notify and assignee:
+                    _send_task_assignment_email(
+                        con,
+                        task_id=crm_task_id,
+                        title=title,
+                        details=str(body.get("details") or "").strip() or None,
+                        due_at=due_at,
+                        priority=priority,
+                        assignee=assignee,
+                        job_id=int(job_id),
+                        client_db_id=client_db_id,
+                        actor=actor,
+                    )
+
+        return {"ok": True, "task_id": legacy_task_id}
     except HTTPException:
         raise
     except Exception as e:
