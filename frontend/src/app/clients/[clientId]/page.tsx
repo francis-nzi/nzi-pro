@@ -459,6 +459,10 @@ function ClientDetailPageContent() {
       targetSection = "carbon";
     } else if (section === "reporting") {
       targetSection = "reporting";
+    } else if (section === "timeline" || section === "communications") {
+      targetSection = "timeline";
+    } else if (section === "notes") {
+      targetSection = "notes";
     } else if (section === "profile") {
       targetSection = "profile";
     } else if (section === "details") {
@@ -503,7 +507,11 @@ function ClientDetailPageContent() {
     } else if (section === "custom-fields") {
       targetSection = "profile";
       targetSubTab = "custom-fields";
-    } else if (section === "timeline" || section === "notes" || section === "jobs") {
+    } else if (section === "timeline") {
+      targetSection = "timeline";
+    } else if (section === "notes") {
+      targetSection = "notes";
+    } else if (section === "jobs") {
       targetSection = "overview";
     } else if (section === "profile") {
       targetSection = "profile";
@@ -1964,13 +1972,22 @@ function ClientDetailPageContent() {
           </Card>
         </div>
 
-        {/* Row 3: Communications timeline — embedded so consultants can see touchpoints without leaving the cockpit */}
-        <div>
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-slate-900">Communications & Activity</h3>
-          </div>
-          <ClientCommunications clientId={clientId} baseUrl={baseUrl} jobs={commJobs} />
-        </div>
+        {/* Row 3: Communications shortcut */}
+        <Card>
+          <CardContent className="flex items-center justify-between py-4">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Communications & Activity</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Touchpoints, logged communications, tasks, and automation</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSection("timeline")}
+              className="text-sm font-medium text-[#1c5026] hover:underline"
+            >
+              Open Communications →
+            </button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
