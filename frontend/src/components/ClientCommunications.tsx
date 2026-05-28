@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,15 +56,158 @@ type InboxItem = {
   kind: "communication" | "task";
   id: string;
   title: string;
-  subtitle: string;
   body: string;
   status: string;
   direction: string;
   timestamp: string;
+  createdBy: string;
+  jobRef: string | null;
+  channel?: string;
   source?: string;
   source_ref?: string;
   taskId?: number;
+  eventId?: number;
+  priority?: string;
+  dueAt?: string | null;
+  assignee?: string;
 };
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function fmtTs(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 2) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
+}
+
+function itemBorderColor(item: InboxItem): string {
+  if (item.kind === "task") {
+    const isOverdue =
+      item.dueAt &&
+      new Date(item.dueAt).getTime() < Date.now() &&
+      item.status !== "done" &&
+      item.status !== "closed";
+    if (isOverdue) return "border-l-red-500";
+    if (item.priority === "urgent") return "border-l-red-400";
+    if (item.priority === "high") return "border-l-orange-400";
+    if (item.status === "done" || item.status === "closed") return "border-l-slate-300";
+    return "border-l-blue-400";
+  }
+  const isTp =
+    (item.source || "").toLowerCase() === "intelligence" ||
+    (item.source_ref || "").toLowerCase().startsWith("touchpoint:");
+  if (isTp) return "border-l-amber-400";
+  const ch = (item.channel || "email").toLowerCase();
+  if (ch === "email")
+    return item.direction === "inbound" ? "border-l-violet-400" : "border-l-emerald-400";
+  if (ch === "call") return "border-l-cyan-400";
+  if (ch === "meeting") return "border-l-teal-400";
+  return "border-l-slate-300";
+}
+
+function TypeBadge({ item }: { item: InboxItem }) {
+  const isTp =
+    (item.source || "").toLowerCase() === "intelligence" ||
+    (item.source_ref || "").toLowerCase().startsWith("touchpoint:");
+
+  if (item.kind === "task") {
+    const cls =
+      item.priority === "urgent"
+        ? "bg-red-100 text-red-700"
+        : item.priority === "high"
+        ? "bg-orange-100 text-orange-700"
+        : "bg-blue-100 text-blue-700";
+    return (
+      <span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
+        Task
+      </span>
+    );
+  }
+  if (isTp) {
+    return (
+      <span className="shrink-0 rounded-sm bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+        Touchpoint
+      </span>
+    );
+  }
+  const ch = (item.channel || "email").toLowerCase();
+  const labels: Record<string, string> = {
+    email: "Email",
+    call: "Call",
+    meeting: "Meeting",
+    chat: "Chat",
+    message: "Message",
+    note: "Note",
+  };
+  const colors: Record<string, string> = {
+    email: "bg-emerald-100 text-emerald-700",
+    call: "bg-cyan-100 text-cyan-700",
+    meeting: "bg-teal-100 text-teal-700",
+    chat: "bg-sky-100 text-sky-700",
+    message: "bg-sky-100 text-sky-700",
+    note: "bg-slate-100 text-slate-600",
+  };
+  return (
+    <span
+      className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${colors[ch] ?? "bg-slate-100 text-slate-600"}`}
+    >
+      {labels[ch] ?? ch}
+    </span>
+  );
+}
+
+function DirectionBadge({ direction }: { direction: string }) {
+  if (!direction || direction === "internal") return null;
+  const cfg: Record<string, { cls: string; label: string }> = {
+    inbound: { cls: "bg-violet-100 text-violet-700", label: "↓ Inbound" },
+    outbound: { cls: "bg-emerald-100 text-emerald-700", label: "↑ Outbound" },
+  };
+  const c = cfg[direction];
+  if (!c) return null;
+  return (
+    <span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${c.cls}`}>
+      {c.label}
+    </span>
+  );
+}
+
+function StatusBadge({ status, kind }: { status: string; kind: "communication" | "task" }) {
+  const cfg: Record<string, string> = {
+    sent: "bg-emerald-100 text-emerald-700",
+    logged: "bg-slate-100 text-slate-600",
+    open: "bg-blue-100 text-blue-700",
+    in_progress: "bg-amber-100 text-amber-700",
+    done: "bg-green-100 text-green-700",
+    closed: "bg-slate-100 text-slate-500",
+    draft: "bg-yellow-100 text-yellow-700",
+    archived: "bg-slate-100 text-slate-400",
+  };
+  if (!status) return null;
+  const cls = cfg[status] ?? "bg-slate-100 text-slate-600";
+  const label = kind === "task" && status === "in_progress" ? "In Progress" : status.charAt(0).toUpperCase() + status.slice(1);
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
 
 export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: Props) {
   const [loading, setLoading] = useState(false);
@@ -77,6 +221,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [directionFilter, setDirectionFilter] = useState("all");
   const [taskStatusFilter, setTaskStatusFilter] = useState("open");
   const [feedFilter, setFeedFilter] = useState<"all" | "touchpoints" | "communications">("all");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const [newJobId, setNewJobId] = useState<string>("none");
   const [newDirection, setNewDirection] = useState("internal");
@@ -192,45 +337,69 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     [events],
   );
 
+  const jobMap = useMemo(
+    () => Object.fromEntries(jobs.map((j) => [j.job_id, j.job_number || `Job ${j.job_id}`])),
+    [jobs],
+  );
+
   const inboxItems = useMemo<InboxItem[]>(() => {
     const eventItems: InboxItem[] = communicationEvents.map((ev) => ({
       kind: "communication",
       id: `event-${ev.event_id}`,
       title: ev.subject || "(No subject)",
-      subtitle: `${ev.channel} | ${ev.direction || "internal"} | ${ev.status || "logged"}`,
       body: ev.body_text || "",
       status: ev.status || "logged",
       direction: ev.direction || "internal",
       timestamp: ev.event_at || ev.created_at || "",
+      createdBy: ev.created_by || "",
+      jobRef: ev.job_id != null ? (jobMap[ev.job_id] ?? `Job ${ev.job_id}`) : null,
+      channel: ev.channel || "email",
       source: ev.source,
       source_ref: ev.source_ref,
+      eventId: ev.event_id,
     }));
 
     const taskItems: InboxItem[] = tasks.map((t) => ({
       kind: "task",
       id: `task-${t.task_id}`,
       title: t.title || "(Untitled task)",
-      subtitle: `task | ${t.priority || "normal"} | ${t.status || "open"}`,
       body: t.details || "",
       status: t.status || "open",
       direction: "internal",
-      timestamp: t.created_at || t.due_at || "",
+      timestamp: t.created_at || "",
+      createdBy: t.created_by || "",
+      jobRef: t.job_id != null ? (jobMap[t.job_id] ?? `Job ${t.job_id}`) : null,
       taskId: t.task_id,
+      priority: t.priority || "normal",
+      dueAt: t.due_at ?? null,
+      assignee: t.assignee_user_id || "",
     }));
 
-    return [...eventItems, ...taskItems].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
-  }, [communicationEvents, tasks]);
+    return [...eventItems, ...taskItems].sort((a, b) =>
+      String(b.timestamp || "").localeCompare(String(a.timestamp || "")),
+    );
+  }, [communicationEvents, tasks, jobMap]);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     return inboxItems.filter((item) => {
       if (typeFilter !== "all" && item.kind !== typeFilter) return false;
       if (directionFilter !== "all" && item.direction !== directionFilter) return false;
-      if (feedFilter === "touchpoints" && (item.source || "").toLowerCase() !== "intelligence" && !(item.source_ref || "").toLowerCase().startsWith("touchpoint:")) return false;
-      if (feedFilter === "communications" && ((item.source || "").toLowerCase() === "intelligence" || (item.source_ref || "").toLowerCase().startsWith("touchpoint:"))) return false;
+      if (
+        feedFilter === "touchpoints" &&
+        (item.source || "").toLowerCase() !== "intelligence" &&
+        !(item.source_ref || "").toLowerCase().startsWith("touchpoint:")
+      )
+        return false;
+      if (
+        feedFilter === "communications" &&
+        ((item.source || "").toLowerCase() === "intelligence" ||
+          (item.source_ref || "").toLowerCase().startsWith("touchpoint:"))
+      )
+        return false;
       if (item.kind === "task" && taskStatusFilter !== "all" && item.status !== taskStatusFilter) return false;
       if (!q) return true;
-      return `${item.title} ${item.subtitle} ${item.body}`.toLowerCase().includes(q);
+      return `${item.title} ${item.channel ?? ""} ${item.direction} ${item.body} ${item.createdBy} ${item.assignee ?? ""}`.toLowerCase().includes(q);
     });
   }, [inboxItems, query, typeFilter, directionFilter, taskStatusFilter, feedFilter]);
 
@@ -328,6 +497,29 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     }
   }
 
+  async function archiveItem(item: InboxItem) {
+    try {
+      let res: Response;
+      if (item.kind === "task" && item.taskId) {
+        res = await fetch(`${baseUrl}/tasks/${item.taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: "closed" }),
+        });
+      } else if (item.eventId) {
+        res = await fetch(`${baseUrl}/clients/${clientId}/timeline/events/${item.eventId}/archive`, {
+          method: "PATCH",
+          credentials: "include",
+        });
+      } else return;
+      if (!res.ok) throw new Error(`Archive failed (${res.status})`);
+      await load();
+    } catch (e) {
+      setStatus((e as Error).message);
+    }
+  }
+
   async function sendEmail() {
     if (emailJobId === "none") {
       setStatus("Select a job to send email from.");
@@ -339,7 +531,6 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     }
     const parseCsv = (s: string) => s.split(",").map((e) => e.trim()).filter(Boolean);
 
-    // Guard against oversized payloads (25 MB total)
     const totalBytes = localFiles.reduce((sum, f) => sum + f.size, 0);
     if (totalBytes > 25 * 1024 * 1024) {
       setStatus("Total attachment size exceeds 25 MB. Please remove some files.");
@@ -407,11 +598,26 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
     }
   }
 
-  const openTasks = tasks.filter((t) => (t.status || "").toLowerCase() !== "done" && (t.status || "").toLowerCase() !== "closed").length;
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  const openTasks = tasks.filter(
+    (t) => (t.status || "").toLowerCase() !== "done" && (t.status || "").toLowerCase() !== "closed",
+  ).length;
   const overdueTasks = tasks.filter((t) => {
     if (!t.due_at) return false;
     const dueDate = new Date(t.due_at);
-    return !Number.isNaN(dueDate.getTime()) && dueDate.getTime() < Date.now() && (t.status || "").toLowerCase() !== "done" && (t.status || "").toLowerCase() !== "closed";
+    return (
+      !Number.isNaN(dueDate.getTime()) &&
+      dueDate.getTime() < Date.now() &&
+      (t.status || "").toLowerCase() !== "done" &&
+      (t.status || "").toLowerCase() !== "closed"
+    );
   }).length;
 
   return (
@@ -423,10 +629,15 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
           <CardTitle>Communications Inbox ({filteredItems.length})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Filters */}
           <div className="grid gap-3 md:grid-cols-5">
             <div className="space-y-2 md:col-span-2">
               <Label>Search</Label>
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search subject, messages, and tasks..." />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search subject, message, assignee..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Job</Label>
@@ -467,6 +678,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
             </div>
           </div>
 
+          {/* Summary stats */}
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-md border p-3 text-sm">
               <div className="text-muted-foreground">Communications</div>
@@ -476,90 +688,184 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
               <div className="text-muted-foreground">Open Tasks</div>
               <div className="text-lg font-semibold">{openTasks}</div>
             </div>
-            <div className="rounded-md border p-3 text-sm">
+            <div className={`rounded-md border p-3 text-sm ${overdueTasks > 0 ? "border-red-200 bg-red-50/40" : ""}`}>
               <div className="text-muted-foreground">Overdue Tasks</div>
-              <div className="text-lg font-semibold">{overdueTasks}</div>
+              <div className={`text-lg font-semibold ${overdueTasks > 0 ? "text-red-600" : ""}`}>{overdueTasks}</div>
             </div>
           </div>
 
+          {/* Feed filter bar */}
           <div className="flex items-center justify-between gap-3">
             <Label>Feed</Label>
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant={feedFilter === "all" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFeedFilter("all")}
-              >
-                All
-              </Button>
-              <Button
-                type="button"
-                variant={feedFilter === "touchpoints" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFeedFilter("touchpoints")}
-              >
-                Touchpoints
-              </Button>
-              <Button
-                type="button"
-                variant={feedFilter === "communications" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFeedFilter("communications")}
-              >
-                Communications
-              </Button>
+              {(["all", "touchpoints", "communications"] as const).map((f) => (
+                <Button
+                  key={f}
+                  type="button"
+                  variant={feedFilter === f ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFeedFilter(f)}
+                >
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </Button>
+              ))}
               <Select value={taskStatusFilter} onValueChange={setTaskStatusFilter}>
                 <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Task Statuses</SelectItem>
                   <SelectItem value="open">Open Tasks</SelectItem>
-                  <SelectItem value="in_progress">In Progress Tasks</SelectItem>
-                  <SelectItem value="done">Done Tasks</SelectItem>
-                  <SelectItem value="closed">Closed Tasks</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="done">Done</SelectItem>
+                  <SelectItem value="closed">Closed / Archived</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
+          {/* Inbox list */}
           {loading ? (
             <div className="text-sm text-muted-foreground">Loading...</div>
           ) : filteredItems.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No inbox items match the current filters.</div>
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+              No inbox items match the current filters.
+            </div>
           ) : (
-            <div className="space-y-2">
-              {filteredItems.map((item) => (
-                <div key={item.id} className="rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="font-medium">[{item.kind === "task" ? "task" : "comm"}] {item.title}</div>
-                      {item.kind === "communication" && (
-                        <Badge variant="secondary" className="text-[10px] uppercase tracking-[0.18em]">
-                          {(item.source || "").toLowerCase() === "intelligence" || (item.source_ref || "").toLowerCase().startsWith("touchpoint:")
-                            ? "Touchpoint"
-                            : "Communication"}
-                        </Badge>
-                      )}
+            <div className="divide-y rounded-md border overflow-hidden">
+              {filteredItems.map((item, idx) => {
+                const isExpanded = expandedIds.has(item.id);
+                const isOverdue =
+                  item.kind === "task" &&
+                  !!item.dueAt &&
+                  new Date(item.dueAt).getTime() < Date.now() &&
+                  item.status !== "done" &&
+                  item.status !== "closed";
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`border-l-4 ${itemBorderColor(item)} px-4 py-3 ${idx % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                  >
+                    {/* Row 1: badges · title · status · timestamp */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                        <TypeBadge item={item} />
+                        {item.kind === "communication" && <DirectionBadge direction={item.direction} />}
+                        {item.kind === "task" && item.priority && item.priority !== "normal" && (
+                          <span
+                            className={`shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                              item.priority === "urgent"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-orange-100 text-orange-700"
+                            }`}
+                          >
+                            {item.priority}
+                          </span>
+                        )}
+                        {isOverdue && (
+                          <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                            OVERDUE
+                          </span>
+                        )}
+                        <button
+                          className="min-w-0 truncate text-left text-sm font-medium hover:underline"
+                          onClick={() => toggleExpand(item.id)}
+                        >
+                          {item.title}
+                        </button>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={item.status} kind={item.kind} />
+                        <span className="whitespace-nowrap text-xs text-muted-foreground">
+                          {fmtTs(item.timestamp)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">{item.status || "-"}</div>
-                  </div>
-                  {item.body ? <div className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.body}</div> : null}
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <div className="text-xs text-muted-foreground">{item.subtitle} | {item.timestamp || "-"}</div>
-                    {item.kind === "task" && item.taskId ? (
-                      <Select value={item.status || "open"} onValueChange={(v) => void updateTaskStatus(item.taskId as number, v)}>
-                        <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="open">Open</SelectItem>
-                          <SelectItem value="in_progress">In Progress</SelectItem>
-                          <SelectItem value="done">Done</SelectItem>
-                          <SelectItem value="closed">Closed</SelectItem>
-                        </SelectContent>
-                      </Select>
+
+                    {/* Row 2: meta · actions */}
+                    <div className="mt-1.5 flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        {item.createdBy && <span>{item.createdBy}</span>}
+                        {item.jobRef && (
+                          <>
+                            <span>·</span>
+                            <span className="font-medium text-foreground/60">{item.jobRef}</span>
+                          </>
+                        )}
+                        {item.kind === "task" && item.dueAt && (
+                          <>
+                            <span>·</span>
+                            <span className={isOverdue ? "font-medium text-red-600" : ""}>
+                              Due {fmtTs(item.dueAt)}
+                            </span>
+                          </>
+                        )}
+                        {item.kind === "task" && item.assignee && (
+                          <>
+                            <span>·</span>
+                            <span>→ {item.assignee}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {item.kind === "task" && item.taskId ? (
+                          <Select
+                            value={item.status || "open"}
+                            onValueChange={(v) => void updateTaskStatus(item.taskId as number, v)}
+                          >
+                            <SelectTrigger className="h-7 w-[130px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="in_progress">In Progress</SelectItem>
+                              <SelectItem value="done">Done</SelectItem>
+                              <SelectItem value="closed">Closed</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                          title="Archive"
+                          onClick={() => void archiveItem(item)}
+                        >
+                          <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Expandable body */}
+                    {item.body ? (
+                      <div className="mt-2">
+                        {isExpanded ? (
+                          <>
+                            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.body}</p>
+                            <button
+                              className="mt-1 flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleExpand(item.id)}
+                            >
+                              <ChevronUp className="h-3 w-3" /> Collapse
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="flex w-full items-center gap-0.5 truncate text-left text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => toggleExpand(item.id)}
+                          >
+                            <ChevronDown className="h-3 w-3 shrink-0" />
+                            <span className="truncate">
+                              {item.body.slice(0, 120)}
+                              {item.body.length > 120 ? "…" : ""}
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     ) : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
