@@ -506,6 +506,58 @@ def delete_job_item(item_id: int, _user: dict = Depends(_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to delete job item: {e}")
 
 
+@router.get("/job-types")
+def list_job_types(_user: dict = Depends(_current_user)):
+    """List all active job types with their template item count."""
+    try:
+        with get_conn() as con:
+            _ensure_job_items_table(con)
+            df = con.execute(
+                """
+                SELECT jt.job_type_id, jt.name, jt.description, jt.estimated_hours,
+                       jt.is_crp, jt.is_active,
+                       COUNT(jti.job_type_item_id) AS item_count,
+                       COALESCE(SUM(jti.quantity * ji.estimated_hours), 0) AS template_hours
+                FROM job_types jt
+                LEFT JOIN job_type_items jti ON jti.job_type_id = jt.job_type_id
+                LEFT JOIN job_items ji ON ji.item_id = jti.item_id
+                WHERE jt.is_active = TRUE
+                GROUP BY jt.job_type_id, jt.name, jt.description, jt.estimated_hours, jt.is_crp, jt.is_active
+                ORDER BY jt.name
+                """
+            ).df()
+        items = []
+        if df is not None and not df.empty:
+            for _, r in df.iterrows():
+                def _sf(v, d=0.0):
+                    import math as _m
+                    try:
+                        f = float(v or d)
+                        return d if (_m.isnan(f) or _m.isinf(f)) else f
+                    except Exception:
+                        return d
+                def _si(v, d=None):
+                    import math as _m
+                    try:
+                        f = float(v)
+                        return d if (_m.isnan(f) or _m.isinf(f)) else int(f)
+                    except Exception:
+                        return d
+                items.append({
+                    "job_type_id": _si(r.get("job_type_id")) or 0,
+                    "name": str(r.get("name") or ""),
+                    "description": str(r.get("description") or ""),
+                    "estimated_hours": _sf(r.get("estimated_hours")),
+                    "template_hours": round(_sf(r.get("template_hours")), 2),
+                    "item_count": _si(r.get("item_count")) or 0,
+                    "is_crp": bool(r.get("is_crp")),
+                    "is_active": bool(r.get("is_active", True)),
+                })
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list job types: {e}")
+
+
 # Job Type Items (Many-to-Many relationship)
 @router.get("/job-types/{job_type_id}/items")
 def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):

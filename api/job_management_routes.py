@@ -316,10 +316,60 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                     "is_benchmark": bool(is_benchmark),
                 },
             )
-            
+
+            # Auto-populate job_line_items from job type template
+            try:
+                from api.job_line_items_routes import _ensure_table as _ensure_line_items_table, _safe_float, _safe_int
+                _ensure_line_items_table(con)
+                tpl_df = con.execute(
+                    """
+                    SELECT jti.item_id, jti.quantity, jti.sort_order,
+                           ji.item_name, ji.item_code, ji.category, ji.unit,
+                           ji.estimated_hours, ji.sell_amount, ji.sell_currency,
+                           ji.vat_rate, ji.vat_rate_id
+                    FROM job_type_items jti
+                    JOIN job_items ji ON ji.item_id = jti.item_id
+                    WHERE jti.job_type_id = %s
+                    ORDER BY jti.sort_order, ji.item_name
+                    """,
+                    [job_type_id],
+                ).df()
+                actor_email = str(_user.get("email") or _user.get("user_id") or "system")
+                if tpl_df is not None and not tpl_df.empty:
+                    for _, trow in tpl_df.iterrows():
+                        con.execute(
+                            """
+                            INSERT INTO job_line_items (
+                              job_id, item_id, item_name, item_code, category,
+                              quantity, estimated_hours, unit, unit_sell, sell_currency,
+                              vat_rate, vat_rate_id, sort_order, created_by, created_at, updated_at
+                            )
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                            """,
+                            [
+                                job_id,
+                                _safe_int(trow.get("item_id")),
+                                str(trow.get("item_name") or ""),
+                                str(trow.get("item_code") or "").strip() or None,
+                                str(trow.get("category") or "").strip() or None,
+                                _safe_float(trow.get("quantity"), 1.0),
+                                _safe_float(trow.get("estimated_hours"), 0.0),
+                                str(trow.get("unit") or "day"),
+                                _safe_float(trow.get("sell_amount"), 0.0),
+                                str(trow.get("sell_currency") or "GBP"),
+                                _safe_float(trow.get("vat_rate"), 20.0),
+                                _safe_int(trow.get("vat_rate_id")),
+                                _safe_int(trow.get("sort_order")) or 0,
+                                actor_email,
+                            ],
+                        )
+            except Exception as _tpl_err:
+                import sys
+                print(f"[warn] auto-populate job_line_items for job {job_id}: {_tpl_err}", file=sys.stderr)
+
             return {
-                "ok": True, 
-                "job_id": job_id, 
+                "ok": True,
+                "job_id": job_id,
                 "job_number": job_number,
                 "reporting_period_start": str(reporting_period_start) if reporting_period_start else None,
                 "reporting_period_end": str(reporting_period_end) if reporting_period_end else None,

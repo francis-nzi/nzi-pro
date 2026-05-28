@@ -81,6 +81,15 @@ export const ADMIN_MODULES: AdminModule[] = [
     icon: Table2,
   },
   {
+    title: "Job Type Templates",
+    description: "Define the default scope items and budgeted hours for each job type. Used to auto-populate new jobs and as the basis for invoicing.",
+    href: "/admin/job-type-templates",
+    cta: "Edit templates",
+    domain: "Reference Data",
+    icon: FileSpreadsheet,
+    highlight: true,
+  },
+  {
     title: "Job Items",
     description: "Manage service items used in jobs, quotes, and invoices.",
     href: "/admin/job-items",

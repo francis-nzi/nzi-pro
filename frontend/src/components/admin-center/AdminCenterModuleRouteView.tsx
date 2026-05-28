@@ -25,6 +25,7 @@ const modulePages = {
   "email-outbox": dynamic(() => import("@/app/admin/email-outbox/page"), { ssr: false }),
   "import-export": dynamic(() => import("@/app/admin/import-export/page"), { ssr: false }),
   "job-items": dynamic(() => import("@/app/admin/job-items/page"), { ssr: false }),
+  "job-type-templates": dynamic(() => import("@/app/admin/job-type-templates/page"), { ssr: false }),
   "job-types": dynamic(() => import("@/app/admin/job-types/page"), { ssr: false }),
   lookups: dynamic(() => import("@/app/admin/lookups/page"), { ssr: false }),
   "milestone-templates": dynamic(() => import("@/app/admin/milestone-templates/page"), { ssr: false }),

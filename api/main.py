@@ -118,6 +118,7 @@ from api.pdf_generation_routes import router as pdf_generation_router
 from api.job_files_routes import router as job_files_router
 from api.job_emissions_certificate_routes import router as job_emissions_certificate_router
 from api.job_communications_routes import router as job_communications_router
+from api.job_line_items_routes import router as job_line_items_router
 from api.milestone_template_routes import router as milestone_template_router
 from api.theme_routes import router as theme_router
 from api.time_routes import router as time_router
@@ -290,6 +291,9 @@ app.include_router(job_emissions_certificate_router)
 
 # Include job communications routes
 app.include_router(job_communications_router)
+
+# Include job line items routes
+app.include_router(job_line_items_router)
 
 # Include milestone template routes
 app.include_router(milestone_template_router)

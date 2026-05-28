@@ -13,6 +13,7 @@ import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
 import JobCommunicationsTabs from "@/components/job-workspace/JobCommunicationsTabs";
 import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
+import JobScopeCard from "@/components/job-workspace/JobScopeCard";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
@@ -721,6 +722,13 @@ export default function JobDetailPage() {
                 onReportingPeriodEndChange={setReportingPeriodEnd}
                 onSaveJobDetails={workspaceActions.saveJobDetails}
                 onSaveReportingPeriod={workspaceActions.saveReportingPeriod}
+              />
+
+              {/* Job Scope & Hours */}
+              <JobScopeCard
+                jobId={jobId}
+                jobTypeId={job?.job_type_id ?? null}
+                jobTypeName={job?.job_type ?? undefined}
               />
 
               {/* Project Milestones */}
