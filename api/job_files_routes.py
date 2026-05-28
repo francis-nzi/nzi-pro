@@ -315,6 +315,32 @@ def _resolve_job_file_type(con, file_type: str, *, active_only: bool = False) ->
     return resolved
 
 
+def _read_job_file_bytes(con, file_id: int, job_id: int) -> tuple[bytes, str, str]:
+    """Return (raw_bytes, filename, mime_type) for a job file from any storage provider."""
+    row = con.execute(
+        "SELECT file_name, file_path, storage_provider, external_item_id, mime_type FROM job_files WHERE file_id = %s AND job_id = %s",
+        [int(file_id), int(job_id)],
+    ).fetchone()
+    if not row:
+        raise ValueError(f"File {file_id} not found for job {job_id}")
+    file_name, file_path, storage_provider, external_item_id, mime_type = row
+    mime_type = str(mime_type or _mime_type_for_filename(str(file_name or "")))
+    if str(storage_provider or "local") == "onedrive":
+        if not external_item_id:
+            raise ValueError(f"File {file_id} has no external item ID")
+        token = _graph_token()
+        drive_base = _drive_base_path(token)
+        content, _ = _graph_download(
+            f"{drive_base}/items/{urllib.parse.quote(str(external_item_id))}/content",
+            token,
+        )
+        return bytes(content), str(file_name or "attachment"), mime_type
+    if not file_path or not os.path.exists(str(file_path)):
+        raise ValueError(f"File {file_id} not found on disk at {file_path!r}")
+    with open(str(file_path), "rb") as fh:
+        return fh.read(), str(file_name or "attachment"), mime_type
+
+
 @router.get("/jobs/{job_id}/files")
 def list_job_files(
     job_id: int,

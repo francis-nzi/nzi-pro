@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+
+type JobFile = { file_id: number; file_name: string; mime_type: string | null; file_size: number | null };
 
 type JobRef = { job_id: number; job_number: string; job_name?: string };
 
@@ -95,6 +97,11 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [emailBody, setEmailBody] = useState("");
   const [clientContacts, setClientContacts] = useState<Array<{ name: string; email: string; group: string }>>([]);
   const [teamMembers, setTeamMembers] = useState<Array<{ name: string; email: string; group: string }>>([]);
+  const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [jobFiles, setJobFiles] = useState<JobFile[]>([]);
+  const [selectedJobFileIds, setSelectedJobFileIds] = useState<Set<number>>(new Set());
+  const [showJobFiles, setShowJobFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [automationTrigger, setAutomationTrigger] = useState("milestone_status");
   const [automationMode, setAutomationMode] = useState("preview");
   const [automationJobId, setAutomationJobId] = useState<string>("none");
@@ -160,6 +167,22 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       setEmailTo(clientContacts[0].email);
     }
   }, [clientContacts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load job files when a job is selected for email
+  useEffect(() => {
+    if (emailJobId === "none") {
+      setJobFiles([]);
+      setSelectedJobFileIds(new Set());
+      setShowJobFiles(false);
+      return;
+    }
+    fetch(`${baseUrl}/jobs/${emailJobId}/files`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        setJobFiles(Array.isArray(data?.files) ? data.files : []);
+      })
+      .catch(() => setJobFiles([]));
+  }, [baseUrl, emailJobId]);
 
   const communicationEvents = useMemo(
     () => events.filter((ev) => (ev.event_type || "").toLowerCase() !== "note"),
@@ -307,18 +330,30 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       return;
     }
     const parseCsv = (s: string) => s.split(",").map((e) => e.trim()).filter(Boolean);
+
+    // Guard against oversized payloads (25 MB total)
+    const totalBytes = localFiles.reduce((sum, f) => sum + f.size, 0);
+    if (totalBytes > 25 * 1024 * 1024) {
+      setStatus("Total attachment size exceeds 25 MB. Please remove some files.");
+      return;
+    }
+
     try {
+      const fd = new FormData();
+      fd.append("to_email", emailTo.trim());
+      fd.append("subject", emailSubject.trim());
+      fd.append("message_text", emailBody.trim());
+      fd.append("cc", JSON.stringify(emailCc.trim() ? parseCsv(emailCc) : []));
+      fd.append("bcc", JSON.stringify(emailBcc.trim() ? parseCsv(emailBcc) : []));
+      fd.append("job_file_ids", JSON.stringify([...selectedJobFileIds]));
+      for (const f of localFiles) {
+        fd.append("files", f);
+      }
+
       const res = await fetch(`${baseUrl}/jobs/${Number(emailJobId)}/communications/email`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          to_email: emailTo.trim(),
-          subject: emailSubject.trim(),
-          message_text: emailBody.trim(),
-          cc: emailCc.trim() ? parseCsv(emailCc) : [],
-          bcc: emailBcc.trim() ? parseCsv(emailBcc) : [],
-        }),
+        body: fd,
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
@@ -328,6 +363,9 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       setEmailBody("");
       setEmailCc("");
       setEmailBcc("");
+      setLocalFiles([]);
+      setSelectedJobFileIds(new Set());
+      setShowJobFiles(false);
       setStatus("Email sent and logged.");
       await load();
     } catch (e) {
@@ -705,6 +743,105 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
           <div className="space-y-1.5">
             <Label>Message</Label>
             <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={6} placeholder="Type your message here..." />
+          </div>
+
+          {/* Attachments */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label>Attachments</Label>
+              <span className="text-xs text-muted-foreground">
+                {localFiles.length + selectedJobFileIds.size > 0
+                  ? `${localFiles.length + selectedJobFileIds.size} file(s) · ${(localFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB local`
+                  : "None"}
+              </span>
+            </div>
+
+            {/* Local file upload */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                + Upload from computer
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const added = Array.from(e.target.files || []);
+                  setLocalFiles((prev) => [...prev, ...added]);
+                  e.target.value = "";
+                }}
+              />
+              {emailJobId !== "none" && jobFiles.length > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowJobFiles((v) => !v)}
+                >
+                  {showJobFiles ? "Hide job files" : `Attach from job (${jobFiles.length})`}
+                </Button>
+              )}
+            </div>
+
+            {/* Job files picker */}
+            {showJobFiles && jobFiles.length > 0 && (
+              <div className="rounded-md border divide-y max-h-48 overflow-y-auto">
+                {jobFiles.map((jf) => (
+                  <label key={jf.file_id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selectedJobFileIds.has(jf.file_id)}
+                      onChange={(e) => {
+                        setSelectedJobFileIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(jf.file_id);
+                          else next.delete(jf.file_id);
+                          return next;
+                        });
+                      }}
+                      className="shrink-0"
+                    />
+                    <span className="truncate">{jf.file_name}</span>
+                    {jf.file_size ? (
+                      <span className="ml-auto text-xs text-muted-foreground shrink-0">
+                        {(jf.file_size / 1024).toFixed(0)} KB
+                      </span>
+                    ) : null}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {/* Attached file chips */}
+            {(localFiles.length > 0 || selectedJobFileIds.size > 0) && (
+              <div className="flex flex-wrap gap-1.5">
+                {localFiles.map((f, i) => (
+                  <span key={`local-${i}`} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs">
+                    {f.name}
+                    <button
+                      type="button"
+                      className="ml-0.5 text-muted-foreground hover:text-foreground"
+                      onClick={() => setLocalFiles((prev) => prev.filter((_, j) => j !== i))}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                {jobFiles.filter((jf) => selectedJobFileIds.has(jf.file_id)).map((jf) => (
+                  <span key={`job-${jf.file_id}`} className="flex items-center gap-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2.5 py-0.5 text-xs">
+                    {jf.file_name}
+                    <button
+                      type="button"
+                      className="ml-0.5 opacity-70 hover:opacity-100"
+                      onClick={() => setSelectedJobFileIds((prev) => { const n = new Set(prev); n.delete(jf.file_id); return n; })}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-3">

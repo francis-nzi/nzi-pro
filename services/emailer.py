@@ -82,10 +82,15 @@ def send_email_with_attachment(
     from_name: str | None = None,
     cc: list[str] | None = None,
     bcc: list[str] | None = None,
-    attachment_bytes: bytes,
-    attachment_filename: str,
-    attachment_mime: str = "application/pdf",
+    attachments: list[dict],
 ) -> None:
+    """Send an email with one or more attachments.
+
+    Each entry in `attachments` should be a dict with keys:
+      bytes    – raw file bytes
+      filename – display filename (e.g. "report.pdf")
+      mime     – MIME type string (e.g. "application/pdf")
+    """
     if not to_email:
         raise RuntimeError("Recipient email is blank")
     from_addr = _smtp_from()
@@ -100,13 +105,17 @@ def send_email_with_attachment(
         cc=cc,
         bcc=bcc,
     )
-    maintype, subtype = (attachment_mime.split("/", 1) + [""])[:2]
-    msg.add_attachment(
-        attachment_bytes,
-        maintype=maintype or "application",
-        subtype=subtype or "octet-stream",
-        filename=attachment_filename,
-    )
+    for att in attachments:
+        att_bytes = bytes(att.get("bytes") or b"")
+        att_filename = str(att.get("filename") or "attachment.bin")
+        att_mime = str(att.get("mime") or "application/octet-stream")
+        maintype, subtype = (att_mime.split("/", 1) + [""])[:2]
+        msg.add_attachment(
+            att_bytes,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=att_filename,
+        )
     _smtp_send(msg)
 
 

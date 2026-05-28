@@ -89,15 +89,25 @@ def send_tracked_email(
     reply_to: str | None = None,
     metadata: dict[str, Any] | None = None,
     attachment: dict[str, Any] | None = None,
+    attachments: list[dict[str, Any]] | None = None,
     raise_on_error: bool = True,
 ) -> dict[str, Any]:
     ensure_outbound_email_tables(con)
 
+    # Merge single attachment (backwards compat) and list into one list
+    all_attachments: list[dict[str, Any]] = list(attachments or [])
+    if attachment:
+        all_attachments.append(attachment)
+
     # Resolve sender display name from users table if not explicitly provided
     resolved_from_name = str(from_name or "").strip() or _lookup_sender_name(con, created_by or "") or None
 
-    attachment_count = 1 if attachment else 0
-    attachment_name = str((attachment or {}).get("filename") or "").strip()
+    attachment_count = len(all_attachments)
+    attachment_names = ", ".join(
+        str((a or {}).get("filename") or "").strip()
+        for a in all_attachments
+        if str((a or {}).get("filename") or "").strip()
+    ) or None
     cc_str = ", ".join([e.strip() for e in (cc or []) if str(e or "").strip()]) or None
     bcc_str = ", ".join([e.strip() for e in (bcc or []) if str(e or "").strip()]) or None
 
@@ -128,7 +138,7 @@ def send_tracked_email(
             str(body_text or ""),
             str(body_html or "") if body_html else None,
             int(attachment_count),
-            attachment_name or None,
+            attachment_names,
             _safe_json(metadata or {}),
             str(created_by or "").strip() or None,
             resolved_from_name,
@@ -142,7 +152,7 @@ def send_tracked_email(
         derived_reply_to = str(created_by or "").strip()
 
     try:
-        if attachment:
+        if all_attachments:
             send_email_with_attachment(
                 to_email=str(to_email or "").strip(),
                 subject=str(subject or "").strip(),
@@ -152,9 +162,7 @@ def send_tracked_email(
                 from_name=resolved_from_name,
                 cc=cc,
                 bcc=bcc,
-                attachment_bytes=bytes(attachment.get("bytes") or b""),
-                attachment_filename=str(attachment.get("filename") or "attachment.bin"),
-                attachment_mime=str(attachment.get("mime") or "application/octet-stream"),
+                attachments=all_attachments,
             )
         else:
             send_plain_email(

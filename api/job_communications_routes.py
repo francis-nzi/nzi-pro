@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 import html
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 
 from api.auth import _current_user
@@ -19,6 +19,7 @@ from core.database import get_conn
 from services.company_profile import company_address_html, company_footer_text, get_company_profile
 from services.messaging_templates import build_email_content, get_user_signature_html
 from services.outbound_email import list_outbound_emails, send_tracked_email
+from api.job_files_routes import _read_job_file_bytes
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -1261,11 +1262,21 @@ def update_job_communication_task(
 
 
 @router.post("/jobs/{job_id}/communications/email")
-def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+async def send_job_communication_email(
+    job_id: int,
+    to_email: str = Form(...),
+    subject: str = Form(...),
+    message_text: str = Form(...),
+    cc: str = Form(default="[]"),
+    bcc: str = Form(default="[]"),
+    job_file_ids: str = Form(default="[]"),
+    files: list[UploadFile] = File(default=[]),
+    _user: dict = Depends(_current_user),
+):
     actor = _actor(_user)
-    to_email = str(body.get("to_email") or "").strip()
-    subject = str(body.get("subject") or "").strip()
-    message_text = str(body.get("message_text") or "").strip()
+    to_email = str(to_email or "").strip()
+    subject = str(subject or "").strip()
+    message_text = str(message_text or "").strip()
     if not to_email:
         raise HTTPException(status_code=400, detail="to_email is required")
     if not subject:
@@ -1273,15 +1284,34 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
     if not message_text:
         raise HTTPException(status_code=400, detail="message_text is required")
 
-    def _parse_addresses(raw) -> list[str]:
-        if not raw:
-            return []
-        if isinstance(raw, list):
-            return [str(e).strip() for e in raw if str(e or "").strip()]
-        return [e.strip() for e in str(raw).split(",") if e.strip()]
+    def _parse_addr_json(raw: str) -> list[str]:
+        try:
+            parsed = json.loads(raw or "[]")
+        except Exception:
+            parsed = [e.strip() for e in str(raw or "").split(",") if e.strip()]
+        if isinstance(parsed, list):
+            return [str(e).strip() for e in parsed if str(e or "").strip()]
+        return []
 
-    cc = _parse_addresses(body.get("cc"))
-    bcc = _parse_addresses(body.get("bcc"))
+    cc_list = _parse_addr_json(cc)
+    bcc_list = _parse_addr_json(bcc)
+
+    try:
+        file_id_list = [int(x) for x in json.loads(job_file_ids or "[]") if x]
+    except Exception:
+        file_id_list = []
+
+    # Build attachments list from uploaded files + job file library
+    attachments: list[dict] = []
+
+    for uf in (files or []):
+        if not uf or not uf.filename:
+            continue
+        raw = await uf.read()
+        if not raw:
+            continue
+        mime = str(uf.content_type or "application/octet-stream")
+        attachments.append({"bytes": raw, "filename": uf.filename, "mime": mime})
 
     try:
         with get_conn() as con:
@@ -1290,6 +1320,14 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
             if not job_row:
                 raise HTTPException(status_code=404, detail="Job not found")
             client_db_id = int(job_row[0]) if job_row[0] is not None else None
+
+            for fid in file_id_list:
+                try:
+                    fb, fname, fmime = _read_job_file_bytes(con, fid, int(job_id))
+                    attachments.append({"bytes": fb, "filename": fname, "mime": fmime})
+                except Exception as fe:
+                    raise HTTPException(status_code=400, detail=f"Could not read job file {fid}: {fe}")
+
             signature_html = get_user_signature_html(con, actor)
             body_html = None
             if signature_html:
@@ -1301,18 +1339,20 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
                 body_text=message_text,
                 body_html=body_html,
                 created_by=actor,
-                cc=cc or None,
-                bcc=bcc or None,
+                cc=cc_list or None,
+                bcc=bcc_list or None,
                 entity_type="job_communication",
                 entity_id=None,
                 job_id=int(job_id),
                 client_db_id=client_db_id,
                 template_key="job_communication_send",
-                metadata={"channel": "job_communications"},
+                metadata={"channel": "job_communications", "attachment_count": len(attachments)},
+                attachments=attachments if attachments else None,
                 raise_on_error=False,
             )
             comm_status = "sent" if str(send_res.get("status") or "") == "sent" else "failed"
-            cc_str = ", ".join(cc) if cc else None
+            cc_str = ", ".join(cc_list) if cc_list else None
+            att_note = f"\n\nAttachments: {', '.join(a['filename'] for a in attachments)}" if attachments else ""
             con.execute(
                 """
                 INSERT INTO job_communications (
@@ -1322,12 +1362,12 @@ def send_job_communication_email(job_id: int, body: dict = Body(...), _user: dic
                 VALUES (%s, %s, 'outbound', 'email', %s, %s, %s, %s, NOW(), %s, NOW())
                 """,
                 [int(job_id), client_db_id, subject,
-                 message_text + (f"\n\nCC: {cc_str}" if cc_str else ""),
+                 message_text + (f"\n\nCC: {cc_str}" if cc_str else "") + att_note,
                  to_email, comm_status, actor],
             )
             if comm_status != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
-        return {"ok": True, "sent_to": to_email, "email_id": int(send_res.get("email_id") or 0)}
+        return {"ok": True, "sent_to": to_email, "email_id": int(send_res.get("email_id") or 0), "attachments": len(attachments)}
     except HTTPException:
         raise
     except Exception as e:
