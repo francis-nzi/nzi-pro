@@ -1385,6 +1385,7 @@ async def send_job_communication_email(
             body_html = None
             if signature_html:
                 body_html = f"<p>{message_text.replace(chr(10), '<br/>')}</p><br/>{signature_html}"
+            sender_name = str(_user.get("full_name") or "").strip() or None
             send_res = send_tracked_email(
                 con,
                 to_email=to_email,
@@ -1392,6 +1393,7 @@ async def send_job_communication_email(
                 body_text=message_text,
                 body_html=body_html,
                 created_by=actor,
+                from_name=sender_name,
                 cc=cc_list or None,
                 bcc=bcc_list or None,
                 entity_type="job_communication",
@@ -1675,6 +1677,7 @@ def email_job_overview_letter(job_id: int, body: dict = Body(...), _user: dict =
             )
 
             filename_stub = re.sub(r"[^A-Za-z0-9._-]+", "-", str(context.get("job_number") or f"job-{job_id}")).strip("-")
+            sender_name = str(_user.get("full_name") or "").strip() or None
             send_res = send_tracked_email(
                 con,
                 to_email=recipient,
@@ -1682,6 +1685,7 @@ def email_job_overview_letter(job_id: int, body: dict = Body(...), _user: dict =
                 body_text=rendered["body_text"],
                 body_html=rendered["body_html"],
                 created_by=actor,
+                from_name=sender_name,
                 template_key="job_overview_letter_send",
                 entity_type="job_overview_letter",
                 entity_id=int(job_id),
