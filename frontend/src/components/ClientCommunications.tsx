@@ -102,6 +102,16 @@ function fmtTs(ts: string | null | undefined): string {
   });
 }
 
+function fmtDatetime(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString("en-GB", {
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
 function fmtAbsolute(ts: string | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts);
@@ -209,6 +219,14 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [sortCol, setSortCol] = useState<SortCol>("due");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDetails, setEditDetails] = useState("");
+  const [editAssignee, setEditAssignee] = useState("");
+  const [editDueAt, setEditDueAt] = useState("");
+  const [editPriority, setEditPriority] = useState("normal");
+  const [taskHistory, setTaskHistory] = useState<Array<{ history_id: number; changed_at: string; changed_by: string; changes: Array<{ field: string; from: string | null; to: string | null }> }>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [newJobId, setNewJobId] = useState<string>("none");
   const [newDirection, setNewDirection] = useState("internal");
@@ -450,10 +468,77 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         body: JSON.stringify({ status: nextStatus }),
       });
       if (!res.ok) throw new Error(`Failed to update task (${res.status})`);
-      // Update selected item in place so modal stays open with new status
       setSelectedItem((prev) => prev ? { ...prev, status: nextStatus } : null);
+      // Refresh history after status change
+      if (selectedItem?.taskId) {
+        fetch(`${baseUrl}/tasks/${selectedItem.taskId}/history`, { credentials: "include" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => setTaskHistory(Array.isArray(data?.items) ? data.items : []))
+          .catch(() => {});
+      }
       await load();
     } catch (e) { setStatus((e as Error).message); }
+  }
+
+  function openDetail(item: InboxItem) {
+    setSelectedItem(item);
+    setEditMode(false);
+    setEditTitle(item.title);
+    setEditDetails(item.body);
+    setEditAssignee(item.assignee || "");
+    setEditDueAt(item.dueAt ? item.dueAt.slice(0, 10) : "");
+    setEditPriority(item.priority || "normal");
+    setTaskHistory([]);
+    if (item.kind === "task" && item.taskId) {
+      setHistoryLoading(true);
+      fetch(`${baseUrl}/tasks/${item.taskId}/history`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => setTaskHistory(Array.isArray(data?.items) ? data.items : []))
+        .catch(() => setTaskHistory([]))
+        .finally(() => setHistoryLoading(false));
+    }
+  }
+
+  async function saveTaskEdit() {
+    if (!selectedItem?.taskId) return;
+    try {
+      const res = await fetch(`${baseUrl}/tasks/${selectedItem.taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          details: editDetails.trim(),
+          assignee_user_id: editAssignee.trim() || null,
+          due_at: editDueAt || null,
+          priority: editPriority,
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      setEditMode(false);
+      setSelectedItem((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: editTitle.trim(),
+              body: editDetails.trim(),
+              assignee: editAssignee.trim() || "",
+              dueAt: editDueAt || null,
+              priority: editPriority,
+            }
+          : null,
+      );
+      // Reload history
+      setHistoryLoading(true);
+      fetch(`${baseUrl}/tasks/${selectedItem.taskId}/history`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => setTaskHistory(Array.isArray(data?.items) ? data.items : []))
+        .catch(() => setTaskHistory([]))
+        .finally(() => setHistoryLoading(false));
+      await load();
+    } catch (e) {
+      setStatus((e as Error).message);
+    }
   }
 
   async function archiveItem(item: InboxItem) {
@@ -673,7 +758,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                       <tr
                         key={item.id}
                         className={`cursor-pointer transition-colors hover:bg-muted/50 ${idx % 2 === 1 ? "bg-muted/10" : ""}`}
-                        onClick={() => setSelectedItem(item)}
+                        onClick={() => openDetail(item)}
                       >
                         <td className={`border-l-4 ${itemBorderColor(item)} px-3 py-2.5`}>
                           <TypeCell item={item} />
@@ -737,8 +822,8 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       </datalist>
 
       {/* ── Detail modal ─────────────────────────────────────────────────── */}
-      <Dialog open={!!selectedItem} onOpenChange={(o) => { if (!o) setSelectedItem(null); }}>
-        <DialogContent className="max-w-lg w-full">
+      <Dialog open={!!selectedItem} onOpenChange={(o) => { if (!o) { setSelectedItem(null); setEditMode(false); } }}>
+        <DialogContent className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           {selectedItem && (() => {
             const item = selectedItem;
             const isOverdue =
@@ -755,6 +840,11 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                 ? resolve(item.assignee || item.createdBy)
                 : resolve(item.createdBy);
 
+            const fieldLabel: Record<string, string> = {
+              title: "Title", details: "Details", assignee_user_id: "Assignee",
+              priority: "Priority", due_at: "Due date", sla_due_at: "SLA due", status: "Status",
+            };
+
             return (
               <>
                 <DialogHeader>
@@ -768,59 +858,81 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                     {isTp && <span className="inline-flex items-center rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">Touchpoint</span>}
                     {isOverdue && <span className="inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">OVERDUE</span>}
                   </div>
-                  <DialogTitle className="leading-snug">{item.title}</DialogTitle>
+                  <DialogTitle className="leading-snug text-lg">
+                    {editMode ? (
+                      <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="text-base font-semibold" />
+                    ) : item.title}
+                  </DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-4 mt-1">
+                <div className="space-y-5 mt-2">
                   {/* Meta grid */}
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-md bg-muted/30 p-3 text-sm">
+                  <div className="grid grid-cols-3 gap-x-6 gap-y-3 rounded-md bg-muted/30 p-4 text-sm">
                     <div>
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">
                         {item.kind === "task" ? "Assignee" : "Logged by"}
                       </div>
-                      <div className="mt-0.5 font-medium">{contactDisplay}</div>
+                      {editMode && item.kind === "task" ? (
+                        <Input list={`recipients-${clientId}`} value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)} className="h-7 text-xs" />
+                      ) : (
+                        <div className="font-medium">{contactDisplay}</div>
+                      )}
                     </div>
                     {item.jobRef && (
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Job</div>
-                        <div className="mt-0.5 font-medium">{item.jobRef}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Job</div>
+                        <div className="font-medium">{item.jobRef}</div>
                       </div>
                     )}
                     <div>
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Date</div>
-                      <div className="mt-0.5">{fmtAbsolute(item.timestamp)}</div>
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Created</div>
+                      <div>{fmtDatetime(item.timestamp)}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{resolve(item.createdBy)}</div>
                     </div>
-                    {item.kind === "task" && item.dueAt && (
+                    {item.kind === "task" && (
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Due</div>
-                        <div className={`mt-0.5 ${isOverdue ? "font-semibold text-red-600" : ""}`}>{fmtAbsolute(item.dueAt)}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Due date</div>
+                        {editMode ? (
+                          <Input type="date" value={editDueAt} onChange={(e) => setEditDueAt(e.target.value)} className="h-7 text-xs" />
+                        ) : (
+                          <div className={isOverdue ? "font-semibold text-red-600" : ""}>
+                            {item.dueAt ? fmtAbsolute(item.dueAt) : "—"}
+                          </div>
+                        )}
                       </div>
                     )}
-                    {item.kind === "task" && item.priority && (
+                    {item.kind === "task" && (
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div>
-                        <div className="mt-0.5 capitalize">{item.priority}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Priority</div>
+                        {editMode ? (
+                          <Select value={editPriority} onValueChange={setEditPriority}>
+                            <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="low">Low</SelectItem>
+                              <SelectItem value="normal">Normal</SelectItem>
+                              <SelectItem value="high">High</SelectItem>
+                              <SelectItem value="urgent">Urgent</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="capitalize">{item.priority || "normal"}</div>
+                        )}
                       </div>
                     )}
                     {item.kind === "communication" && item.channel && (
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Channel</div>
-                        <div className="mt-0.5 capitalize">{item.channel}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">Channel</div>
+                        <div className="capitalize">{item.channel}</div>
                       </div>
                     )}
                   </div>
 
                   {/* Status */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs uppercase tracking-wide">Status</Label>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-xs uppercase tracking-wide shrink-0">Status</Label>
                     {item.kind === "task" && item.taskId ? (
-                      <Select
-                        value={item.status || "open"}
-                        onValueChange={(v) => void updateTaskStatus(item.taskId as number, v)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={item.status || "open"} onValueChange={(v) => void updateTaskStatus(item.taskId as number, v)}>
+                        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="open">Open</SelectItem>
                           <SelectItem value="in_progress">In Progress</SelectItem>
@@ -829,33 +941,75 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="pt-0.5">
-                        <StatusPill status={item.status} kind={item.kind} />
-                      </div>
+                      <StatusPill status={item.status} kind={item.kind} />
                     )}
                   </div>
 
-                  {/* Body */}
-                  {item.body && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs uppercase tracking-wide">Message</Label>
-                      <div className="max-h-60 overflow-y-auto rounded-md bg-muted/30 p-3 text-sm whitespace-pre-wrap">
-                        {item.body}
-                      </div>
+                  {/* Body / details */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs uppercase tracking-wide">{item.kind === "task" ? "Details" : "Message"}</Label>
+                    {editMode && item.kind === "task" ? (
+                      <Textarea value={editDetails} onChange={(e) => setEditDetails(e.target.value)} rows={4} />
+                    ) : item.body ? (
+                      <div className="max-h-48 overflow-y-auto rounded-md bg-muted/30 p-3 text-sm whitespace-pre-wrap">{item.body}</div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground italic">No details.</div>
+                    )}
+                  </div>
+
+                  {/* Edit action row */}
+                  {item.kind === "task" && (
+                    <div className="flex items-center gap-2">
+                      {editMode ? (
+                        <>
+                          <Button size="sm" onClick={() => void saveTaskEdit()}>Save changes</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditMode(false)}>Cancel</Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>Edit task</Button>
+                      )}
                     </div>
                   )}
 
-                  {/* Footer actions */}
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void archiveItem(item)}
-                    >
+                  {/* Audit history */}
+                  {item.kind === "task" && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Change history</div>
+                      {historyLoading ? (
+                        <div className="text-xs text-muted-foreground">Loading...</div>
+                      ) : taskHistory.length === 0 ? (
+                        <div className="text-xs text-muted-foreground italic">No changes recorded yet.</div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                          {taskHistory.map((h) => (
+                            <div key={h.history_id} className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="font-medium">{resolve(h.changed_by)}</span>
+                                <span className="text-muted-foreground">{fmtDatetime(h.changed_at)}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                {h.changes.map((c, i) => (
+                                  <div key={i} className="flex items-baseline gap-1 text-muted-foreground">
+                                    <span className="font-medium text-foreground">{fieldLabel[c.field] ?? c.field}:</span>
+                                    {c.from ? <><span className="line-through opacity-60">{c.from}</span><span>→</span></> : null}
+                                    <span className="text-foreground">{c.to ?? "—"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between gap-2 border-t pt-3">
+                    <Button variant="outline" size="sm" onClick={() => void archiveItem(item)}>
                       <Archive className="mr-1.5 h-3.5 w-3.5" />
                       {item.kind === "task" ? "Close task" : "Archive"}
                     </Button>
-                    <Button variant="ghost" onClick={() => setSelectedItem(null)}>Close</Button>
+                    <Button variant="ghost" onClick={() => { setSelectedItem(null); setEditMode(false); }}>Close</Button>
                   </div>
                 </div>
               </>

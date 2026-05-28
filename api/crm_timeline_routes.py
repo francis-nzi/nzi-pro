@@ -86,6 +86,19 @@ def _ensure_tables(con) -> None:
 
     con.execute(
         """
+        CREATE TABLE IF NOT EXISTS crm_task_history (
+          history_id BIGSERIAL PRIMARY KEY,
+          task_id BIGINT NOT NULL,
+          changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          changed_by VARCHAR,
+          changes JSONB NOT NULL DEFAULT '[]'::jsonb
+        )
+        """
+    )
+    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_task_history_task ON crm_task_history (task_id, changed_at DESC)")
+
+    con.execute(
+        """
         CREATE TABLE IF NOT EXISTS crm_tags (
           tag_id BIGSERIAL PRIMARY KEY,
           tag_name VARCHAR(80) NOT NULL UNIQUE,
@@ -558,21 +571,35 @@ def create_client_task(client_id: int, body: dict = Body(...), _user: dict = Dep
 
 @router.patch("/tasks/{task_id}")
 def update_task(task_id: int, body: dict = Body(...), _user: dict = Depends(_current_user)):
+    import json as _json
     try:
         with get_conn() as con:
             _ensure_tables(con)
-            exists = con.execute("SELECT task_id FROM crm_tasks WHERE task_id = %s", [int(task_id)]).fetchone()
-            if not exists:
+            current = con.execute(
+                "SELECT task_id, title, details, assignee_user_id, priority, sla_due_at, due_at, status FROM crm_tasks WHERE task_id = %s",
+                [int(task_id)],
+            ).fetchone()
+            if not current:
                 raise HTTPException(status_code=404, detail="Task not found")
+
+            tracked_fields = ("title", "details", "assignee_user_id", "priority", "sla_due_at", "due_at", "status")
+            col_names = ("task_id", "title", "details", "assignee_user_id", "priority", "sla_due_at", "due_at", "status")
+            current_map = dict(zip(col_names, current))
 
             updates: list[str] = []
             params: list[Any] = []
-            for key in ("title", "details", "assignee_user_id", "priority", "sla_due_at", "due_at", "status"):
+            history_changes: list[dict] = []
+
+            for key in tracked_fields:
                 if key not in body:
                     continue
-                updates.append(f"{key} = %s")
                 value = body.get(key)
-                params.append(str(value).strip() if value is not None else None)
+                new_val = str(value).strip() if value is not None else None
+                old_val = str(current_map.get(key, "") or "").strip() or None
+                if new_val != old_val:
+                    history_changes.append({"field": key, "from": old_val, "to": new_val})
+                updates.append(f"{key} = %s")
+                params.append(new_val)
 
             status_val = str(body.get("status") or "").strip().lower()
             if "status" in body:
@@ -588,12 +615,41 @@ def update_task(task_id: int, body: dict = Body(...), _user: dict = Depends(_cur
             params.append(int(task_id))
             con.execute(f"UPDATE crm_tasks SET {', '.join(updates)} WHERE task_id = %s", params)
 
+            if history_changes:
+                con.execute(
+                    "INSERT INTO crm_task_history (task_id, changed_by, changes) VALUES (%s, %s, %s::jsonb)",
+                    [int(task_id), _actor(_user), _json.dumps(history_changes)],
+                )
+
             df = con.execute("SELECT * FROM crm_tasks WHERE task_id = %s", [int(task_id)]).df()
             return _serialize_task(df.iloc[0].to_dict()) if df is not None and not df.empty else {"task_id": int(task_id)}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update task: {e}")
+
+
+@router.get("/tasks/{task_id}/history")
+def get_task_history(task_id: int, _user: dict = Depends(_current_user)):
+    try:
+        with get_conn() as con:
+            _ensure_tables(con)
+            rows = con.execute(
+                "SELECT history_id, changed_at, changed_by, changes FROM crm_task_history WHERE task_id = %s ORDER BY changed_at DESC LIMIT 100",
+                [int(task_id)],
+            ).fetchall()
+            items = []
+            for row in rows:
+                history_id, changed_at, changed_by, changes = row
+                items.append({
+                    "history_id": history_id,
+                    "changed_at": changed_at.isoformat() if changed_at else None,
+                    "changed_by": changed_by or "system",
+                    "changes": changes if isinstance(changes, list) else [],
+                })
+            return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load task history: {e}")
 
 
 @router.get("/clients/{client_id}/tasks")
