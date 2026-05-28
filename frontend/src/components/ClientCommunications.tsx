@@ -285,12 +285,27 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         fetch(`${baseUrl}/clients/${clientId}/timeline?${tp.toString()}`, { credentials: "include" }),
         fetch(`${baseUrl}/clients/${clientId}/tasks?${tk.toString()}`, { credentials: "include" }),
       ]);
-      if (!eventsRes.ok) throw new Error(`Failed to load communications (${eventsRes.status})`);
-      if (!tasksRes.ok) throw new Error(`Failed to load tasks (${tasksRes.status})`);
-      const eventsJson = await eventsRes.json();
-      const tasksJson = await tasksRes.json();
-      setEvents(Array.isArray(eventsJson?.items) ? eventsJson.items : []);
-      setTasks(Array.isArray(tasksJson?.items) ? tasksJson.items : []);
+
+      // Load events — show actual server error detail if it fails but still continue to load tasks
+      if (eventsRes.ok) {
+        const eventsJson = await eventsRes.json();
+        setEvents(Array.isArray(eventsJson?.items) ? eventsJson.items : []);
+      } else {
+        const errData = await eventsRes.json().catch(() => null);
+        const detail = errData?.detail || `Failed to load communications (${eventsRes.status})`;
+        setStatus(detail);
+        setEvents([]);
+      }
+
+      // Load tasks independently
+      if (tasksRes.ok) {
+        const tasksJson = await tasksRes.json();
+        setTasks(Array.isArray(tasksJson?.items) ? tasksJson.items : []);
+      } else {
+        const errData = await tasksRes.json().catch(() => null);
+        setStatus((s) => s || errData?.detail || `Failed to load tasks (${tasksRes.status})`);
+        setTasks([]);
+      }
     } catch (e) {
       setStatus((e as Error).message);
     } finally {

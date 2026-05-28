@@ -255,10 +255,11 @@ def list_client_timeline(
     offset: int = Query(default=0, ge=0),
     _user: dict = Depends(_current_user),
 ):
+    import sys, traceback
     try:
         with get_conn() as con:
             _ensure_tables(con)
-            where = ["e.client_db_id = %s", "e.archived = FALSE"]
+            where = ["e.client_db_id = %s", "COALESCE(e.archived, FALSE) = FALSE"]
             params: list[Any] = [int(client_id)]
             if job_id is not None:
                 where.append("e.job_id = %s")
@@ -278,19 +279,24 @@ def list_client_timeline(
                 params.extend([needle, needle])
 
             where_sql = " AND ".join(where)
-            count_row = con.execute(f"SELECT COUNT(*) FROM crm_events e WHERE {where_sql}", params).fetchone()
-            total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
+            try:
+                count_row = con.execute(f"SELECT COUNT(*) FROM crm_events e WHERE {where_sql}", params).fetchone()
+                total_count = int(count_row[0]) if count_row and count_row[0] is not None else 0
 
-            rows_df = con.execute(
-                f"""
-                SELECT e.*
-                FROM crm_events e
-                WHERE {where_sql}
-                ORDER BY e.created_at DESC, e.event_id DESC
-                LIMIT %s OFFSET %s
-                """,
-                [*params, int(limit), int(offset)],
-            ).df()
+                rows_df = con.execute(
+                    f"""
+                    SELECT e.*
+                    FROM crm_events e
+                    WHERE {where_sql}
+                    ORDER BY e.created_at DESC, e.event_id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    [*params, int(limit), int(offset)],
+                ).df()
+            except Exception as _qerr:
+                print(f"[warn] crm_events query failed: {_qerr}\n{traceback.format_exc()}", file=sys.stderr)
+                return {"items": [], "count": 0}
+
             items: list[dict[str, Any]] = []
             if rows_df is not None and not rows_df.empty:
                 for _, row in rows_df.iterrows():
@@ -299,6 +305,7 @@ def list_client_timeline(
                     items.append(item)
             return {"items": items, "count": total_count}
     except Exception as e:
+        print(f"[error] list_client_timeline: {e}\n{traceback.format_exc()}", file=sys.stderr)
         raise HTTPException(status_code=500, detail=f"Failed to load timeline: {e}")
 
 
