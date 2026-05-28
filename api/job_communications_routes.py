@@ -1420,6 +1420,8 @@ async def send_job_communication_email(
             # Mirror into crm_events so the email appears in the client Communications inbox
             if client_db_id is not None:
                 try:
+                    from api.crm_timeline_routes import _ensure_tables as _ensure_crm_tables
+                    _ensure_crm_tables(con)
                     con.execute(
                         """
                         INSERT INTO crm_events (
@@ -1430,8 +1432,9 @@ async def send_job_communication_email(
                         """,
                         [client_db_id, int(job_id), subject, logged_body, comm_status, actor],
                     )
-                except Exception:
-                    pass  # Non-fatal — job_communications record already written
+                except Exception as _mirror_err:
+                    import sys
+                    print(f"[warn] crm_events mirror for email: {_mirror_err}", file=sys.stderr)
             if comm_status != "sent":
                 raise HTTPException(status_code=500, detail=f"Failed to send email: {send_res.get('error') or 'Unknown error'}")
         return {"ok": True, "sent_to": to_email, "email_id": int(send_res.get("email_id") or 0), "attachments": len(attachments)}

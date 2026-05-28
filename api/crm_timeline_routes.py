@@ -10,133 +10,149 @@ from services.outbound_email import send_tracked_email
 
 router = APIRouter(tags=["crm-timeline"])
 
+_timeline_schema_seeded: bool = False
+
 
 def _actor(user: dict) -> str:
     return str(user.get("email") or user.get("user_id") or "system").strip()
 
 
 def _ensure_tables(con) -> None:
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS crm_events (
-          event_id BIGSERIAL PRIMARY KEY,
-          client_db_id INTEGER NOT NULL,
-          job_id INTEGER,
-          event_type VARCHAR(50) NOT NULL,
-          channel VARCHAR(30) NOT NULL,
-          direction VARCHAR(20),
-          subject TEXT,
-          body_text TEXT,
-          body_html TEXT,
-          status VARCHAR(30) NOT NULL DEFAULT 'logged',
-          owner_user_id VARCHAR,
-          due_at TIMESTAMP,
-          source VARCHAR(50) NOT NULL DEFAULT 'manual',
-          source_ref VARCHAR(120),
-          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-          is_private BOOLEAN NOT NULL DEFAULT FALSE,
-          is_high_importance BOOLEAN NOT NULL DEFAULT FALSE,
-          created_by VARCHAR,
-          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_client_created ON crm_events (client_db_id, created_at DESC)")
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_job_created ON crm_events (job_id, created_at DESC)")
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_type ON crm_events (event_type)")
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_status ON crm_events (status)")
-    con.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_events_source_ref
-        ON crm_events (source, source_ref)
-        WHERE source_ref IS NOT NULL AND source_ref <> ''
-        """
-    )
-    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
-    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
-    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
-    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
-    con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS is_high_importance BOOLEAN NOT NULL DEFAULT FALSE")
-
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS crm_tasks (
-          task_id BIGSERIAL PRIMARY KEY,
-          event_id BIGINT REFERENCES crm_events(event_id) ON DELETE SET NULL,
-          client_db_id INTEGER NOT NULL,
-          job_id INTEGER,
-          title VARCHAR(255) NOT NULL,
-          details TEXT,
-          assignee_user_id VARCHAR,
-          priority VARCHAR(20) NOT NULL DEFAULT 'normal',
-          sla_due_at TIMESTAMP,
-          due_at TIMESTAMP,
-          status VARCHAR(30) NOT NULL DEFAULT 'open',
-          completed_at TIMESTAMP,
-          created_by VARCHAR,
-          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_client_status ON crm_tasks (client_db_id, status, due_at)")
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_job_status ON crm_tasks (job_id, status, due_at)")
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_assignee_status ON crm_tasks (assignee_user_id, status, due_at)")
-
+    global _timeline_schema_seeded
+    if _timeline_schema_seeded:
+        return
+    import sys
     try:
         con.execute(
             """
-            CREATE TABLE IF NOT EXISTS crm_task_history (
-              history_id BIGSERIAL PRIMARY KEY,
-              task_id BIGINT NOT NULL,
-              changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
-              changed_by VARCHAR,
-              changes TEXT NOT NULL DEFAULT '[]'
+            CREATE TABLE IF NOT EXISTS crm_events (
+              event_id BIGSERIAL PRIMARY KEY,
+              client_db_id INTEGER NOT NULL,
+              job_id INTEGER,
+              event_type VARCHAR(50) NOT NULL,
+              channel VARCHAR(30) NOT NULL,
+              direction VARCHAR(20),
+              subject TEXT,
+              body_text TEXT,
+              body_html TEXT,
+              status VARCHAR(30) NOT NULL DEFAULT 'logged',
+              owner_user_id VARCHAR,
+              due_at TIMESTAMP,
+              source VARCHAR(50) NOT NULL DEFAULT 'manual',
+              source_ref VARCHAR(120),
+              payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+              is_private BOOLEAN NOT NULL DEFAULT FALSE,
+              is_high_importance BOOLEAN NOT NULL DEFAULT FALSE,
+              created_by VARCHAR,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              updated_at TIMESTAMP NOT NULL DEFAULT NOW()
             )
             """
         )
-        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_task_history_task ON crm_task_history (task_id, changed_at DESC)")
-    except Exception as _hist_err:
-        import sys
-        print(f"[warn] crm_task_history setup: {_hist_err}", file=sys.stderr)
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_client_created ON crm_events (client_db_id, created_at DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_job_created ON crm_events (job_id, created_at DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_type ON crm_events (event_type)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_events_status ON crm_events (status)")
+        try:
+            con.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_crm_events_source_ref
+                ON crm_events (source, source_ref)
+                WHERE source_ref IS NOT NULL AND source_ref <> ''
+                """
+            )
+        except Exception as _idx_err:
+            print(f"[warn] ux_crm_events_source_ref: {_idx_err}", file=sys.stderr)
+        con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS updated_by VARCHAR")
+        con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE")
+        con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP")
+        con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS archived_by VARCHAR")
+        con.execute("ALTER TABLE crm_events ADD COLUMN IF NOT EXISTS is_high_importance BOOLEAN NOT NULL DEFAULT FALSE")
 
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS crm_tags (
-          tag_id BIGSERIAL PRIMARY KEY,
-          tag_name VARCHAR(80) NOT NULL UNIQUE,
-          color_hex VARCHAR(7),
-          is_active BOOLEAN NOT NULL DEFAULT TRUE
-        )
-        """
-    )
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS crm_event_tags (
-          event_id BIGINT NOT NULL REFERENCES crm_events(event_id) ON DELETE CASCADE,
-          tag_id BIGINT NOT NULL REFERENCES crm_tags(tag_id) ON DELETE CASCADE,
-          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-          PRIMARY KEY (event_id, tag_id)
-        )
-        """
-    )
-
-    defaults = [
-        ("follow-up", "#F59E0B"),
-        ("risk", "#EF4444"),
-        ("finance", "#10B981"),
-        ("client-waiting", "#3B82F6"),
-    ]
-    for tag_name, color_hex in defaults:
         con.execute(
             """
-            INSERT INTO crm_tags (tag_name, color_hex, is_active)
-            SELECT %s, %s, TRUE
-            WHERE NOT EXISTS (SELECT 1 FROM crm_tags WHERE lower(tag_name) = lower(%s))
-            """,
-            [tag_name, color_hex, tag_name],
+            CREATE TABLE IF NOT EXISTS crm_tasks (
+              task_id BIGSERIAL PRIMARY KEY,
+              event_id BIGINT REFERENCES crm_events(event_id) ON DELETE SET NULL,
+              client_db_id INTEGER NOT NULL,
+              job_id INTEGER,
+              title VARCHAR(255) NOT NULL,
+              details TEXT,
+              assignee_user_id VARCHAR,
+              priority VARCHAR(20) NOT NULL DEFAULT 'normal',
+              sla_due_at TIMESTAMP,
+              due_at TIMESTAMP,
+              status VARCHAR(30) NOT NULL DEFAULT 'open',
+              completed_at TIMESTAMP,
+              created_by VARCHAR,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+            """
         )
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_client_status ON crm_tasks (client_db_id, status, due_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_job_status ON crm_tasks (job_id, status, due_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_assignee_status ON crm_tasks (assignee_user_id, status, due_at)")
+
+        try:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS crm_task_history (
+                  history_id BIGSERIAL PRIMARY KEY,
+                  task_id BIGINT NOT NULL,
+                  changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                  changed_by VARCHAR,
+                  changes TEXT NOT NULL DEFAULT '[]'
+                )
+                """
+            )
+            con.execute("CREATE INDEX IF NOT EXISTS ix_crm_task_history_task ON crm_task_history (task_id, changed_at DESC)")
+        except Exception as _hist_err:
+            print(f"[warn] crm_task_history setup: {_hist_err}", file=sys.stderr)
+
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS crm_tags (
+              tag_id BIGSERIAL PRIMARY KEY,
+              tag_name VARCHAR(80) NOT NULL UNIQUE,
+              color_hex VARCHAR(7),
+              is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            """
+        )
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS crm_event_tags (
+              event_id BIGINT NOT NULL REFERENCES crm_events(event_id) ON DELETE CASCADE,
+              tag_id BIGINT NOT NULL REFERENCES crm_tags(tag_id) ON DELETE CASCADE,
+              created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              PRIMARY KEY (event_id, tag_id)
+            )
+            """
+        )
+
+        defaults = [
+            ("follow-up", "#F59E0B"),
+            ("risk", "#EF4444"),
+            ("finance", "#10B981"),
+            ("client-waiting", "#3B82F6"),
+        ]
+        for tag_name, color_hex in defaults:
+            try:
+                con.execute(
+                    """
+                    INSERT INTO crm_tags (tag_name, color_hex, is_active)
+                    SELECT %s, %s, TRUE
+                    WHERE NOT EXISTS (SELECT 1 FROM crm_tags WHERE lower(tag_name) = lower(%s))
+                    """,
+                    [tag_name, color_hex, tag_name],
+                )
+            except Exception:
+                pass
+
+        _timeline_schema_seeded = True
+    except Exception as _ddl_err:
+        print(f"[warn] crm_timeline _ensure_tables: {_ddl_err}", file=sys.stderr)
 
 
 def _serialize_event(row: dict[str, Any]) -> dict[str, Any]:
