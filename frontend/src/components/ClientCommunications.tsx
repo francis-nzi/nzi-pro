@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type JobFile = { file_id: number; file_name: string; mime_type: string | null; file_size: number | null };
 
@@ -107,6 +108,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
   const [automationMode, setAutomationMode] = useState("preview");
   const [automationJobId, setAutomationJobId] = useState<string>("none");
   const [automationResult, setAutomationResult] = useState("");
+  const [activeModal, setActiveModal] = useState<"log" | "task" | "email" | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -259,6 +261,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       }
       setNewSubject("");
       setNewBody("");
+      setActiveModal(null);
       setStatus(newChannel === "note" ? "Note logged. Open the Notes tab to view and manage it." : "Communication logged.");
       await load();
     } catch (e) {
@@ -299,6 +302,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       setTaskNotifyAssignee(false);
       setTaskPriority("normal");
       setTaskDueAt("");
+      setActiveModal(null);
       setStatus(`Task created.${notified ? " Assignee notified by email." : ""}`);
       await load();
     } catch (e) {
@@ -370,6 +374,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
       setLocalFiles([]);
       setSelectedJobFileIds(new Set());
       setShowJobFiles(false);
+      setActiveModal(null);
       setStatus("Email sent and logged.");
       await load();
     } catch (e) {
@@ -560,10 +565,28 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Log Communication</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+      {/* Action buttons */}
+      <div className="flex flex-wrap gap-3">
+        <Button variant="outline" onClick={() => setActiveModal("log")}>Log Communication</Button>
+        <Button variant="outline" onClick={() => setActiveModal("task")}>Create Task</Button>
+        <Button onClick={() => setActiveModal("email")}>Email Client / Contact</Button>
+      </div>
+
+      {/* Recipient datalist — always in DOM for autocomplete */}
+      <datalist id={`recipients-${clientId}`}>
+        {clientContacts.map((r) => (
+          <option key={`c-${r.email}`} value={r.email} label={`${r.name} (Client)`} />
+        ))}
+        {teamMembers.map((r) => (
+          <option key={`t-${r.email}`} value={r.email} label={`${r.name} (Team)`} />
+        ))}
+      </datalist>
+
+      {/* Log Communication modal */}
+      <Dialog open={activeModal === "log"} onOpenChange={(o) => { if (!o) setActiveModal(null); }}>
+        <DialogContent className="max-w-xl w-full">
+          <DialogHeader><DialogTitle>Log Communication</DialogTitle></DialogHeader>
+          <div className="space-y-3 mt-2">
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label>Job</Label>
@@ -603,9 +626,6 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
                     <SelectItem value="message">Message</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  Use the Notes tab for client notes. Notes logged here will still be saved, but they appear in Notes rather than this inbox.
-                </p>
               </div>
             </div>
             <div className="space-y-2">
@@ -616,13 +636,20 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
               <Label>Message</Label>
               <Textarea value={newBody} onChange={(e) => setNewBody(e.target.value)} rows={5} />
             </div>
-            <Button onClick={() => void createEvent()}>Log Entry</Button>
-          </CardContent>
-        </Card>
+            <p className="text-xs text-muted-foreground">Notes logged here appear in the Notes tab rather than this inbox.</p>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={() => void createEvent()}>Log Entry</Button>
+              <Button variant="ghost" onClick={() => setActiveModal(null)}>Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-        <Card>
-          <CardHeader><CardTitle>Create Task</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
+      {/* Create Task modal */}
+      <Dialog open={activeModal === "task"} onOpenChange={(o) => { if (!o) setActiveModal(null); }}>
+        <DialogContent className="max-w-xl w-full">
+          <DialogHeader><DialogTitle>Create Task</DialogTitle></DialogHeader>
+          <div className="space-y-3 mt-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Job</Label>
@@ -657,7 +684,7 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
             </div>
             <div className="space-y-2">
               <Label>Details</Label>
-              <Textarea value={taskDetails} onChange={(e) => setTaskDetails(e.target.value)} rows={4} />
+              <Textarea value={taskDetails} onChange={(e) => setTaskDetails(e.target.value)} rows={3} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
@@ -685,195 +712,116 @@ export default function ClientCommunications({ clientId, baseUrl, jobs = [] }: P
               Notify assignee by email when task is created
               {!taskAssignee.trim() && <span className="text-xs text-muted-foreground">(select assignee first)</span>}
             </label>
-            <Button onClick={() => void createTask()}>Create Task</Button>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="flex gap-2 pt-1">
+              <Button onClick={() => void createTask()}>Create Task</Button>
+              <Button variant="ghost" onClick={() => setActiveModal(null)}>Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      {/* Recipient datalist shared across To/CC/BCC fields */}
-      <datalist id={`recipients-${clientId}`}>
-        {clientContacts.map((r) => (
-          <option key={`c-${r.email}`} value={r.email} label={`${r.name} (Client)`} />
-        ))}
-        {teamMembers.map((r) => (
-          <option key={`t-${r.email}`} value={r.email} label={`${r.name} (Team)`} />
-        ))}
-      </datalist>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Email Client / Contact</CardTitle>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Sent via admin@netzero.international · your name and signature auto-applied · client replies go to your inbox
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+      {/* Email modal */}
+      <Dialog open={activeModal === "email"} onOpenChange={(o) => { if (!o) setActiveModal(null); }}>
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>Email Client / Contact</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Sent via admin@netzero.international · your name and signature auto-applied · client replies go to your inbox</p>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Job (required)</Label>
+                <Select value={emailJobId} onValueChange={setEmailJobId}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select job</SelectItem>
+                    {jobs.map((j) => (
+                      <SelectItem key={j.job_id} value={String(j.job_id)}>
+                        {j.job_number || `Job ${j.job_id}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>To</Label>
+                <Input list={`recipients-${clientId}`} value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="name@client.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>CC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
+                <Input list={`recipients-${clientId}`} value={emailCc} onChange={(e) => setEmailCc(e.target.value)} placeholder="cc@example.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>BCC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
+                <Input list={`recipients-${clientId}`} value={emailBcc} onChange={(e) => setEmailBcc(e.target.value)} placeholder="bcc@example.com" />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label>Job (required)</Label>
-              <Select value={emailJobId} onValueChange={setEmailJobId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Select job</SelectItem>
-                  {jobs.map((j) => (
-                    <SelectItem key={j.job_id} value={String(j.job_id)}>
-                      {j.job_number || `Job ${j.job_id}`}
-                    </SelectItem>
+              <Label>Subject</Label>
+              <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Re: Carbon report..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Message</Label>
+              <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={5} placeholder="Type your message here..." />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label>Attachments</Label>
+                <span className="text-xs text-muted-foreground">
+                  {localFiles.length + selectedJobFileIds.size > 0
+                    ? `${localFiles.length + selectedJobFileIds.size} file(s) · ${(localFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB`
+                    : "None"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>+ Upload from computer</Button>
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { setLocalFiles((prev) => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ""; }} />
+                {emailJobId !== "none" && jobFiles.length > 0 && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowJobFiles((v) => !v)}>
+                    {showJobFiles ? "Hide job files" : `Attach from job (${jobFiles.length})`}
+                  </Button>
+                )}
+              </div>
+              {showJobFiles && jobFiles.length > 0 && (
+                <div className="rounded-md border divide-y max-h-40 overflow-y-auto">
+                  {jobFiles.map((jf) => (
+                    <label key={jf.file_id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 text-sm">
+                      <input type="checkbox" checked={selectedJobFileIds.has(jf.file_id)} onChange={(e) => { setSelectedJobFileIds((prev) => { const n = new Set(prev); e.target.checked ? n.add(jf.file_id) : n.delete(jf.file_id); return n; }); }} className="shrink-0" />
+                      <span className="truncate">{jf.file_name}</span>
+                      {jf.file_size ? <span className="ml-auto text-xs text-muted-foreground shrink-0">{(jf.file_size / 1024).toFixed(0)} KB</span> : null}
+                    </label>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>To</Label>
-              <Input
-                list={`recipients-${clientId}`}
-                value={emailTo}
-                onChange={(e) => setEmailTo(e.target.value)}
-                placeholder="name@client.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>CC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
-              <Input
-                list={`recipients-${clientId}`}
-                value={emailCc}
-                onChange={(e) => setEmailCc(e.target.value)}
-                placeholder="cc@example.com, another@example.com"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>BCC <span className="text-xs font-normal text-muted-foreground">comma-separated</span></Label>
-              <Input
-                list={`recipients-${clientId}`}
-                value={emailBcc}
-                onChange={(e) => setEmailBcc(e.target.value)}
-                placeholder="bcc@example.com"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Subject</Label>
-            <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} placeholder="Re: Carbon report..." />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Message</Label>
-            <Textarea value={emailBody} onChange={(e) => setEmailBody(e.target.value)} rows={6} placeholder="Type your message here..." />
-          </div>
-
-          {/* Attachments */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Label>Attachments</Label>
-              <span className="text-xs text-muted-foreground">
-                {localFiles.length + selectedJobFileIds.size > 0
-                  ? `${localFiles.length + selectedJobFileIds.size} file(s) · ${(localFiles.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB local`
-                  : "None"}
-              </span>
-            </div>
-
-            {/* Local file upload */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                + Upload from computer
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  const added = Array.from(e.target.files || []);
-                  setLocalFiles((prev) => [...prev, ...added]);
-                  e.target.value = "";
-                }}
-              />
-              {emailJobId !== "none" && jobFiles.length > 0 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowJobFiles((v) => !v)}
-                >
-                  {showJobFiles ? "Hide job files" : `Attach from job (${jobFiles.length})`}
-                </Button>
+                </div>
+              )}
+              {(localFiles.length > 0 || selectedJobFileIds.size > 0) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {localFiles.map((f, i) => (
+                    <span key={`local-${i}`} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs">
+                      {f.name}
+                      <button type="button" className="ml-0.5 text-muted-foreground hover:text-foreground" onClick={() => setLocalFiles((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                    </span>
+                  ))}
+                  {jobFiles.filter((jf) => selectedJobFileIds.has(jf.file_id)).map((jf) => (
+                    <span key={`job-${jf.file_id}`} className="flex items-center gap-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2.5 py-0.5 text-xs">
+                      {jf.file_name}
+                      <button type="button" className="ml-0.5 opacity-70 hover:opacity-100" onClick={() => setSelectedJobFileIds((prev) => { const n = new Set(prev); n.delete(jf.file_id); return n; })}>✕</button>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-
-            {/* Job files picker */}
-            {showJobFiles && jobFiles.length > 0 && (
-              <div className="rounded-md border divide-y max-h-48 overflow-y-auto">
-                {jobFiles.map((jf) => (
-                  <label key={jf.file_id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/50 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedJobFileIds.has(jf.file_id)}
-                      onChange={(e) => {
-                        setSelectedJobFileIds((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(jf.file_id);
-                          else next.delete(jf.file_id);
-                          return next;
-                        });
-                      }}
-                      className="shrink-0"
-                    />
-                    <span className="truncate">{jf.file_name}</span>
-                    {jf.file_size ? (
-                      <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                        {(jf.file_size / 1024).toFixed(0)} KB
-                      </span>
-                    ) : null}
-                  </label>
-                ))}
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="flex gap-2">
+                <Button onClick={() => void sendEmail()}>Send Email</Button>
+                <Button variant="ghost" onClick={() => setActiveModal(null)}>Cancel</Button>
               </div>
-            )}
-
-            {/* Attached file chips */}
-            {(localFiles.length > 0 || selectedJobFileIds.size > 0) && (
-              <div className="flex flex-wrap gap-1.5">
-                {localFiles.map((f, i) => (
-                  <span key={`local-${i}`} className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs">
-                    {f.name}
-                    <button
-                      type="button"
-                      className="ml-0.5 text-muted-foreground hover:text-foreground"
-                      onClick={() => setLocalFiles((prev) => prev.filter((_, j) => j !== i))}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-                {jobFiles.filter((jf) => selectedJobFileIds.has(jf.file_id)).map((jf) => (
-                  <span key={`job-${jf.file_id}`} className="flex items-center gap-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 px-2.5 py-0.5 text-xs">
-                    {jf.file_name}
-                    <button
-                      type="button"
-                      className="ml-0.5 opacity-70 hover:opacity-100"
-                      onClick={() => setSelectedJobFileIds((prev) => { const n = new Set(prev); n.delete(jf.file_id); return n; })}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+              {emailTo && emailSubject && (
+                <span className="text-xs text-muted-foreground">To: {emailTo}{emailCc ? ` · CC: ${emailCc}` : ""}</span>
+              )}
+            </div>
           </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <Button onClick={() => void sendEmail()}>Send Email</Button>
-            {emailTo && emailSubject && (
-              <span className="text-xs text-muted-foreground">
-                To: {emailTo}{emailCc ? ` · CC: ${emailCc}` : ""}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
