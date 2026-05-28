@@ -84,18 +84,22 @@ def _ensure_tables(con) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_job_status ON crm_tasks (job_id, status, due_at)")
     con.execute("CREATE INDEX IF NOT EXISTS ix_crm_tasks_assignee_status ON crm_tasks (assignee_user_id, status, due_at)")
 
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS crm_task_history (
-          history_id BIGSERIAL PRIMARY KEY,
-          task_id BIGINT NOT NULL,
-          changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
-          changed_by VARCHAR,
-          changes JSONB NOT NULL DEFAULT '[]'::jsonb
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS crm_task_history (
+              history_id BIGSERIAL PRIMARY KEY,
+              task_id BIGINT NOT NULL,
+              changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+              changed_by VARCHAR,
+              changes TEXT NOT NULL DEFAULT '[]'
+            )
+            """
         )
-        """
-    )
-    con.execute("CREATE INDEX IF NOT EXISTS ix_crm_task_history_task ON crm_task_history (task_id, changed_at DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_crm_task_history_task ON crm_task_history (task_id, changed_at DESC)")
+    except Exception as _hist_err:
+        import sys
+        print(f"[warn] crm_task_history setup: {_hist_err}", file=sys.stderr)
 
     con.execute(
         """
@@ -616,10 +620,13 @@ def update_task(task_id: int, body: dict = Body(...), _user: dict = Depends(_cur
             con.execute(f"UPDATE crm_tasks SET {', '.join(updates)} WHERE task_id = %s", params)
 
             if history_changes:
-                con.execute(
-                    "INSERT INTO crm_task_history (task_id, changed_by, changes) VALUES (%s, %s, %s::jsonb)",
-                    [int(task_id), _actor(_user), _json.dumps(history_changes)],
-                )
+                try:
+                    con.execute(
+                        "INSERT INTO crm_task_history (task_id, changed_by, changes) VALUES (%s, %s, %s)",
+                        [int(task_id), _actor(_user), _json.dumps(history_changes)],
+                    )
+                except Exception:
+                    pass
 
             df = con.execute("SELECT * FROM crm_tasks WHERE task_id = %s", [int(task_id)]).df()
             return _serialize_task(df.iloc[0].to_dict()) if df is not None and not df.empty else {"task_id": int(task_id)}
@@ -631,6 +638,7 @@ def update_task(task_id: int, body: dict = Body(...), _user: dict = Depends(_cur
 
 @router.get("/tasks/{task_id}/history")
 def get_task_history(task_id: int, _user: dict = Depends(_current_user)):
+    import json as _json
     try:
         with get_conn() as con:
             _ensure_tables(con)
@@ -640,12 +648,16 @@ def get_task_history(task_id: int, _user: dict = Depends(_current_user)):
             ).fetchall()
             items = []
             for row in rows:
-                history_id, changed_at, changed_by, changes = row
+                history_id, changed_at, changed_by, changes_raw = row
+                try:
+                    changes = _json.loads(changes_raw) if isinstance(changes_raw, str) else (changes_raw if isinstance(changes_raw, list) else [])
+                except Exception:
+                    changes = []
                 items.append({
                     "history_id": history_id,
                     "changed_at": changed_at.isoformat() if changed_at else None,
                     "changed_by": changed_by or "system",
-                    "changes": changes if isinstance(changes, list) else [],
+                    "changes": changes,
                 })
             return {"items": items}
     except Exception as e:
