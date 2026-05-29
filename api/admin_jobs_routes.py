@@ -543,10 +543,21 @@ def list_job_types(_user: dict = Depends(_current_user)):
                         return d if (_m.isnan(f) or _m.isinf(f)) else int(f)
                     except Exception:
                         return d
+                def _ss(v):
+                    import math as _m
+                    if v is None:
+                        return ""
+                    try:
+                        if isinstance(v, float) and (_m.isnan(v) or _m.isinf(v)):
+                            return ""
+                    except Exception:
+                        pass
+                    s = str(v).strip()
+                    return "" if s.lower() == "nan" else s
                 items.append({
                     "job_type_id": _si(r.get("job_type_id")) or 0,
                     "name": str(r.get("name") or ""),
-                    "description": str(r.get("description") or ""),
+                    "description": _ss(r.get("description")),
                     "estimated_hours": _sf(r.get("estimated_hours")),
                     "template_hours": round(_sf(r.get("template_hours")), 2),
                     "item_count": _si(r.get("item_count")) or 0,
@@ -596,6 +607,7 @@ def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
                     "category": str(r.get("category") or ""),
                     "unit": str(r.get("unit") or "day"),
                     "estimated_hours": float(r.get("estimated_hours") or 0),
+                    "description": str(r.get("description") or ""),
                     "cost_amount": float(r.get("cost_amount") or 0),
                     "cost_currency": str(r.get("cost_currency") or "GBP"),
                     "sell_amount": float(r.get("sell_amount") or 0),

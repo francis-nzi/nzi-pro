@@ -324,7 +324,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 tpl_df = con.execute(
                     """
                     SELECT jti.item_id, jti.quantity, jti.sort_order,
-                           ji.item_name, ji.item_code, ji.category, ji.unit,
+                           ji.item_name, ji.item_code, ji.description, ji.category, ji.unit,
                            ji.estimated_hours, ji.sell_amount, ji.sell_currency,
                            ji.vat_rate, ji.vat_rate_id
                     FROM job_type_items jti
@@ -340,17 +340,18 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                         con.execute(
                             """
                             INSERT INTO job_line_items (
-                              job_id, item_id, item_name, item_code, category,
+                              job_id, item_id, item_name, item_code, description, category,
                               quantity, estimated_hours, unit, unit_sell, sell_currency,
                               vat_rate, vat_rate_id, sort_order, created_by, created_at, updated_at
                             )
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                             """,
                             [
                                 job_id,
                                 _safe_int(trow.get("item_id")),
                                 str(trow.get("item_name") or ""),
                                 str(trow.get("item_code") or "").strip() or None,
+                                str(trow.get("description") or "").strip() or None,
                                 str(trow.get("category") or "").strip() or None,
                                 _safe_float(trow.get("quantity"), 1.0),
                                 _safe_float(trow.get("estimated_hours"), 0.0),

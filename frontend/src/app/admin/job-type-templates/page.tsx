@@ -50,6 +50,7 @@ interface TemplateItem {
   item_id: number;
   item_name: string;
   item_code: string;
+  description: string;
   category: string;
   unit: string;
   quantity: number;
@@ -265,9 +266,9 @@ export default function JobTypeTemplatesPage() {
               <CardTitle className="text-base text-slate-900">
                 {selectedType?.name ?? "Select a job type"}
               </CardTitle>
-              {selectedType && (
+              {selectedType && selectedType.description && (
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {selectedType.description || "No description"}
+                  {selectedType.description}
                 </p>
               )}
             </div>
@@ -310,7 +311,9 @@ export default function JobTypeTemplatesPage() {
                     <TableRow key={item.job_type_item_id}>
                       <TableCell>
                         <div className="font-medium text-slate-900">{item.item_name}</div>
-                        <div className="text-xs text-slate-400">{item.item_code}</div>
+                        {item.description && (
+                          <div className="text-xs text-slate-500">{item.description}</div>
+                        )}
                       </TableCell>
                       <TableCell>
                         {item.category ? (

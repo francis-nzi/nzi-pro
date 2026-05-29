@@ -48,6 +48,7 @@ interface LineItem {
   item_id: number | null;
   item_name: string;
   item_code: string;
+  description: string;
   category: string;
   quantity: number;
   estimated_hours: number;
@@ -485,8 +486,8 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
                   <TableRow key={item.line_item_id}>
                     <TableCell>
                       <div className="font-medium text-slate-900">{item.item_name}</div>
-                      {item.item_code && (
-                        <div className="text-xs text-slate-400">{item.item_code}</div>
+                      {item.description && (
+                        <div className="text-xs text-slate-500">{item.description}</div>
                       )}
                     </TableCell>
                     <TableCell>

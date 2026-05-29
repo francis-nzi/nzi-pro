@@ -27,6 +27,7 @@ def _ensure_table(con) -> None:
               item_id INTEGER,
               item_name VARCHAR(255) NOT NULL,
               item_code VARCHAR(100),
+              description TEXT,
               category VARCHAR(100),
               quantity NUMERIC(10,2) NOT NULL DEFAULT 1,
               estimated_hours NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -79,6 +80,7 @@ def _serialize(row: dict[str, Any]) -> dict[str, Any]:
         "item_id": _safe_int(row.get("item_id")),
         "item_name": str(row.get("item_name") or ""),
         "item_code": str(row.get("item_code") or ""),
+        "description": str(row.get("description") or ""),
         "category": str(row.get("category") or ""),
         "quantity": qty,
         "estimated_hours": hrs,
@@ -318,7 +320,7 @@ def apply_template_to_job(job_id: int, body: dict = Body(default={}), _user: dic
             template_df = con.execute(
                 """
                 SELECT jti.item_id, jti.quantity, jti.sort_order,
-                       ji.item_name, ji.item_code, ji.category, ji.unit,
+                       ji.item_name, ji.item_code, ji.description, ji.category, ji.unit,
                        ji.estimated_hours, ji.sell_amount, ji.sell_currency,
                        ji.vat_rate, ji.vat_rate_id
                 FROM job_type_items jti
@@ -342,17 +344,18 @@ def apply_template_to_job(job_id: int, body: dict = Body(default={}), _user: dic
                 con.execute(
                     """
                     INSERT INTO job_line_items (
-                      job_id, item_id, item_name, item_code, category,
+                      job_id, item_id, item_name, item_code, description, category,
                       quantity, estimated_hours, unit, unit_sell, sell_currency,
                       vat_rate, vat_rate_id, sort_order, created_by, created_at, updated_at
                     )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     """,
                     [
                         int(job_id),
                         _safe_int(trow.get("item_id")),
                         str(trow.get("item_name") or ""),
                         str(trow.get("item_code") or "").strip() or None,
+                        str(trow.get("description") or "").strip() or None,
                         str(trow.get("category") or "").strip() or None,
                         _safe_float(trow.get("quantity"), 1.0),
                         _safe_float(trow.get("estimated_hours"), 0.0),
