@@ -283,7 +283,7 @@ function WorkspacePanels({
                 These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
                 saving.
               </p>
-              <CustomFields entityId={job.jobId} entityType="job" baseUrl={baseUrl} />
+              <CustomFields entityId={job.jobId} entityType="job" baseUrl={baseUrl} embedded />
             </CardContent>
           </Card>
         ) : null}

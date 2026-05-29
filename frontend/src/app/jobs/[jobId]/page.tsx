@@ -784,7 +784,7 @@ export default function JobDetailPage() {
                     These custom fields are configured in Admin → Custom Fields. Required fields must be completed before
                     saving.
                   </p>
-                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} />
+                  <CustomFields entityId={jobId} entityType="job" baseUrl={baseUrl} embedded />
                 </CardContent>
               </Card>
 

@@ -32,9 +32,10 @@ type CustomFieldsProps = {
   entityId: number;
   entityType: "job" | "client" | "contact" | "quote" | "supplier";
   baseUrl: string;
+  embedded?: boolean; // when true, renders without its own Card wrapper
 };
 
-export default function CustomFields({ entityId, entityType, baseUrl }: CustomFieldsProps) {
+export default function CustomFields({ entityId, entityType, baseUrl, embedded = false }: CustomFieldsProps) {
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -200,6 +201,7 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
   }
 
   if (loading) {
+    if (embedded) return <p className="py-4 text-center text-sm text-muted-foreground">Loading custom fields...</p>;
     return (
       <Card>
         <CardContent className="py-10 text-center text-muted-foreground">
@@ -210,6 +212,7 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
   }
 
   if (fields.length === 0) {
+    if (embedded) return <p className="text-sm text-muted-foreground">No custom fields defined. Go to Admin → Custom Fields to add fields.</p>;
     return (
       <Card>
         <CardHeader>
@@ -224,12 +227,8 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
     );
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
+  const inner = (
+    <div className="space-y-6">
 
         {/* Unified 2-column grid — field pairs determined by display_order */}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -280,7 +279,16 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
             {saving ? "Saving..." : "Save Custom Fields"}
           </Button>
         </div>
-      </CardContent>
+      </div>
+  );
+
+  if (embedded) return inner;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
+      </CardHeader>
+      <CardContent>{inner}</CardContent>
     </Card>
   );
 }
