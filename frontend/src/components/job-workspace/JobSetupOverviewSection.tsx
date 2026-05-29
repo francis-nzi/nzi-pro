@@ -203,14 +203,14 @@ export default function JobSetupOverviewSection({
             </p>
           </div>
 
-          {/* Start Date | End Date */}
+          {/* Job Start Date | Job End Date */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="jobStartDate">Start Date</Label>
+              <Label htmlFor="jobStartDate">Job Start Date</Label>
               <Input id="jobStartDate" type="date" value={jobStartDate} onChange={(e) => onJobStartDateChange(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="jobEndDate">End Date</Label>
+              <Label htmlFor="jobEndDate">Job End Date</Label>
               <Input id="jobEndDate" type="date" value={jobEndDate} onChange={(e) => onJobEndDateChange(e.target.value)} />
             </div>
           </div>
