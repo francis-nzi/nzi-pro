@@ -182,6 +182,18 @@ export default function JobSetupOverviewSection({
             </div>
           </div>
 
+          {/* Job Start Date | Job End Date */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="jobStartDate">Job Start Date</Label>
+              <Input id="jobStartDate" type="date" value={jobStartDate} onChange={(e) => onJobStartDateChange(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="jobEndDate">Job End Date</Label>
+              <Input id="jobEndDate" type="date" value={jobEndDate} onChange={(e) => onJobEndDateChange(e.target.value)} />
+            </div>
+          </div>
+
           {/* Milestone Template — full width */}
           <div className="space-y-2">
             <Label htmlFor="milestoneTemplate">Milestone Template</Label>
@@ -201,18 +213,6 @@ export default function JobSetupOverviewSection({
             <p className="text-xs text-muted-foreground">
               Changing the template will recalculate milestones from the later of Job Start Date and Reporting Period Start Date.
             </p>
-          </div>
-
-          {/* Job Start Date | Job End Date */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="jobStartDate">Job Start Date</Label>
-              <Input id="jobStartDate" type="date" value={jobStartDate} onChange={(e) => onJobStartDateChange(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="jobEndDate">Job End Date</Label>
-              <Input id="jobEndDate" type="date" value={jobEndDate} onChange={(e) => onJobEndDateChange(e.target.value)} />
-            </div>
           </div>
 
           {/* Reporting Period */}
