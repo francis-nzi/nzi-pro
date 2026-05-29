@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -13,7 +13,7 @@ import JobFinancialTabs from "@/components/job-workspace/JobFinancialTabs";
 import JobCommunicationsTabs from "@/components/job-workspace/JobCommunicationsTabs";
 import JobUploadSection from "@/components/job-workspace/JobUploadSection";
 import JobProjectMilestonesSection from "@/components/job-workspace/JobProjectMilestonesSection";
-import JobScopeCard from "@/components/job-workspace/JobScopeCard";
+import JobScopeCard, { type JobScopeCardHandle } from "@/components/job-workspace/JobScopeCard";
 import useJobWorkspaceData from "@/components/job-workspace/useJobWorkspaceData";
 import useJobWorkspaceActions from "@/components/job-workspace/useJobWorkspaceActions";
 import useJobWorkspaceDerivedState from "@/components/job-workspace/useJobWorkspaceDerivedState";
@@ -335,6 +335,7 @@ export default function JobDetailPage() {
   const [reportMetadataEnergyFactors, setReportMetadataEnergyFactors] =
     useState<EnergyEmissionFactorDetails | null>(null);
   const [loadingSetupMilestones, setLoadingSetupMilestones] = useState<boolean>(false);
+  const scopeCardRef = useRef<JobScopeCardHandle>(null);
   const [loadingScopeConfig, setLoadingScopeConfig] = useState<boolean>(false);
   const [loadingReportMetadata, setLoadingReportMetadata] = useState<boolean>(false);
 
@@ -722,10 +723,12 @@ export default function JobDetailPage() {
                 onReportingPeriodEndChange={setReportingPeriodEnd}
                 onSaveJobDetails={workspaceActions.saveJobDetails}
                 onSaveReportingPeriod={workspaceActions.saveReportingPeriod}
+                onApplyTemplate={() => scopeCardRef.current?.applyTemplate()}
               />
 
               {/* Job Scope & Hours */}
               <JobScopeCard
+                ref={scopeCardRef}
                 jobId={jobId}
                 jobTypeId={job?.job_type_id ?? null}
                 jobTypeName={job?.job_type ?? undefined}

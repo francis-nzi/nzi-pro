@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,12 +27,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -160,13 +154,18 @@ function HoursBar({ summary }: { summary: Summary }) {
   );
 }
 
+export interface JobScopeCardHandle {
+  applyTemplate: () => void;
+}
+
 interface JobScopeCardProps {
   jobId: number;
   jobTypeId?: number | null;
   jobTypeName?: string;
 }
 
-export default function JobScopeCard({ jobId, jobTypeId, jobTypeName }: JobScopeCardProps) {
+const JobScopeCard = forwardRef<JobScopeCardHandle, JobScopeCardProps>(
+function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
   const [items, setItems] = useState<LineItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [allJobItems, setAllJobItems] = useState<JobItem[]>([]);
@@ -178,6 +177,8 @@ export default function JobScopeCard({ jobId, jobTypeId, jobTypeName }: JobScope
   const [creatingInvoice, setCreatingInvoice] = useState(false);
   const confirm = useConfirmDialog();
   const loadedRef = useRef(false);
+
+  useImperativeHandle(ref, () => ({ applyTemplate }));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -405,25 +406,17 @@ export default function JobScopeCard({ jobId, jobTypeId, jobTypeName }: JobScope
           </div>
           <div className="flex items-center gap-2">
             {jobTypeId && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={applyTemplate}
-                      disabled={applyingTemplate}
-                      className="gap-1.5 text-xs"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${applyingTemplate ? "animate-spin" : ""}`} />
-                      {applyingTemplate ? "Applying…" : "Apply template"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Load default items from the {jobTypeName} template
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={applyTemplate}
+                disabled={applyingTemplate}
+                className="gap-1.5 text-xs"
+                title={jobTypeName ? `Load default items from the ${jobTypeName} template` : "Load default items from template"}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${applyingTemplate ? "animate-spin" : ""}`} />
+                {applyingTemplate ? "Applying…" : "Apply template"}
+              </Button>
             )}
             {items.length > 0 && (
               <Button
@@ -693,4 +686,6 @@ export default function JobScopeCard({ jobId, jobTypeId, jobTypeName }: JobScope
       </Dialog>
     </>
   );
-}
+});
+
+export default JobScopeCard;

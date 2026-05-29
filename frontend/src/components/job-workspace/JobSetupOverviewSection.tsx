@@ -46,6 +46,7 @@ type JobSetupOverviewSectionProps = {
   onReportingPeriodEndChange: (value: string) => void;
   onSaveJobDetails: () => void;
   onSaveReportingPeriod: () => void;
+  onApplyTemplate?: () => void;
 };
 
 export default function JobSetupOverviewSection({
@@ -83,6 +84,7 @@ export default function JobSetupOverviewSection({
   onReportingPeriodEndChange,
   onSaveJobDetails,
   onSaveReportingPeriod,
+  onApplyTemplate,
 }: JobSetupOverviewSectionProps) {
   const handleSave = () => {
     onSaveJobDetails();
@@ -132,7 +134,17 @@ export default function JobSetupOverviewSection({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">Controls how the job is grouped on client pages and in reporting.</p>
+              {jobType && onApplyTemplate ? (
+                <button
+                  type="button"
+                  onClick={onApplyTemplate}
+                  className="text-xs text-[#1c5026] hover:underline"
+                >
+                  Create items from template
+                </button>
+              ) : (
+                <p className="text-xs text-muted-foreground">Controls how the job is grouped on client pages and in reporting.</p>
+              )}
             </div>
           </div>
 
