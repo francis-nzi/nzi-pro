@@ -861,21 +861,21 @@ export default function TemplatesPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
-              <h3 className="font-medium mb-2">ðŸ“Š Data Collection Templates</h3>
+              <h3 className=”font-medium mb-2”>Data Collection Templates</h3>
               <p className="text-muted-foreground">
                 Excel templates for collecting emissions data from clients. Upload .xlsx or .xls files.
                 These templates are populated with conversion factors and sent to clients for data entry.
               </p>
             </div>
             <div>
-              <h3 className="font-medium mb-2">ðŸ“„ Report Templates</h3>
+              <h3 className=”font-medium mb-2”>Report Templates</h3>
               <p className="text-muted-foreground">
                 Word or PDF templates for generating Carbon Reduction Plans and other reports.
                 Upload .docx or .pdf files with placeholders that will be replaced with actual data.
               </p>
             </div>
             <div>
-              <h3 className="font-medium mb-2">ðŸ“‹ Usage</h3>
+              <h3 className=”font-medium mb-2”>Usage</h3>
               <p className="text-muted-foreground">
                 Templates are assigned to jobs. Upload files directly - they will be stored securely
                 and versioned. Each template type is managed separately in its own tab.
@@ -887,7 +887,7 @@ export default function TemplatesPage() {
         {/* Sample Templates */}
         <Card className="mt-6 border-primary/20">
           <CardHeader>
-            <CardTitle style={{ color: '#F26624' }}>ðŸ“‘ Sample Report Templates</CardTitle>
+            <CardTitle style={{ color: ‘#F26624’ }}>Sample Report Templates</CardTitle>
             <CardDescription>
               Framework templates for creating custom Word document reports
             </CardDescription>
@@ -930,7 +930,7 @@ export default function TemplatesPage() {
             </div>
 
             <div className="rounded-md bg-blue-50 border border-blue-200 p-4">
-              <h3 className="font-medium mb-2 text-blue-800">ðŸ’¡ Quick Start</h3>
+              <h3 className="font-medium mb-2 text-blue-800">Quick Start</h3>
               <ol className="list-decimal ml-4 text-xs text-blue-700 space-y-1">
                 <li>Open <code>sample_report_template.html</code> in a text editor</li>
                 <li>Customize the sections to match your report format</li>
