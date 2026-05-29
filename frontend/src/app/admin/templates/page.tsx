@@ -14,8 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ArrowLeft } from "lucide-react";
 import ReportVariablesAdmin from "@/components/ReportVariablesAdmin";
 import MessagingTemplatesAdmin from "@/components/MessagingTemplatesAdmin";
+import JobTypeTemplatesPage from "@/app/admin/job-type-templates/page";
 import UploadProgressBar from "@/components/UploadProgressBar";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { uploadFormDataWithProgress } from "@/lib/upload-with-progress";
@@ -49,6 +51,7 @@ type DatasetCatalogItem = {
 const TEMPLATE_TYPES = [
   { key: "dataset", label: "Data Collection Templates", description: "Excel templates for data capture" },
   { key: "report", label: "Report Templates", description: "Word/PDF templates for reports" },
+  { key: "job-type-templates", label: "Job Type Templates", description: "Default scope items per job type" },
   { key: "messaging", label: "Messaging Templates", description: "Email templates for quotes, invoices, reminders, and onboarding" },
   { key: "variables", label: "Report Variables", description: "Dynamic fields for report content" },
 ];
@@ -494,7 +497,10 @@ export default function TemplatesPage() {
             </p>
           </div>
           <Button variant="secondary" asChild>
-            <Link href="/admin">â† Back to Admin</Link>
+            <Link href="/admin" className="flex items-center gap-1.5">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Admin
+            </Link>
           </Button>
         </div>
 
@@ -502,7 +508,7 @@ export default function TemplatesPage() {
         {status && <div className="mb-4 rounded-md bg-muted p-3 text-sm">{status}</div>}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             {TEMPLATE_TYPES.map((type) => (
               <TabsTrigger key={type.key} value={type.key}>
                 {type.label}
@@ -516,6 +522,8 @@ export default function TemplatesPage() {
                 <ReportVariablesAdmin baseUrl={baseUrl} />
               ) : type.key === "messaging" ? (
                 <MessagingTemplatesAdmin baseUrl={baseUrl} />
+              ) : type.key === "job-type-templates" ? (
+                <JobTypeTemplatesPage />
               ) : (
               <>
               <div className="grid min-w-0 gap-6 lg:grid-cols-2">
