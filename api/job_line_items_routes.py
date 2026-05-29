@@ -45,6 +45,11 @@ def _ensure_table(con) -> None:
             """
         )
         con.execute("CREATE INDEX IF NOT EXISTS ix_job_line_items_job ON job_line_items (job_id, sort_order)")
+        # Migrate: add description column if not present (idempotent)
+        try:
+            con.execute("ALTER TABLE job_line_items ADD COLUMN IF NOT EXISTS description TEXT")
+        except Exception:
+            pass
         _schema_seeded = True
     except Exception as _e:
         import sys
@@ -141,7 +146,7 @@ def list_job_line_items(job_id: int, _user: dict = Depends(_current_user)):
             assert_job_access(_user, int(job_id))
             df = con.execute(
                 """
-                SELECT line_item_id, job_id, item_id, item_name, item_code, category,
+                SELECT line_item_id, job_id, item_id, item_name, item_code, description, category,
                        quantity, estimated_hours, unit, unit_sell, sell_currency,
                        vat_rate, vat_rate_id, notes, sort_order, created_by, created_at, updated_at
                 FROM job_line_items
@@ -176,11 +181,11 @@ def create_job_line_item(job_id: int, body: dict = Body(...), _user: dict = Depe
             row = con.execute(
                 """
                 INSERT INTO job_line_items (
-                  job_id, item_id, item_name, item_code, category,
+                  job_id, item_id, item_name, item_code, description, category,
                   quantity, estimated_hours, unit, unit_sell, sell_currency,
                   vat_rate, vat_rate_id, notes, sort_order, created_by, created_at, updated_at
                 )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                 RETURNING line_item_id
                 """,
                 [
@@ -188,6 +193,7 @@ def create_job_line_item(job_id: int, body: dict = Body(...), _user: dict = Depe
                     _safe_int(body.get("item_id")),
                     item_name,
                     str(body.get("item_code") or "").strip() or None,
+                    str(body.get("description") or "").strip() or None,
                     str(body.get("category") or "").strip() or None,
                     float(body.get("quantity") or 1),
                     float(body.get("estimated_hours") or 0),
@@ -235,6 +241,7 @@ def update_job_line_item(
             field_map = {
                 "item_name": lambda v: str(v or "").strip(),
                 "item_code": lambda v: str(v or "").strip() or None,
+                "description": lambda v: str(v or "").strip() or None,
                 "category": lambda v: str(v or "").strip() or None,
                 "quantity": lambda v: float(v or 1),
                 "estimated_hours": lambda v: float(v or 0),
