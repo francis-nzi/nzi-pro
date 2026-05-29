@@ -283,7 +283,7 @@ export default function JobTypeTemplatesPage() {
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); removeJobType(jt); }}
-                className="absolute right-2 top-2 hidden group-hover:flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-red-500"
+                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-600"
                 title="Remove job type"
               >
                 <Trash2 className="h-3.5 w-3.5" />
