@@ -627,7 +627,7 @@ def update_lookup_item(
                 return {"ok": True, "message": "No fields to update"}
             
             params.append(int(item_id))
-            if org_id is not None and table_name != "portfolios_lookup":
+            if org_id is not None and table_name not in ("portfolios_lookup", "job_types"):
                 params.append(org_match)
                 query = f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_col} = %s AND COALESCE(org_id, '') = %s"
             else:
