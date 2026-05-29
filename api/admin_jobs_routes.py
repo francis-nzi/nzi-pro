@@ -678,6 +678,40 @@ def add_job_type_item(
         raise HTTPException(status_code=500, detail=f"Failed to add job type item: {e}")
 
 
+@router.delete("/job-types/{job_type_id}")
+def delete_job_type(
+    job_type_id: int,
+    _user: dict = Depends(_current_user)
+):
+    """Deactivate a job type (soft-delete)."""
+    try:
+        with get_conn() as con:
+            row = con.execute(
+                "SELECT name FROM job_types WHERE job_type_id = %s",
+                [job_type_id]
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Job type not found")
+            in_use = con.execute(
+                "SELECT COUNT(*) FROM jobs WHERE job_type_id = %s LIMIT 1",
+                [job_type_id]
+            ).fetchone()
+            if in_use and int(in_use[0]) > 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot remove '{row[0]}' — it is assigned to {int(in_use[0])} job(s). Reassign those jobs first."
+                )
+            con.execute(
+                "UPDATE job_types SET is_active = FALSE WHERE job_type_id = %s",
+                [job_type_id]
+            )
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove job type: {e}")
+
+
 @router.delete("/job-types/{job_type_id}/items/{item_id}")
 def remove_job_type_item(
     job_type_id: int,

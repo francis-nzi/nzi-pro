@@ -195,6 +195,31 @@ export default function JobTypeTemplatesPage() {
     }
   }
 
+  async function removeJobType(jt: JobType) {
+    const ok = await confirm({
+      title: "Remove job type?",
+      description: `"${jt.name}" will be hidden from job type lists. Existing jobs are not affected. This cannot be undone from the UI.`,
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${api()}/admin/job-types/${jt.job_type_id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setStatus(err?.detail || "Failed to remove job type");
+        return;
+      }
+      if (selectedTypeId === jt.job_type_id) setSelectedTypeId(null);
+      await loadJobTypes();
+    } catch {
+      setStatus("Failed to remove job type");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function removeItem(item: TemplateItem) {
     if (!selectedTypeId) return;
     const ok = await confirm({
@@ -237,25 +262,33 @@ export default function JobTypeTemplatesPage() {
         {/* Left: job type list */}
         <div className="space-y-2">
           {jobTypes.map((jt) => (
-            <button
-              key={jt.job_type_id}
-              onClick={() => setSelectedTypeId(jt.job_type_id)}
-              className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
-                selectedTypeId === jt.job_type_id
-                  ? "border-[#1c5026] bg-[#f0f7f1] font-medium text-[#1c5026]"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              <div className="font-medium leading-snug">{jt.name}</div>
-              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                <Clock className="h-3 w-3" />
-                {jt.template_hours > 0
-                  ? `${jt.template_hours} hrs · ${jt.item_count} items`
-                  : jt.item_count > 0
-                  ? `${jt.item_count} items`
-                  : "No items yet"}
-              </div>
-            </button>
+            <div key={jt.job_type_id} className="group relative">
+              <button
+                onClick={() => setSelectedTypeId(jt.job_type_id)}
+                className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                  selectedTypeId === jt.job_type_id
+                    ? "border-[#1c5026] bg-[#f0f7f1] font-medium text-[#1c5026]"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                }`}
+              >
+                <div className="font-medium leading-snug pr-6">{jt.name}</div>
+                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                  <Clock className="h-3 w-3" />
+                  {jt.template_hours > 0
+                    ? `${jt.template_hours} hrs · ${jt.item_count} items`
+                    : jt.item_count > 0
+                    ? `${jt.item_count} items`
+                    : "No items yet"}
+                </div>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); removeJobType(jt); }}
+                className="absolute right-2 top-2 hidden group-hover:flex h-6 w-6 items-center justify-center rounded text-slate-300 hover:text-red-500"
+                title="Remove job type"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ))}
         </div>
 
