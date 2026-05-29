@@ -569,6 +569,7 @@ def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
                 SELECT jti.job_type_item_id, jti.job_type_id, jti.item_id, jti.quantity,
                        jti.is_required, jti.sort_order,
                        ji.item_code, ji.item_name, ji.description, ji.category, ji.unit,
+                       ji.estimated_hours,
                        ji.cost_amount, ji.cost_currency, ji.sell_amount, ji.sell_currency,
                        ji.vat_rate
                 FROM job_type_items jti
@@ -594,6 +595,7 @@ def get_job_type_items(job_type_id: int, _user: dict = Depends(_current_user)):
                     "description": str(r.get("description") or ""),
                     "category": str(r.get("category") or ""),
                     "unit": str(r.get("unit") or "day"),
+                    "estimated_hours": float(r.get("estimated_hours") or 0),
                     "cost_amount": float(r.get("cost_amount") or 0),
                     "cost_currency": str(r.get("cost_currency") or "GBP"),
                     "sell_amount": float(r.get("sell_amount") or 0),
