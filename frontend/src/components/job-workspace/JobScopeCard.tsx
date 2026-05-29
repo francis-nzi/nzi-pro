@@ -487,7 +487,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
                     <TableCell>
                       <div className="font-medium text-slate-900">{item.item_name}</div>
                       {item.description && (
-                        <div className="text-xs text-slate-500">{item.description}</div>
+                        <div className="whitespace-pre-line text-xs text-slate-500">{item.description}</div>
                       )}
                     </TableCell>
                     <TableCell>

@@ -146,12 +146,15 @@ def list_job_line_items(job_id: int, _user: dict = Depends(_current_user)):
             assert_job_access(_user, int(job_id))
             df = con.execute(
                 """
-                SELECT line_item_id, job_id, item_id, item_name, item_code, description, category,
-                       quantity, estimated_hours, unit, unit_sell, sell_currency,
-                       vat_rate, vat_rate_id, notes, sort_order, created_by, created_at, updated_at
-                FROM job_line_items
-                WHERE job_id = %s
-                ORDER BY sort_order, line_item_id
+                SELECT jli.line_item_id, jli.job_id, jli.item_id, jli.item_name, jli.item_code,
+                       COALESCE(NULLIF(jli.description, ''), ji.description) AS description,
+                       jli.category, jli.quantity, jli.estimated_hours, jli.unit,
+                       jli.unit_sell, jli.sell_currency, jli.vat_rate, jli.vat_rate_id,
+                       jli.notes, jli.sort_order, jli.created_by, jli.created_at, jli.updated_at
+                FROM job_line_items jli
+                LEFT JOIN job_items ji ON ji.item_id = jli.item_id
+                WHERE jli.job_id = %s
+                ORDER BY jli.sort_order, jli.line_item_id
                 """,
                 [int(job_id)],
             ).df()
