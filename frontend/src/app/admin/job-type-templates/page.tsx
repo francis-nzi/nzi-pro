@@ -200,7 +200,7 @@ export default function JobTypeTemplatesPage() {
       title: "Remove item from template?",
       description: `"${item.item_name}" will be removed from the ${selectedType?.name} template. Existing jobs are not affected.`,
       confirmLabel: "Remove",
-      variant: "destructive",
+      destructive: true,
     });
     if (!ok) return;
     setLoading(true);

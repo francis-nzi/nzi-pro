@@ -316,7 +316,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
       title: "Delete scope item?",
       description: `"${item.item_name}" will be removed from this job's scope.`,
       confirmLabel: "Delete",
-      variant: "destructive",
+      destructive: true,
     });
     if (!ok) return;
     setLoading(true);
@@ -345,7 +345,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
       title: hasItems ? "Replace scope with template?" : "Apply template?",
       description: msg,
       confirmLabel: hasItems ? "Replace" : "Apply",
-      variant: hasItems ? "destructive" : "default",
+      destructive: hasItems,
     });
     if (!ok) return;
     setApplyingTemplate(true);
