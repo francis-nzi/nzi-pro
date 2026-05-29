@@ -224,10 +224,6 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
     );
   }
 
-  // Split fields into checkboxes (compact) and everything else (grid)
-  const checkboxFields = fields.filter(f => f.field_type === "checkbox");
-  const otherFields = fields.filter(f => f.field_type !== "checkbox");
-
   return (
     <Card>
       <CardHeader>
@@ -235,53 +231,48 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
       </CardHeader>
       <CardContent className="space-y-6">
 
-        {/* Non-checkbox fields: 2-column grid; textareas span full width */}
-        {otherFields.length > 0 && (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {otherFields.map((field) => {
-              const isWide = field.field_type === "textarea" || field.field_type === "multiline_text";
+        {/* Unified 2-column grid — field pairs determined by display_order */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {fields.map((field) => {
+            const isWide = field.field_type === "textarea" || field.field_type === "multiline_text";
+            if (field.field_type === "checkbox") {
+              const value = fieldValues[field.field_id] || "";
+              const checked = value === "true" || value === "1" || value === "yes";
               return (
-                <div key={field.field_id} className={`space-y-1.5${isWide ? " md:col-span-2" : ""}`}>
-                  <Label htmlFor={`field-${field.field_id}`} className="flex items-center gap-1 text-sm font-medium">
-                    {field.field_label}
-                    {field.is_required && <span className="text-red-500">*</span>}
-                  </Label>
-                  {renderFieldInput(field)}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Checkboxes: compact 2-column grid */}
-        {checkboxFields.length > 0 && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">Flags</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              {checkboxFields.map((field) => {
-                const value = fieldValues[field.field_id] || "";
-                const checked = value === "true" || value === "1" || value === "yes";
-                return (
+                <div key={field.field_id} className={isWide ? "md:col-span-2" : ""}>
                   <label
-                    key={field.field_id}
                     htmlFor={`field-${field.field_id}`}
-                    className="flex cursor-pointer items-center gap-2.5 text-sm"
+                    className="flex h-full min-h-[60px] cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100 transition-colors"
                   >
                     <input
                       id={`field-${field.field_id}`}
                       type="checkbox"
                       checked={checked}
                       onChange={(e) => handleValueChange(field.field_id, e.target.checked ? "true" : "false")}
-                      className="h-4 w-4 rounded border-slate-300 accent-[#F26624]"
+                      className="h-4 w-4 shrink-0 rounded border-slate-300 accent-[#F26624]"
                     />
-                    <span className="text-slate-700">{field.field_label}</span>
-                    {field.is_required && <span className="text-red-500 text-xs">*</span>}
+                    <div>
+                      <div className="text-sm font-medium text-slate-700">
+                        {field.field_label}
+                        {field.is_required && <span className="ml-1 text-red-500">*</span>}
+                      </div>
+                      <div className="text-xs text-slate-400">{checked ? "Yes" : "No"}</div>
+                    </div>
                   </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                </div>
+              );
+            }
+            return (
+              <div key={field.field_id} className={`space-y-1.5${isWide ? " md:col-span-2" : ""}`}>
+                <Label htmlFor={`field-${field.field_id}`} className="flex items-center gap-1 text-sm font-medium">
+                  {field.field_label}
+                  {field.is_required && <span className="text-red-500">*</span>}
+                </Label>
+                {renderFieldInput(field)}
+              </div>
+            );
+          })}
+        </div>
 
         <div className="flex items-center justify-between border-t border-slate-100 pt-4">
           <div className={`text-sm ${status.includes("Please") ? "text-red-500 font-medium" : "text-muted-foreground"}`}>{status}</div>
