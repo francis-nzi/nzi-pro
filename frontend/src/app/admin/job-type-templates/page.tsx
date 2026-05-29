@@ -143,7 +143,7 @@ export default function JobTypeTemplatesPage() {
   const selectedType = jobTypes.find((jt) => jt.job_type_id === selectedTypeId);
 
   const totalHours = templateItems.reduce(
-    (sum, it) => sum + it.quantity * it.estimated_hours,
+    (sum, it) => sum + (it.quantity || 0) * (it.estimated_hours || 0),
     0
   );
 
@@ -320,9 +320,9 @@ export default function JobTypeTemplatesPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{item.quantity}</TableCell>
-                      <TableCell className="text-right tabular-nums">{item.estimated_hours}</TableCell>
+                      <TableCell className="text-right tabular-nums">{(item.estimated_hours || 0)}</TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
-                        {(item.quantity * item.estimated_hours).toFixed(1)}
+                        {((item.quantity || 0) * (item.estimated_hours || 0)).toFixed(1)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -363,7 +363,7 @@ export default function JobTypeTemplatesPage() {
 
       {/* Add / Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editRow?.job_type_item_id ? "Edit Template Item" : "Add Item to Template"}

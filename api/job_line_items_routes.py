@@ -136,7 +136,7 @@ def list_job_line_items(job_id: int, _user: dict = Depends(_current_user)):
     try:
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
             df = con.execute(
                 """
                 SELECT line_item_id, job_id, item_id, item_name, item_code, category,
@@ -170,7 +170,7 @@ def create_job_line_item(job_id: int, body: dict = Body(...), _user: dict = Depe
         actor = str(_user.get("email") or _user.get("user_id") or "system")
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
             row = con.execute(
                 """
                 INSERT INTO job_line_items (
@@ -220,7 +220,7 @@ def update_job_line_item(
     try:
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
             exists = con.execute(
                 "SELECT 1 FROM job_line_items WHERE line_item_id = %s AND job_id = %s",
                 [int(line_item_id), int(job_id)],
@@ -281,7 +281,7 @@ def delete_job_line_item(job_id: int, line_item_id: int, _user: dict = Depends(_
     try:
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
             con.execute(
                 "DELETE FROM job_line_items WHERE line_item_id = %s AND job_id = %s",
                 [int(line_item_id), int(job_id)],
@@ -306,7 +306,7 @@ def apply_template_to_job(job_id: int, body: dict = Body(default={}), _user: dic
         actor = str(_user.get("email") or _user.get("user_id") or "system")
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
 
             job_row = con.execute(
                 "SELECT job_type_id FROM jobs WHERE job_id = %s", [int(job_id)]
@@ -389,7 +389,7 @@ def create_invoice_from_line_items(
         from datetime import date, timedelta
         with get_conn() as con:
             _ensure_table(con)
-            assert_job_access(_user, int(job_id), con)
+            assert_job_access(_user, int(job_id))
 
             job_row = con.execute(
                 "SELECT client_db_id, job_number, title FROM jobs WHERE job_id = %s", [int(job_id)]
