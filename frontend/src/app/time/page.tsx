@@ -102,7 +102,6 @@ function TimePageContent() {
   const searchParams = useSearchParams();
   const confirmAction = useConfirmDialog();
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [subjects, setSubjects] = useState<TimeSubject[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
@@ -116,6 +115,7 @@ function TimePageContent() {
   const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [jobSearchQuery, setJobSearchQuery] = useState<string>("");
   const [filteredJobs, setFilteredJobs] = useState<Job[]>([]);
+  const [jobSearchLoading, setJobSearchLoading] = useState(false);
   const [showJobDropdown, setShowJobDropdown] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<string>("");
   const [workDate, setWorkDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -184,17 +184,15 @@ function TimePageContent() {
     try {
       const baseUrl = apiBaseUrl();
       const userFilter = filterUserId ? `?user_id=${filterUserId}` : "";
-      const [timeRes, jobsRes, subjectsRes, teamRes] = await Promise.all([
+      const [timeRes, subjectsRes, teamRes] = await Promise.all([
         fetch(`${baseUrl}/time-logs${userFilter}`, { credentials: "include" }),
-        fetch(`${baseUrl}/jobs?limit=200`, { credentials: "include" }),
         fetch(`${baseUrl}/time-subjects`, { credentials: "include" }),
         fetch(`${baseUrl}/admin/users`, { credentials: "include" }),
       ]);
 
-      if (!timeRes.ok || !jobsRes.ok || !subjectsRes.ok || !teamRes.ok) {
+      if (!timeRes.ok || !subjectsRes.ok || !teamRes.ok) {
         const failures = [
           !timeRes.ok ? `time logs (${timeRes.status})` : null,
-          !jobsRes.ok ? `jobs (${jobsRes.status})` : null,
           !subjectsRes.ok ? `time subjects (${subjectsRes.status})` : null,
           !teamRes.ok ? `team members (${teamRes.status})` : null,
         ].filter(Boolean);
@@ -202,12 +200,10 @@ function TimePageContent() {
       }
 
       const timeData = await timeRes.json();
-      const jobsData = await jobsRes.json();
       const subjectsData = await subjectsRes.json();
       const teamData = await teamRes.json();
 
       setTimeLogs(timeData.items || []);
-      setJobs(jobsData.items || []);
       setSubjects(subjectsData.items || []);
       setTeamMembers(teamData.items || []);
     } catch (err) {
@@ -220,14 +216,18 @@ function TimePageContent() {
   // Handle jobId query parameter to pre-select a job
   useEffect(() => {
     const jobIdParam = searchParams.get('jobId');
-    if (jobIdParam && jobs.length > 0) {
-      const job = jobs.find(j => j.job_id === parseInt(jobIdParam));
-      if (job) {
-        setSelectedJobId(String(job.job_id));
-        setJobSearchQuery(`${job.job_number} - ${job.title}`);
-      }
-    }
-  }, [searchParams, jobs]);
+    if (!jobIdParam) return;
+    const baseUrl = apiBaseUrl();
+    fetch(`${baseUrl}/jobs/${jobIdParam}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.job_id) {
+          setSelectedJobId(String(data.job_id));
+          setJobSearchQuery(`${data.job_number} - ${data.title}`);
+        }
+      })
+      .catch(() => null);
+  }, [searchParams]);
 
   useEffect(() => {
     loadData();
@@ -285,21 +285,32 @@ function TimePageContent() {
     };
   }, [selectedJobId]);
 
+  // Server-side job search — fires after 250 ms of inactivity
   useEffect(() => {
-    // Filter jobs based on search query
-    if (jobSearchQuery.trim() === "") {
+    const q = jobSearchQuery.trim();
+    if (!q || selectedJobId) {
       setFilteredJobs([]);
-    } else {
-      const query = jobSearchQuery.toLowerCase();
-      const filtered = jobs.filter(
-        (job) =>
-          job.job_number?.toLowerCase().includes(query) ||
-          job.title?.toLowerCase().includes(query) ||
-          job.client_name?.toLowerCase().includes(query)
-      );
-      setFilteredJobs(filtered.slice(0, 50)); // Limit to 50 results
+      return;
     }
-  }, [jobSearchQuery, jobs]);
+    setJobSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `${apiBaseUrl()}/jobs?q=${encodeURIComponent(q)}&limit=50`,
+          { credentials: "include" }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setFilteredJobs(data.items || []);
+        }
+      } catch {
+        // silent
+      } finally {
+        setJobSearchLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [jobSearchQuery, selectedJobId]);
 
   useEffect(() => {
     // Close dropdown when clicking outside
@@ -532,12 +543,18 @@ function TimePageContent() {
                     value={jobSearchQuery}
                     onChange={(e) => {
                       setJobSearchQuery(e.target.value);
+                      setSelectedJobId("");
                       setShowJobDropdown(true);
                     }}
                     onFocus={() => setShowJobDropdown(true)}
                     required
                   />
-                  {showJobDropdown && filteredJobs.length > 0 && (
+                  {showJobDropdown && jobSearchLoading && (
+                    <div className="job-dropdown absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
+                      Searching…
+                    </div>
+                  )}
+                  {showJobDropdown && !jobSearchLoading && filteredJobs.length > 0 && (
                     <div className="job-dropdown absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-auto">
                       {filteredJobs.map((job) => (
                         <div
@@ -555,7 +572,7 @@ function TimePageContent() {
                       ))}
                     </div>
                   )}
-                  {showJobDropdown && jobSearchQuery && filteredJobs.length === 0 && (
+                  {showJobDropdown && !jobSearchLoading && jobSearchQuery.trim() && !selectedJobId && filteredJobs.length === 0 && (
                     <div className="job-dropdown absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
                       No jobs found. Try a different search term.
                     </div>
