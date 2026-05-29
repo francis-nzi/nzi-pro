@@ -224,29 +224,66 @@ export default function CustomFields({ entityId, entityType, baseUrl }: CustomFi
     );
   }
 
+  // Split fields into checkboxes (compact) and everything else (grid)
+  const checkboxFields = fields.filter(f => f.field_type === "checkbox");
+  const otherFields = fields.filter(f => f.field_type !== "checkbox");
+
   return (
     <Card>
       <CardHeader>
         <CardTitle style={{ color: '#F26624' }}>Custom Fields</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="text-sm text-muted-foreground mb-4">
-          These fields are configured in Admin → Custom Fields.
-        </div>
+      <CardContent className="space-y-6">
 
-        <div className="space-y-4">
-          {fields.map((field) => (
-            <div key={field.field_id} className="space-y-2">
-              <Label htmlFor={`field-${field.field_id}`} className="flex items-center gap-1">
-                {field.field_label}
-                {field.is_required && <span className="text-red-500">*</span>}
-              </Label>
-              {renderFieldInput(field)}
+        {/* Non-checkbox fields: 2-column grid; textareas span full width */}
+        {otherFields.length > 0 && (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {otherFields.map((field) => {
+              const isWide = field.field_type === "textarea" || field.field_type === "multiline_text";
+              return (
+                <div key={field.field_id} className={`space-y-1.5${isWide ? " md:col-span-2" : ""}`}>
+                  <Label htmlFor={`field-${field.field_id}`} className="flex items-center gap-1 text-sm font-medium">
+                    {field.field_label}
+                    {field.is_required && <span className="text-red-500">*</span>}
+                  </Label>
+                  {renderFieldInput(field)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Checkboxes: compact 2-column grid */}
+        {checkboxFields.length > 0 && (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-slate-400">Flags</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              {checkboxFields.map((field) => {
+                const value = fieldValues[field.field_id] || "";
+                const checked = value === "true" || value === "1" || value === "yes";
+                return (
+                  <label
+                    key={field.field_id}
+                    htmlFor={`field-${field.field_id}`}
+                    className="flex cursor-pointer items-center gap-2.5 text-sm"
+                  >
+                    <input
+                      id={`field-${field.field_id}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => handleValueChange(field.field_id, e.target.checked ? "true" : "false")}
+                      className="h-4 w-4 rounded border-slate-300 accent-[#F26624]"
+                    />
+                    <span className="text-slate-700">{field.field_label}</span>
+                    {field.is_required && <span className="text-red-500 text-xs">*</span>}
+                  </label>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </div>
+        )}
 
-        <div className="flex items-center justify-between pt-4">
+        <div className="flex items-center justify-between border-t border-slate-100 pt-4">
           <div className={`text-sm ${status.includes("Please") ? "text-red-500 font-medium" : "text-muted-foreground"}`}>{status}</div>
           <Button onClick={saveFields} disabled={saving} style={{ backgroundColor: '#F26624' }}>
             {saving ? "Saving..." : "Save Custom Fields"}
