@@ -48,6 +48,28 @@ type DashboardOverview = {
     client_id: number;
     emissions: number;
   }>;
+  jobs_by_type: Array<{
+    job_type: string;
+    total_jobs: number;
+    active_jobs: number;
+    completed_jobs: number;
+  }>;
+  job_renewals: Array<{
+    job_id: number;
+    job_number: string;
+    title: string;
+    client_name: string;
+    crm_name: string;
+    due_date: string;
+    days_remaining: number;
+    status: string;
+  }>;
+  renewal_summary: {
+    overdue: number;
+    due_30: number;
+    due_60: number;
+    due_90: number;
+  };
   recent_activity: Array<{
     job_id: number;
     title: string;
@@ -56,6 +78,7 @@ type DashboardOverview = {
     client_name: string;
     start_date: string | null;
     milestone_status?: string | null;
+    job_type?: string | null;
   }>;
   jobs_per_crm: Array<{
     crm_name: string;
@@ -165,6 +188,19 @@ type OperationsOverview = {
     estimated_hours: number;
     utilisation_pct: number | null;
     reason: string | null;
+  }>;
+  current_jobs: Array<{
+    job_id: number;
+    job_number: string | null;
+    title: string | null;
+    client_name: string | null;
+    crm_name: string | null;
+    status: string | null;
+    milestone_status: string | null;
+    due_date: string | null;
+    final_report_due: string | null;
+    final_report_completed_at: string | null;
+    days_to_final_report_due: number | null;
   }>;
 };
 
@@ -289,6 +325,7 @@ const EMPTY_OPERATIONS: OperationsOverview = {
   time_by_subject: [],
   crm_workload: [],
   jobs_needing_attention: [],
+  current_jobs: [],
 };
 
 const EMPTY_BI_PORTFOLIO: BiPortfolio = {
@@ -931,6 +968,71 @@ export default function InsightsPageClient() {
     (data?.job_status_breakdown ?? []).map(s => ({ name: s.status || "Unknown", value: s.count })),
   [data]);
 
+  const jobsByTypeChartData = useMemo(() =>
+    (data?.jobs_by_type ?? [])
+      .filter((d) => (d.total_jobs || 0) > 0)
+      .map((d) => ({
+        name: d.job_type || "Unassigned",
+        jobs: +d.total_jobs || 0,
+        active: +d.active_jobs || 0,
+        completed: +d.completed_jobs || 0,
+      }))
+      .slice(0, 8),
+  [data]);
+
+  const jobRenewalsChartData = useMemo(() =>
+    (operationsData.current_jobs ?? [])
+      .filter((job) => !!job.due_date)
+      .map((job) => {
+        const dueDate = new Date(job.due_date as string);
+        const daysRemaining = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        return {
+          job_id: job.job_id,
+          job_number: job.job_number || "",
+          title: job.title || "Unassigned",
+          client_name: job.client_name || "Unassigned",
+          crm_name: job.crm_name || "Unassigned",
+          due_date: job.due_date as string,
+          days_remaining: daysRemaining,
+          status: job.status || "Unknown",
+        };
+      })
+      .filter((job) => job.days_remaining <= 90)
+      .slice()
+      .sort((a, b) => a.days_remaining - b.days_remaining)
+      .slice(0, 40),
+  [operationsData]);
+
+  const jobRenewalBuckets = useMemo(() => {
+    const buckets = {
+      overdue: [] as typeof jobRenewalsChartData,
+      due_30: [] as typeof jobRenewalsChartData,
+      due_60: [] as typeof jobRenewalsChartData,
+      due_90: [] as typeof jobRenewalsChartData,
+    };
+
+    for (const job of jobRenewalsChartData) {
+      if (job.days_remaining <= 0) {
+        buckets.overdue.push(job);
+      } else if (job.days_remaining <= 30) {
+        buckets.due_30.push(job);
+      } else if (job.days_remaining <= 60) {
+        buckets.due_60.push(job);
+      } else {
+        buckets.due_90.push(job);
+      }
+    }
+
+    return buckets;
+  }, [jobRenewalsChartData]);
+
+  const jobRenewalSummary = useMemo(() => ({
+    overdue: jobRenewalBuckets.overdue.length,
+    due_30: jobRenewalBuckets.due_30.length,
+    due_60: jobRenewalBuckets.due_60.length,
+    due_90: jobRenewalBuckets.due_90.length,
+  }), [jobRenewalBuckets]);
+
   const timeSubjectChartData = useMemo(() =>
     (operationsData.time_by_subject ?? []).slice(0, 8).map(d => ({ name: d.subject.length > 22 ? d.subject.slice(0, 20) + "…" : d.subject, hours: +d.hours || 0 })),
   [operationsData]);
@@ -1301,8 +1403,8 @@ export default function InsightsPageClient() {
               </Card>
             </div>
 
-            {/* Clients by Industry + Top 10 Clients list */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Clients by Industry + Jobs by Type + Jobs by Status + Top 10 Clients list */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-5">
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
                 <CardContent className="pt-0">
@@ -1315,6 +1417,55 @@ export default function InsightsPageClient() {
                           <Tooltip formatter={(v: unknown) => [`${v} clients`, ""]} />
                           <Bar dataKey="value" name="Clients" radius={[0, 4, 4, 0]}>
                             {industryChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Status</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {jobStatusChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[240px]">
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={jobStatusChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
+                          <Tooltip formatter={(value: unknown) => [`${Number(value || 0)} jobs`, "Total"]} />
+                          <Bar dataKey="value" name="Jobs" radius={[0, 4, 4, 0]}>
+                            {jobStatusChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Job Type</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {jobsByTypeChartData.length === 0 ? <InsightsEmpty /> : (
+                    <div className="h-[240px]">
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={jobsByTypeChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
+                          <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={132} />
+                          <Tooltip
+                            formatter={(value: unknown, _name, payload) => {
+                              const row = payload?.payload as { active?: number; completed?: number } | undefined;
+                              const jobs = Number(value || 0);
+                              return [
+                                `${jobs} jobs${row ? ` • ${row.active ?? 0} active • ${row.completed ?? 0} completed` : ""}`,
+                                "Total",
+                              ];
+                            }}
+                          />
+                          <Bar dataKey="jobs" name="Jobs" radius={[0, 4, 4, 0]}>
+                            {jobsByTypeChartData.map((_, i) => <Cell key={i} fill={MCKINSEY_DATA_COLORS[i % MCKINSEY_DATA_COLORS.length]} />)}
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -1346,6 +1497,109 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
             </div>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-semibold">Renewals Due</CardTitle>
+                  <Badge variant="secondary">{jobRenewalsChartData.length}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Based on job end date. Items are grouped by the next 90 days.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline">30d: {jobRenewalSummary.due_30}</Badge>
+                  <Badge variant="outline">60d: {jobRenewalSummary.due_60}</Badge>
+                  <Badge variant="outline">90d: {jobRenewalSummary.due_90}</Badge>
+                  <Badge variant="outline">Overdue: {jobRenewalSummary.overdue}</Badge>
+                </div>
+                {jobRenewalsChartData.length === 0 ? (
+                  <InsightsEmpty title="No renewals due soon" description="There are no active jobs ending inside the next 90 days." />
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      {
+                        key: "overdue",
+                        title: "Overdue",
+                        items: jobRenewalBuckets.overdue,
+                        badgeVariant: "destructive" as const,
+                        description: "Jobs that have already passed their end date.",
+                      },
+                      {
+                        key: "due_30",
+                        title: "0-30",
+                        items: jobRenewalBuckets.due_30,
+                        badgeVariant: "secondary" as const,
+                        description: "Ending in the next 30 days.",
+                      },
+                      {
+                        key: "due_60",
+                        title: "31-60",
+                        items: jobRenewalBuckets.due_60,
+                        badgeVariant: "outline" as const,
+                        description: "Ending in 31 to 60 days.",
+                      },
+                      {
+                        key: "due_90",
+                        title: "61-90",
+                        items: jobRenewalBuckets.due_90,
+                        badgeVariant: "outline" as const,
+                        description: "Ending in 61 to 90 days.",
+                      },
+                    ].map((bucket) => (
+                      <div key={bucket.key} className="rounded-lg border bg-card p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">{bucket.title}</div>
+                            <div className="text-xs text-muted-foreground">{bucket.description}</div>
+                          </div>
+                          <Badge variant={bucket.badgeVariant}>{bucket.items.length}</Badge>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {bucket.items.length === 0 ? (
+                            <div className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
+                              No jobs in this band
+                            </div>
+                          ) : (
+                            <>
+                              {bucket.items.slice(0, 3).map((item) => (
+                                <div key={`${bucket.key}-${item.job_id}-${item.due_date}`} className="rounded-md border bg-muted/30 p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-medium">{item.title}</div>
+                                      <div className="truncate text-xs text-muted-foreground">{item.client_name}</div>
+                                    </div>
+                                    <Badge variant={item.days_remaining <= 0 ? "destructive" : "outline"} className="flex-shrink-0">
+                                      {item.days_remaining <= 0 ? `${Math.abs(item.days_remaining)}d overdue` : `${item.days_remaining}d left`}
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                    <span>{formatDate(item.due_date)}</span>
+                                    <span className="truncate">{item.status}</span>
+                                  </div>
+                                  <div className="mt-3">
+                                    <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
+                                      <Link href={`/jobs/${item.job_id}`}>Open job</Link>
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                              {bucket.items.length > 3 ? (
+                                <div className="text-xs text-muted-foreground">
+                                  +{bucket.items.length - 3} more in this band
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
               </>
             ) : null}
           </TabsContent>
@@ -2197,6 +2451,11 @@ function InsightsPill({ active, onClick, children }: { active: boolean; onClick:
   );
 }
 
-function InsightsEmpty() {
-  return <div className="py-10 text-center text-sm text-muted-foreground">No data available</div>;
+function InsightsEmpty({ title = "No data available", description }: { title?: string; description?: string }) {
+  return (
+    <div className="py-10 text-center text-sm text-muted-foreground">
+      <div>{title}</div>
+      {description ? <div className="mt-1 text-xs">{description}</div> : null}
+    </div>
+  );
 }

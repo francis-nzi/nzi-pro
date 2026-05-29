@@ -100,6 +100,20 @@ class _FakeConn:
                     },
                 ]
             )
+        if "j.due_date" in sql and "LIMIT 12" in sql and "AS crm_name" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_id": 664,
+                        "job_number": "J000664",
+                        "title": "Shredit ME Carbon Reduction Plan 2023",
+                        "client_name": "Shredit ME",
+                        "due_date": pd.Timestamp("2025-05-20"),
+                        "status": "Open",
+                        "crm_name": "Francis Doherty",
+                    }
+                ]
+            )
         if "SELECT" in sql and "COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status" in sql and "FROM jobs j" in sql:
             return pd.DataFrame(
                 [
@@ -123,6 +137,17 @@ class _FakeConn:
                     }
                 ]
             )
+        if "GROUP BY 1" in sql and "AS job_type" in sql and "FROM jobs j" in sql:
+            return pd.DataFrame(
+                [
+                    {
+                        "job_type": "Carbon Reduction Plan",
+                        "total_jobs": 7,
+                        "active_jobs": 4,
+                        "completed_jobs": 3,
+                    }
+                ]
+            )
         if "FROM jobs j" in sql and "LIMIT 5" in sql:
             return pd.DataFrame(
                 [
@@ -140,6 +165,7 @@ class _FakeConn:
                         "first_draft_completed_at": None,
                         "final_report_due": pd.Timestamp("2025-05-20"),
                         "final_report_completed_at": None,
+                        "job_type_name": "Carbon Reduction Plan",
                     }
                 ]
             )
@@ -183,6 +209,8 @@ def test_dashboard_overview_handles_null_reporting_year(monkeypatch):
     assert result["selected_year"] == 2025
     assert result["recent_activity"][0]["job_id"] == 664
     assert result["recent_activity"][0]["reporting_year"] is None
+    assert result["jobs_by_type"][0]["job_type"] == "Carbon Reduction Plan"
+    assert result["jobs_by_type"][0]["total_jobs"] == 7
 
 
 def test_dashboard_operations_overview_includes_crm_health_fields(monkeypatch):

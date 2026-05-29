@@ -472,6 +472,9 @@ def get_dashboard_overview(
     - Top emitting clients
     """
     try:
+        year = int(year) if isinstance(year, int) else None
+        industry = industry if isinstance(industry, str) else None
+        crm_owner = crm_owner if isinstance(crm_owner, str) else None
         org_id = require_org(_user)
         with get_conn() as con:
             # build filters for industry / crm owner
@@ -635,6 +638,22 @@ def get_dashboard_overview(
 
             crm_options = _load_dashboard_crm_options(con, org_id)
             available_crm = [str(option.get("label") or option.get("value") or "").strip() for option in crm_options if str(option.get("label") or option.get("value") or "").strip()]
+            has_job_types_table = _table_exists(con, "job_types")
+            has_job_type_id = _column_exists(con, "jobs", "job_type_id")
+            has_job_type_text = _column_exists(con, "jobs", "job_type")
+            has_job_due_date = _column_exists(con, "jobs", "due_date")
+            if has_job_types_table and has_job_type_id:
+                job_type_join = "LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id"
+                if has_job_type_text:
+                    job_type_name_expr = "COALESCE(NULLIF(TRIM(jt.name), ''), NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
+                else:
+                    job_type_name_expr = "COALESCE(NULLIF(TRIM(jt.name), ''), 'Unassigned')"
+            elif has_job_type_text:
+                job_type_join = ""
+                job_type_name_expr = "COALESCE(NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
+            else:
+                job_type_join = ""
+                job_type_name_expr = "'Unassigned'"
 
             # Industry breakdown (count of active clients by industry)
             industry_breakdown = []
@@ -672,9 +691,11 @@ def get_dashboard_overview(
                             jp.first_draft_due,
                             jp.first_draft_completed_at,
                             jp.final_report_due,
-                            jp.final_report_completed_at
+                            jp.final_report_completed_at,
+                            {job_type_name_expr} AS job_type_name
                         FROM jobs j
                         LEFT JOIN clients c ON j.client_db_id = c.db_id
+                        {job_type_join}
                         LEFT JOIN job_plan jp ON j.job_id = jp.job_id
                         WHERE 1=1{job_where}
                         ORDER BY j.created_at DESC NULLS LAST, j.job_id DESC
@@ -699,9 +720,11 @@ def get_dashboard_overview(
                             NULL as first_draft_due,
                             NULL as first_draft_completed_at,
                             NULL as final_report_due,
-                            NULL as final_report_completed_at
+                            NULL as final_report_completed_at,
+                            {job_type_name_expr} AS job_type_name
                         FROM jobs j
                         LEFT JOIN clients c ON j.client_db_id = c.db_id
+                        {job_type_join}
                         WHERE 1=1{job_where}
                         ORDER BY j.created_at DESC NULLS LAST, j.job_id DESC
                         LIMIT 5
@@ -724,9 +747,11 @@ def get_dashboard_overview(
                         NULL as first_draft_due,
                         NULL as first_draft_completed_at,
                         NULL as final_report_due,
-                        NULL as final_report_completed_at
+                        NULL as final_report_completed_at,
+                        {job_type_name_expr} AS job_type_name
                     FROM jobs j
                     LEFT JOIN clients c ON j.client_db_id = c.db_id
+                    {job_type_join}
                     WHERE 1=1{job_where}
                     ORDER BY j.created_at DESC NULLS LAST, j.job_id DESC
                     LIMIT 5
@@ -788,10 +813,103 @@ def get_dashboard_overview(
                         "reporting_year": _normalize_int_value(row['reporting_year']),
                         "status": row['status'],
                         "client_name": row['client_name'],
+                        "job_type": _normalize_text_value(row.get("job_type_name"), "Unassigned"),
                         "start_date": row['start_date'],
-                        "milestone_status": overall_milestone_status
+                        "milestone_status": overall_milestone_status,
                     })
-            
+
+            jobs_by_type = []
+            try:
+                jobs_by_type_df = con.execute(
+                    f"""
+                    SELECT
+                        {job_type_name_expr} AS job_type,
+                        COUNT(*) AS total_jobs,
+                        SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown')) NOT IN ('completed', 'archived', 'cancelled') THEN 1 ELSE 0 END) AS active_jobs,
+                        SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown')) = 'completed' THEN 1 ELSE 0 END) AS completed_jobs
+                    FROM jobs j
+                    LEFT JOIN clients c ON j.client_db_id = c.db_id
+                    {job_type_join}
+                    WHERE 1=1{job_where}
+                    GROUP BY 1
+                    ORDER BY total_jobs DESC, job_type ASC
+                    LIMIT 12
+                    """,
+                    job_params,
+                ).df()
+            except Exception:
+                logger.debug("Failed to load dashboard jobs by type breakdown; returning empty list", exc_info=True)
+                jobs_by_type_df = None
+            if jobs_by_type_df is not None and not jobs_by_type_df.empty:
+                for _, row in jobs_by_type_df.iterrows():
+                    jobs_by_type.append({
+                        "job_type": _normalize_text_value(row.get("job_type"), "Unassigned"),
+                        "total_jobs": int(row.get("total_jobs") or 0),
+                        "active_jobs": int(row.get("active_jobs") or 0),
+                        "completed_jobs": int(row.get("completed_jobs") or 0),
+                    })
+
+            job_renewals = []
+            renewal_summary = {
+                "overdue": 0,
+                "due_30": 0,
+                "due_60": 0,
+                "due_90": 0,
+            }
+            if has_job_due_date:
+                try:
+                    job_renewals_df = con.execute(
+                        f"""
+                        SELECT
+                            j.job_id,
+                            j.job_number,
+                            j.title,
+                            c.client_name,
+                            j.due_date,
+                            COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown') AS status,
+                            {crm_expr} AS crm_name
+                        FROM jobs j
+                        LEFT JOIN clients c ON j.client_db_id = c.db_id
+                        WHERE 1=1{job_where}
+                          AND j.due_date IS NOT NULL
+                          AND LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown')) NOT IN ('completed', 'archived', 'cancelled')
+                        ORDER BY j.due_date ASC NULLS LAST, j.job_id DESC
+                        LIMIT 12
+                        """,
+                        job_params,
+                    ).df()
+                except Exception:
+                    logger.debug("Failed to load dashboard job renewals breakdown; returning empty list", exc_info=True)
+                    job_renewals_df = None
+                if job_renewals_df is not None and not job_renewals_df.empty:
+                    from datetime import date as _date
+
+                    for _, row in job_renewals_df.iterrows():
+                        due_date = _normalize_to_date(row.get("due_date"))
+                        if due_date is None:
+                            continue
+                        days_remaining = (due_date - _date.today()).days
+                        if days_remaining > 90:
+                            continue
+                        if days_remaining <= 0:
+                            renewal_summary["overdue"] += 1
+                        if days_remaining <= 30:
+                            renewal_summary["due_30"] += 1
+                        if days_remaining <= 60:
+                            renewal_summary["due_60"] += 1
+                        if days_remaining <= 90:
+                            renewal_summary["due_90"] += 1
+                        job_renewals.append({
+                            "job_id": int(row.get("job_id") or 0),
+                            "job_number": _normalize_text_value(row.get("job_number"), ""),
+                            "title": _normalize_text_value(row.get("title"), "Unassigned"),
+                            "client_name": _normalize_text_value(row.get("client_name"), "Unassigned"),
+                            "crm_name": _normalize_text_value(row.get("crm_name"), "Unassigned"),
+                            "due_date": due_date.isoformat(),
+                            "days_remaining": days_remaining,
+                            "status": _normalize_text_value(row.get("status"), "Unknown"),
+                        })
+
             # Jobs per CRM by status (using current client CRM owner)
             crm_status_df = con.execute(
                 f"""
@@ -851,7 +969,10 @@ def get_dashboard_overview(
                 "job_status_breakdown": status_breakdown,
                 "top_emitting_clients": top_emitting_clients,
                 "recent_activity": recent_activity,
-                "jobs_per_crm": jobs_per_crm
+                "jobs_per_crm": jobs_per_crm,
+                "jobs_by_type": jobs_by_type,
+                "job_renewals": job_renewals,
+                "renewal_summary": renewal_summary,
             }
             
     except Exception as e:
@@ -1485,6 +1606,9 @@ def get_dashboard_operations_overview(
 ):
     """Portfolio-level delivery and workload intelligence for Insights."""
     try:
+        year = int(year) if isinstance(year, int) else None
+        industry = industry if isinstance(industry, str) else None
+        crm_owner = crm_owner if isinstance(crm_owner, str) else None
         org_id = require_org(_user)
         with get_conn() as con:
             if not _table_exists(con, "jobs"):
@@ -1751,6 +1875,7 @@ def get_dashboard_operations_overview(
                             "crm_name": crm_name,
                             "status": job_status,
                             "milestone_status": overall_status,
+                            "due_date": _normalize_to_date(row.get("due_date")).isoformat() if _normalize_to_date(row.get("due_date")) else None,
                             "final_report_due": final_report_due.isoformat() if final_report_due else None,
                             "final_report_completed_at": final_report_completed.isoformat() if final_report_completed else None,
                             "days_to_final_report_due": days_to_final_report,
