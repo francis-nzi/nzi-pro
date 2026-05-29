@@ -88,6 +88,7 @@ export default function JobTypeTemplatesPage() {
   const [status, setStatus] = useState("");
   const [editRow, setEditRow] = useState<EditRow | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [hoveredTypeId, setHoveredTypeId] = useState<number | null>(null);
   const confirm = useConfirmDialog();
 
   const loadJobTypes = useCallback(async () => {
@@ -262,7 +263,12 @@ export default function JobTypeTemplatesPage() {
         {/* Left: job type list */}
         <div className="space-y-2">
           {jobTypes.map((jt) => (
-            <div key={jt.job_type_id} className="group relative">
+            <div
+              key={jt.job_type_id}
+              className="relative"
+              onMouseEnter={() => setHoveredTypeId(jt.job_type_id)}
+              onMouseLeave={() => setHoveredTypeId(null)}
+            >
               <button
                 onClick={() => setSelectedTypeId(jt.job_type_id)}
                 className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
@@ -281,13 +287,15 @@ export default function JobTypeTemplatesPage() {
                     : "No items yet"}
                 </div>
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); removeJobType(jt); }}
-                className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-red-600"
-                title="Remove job type"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {hoveredTypeId === jt.job_type_id && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeJobType(jt); }}
+                  className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-red-600"
+                  title="Remove job type"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           ))}
         </div>
