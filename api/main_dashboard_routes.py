@@ -504,7 +504,7 @@ def get_dashboard_overview(
 
             # Get current year if not specified
             if year is None:
-                year = _dt.date.today().year
+                year = date.today().year
             
             # Total number of clients (optionally filtered by industry)
             clients_count_sql = f"SELECT COUNT(*) FROM clients c {client_where}"
@@ -626,7 +626,7 @@ def get_dashboard_overview(
             years_list = []
             if available_years_df is not None and not available_years_df.empty:
                 years_list = [int(year) for year in available_years_df['reporting_year'].tolist() if year is not None]
-            current_year = _dt.date.today().year
+            current_year = date.today().year
             if current_year not in years_list:
                 years_list = [current_year, *years_list]
 
