@@ -358,6 +358,21 @@ def client_jobs(
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
 ):
+    def _col_exists(con, table_name: str, col_name: str) -> bool:
+        try:
+            row = con.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = ? AND column_name = ?
+                LIMIT 1
+                """,
+                [table_name, col_name],
+            ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
+
     def get_milestone_status(due_date, completed_at):
         """Calculate traffic light status: green, amber, red, completed."""
         from datetime import date as _date, datetime as _dt
