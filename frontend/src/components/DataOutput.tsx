@@ -1,6 +1,8 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -90,6 +92,13 @@ type ActivityDetailRow = {
 
 type ClientReportingComparisonData = {
   years: number[];
+  year_jobs?: Array<{
+    year: number;
+    job_id: number;
+    job_number: string | null;
+    title?: string | null;
+    reporting_year?: number | null;
+  }>;
   by_scope: Array<{
     year: number;
     [key: string]: number | string;
@@ -529,6 +538,55 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
     if (!comparisonData?.years) return [];
     return [...comparisonData.years].sort((a, b) => a - b);
   }, [comparisonData]);
+
+  const benchmarkYear = comparisonYears[0] ?? null;
+  const yearJobsByYear = useMemo(
+    () =>
+      new Map(
+        (comparisonData?.year_jobs || [])
+          .filter((job) => Number.isFinite(Number(job.year)) && Number.isFinite(Number(job.job_id)))
+          .map((job) => [
+            Number(job.year),
+            {
+              job_id: Number(job.job_id),
+              job_number: job.job_number?.trim() || null,
+              title: job.title?.trim() || null,
+              reporting_year: job.reporting_year ?? null,
+            },
+          ])
+      ),
+    [comparisonData?.year_jobs]
+  );
+
+  function renderComparisonYearHeader(year: number) {
+    const yearJob = yearJobsByYear.get(year);
+    const yearJobLabel = yearJob?.job_number || (yearJob?.job_id ? `Job ${yearJob.job_id}` : "");
+
+    return (
+      <th key={year} className="p-2 border whitespace-nowrap align-middle text-center">
+        {yearJob?.job_id ? (
+          <Link href={`/jobs/${yearJob.job_id}`} className="flex flex-col items-center gap-0.5" aria-label={`Open ${yearJobLabel}`}>
+            {year === benchmarkYear ? (
+              <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                BM
+              </Badge>
+            ) : null}
+            <span className="text-xs font-medium text-slate-700">{yearJobLabel}</span>
+            <span className="text-sm font-normal text-foreground">{year}</span>
+          </Link>
+        ) : (
+          <div className="flex flex-col items-center gap-0.5">
+            {year === benchmarkYear ? (
+              <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                BM
+              </Badge>
+            ) : null}
+            <span className="text-sm font-normal">{year}</span>
+          </div>
+        )}
+      </th>
+    );
+  }
 
   const buildComparisonRows = useCallback((
     byScope: Array<{ year: number; [key: string]: number | string }>,
@@ -988,9 +1046,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                             <tr className="bg-muted">
                               <th className="text-left p-2 border">Scope</th>
                               <th className="text-left p-2 border">Category</th>
-                              {comparisonYears.map((year) => (
-                                <th key={year} className="text-right p-2 border">{year}</th>
-                              ))}
+                              {comparisonYears.map((year) => renderComparisonYearHeader(year))}
                             </tr>
                           </thead>
                           <tbody>
@@ -1049,9 +1105,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                             <tr className="bg-muted">
                               <th className="text-left p-2 border">Scope</th>
                               <th className="text-left p-2 border">Category</th>
-                              {comparisonYears.map((year) => (
-                                <th key={year} className="text-right p-2 border">{year}</th>
-                              ))}
+                              {comparisonYears.map((year) => renderComparisonYearHeader(year))}
                             </tr>
                           </thead>
                           <tbody>
@@ -1133,9 +1187,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                                   <th className="text-left p-2 border">Scope</th>
                                   <th className="text-left p-2 border">Category</th>
                                   <th className="text-left p-2 border">Activity</th>
-                                  {comparisonYears.map((year) => (
-                                    <th key={year} className="text-right p-2 border">{year}</th>
-                                  ))}
+                                  {comparisonYears.map((year) => renderComparisonYearHeader(year))}
                                 </tr>
                               </thead>
                               <tbody>
@@ -1306,9 +1358,7 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
                     <thead>
                       <tr className="bg-muted">
                         <th className="text-left p-2 border">Site</th>
-                        {comparisonYears.map((year) => (
-                          <th key={year} className="text-right p-2 border">{year}</th>
-                        ))}
+                        {comparisonYears.map((year) => renderComparisonYearHeader(year))}
                       </tr>
                     </thead>
                     <tbody>
