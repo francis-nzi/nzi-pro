@@ -450,6 +450,29 @@ def create_lookup_item(
                         body.get("is_active", True),
                     ],
                 )
+            elif table_name == "job_types":
+                name = str(body.get("name", "")).strip()
+                if not name:
+                    raise HTTPException(status_code=400, detail="Name is required")
+                job_family = str(body.get("job_family") or "crp").strip().lower()
+                if job_family not in {"crp", "training", "consultancy", "lca", "pcf"}:
+                    raise HTTPException(status_code=400, detail="job_family must be one of crp, training, consultancy, lca, or pcf")
+                con.execute(
+                    """
+                    INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        org_id,
+                        name,
+                        str(body.get("description", "")).strip(),
+                        float(body.get("unit_price_ex_vat", 0) or 0),
+                        float(body.get("estimated_hours", 0) or 0),
+                        bool(body.get("is_crp", job_family == "crp")),
+                        body.get("is_active", True),
+                        job_family,
+                    ],
+                )
             elif table_name in _ORG_SCOPED_LOOKUP_TABLES:
                 name = str(body.get("name", "")).strip()
                 if not name:
@@ -622,7 +645,13 @@ def update_lookup_item(
             if table_name == "job_types" and "estimated_hours" in body:
                 updates.append("estimated_hours = %s")
                 params.append(float(body["estimated_hours"]))
-            
+            if table_name == "job_types" and "job_family" in body:
+                job_family = str(body["job_family"] or "").strip().lower()
+                if job_family and job_family not in {"crp", "training", "consultancy", "lca", "pcf"}:
+                    raise HTTPException(status_code=400, detail="job_family must be one of crp, training, consultancy, lca, or pcf")
+                updates.append("job_family = %s")
+                params.append(job_family or None)
+
             if not updates:
                 return {"ok": True, "message": "No fields to update"}
             

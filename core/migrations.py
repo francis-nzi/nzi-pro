@@ -431,6 +431,20 @@ def run_migrations():
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
             con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
+            con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_family VARCHAR")
+            con.execute(
+                """
+                UPDATE job_types
+                SET job_family = CASE
+                  WHEN COALESCE(is_crp, FALSE) THEN 'crp'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+                  WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%footprint%' THEN 'lca'
+                  ELSE COALESCE(job_family, 'crp')
+                END
+                WHERE job_family IS NULL OR TRIM(job_family) = ''
+                """
+            )
 
             con.execute(
                 """
@@ -555,6 +569,7 @@ def run_migrations():
                   client_db_id INTEGER,
                   job_type_id INTEGER,
                   job_type VARCHAR,
+                  job_family VARCHAR,
                   job_number VARCHAR,
                   title VARCHAR,
                   reporting_year INTEGER,
@@ -572,6 +587,16 @@ def run_migrations():
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_start DATE")
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reporting_period_end DATE")
             con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS legacy_job_no VARCHAR")
+            con.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_family VARCHAR")
+            con.execute(
+                """
+                UPDATE jobs j
+                SET job_family = COALESCE(j.job_family, jt.job_family, 'crp')
+                FROM job_types jt
+                WHERE jt.job_type_id = j.job_type_id
+                  AND (j.job_family IS NULL OR TRIM(j.job_family) = '')
+                """
+            )
 
             con.execute(
                 """

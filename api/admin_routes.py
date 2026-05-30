@@ -787,10 +787,24 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS vat_rate_id INTEGER")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS estimated_hours NUMERIC(10,2) DEFAULT 0")
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS is_crp BOOLEAN DEFAULT FALSE")
+        con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS job_family TEXT")
+        con.execute(
+            """
+            UPDATE job_types
+            SET job_family = CASE
+              WHEN COALESCE(is_crp, FALSE) THEN 'crp'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%training%' THEN 'training'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%consult%' THEN 'consultancy'
+              WHEN LOWER(COALESCE(name, '')) LIKE '%life cycle%' OR LOWER(COALESCE(name, '')) LIKE '%footprint%' THEN 'lca'
+              ELSE COALESCE(job_family, 'crp')
+            END
+            WHERE job_family IS NULL OR TRIM(job_family) = ''
+            """
+        )
         con.execute("ALTER TABLE job_types ADD COLUMN IF NOT EXISTS org_id TEXT")
         default_job_types = [
-            ("Life Cycle Assessment", "", 0, 0, False, True),
-            ("Net Zero Bronze/Core - CRP Only", "- Carbon Reduction Plan report only", 975, 0, True, True),
+            ("Life Cycle Assessment", "", 0, 0, False, True, "lca"),
+            ("Net Zero Bronze/Core - CRP Only", "- Carbon Reduction Plan report only", 975, 0, True, True, "crp"),
             (
                 "Net Zero Gold",
                 "Includes:\n-  Dedicated Customer Relationship Manager\n- Preparation and submission of carbon data for 1 x Carbon Reduction Report\n- 1 x verified Carbon Reduction Report \n- Report compliant with relevant frameworks, including SECR, NHS Evergreen and PPN006\n- 12 Months carbon accounting software license for 1 Site \n- Quarterly Net Zero updates, advice and support\n- Regulatory and legislative updates\n- Online promotional activities\n- 1 x CPD accredited training place\n- 20% discount on all further training places",
@@ -798,8 +812,9 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
                 0,
                 False,
                 True,
+                "crp",
             ),
-            ("Net Zero Platinum", "", 0, 0, False, True),
+            ("Net Zero Platinum", "", 0, 0, False, True, "crp"),
             (
                 "Net Zero Silver/Plus - CRP + software + Qtrly catch up",
                 "Includes:\n- 12 Months Carbon Accounting Software License for 1 Site \n- 4 Hours Net Zero Updates, Advice and Support for the Year\n- Preparation and Submission of Carbon Data for 1 x Carbon Reduction Report\n- 1 x Carbon Reduction Report (SECR, PPN06/21, etc)\n- Regulatory and legislative updates\n- 20% discount on all further training places",
@@ -807,18 +822,19 @@ def _ensure_job_types_lookup_table(con, org_id: str | None) -> None:
                 0,
                 True,
                 True,
+                "crp",
             ),
         ]
-        for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active in default_job_types:
+        for name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family in default_job_types:
             con.execute(
                 """
-                INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active)
-                SELECT %s, %s, %s, %s, %s, %s, %s
+                INSERT INTO job_types (org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family)
+                SELECT %s, %s, %s, %s, %s, %s, %s, %s
                 WHERE NOT EXISTS (
                   SELECT 1 FROM job_types WHERE lower(name)=lower(%s) AND COALESCE(org_id, '') = COALESCE(%s, '')
                 )
                 """,
-                [org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, name, org_id],
+                [org_id, name, description, unit_price_ex_vat, estimated_hours, is_crp, is_active, job_family, name, org_id],
             )
     except Exception:
         pass
@@ -1347,4 +1363,3 @@ def _ensure_lookup_table_once(con, table_name: str, org_id: str | None = None) -
 # =========================
 # TEAM MANAGEMENT
 # =========================
-

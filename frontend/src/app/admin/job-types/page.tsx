@@ -24,7 +24,16 @@ interface JobType {
   name: string;
   estimated_hours: number;
   is_active: boolean;
+  job_family?: string | null;
 }
+
+const JOB_FAMILIES = [
+  { value: "crp", label: "CRP" },
+  { value: "training", label: "Training" },
+  { value: "consultancy", label: "Consultancy" },
+  { value: "lca", label: "LCA" },
+  { value: "pcf", label: "PCF" },
+] as const;
 
 export default function JobTypesPage() {
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
@@ -32,6 +41,7 @@ export default function JobTypesPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [editedHours, setEditedHours] = useState<Record<number, string>>({});
+  const [editedFamilies, setEditedFamilies] = useState<Record<number, string>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -57,10 +67,13 @@ export default function JobTypesPage() {
       
       // Initialize edited hours with current values
       const hours: Record<number, string> = {};
+      const families: Record<number, string> = {};
       (data.items || []).forEach((jobType: JobType) => {
         hours[jobType.job_type_id] = String(jobType.estimated_hours || 0);
+        families[jobType.job_type_id] = (jobType.job_family || "crp").toLowerCase();
       });
       setEditedHours(hours);
+      setEditedFamilies(families);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load job types");
     } finally {
@@ -73,6 +86,10 @@ export default function JobTypesPage() {
     setEditedHours((prev) => ({
       ...prev,
       [jobType.job_type_id]: String(jobType.estimated_hours || 0),
+    }));
+    setEditedFamilies((prev) => ({
+      ...prev,
+      [jobType.job_type_id]: (jobType.job_family || "crp").toLowerCase(),
     }));
   }
 
@@ -89,11 +106,12 @@ export default function JobTypesPage() {
 
     try {
       const baseUrl = apiBaseUrl();
+      const jobFamily = editedFamilies[jobTypeId] || "crp";
       const response = await fetch(`${baseUrl}/admin/lookups/job_types/${jobTypeId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ estimated_hours: parseFloat(hours) }),
+        body: JSON.stringify({ estimated_hours: parseFloat(hours), job_family: jobFamily }),
       });
 
       if (!response.ok) {
@@ -111,6 +129,13 @@ export default function JobTypesPage() {
 
   function handleHoursChange(jobTypeId: number, value: string) {
     setEditedHours((prev) => ({
+      ...prev,
+      [jobTypeId]: value,
+    }));
+  }
+
+  function handleFamilyChange(jobTypeId: number, value: string) {
+    setEditedFamilies((prev) => ({
       ...prev,
       [jobTypeId]: value,
     }));
@@ -163,6 +188,7 @@ export default function JobTypesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Job Type Name</TableHead>
+                  <TableHead>Family</TableHead>
                   <TableHead className="text-right">Estimated Hours</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -174,6 +200,25 @@ export default function JobTypesPage() {
                   return (
                     <TableRow key={jobType.job_type_id}>
                       <TableCell className="font-medium">{jobType.name}</TableCell>
+                      <TableCell>
+                        {isEditing ? (
+                          <select
+                            value={editedFamilies[jobType.job_type_id] || "crp"}
+                            onChange={(e) => handleFamilyChange(jobType.job_type_id, e.target.value)}
+                            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            {JOB_FAMILIES.map((family) => (
+                              <option key={family.value} value={family.value}>
+                                {family.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+                            {(jobType.job_family || "crp").toUpperCase()}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         {isEditing ? (
                           <Input

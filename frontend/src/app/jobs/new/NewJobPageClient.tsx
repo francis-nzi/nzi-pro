@@ -52,6 +52,7 @@ type JobType = {
   name: string;
   is_active: boolean;
   is_crp?: boolean;
+  job_family?: string | null;
   description?: string | null;
 };
 
@@ -388,7 +389,7 @@ function NewJobPageContent() {
       const activeTypes = (json.items || []).filter((jt: JobType) => jt.is_active);
       setJobTypes(activeTypes);
 
-      const defaultCrp = activeTypes.find((jt: JobType) => jt.is_crp);
+      const defaultCrp = activeTypes.find((jt: JobType) => (jt.job_family || (jt.is_crp ? "crp" : "")).toLowerCase() === "crp");
       if (defaultCrp && !jobType) {
         setJobType(defaultCrp.name);
       }
@@ -717,14 +718,19 @@ function NewJobPageContent() {
                         >
                           <SelectValue placeholder="Select job type..." />
                         </SelectTrigger>
-                        <SelectContent>
+                      <SelectContent>
                           {jobTypes.map((jt) => (
                             <SelectItem key={jt.job_type_id} value={jt.name}>
-                              {jt.name} {jt.is_crp && "(CRP)"}
+                              {jt.name} {(jt.job_family || (jt.is_crp ? "crp" : "")).toUpperCase()}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      {jobTypes.find((jt) => jt.name === jobType) ? (
+                        <p className="text-xs text-muted-foreground">
+                          Family: {(jobTypes.find((jt) => jt.name === jobType)?.job_family || (jobTypes.find((jt) => jt.name === jobType)?.is_crp ? "crp" : "unknown")).toUpperCase()}
+                        </p>
+                      ) : null}
                       {formErrors.jobType && (
                         <p className="text-xs text-destructive">{formErrors.jobType}</p>
                       )}

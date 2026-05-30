@@ -179,7 +179,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             _require_org_plan_active(con, org_id)
             # Lookup job_type_id and is_crp from job_types table
             job_type_row = con.execute(
-                "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
+                "SELECT job_type_id, is_crp, job_family FROM job_types WHERE name = ? AND is_active = TRUE",
                 [job_type_name]
             ).fetchone()
             
@@ -188,6 +188,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             
             job_type_id = job_type_row[0]
             is_crp = job_type_row[1] or False
+            job_family = str(job_type_row[2] or "").strip().lower() or ("crp" if is_crp else "crp")
             
             # Get client's benchmark period and financial year info
             fy_month_expr = "financial_year_end_month" if _col_exists(con, "clients", "financial_year_end_month") else "NULL"
@@ -262,34 +263,52 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
             if not reporting_year:
                 raise HTTPException(status_code=400, detail="Cannot determine reporting year/period. Please provide reporting_year or ensure client has benchmark period set.")
             
+            insert_columns = [
+                "client_db_id",
+                "org_id",
+                "job_type_id",
+                "job_type",
+                "original_portfolio",
+                "job_number",
+                "title",
+                "reporting_year",
+                "reporting_period_start",
+                "reporting_period_end",
+                "is_benchmark",
+                "is_crp",
+                "status",
+                "start_date",
+                "due_date",
+                "legacy_job_no",
+            ]
+            insert_values = [
+                int(client_db_id),
+                org_id,
+                job_type_id,
+                job_type_name,
+                "NZI",
+                "PENDING",
+                body.get("title", "Untitled").strip() or "Untitled",
+                int(reporting_year),
+                reporting_period_start,
+                reporting_period_end,
+                is_benchmark,
+                is_crp,
+                body.get("status", "Open"),
+                start_date,
+                due_date,
+                body.get("legacy_job_no"),
+            ]
+            if _col_exists(con, "jobs", "job_family"):
+                insert_columns.insert(4, "job_family")
+                insert_values.insert(4, job_family)
             row = con.execute(
-                """
-                INSERT INTO jobs (
-                    client_db_id, org_id, job_type_id, job_type, original_portfolio, job_number, title, reporting_year,
-                    reporting_period_start, reporting_period_end, is_benchmark, is_crp,
-                    status, start_date, due_date, legacy_job_no
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                f"""
+                INSERT INTO jobs ({', '.join(insert_columns)})
+                VALUES ({', '.join(['?'] * len(insert_values))})
                 RETURNING job_id
                 """,
-                [
-                    int(client_db_id),
-                    org_id,
-                    job_type_id,
-                    job_type_name,
-                    "NZI",
-                    "PENDING",
-                    body.get("title", "Untitled").strip() or "Untitled",
-                    int(reporting_year),
-                    reporting_period_start,
-                    reporting_period_end,
-                    is_benchmark,
-                    is_crp,
-                    body.get("status", "Open"),
-                    start_date,
-                    due_date,
-                    body.get("legacy_job_no"),
-                ],
+                insert_values,
             ).fetchone()
             
             job_id = int(row[0])
@@ -313,6 +332,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
                 metadata={
                     "job_number": job_number,
                     "job_type": job_type_name,
+                    "job_family": job_family,
                     "is_benchmark": bool(is_benchmark),
                 },
             )
@@ -711,6 +731,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
             job_template_expr = "j.job_template_id" if _col_exists("jobs", "job_template_id") else "NULL::integer AS job_template_id"
             has_job_types_table = _table_exists("job_types")
             job_type_name_expr = "jt.name" if has_job_types_table else "NULL::text AS job_type"
+            job_family_expr = "j.job_family" if _col_exists("jobs", "job_family") else ("jt.job_family" if has_job_types_table else "NULL::text AS job_family")
             original_portfolio_expr = "COALESCE(j.original_portfolio, 'NZI')" if _col_exists("jobs", "original_portfolio") else "'NZI'::text AS original_portfolio"
 
             row = con.execute(
@@ -722,7 +743,8 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
                        {crm_name_expr}, j.start_date, j.due_date, {legacy_job_no_expr},
                        {job_type_name_expr},
                        j.job_type_id,
-                       {original_portfolio_expr}
+                       {original_portfolio_expr},
+                       {job_family_expr}
                 FROM jobs j
                 LEFT JOIN clients c ON c.db_id = j.client_db_id
                 {"LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id" if has_job_types_table else ""}
@@ -736,11 +758,11 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         
             # Try to get estimated_hours from job_types if the column exists
             estimated_hours = 0
-            if row[16] and _col_exists("job_types", "estimated_hours"):  # job_type_id (17th column, 0-indexed)
+            if row[17] and _col_exists("job_types", "estimated_hours"):  # job_type_id (18th column, 0-indexed)
                 try:
                     jt_row = con.execute(
                         "SELECT estimated_hours FROM job_types WHERE job_type_id=?",
-                        [row[16]]
+                        [row[17]]
                     ).fetchone()
                     if jt_row and jt_row[0] is not None:
                         estimated_hours = float(jt_row[0])
@@ -809,6 +831,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         job_type,
         job_type_id,
         original_portfolio,
+        job_family,
     ) = row
 
     # Calculate traffic light status for each milestone
@@ -867,6 +890,7 @@ def get_job(job_id: int, _user: dict[str, str] = Depends(_current_user)):
         "job_type": job_type,
         "job_type_id": (int(job_type_id) if job_type_id is not None else None),
         "original_portfolio": str(original_portfolio or "NZI").strip() or "NZI",
+        "job_family": str(job_family or "").strip().lower() or ("crp" if job_type else "crp"),
         "estimated_hours": estimated_hours,
         **milestone_data,
     }
@@ -937,7 +961,7 @@ def update_job(
                 if not job_type_name:
                     raise HTTPException(status_code=400, detail="job_type is required")
                 job_type_row = con.execute(
-                    "SELECT job_type_id, is_crp FROM job_types WHERE name = ? AND is_active = TRUE",
+                    "SELECT job_type_id, is_crp, job_family FROM job_types WHERE name = ? AND is_active = TRUE",
                     [job_type_name],
                 ).fetchone()
                 if not job_type_row:
@@ -948,6 +972,9 @@ def update_job(
                 params.append(job_type_name)
                 updates.append("is_crp = ?")
                 params.append(bool(job_type_row[1]) if job_type_row[1] is not None else False)
+                if _col_exists(con, "jobs", "job_family"):
+                    updates.append("job_family = ?")
+                    params.append(str(job_type_row[2] or "").strip().lower() or "crp")
 
             if "milestone_template_id" in body:
                 milestone_template_id = body.get("milestone_template_id")
