@@ -82,6 +82,9 @@ const JobReportNew = dynamic(() => import("@/components/JobReportNew"), {
 const JobLca = dynamic(() => import("@/components/JobLca"), {
   loading: () => <LazyTabPanel title="Life Cycle Analysis" description="Loading life cycle analysis..." />,
 });
+const JobTraining = dynamic(() => import("@/components/JobTraining"), {
+  loading: () => <LazyTabPanel title="Training Details" description="Loading training details..." />,
+});
 const JobTimeEntries = dynamic(() => import("@/components/JobTimeEntries"), {
   loading: () => <LazyTabPanel title="Time Entries" description="Loading time entries..." />,
 });
@@ -728,14 +731,17 @@ export default function JobDetailPage() {
                 onApplyTemplate={() => scopeCardRef.current?.applyTemplate()}
               />
 
-              {/* Job Scope & Hours */}
-              <JobScopeCard
-                ref={scopeCardRef}
-                jobId={jobId}
-                jobTypeId={job?.job_type_id ?? null}
-                jobTypeName={job?.job_type ?? undefined}
-                jobFamily={job?.job_family ?? null}
-              />
+              {job?.job_family === "training" ? (
+                <JobTraining jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
+              ) : (
+                <JobScopeCard
+                  ref={scopeCardRef}
+                  jobId={jobId}
+                  jobTypeId={job?.job_type_id ?? null}
+                  jobTypeName={job?.job_type ?? undefined}
+                  jobFamily={job?.job_family ?? null}
+                />
+              )}
 
               {/* Project Milestones */}
               <JobProjectMilestonesSection
