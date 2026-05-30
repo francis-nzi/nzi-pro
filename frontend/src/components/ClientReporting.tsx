@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -237,6 +238,11 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                       {yearJobLabel}
                     </span>
                   ) : null}
+                  {year === benchmarkYear ? (
+                    <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                      BM
+                    </Badge>
+                  ) : null}
                   <span className="text-sm font-normal">
                     {year}
                     {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
@@ -314,10 +320,16 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
                   <Link
                     key={year}
                     href={`/jobs/${yearJob.job_id}`}
-                    className="block text-xs text-primary hover:underline"
+                    className="flex items-center gap-2 text-xs text-primary hover:underline"
                     aria-label={`Open ${yearJobLabel}`}
                   >
-                    {yearJobLabel} <span className="text-muted-foreground">({year})</span>
+                    <span>{yearJobLabel}</span>
+                    {year === benchmarkYear ? (
+                      <Badge className="h-4 rounded-full border-amber-400 bg-amber-400 px-1.5 py-0 text-[9px] font-bold leading-none text-white">
+                        BM
+                      </Badge>
+                    ) : null}
+                    <span className="text-muted-foreground">({year})</span>
                   </Link>
                 );
               })}
