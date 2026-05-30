@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -15,6 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatJobFamilyLabel } from "@/lib/job-family";
+import { getJobWorkflowDefinition, normalizeJobFamily } from "@/lib/job-workflows";
 
 function apiBaseUrl(): string {
   return "/api/backend";
@@ -110,23 +113,36 @@ function NewJobPageContent() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [showValidationSummary, setShowValidationSummary] = useState(false);
 
-  const stepConfig = [
-    {
-      id: 1,
-      title: "Job basics",
-      description: "Client, owner, and job metadata",
-    },
-    {
-      id: 2,
-      title: "Reporting period",
-      description: "Reporting year, dates, and benchmark",
-    },
-    {
-      id: 3,
-      title: "Scope datasets",
-      description: "Assign conversion factor datasets",
-    },
-  ];
+  const selectedJobTypeRecord = useMemo(
+    () => jobTypes.find((jt) => jt.name === jobType) || null,
+    [jobTypes, jobType]
+  );
+  const selectedJobFamily = normalizeJobFamily(
+    selectedJobTypeRecord?.job_family || (selectedJobTypeRecord?.is_crp ? "crp" : null)
+  );
+  const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily);
+  const stepConfig = useMemo(
+    () => [
+      {
+        id: 1,
+        title: "Job basics",
+        description: "Client, owner, and job metadata",
+      },
+      {
+        id: 2,
+        title: "Reporting period",
+        description: "Reporting year, dates, and benchmark",
+      },
+      {
+        id: 3,
+        title: selectedWorkflow.usesScopeDatasets ? "Scope datasets" : "Workflow setup",
+        description: selectedWorkflow.usesScopeDatasets
+          ? "Assign conversion factor datasets"
+          : `Preview the ${selectedWorkflow.label} workflow`,
+      },
+    ],
+    [selectedWorkflow]
+  );
 
   const reportingYearLocked = isBenchmark && !!clientBenchmarkPeriod;
 
@@ -159,7 +175,7 @@ function NewJobPageContent() {
   const stepFieldMap: Record<number, JobRequiredField[]> = {
     1: ["clientId", "jobType"],
     2: ["reportingYear", "startDate", "dueDate"],
-    3: ["scopeDatasets"],
+    3: selectedWorkflow.usesScopeDatasets ? ["scopeDatasets"] : [],
   };
 
   function clearFieldError(field: JobRequiredField) {
@@ -464,6 +480,7 @@ function NewJobPageContent() {
       const jobId = json.job_id;
 
       let successMsg = `Job created successfully! Job #: ${json.job_number || jobId}`;
+      successMsg += ` | ${selectedWorkflow.label}`;
       if (json.reporting_period_start && json.reporting_period_end) {
         const start = new Date(json.reporting_period_start).toLocaleDateString(
           "en-GB",
@@ -480,16 +497,18 @@ function NewJobPageContent() {
         }
       }
 
-      const scopeItems = ["Scope 1", "Scope 2", "Scope 3"].map((scope) => {
-        const v = scopeDatasetIds[scope] ?? "__none__";
-        return { scope, dataset_id: v === "__none__" ? null : Number(v) };
-      });
+      if (selectedWorkflow.usesScopeDatasets) {
+        const scopeItems = ["Scope 1", "Scope 2", "Scope 3"].map((scope) => {
+          const v = scopeDatasetIds[scope] ?? "__none__";
+          return { scope, dataset_id: v === "__none__" ? null : Number(v) };
+        });
 
-      await fetch(`${baseUrl}/jobs/${jobId}/scope-config`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: scopeItems }),
-      });
+        await fetch(`${baseUrl}/jobs/${jobId}/scope-config`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: scopeItems }),
+        });
+      }
 
       setStatus(successMsg);
 
@@ -718,17 +737,20 @@ function NewJobPageContent() {
                         >
                           <SelectValue placeholder="Select job type..." />
                         </SelectTrigger>
-                      <SelectContent>
-                          {jobTypes.map((jt) => (
-                            <SelectItem key={jt.job_type_id} value={jt.name}>
-                              {jt.name} {(jt.job_family || (jt.is_crp ? "crp" : "")).toUpperCase()}
-                            </SelectItem>
-                          ))}
+                        <SelectContent>
+                          {jobTypes.map((jt) => {
+                            const family = normalizeJobFamily(jt.job_family || (jt.is_crp ? "crp" : null));
+                            return (
+                              <SelectItem key={jt.job_type_id} value={jt.name}>
+                                {jt.name} • {formatJobFamilyLabel(family)}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
-                      {jobTypes.find((jt) => jt.name === jobType) ? (
+                      {selectedJobTypeRecord ? (
                         <p className="text-xs text-muted-foreground">
-                          Family: {(jobTypes.find((jt) => jt.name === jobType)?.job_family || (jobTypes.find((jt) => jt.name === jobType)?.is_crp ? "crp" : "unknown")).toUpperCase()}
+                          Family: {formatJobFamilyLabel(selectedJobFamily)}
                         </p>
                       ) : null}
                       {formErrors.jobType && (
@@ -899,49 +921,73 @@ function NewJobPageContent() {
             {currentStep === 3 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Scope dataset configuration</CardTitle>
+                  <CardTitle>{selectedWorkflow.usesScopeDatasets ? "Scope dataset configuration" : "Workflow setup"}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-medium mb-2">
-                      Scope Dataset Configuration
-                    </h3>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Dataset allocation is automatic based on the client country and reporting period.
-                      You can leave these as None to use the automatic resolution, or override them here if needed.
-                    </p>
-                    {formErrors.scopeDatasets && (
-                      <p className="text-xs text-destructive">{formErrors.scopeDatasets}</p>
-                    )}
-                  </div>
+                  {selectedWorkflow.usesScopeDatasets ? (
+                    <>
+                      <div>
+                        <h3 className="mb-2 text-sm font-medium">Scope Dataset Configuration</h3>
+                        <p className="mb-3 text-xs text-muted-foreground">
+                          Dataset allocation is automatic based on the client country and reporting period.
+                          You can leave these as None to use the automatic resolution, or override them here if needed.
+                        </p>
+                        {formErrors.scopeDatasets ? (
+                          <p className="text-xs text-destructive">{formErrors.scopeDatasets}</p>
+                        ) : null}
+                      </div>
 
-                  {(["Scope 1", "Scope 2", "Scope 3"] as const).map((scope) => (
-                    <div key={scope} className="space-y-2">
-                      <Label htmlFor={`dataset-${scope}`}>{scope}</Label>
-                      <Select
-                        value={scopeDatasetIds[scope] ?? "__none__"}
-                        onValueChange={(value) => {
-                          setScopeDatasetIds({
-                            ...scopeDatasetIds,
-                            [scope]: value,
-                          });
-                          clearFieldError("scopeDatasets");
-                        }}
-                      >
-                        <SelectTrigger id={`dataset-${scope}`}>
-                          <SelectValue placeholder="Auto / None" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">None</SelectItem>
-                          {datasets.map((ds) => (
-                            <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
-                              {ds.name} ({ds.year})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {(["Scope 1", "Scope 2", "Scope 3"] as const).map((scope) => (
+                        <div key={scope} className="space-y-2">
+                          <Label htmlFor={`dataset-${scope}`}>{scope}</Label>
+                          <Select
+                            value={scopeDatasetIds[scope] ?? "__none__"}
+                            onValueChange={(value) => {
+                              setScopeDatasetIds({
+                                ...scopeDatasetIds,
+                                [scope]: value,
+                              });
+                              clearFieldError("scopeDatasets");
+                            }}
+                          >
+                            <SelectTrigger id={`dataset-${scope}`}>
+                              <SelectValue placeholder="Auto / None" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              {datasets.map((ds) => (
+                                <SelectItem key={ds.dataset_id} value={String(ds.dataset_id)}>
+                                  {ds.name} ({ds.year})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{selectedWorkflow.label}</Badge>
+                          <span className="text-sm font-medium text-slate-900">{selectedWorkflow.description}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          This family does not use scope dataset assignment on create. The family-specific workflow
+                          and detail sections will be available on the job page after creation.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {selectedWorkflow.stages.map((stage) => (
+                          <div key={stage} className="rounded-md border border-dashed border-slate-200 bg-white p-3 text-sm">
+                            <div className="font-medium text-slate-900">{stage}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">Built-in for {selectedWorkflow.label}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  )}
 
                   <Card>
                     <CardHeader>
