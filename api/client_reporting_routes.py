@@ -63,6 +63,7 @@ def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
             """
             SELECT
                 j.job_id,
+                j.job_number,
                 j.reporting_year,
                 j.title,
                 COALESCE(
@@ -82,6 +83,7 @@ def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
         """
         SELECT
             j.job_id,
+            j.job_number,
             j.reporting_year,
             j.title,
             COALESCE(
@@ -96,6 +98,29 @@ def _load_client_jobs(con, client_db_id: int, crp_only: bool = True):
         """,
         [int(client_db_id)],
     ).df()
+
+
+def _build_year_jobs(jobs_df):
+    if jobs_df is None or jobs_df.empty:
+        return []
+
+    year_jobs = []
+    grouped = jobs_df.copy()
+    grouped["dashboard_year_norm"] = grouped["dashboard_year"].apply(lambda value: int(value) if str(value).strip().lower() not in {"", "nan", "none", "null"} and value is not None else None)
+    grouped = grouped[grouped["dashboard_year_norm"].notna()].copy()
+
+    for year, year_rows in grouped.groupby("dashboard_year_norm", sort=True):
+        latest_row = year_rows.iloc[-1]
+        job_number = str(latest_row.get("job_number") or "").strip() or None
+        year_jobs.append({
+            "year": int(year),
+            "job_id": int(latest_row["job_id"]),
+            "job_number": job_number,
+            "title": str(latest_row.get("title") or "").strip() or None,
+            "reporting_year": int(latest_row["reporting_year"]) if str(latest_row.get("reporting_year")).strip().lower() not in {"", "nan", "none", "null"} and latest_row.get("reporting_year") is not None else None,
+        })
+
+    return year_jobs
 
 
 @router.get("/clients/{client_db_id}/reporting")
@@ -133,6 +158,7 @@ def get_client_reporting(
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "years": [],
+                    "year_jobs": [],
                     "by_scope": [],
                     "by_activity": [],
                     "by_site": []
@@ -146,6 +172,7 @@ def get_client_reporting(
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "years": [],
+                    "year_jobs": [],
                     "by_scope": [],
                     "by_activity": [],
                     "by_site": []
@@ -160,6 +187,7 @@ def get_client_reporting(
                     "client_db_id": int(client_db_id),
                     "client_name": client_check[0],
                     "years": sorted([int(y) for y in jobs_df['dashboard_year'].dropna().unique().tolist()]),
+                    "year_jobs": _build_year_jobs(jobs_df),
                     "by_scope": [],
                     "by_activity": [],
                     "by_site": []
@@ -321,6 +349,7 @@ def get_client_reporting(
                 "client_db_id": int(client_db_id),
                 "client_name": client_check[0],
                 "years": [int(y) for y in years],
+                "year_jobs": _build_year_jobs(jobs_df),
                 "by_scope": by_scope,
                 "by_scope_category": by_scope_category,
                 "by_scope_volume": by_scope_volume,

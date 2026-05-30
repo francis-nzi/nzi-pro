@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,6 +25,13 @@ type ClientReportingData = {
   client_db_id: number;
   client_name: string;
   years: number[];
+  year_jobs?: Array<{
+    year: number;
+    job_id: number;
+    job_number: string | null;
+    title?: string | null;
+    reporting_year?: number | null;
+  }>;
   by_scope: Array<{
     year: number;
     [key: string]: number | string;
@@ -114,6 +122,19 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
   const displayYears = Array.from(new Set([benchmarkYear, ...years.slice(-4)]));
   const prevYear = years.length >= 2 ? years[years.length - 2] : null;
   const showBenchmarkNote = years.length > 4;
+  const yearJobsByYear = new Map(
+    (data.year_jobs || [])
+      .filter((job) => Number.isFinite(Number(job.year)) && Number.isFinite(Number(job.job_id)))
+      .map((job) => [
+        Number(job.year),
+        {
+          job_id: Number(job.job_id),
+          job_number: job.job_number?.trim() || null,
+          title: job.title?.trim() || null,
+          reporting_year: job.reporting_year ?? null,
+        },
+      ])
+  );
 
   // All unique scopes across all years
   const allScopes = new Set<string>();
@@ -195,17 +216,41 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
   function yearHeaders() {
     return (
       <>
-        {displayYears.map((year) => (
-          <th
-            key={year}
-            className={`text-right p-2 border whitespace-nowrap ${
-              year === benchmarkYear && showBenchmarkNote ? "text-slate-500" : ""
-            }`}
-          >
-            {year}
-            {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
-          </th>
-        ))}
+        {displayYears.map((year) => {
+          const yearJob = yearJobsByYear.get(year);
+          const yearJobLabel = yearJob?.job_number || (yearJob?.job_id ? `Job ${yearJob.job_id}` : "");
+          return (
+            <th
+              key={year}
+              className={`text-right p-2 border whitespace-nowrap ${
+                year === benchmarkYear && showBenchmarkNote ? "text-slate-500" : ""
+              }`}
+            >
+              {yearJob?.job_id ? (
+                <Link
+                  href={`/jobs/${yearJob.job_id}`}
+                  className="inline-flex flex-col items-end leading-tight hover:text-foreground hover:underline"
+                  aria-label={`Open ${yearJobLabel}`}
+                >
+                  {yearJobLabel ? (
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-primary">
+                      {yearJobLabel}
+                    </span>
+                  ) : null}
+                  <span className="text-sm font-normal">
+                    {year}
+                    {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
+                  </span>
+                </Link>
+              ) : (
+                <>
+                  {year}
+                  {year === benchmarkYear && showBenchmarkNote ? " ★" : ""}
+                </>
+              )}
+            </th>
+          );
+        })}
         <th className="text-right p-2 border">Change</th>
       </>
     );
@@ -259,6 +304,23 @@ export default function ClientReporting({ clientId, baseUrl }: ClientReportingPr
             <div className="text-2xl font-bold">{years.length}</div>
             <div className="text-xs text-muted-foreground">
               {years[0]} – {latestYear}
+            </div>
+            <div className="mt-3 space-y-1">
+              {displayYears.map((year) => {
+                const yearJob = yearJobsByYear.get(year);
+                if (!yearJob?.job_id) return null;
+                const yearJobLabel = yearJob.job_number || `Job ${yearJob.job_id}`;
+                return (
+                  <Link
+                    key={year}
+                    href={`/jobs/${yearJob.job_id}`}
+                    className="block text-xs text-primary hover:underline"
+                    aria-label={`Open ${yearJobLabel}`}
+                  >
+                    {yearJobLabel} <span className="text-muted-foreground">({year})</span>
+                  </Link>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
