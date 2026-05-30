@@ -32,8 +32,10 @@ type JobNote = {
   archived?: boolean;
   archived_at?: string | null;
   archived_by?: string | null;
+  note_created_at: string | null;
   note_updated_at: string | null;
   note_updated_by: string | null;
+  note_edit_timestamps?: string[];
   row_created_at: string | null;
   row_updated_at: string | null;
 };
@@ -383,6 +385,11 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
   const groupedNotes = useMemo<JobNoteGroup[]>(() => {
     const groupMeta: Array<Pick<JobNoteGroup, "key" | "label" | "description">> = [
       {
+        key: "client-note",
+        label: "Client Notes",
+        description: "Client-level notes linked to this job.",
+      },
+      {
         key: "job-communication",
         label: "Job Notes",
         description: "Notes captured from job communications and job-level updates.",
@@ -401,6 +408,16 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
       }))
       .filter((group) => group.items.length > 0);
   }, [filteredNotes]);
+
+  const noteTimestampLine = useCallback((item: JobNote) => {
+    const createdAt = item.note_created_at || item.row_created_at || item.note_updated_at || item.row_updated_at;
+    const edits = (item.note_edit_timestamps || []).filter(Boolean);
+    const parts = [
+      createdAt ? `Created ${formatTimestamp(createdAt)}` : null,
+      edits.length > 0 ? `Edits ${edits.map((ts) => formatTimestamp(ts)).join(", ")}` : null,
+    ].filter(Boolean);
+    return parts.join(" • ");
+  }, []);
 
   const toggleSection = useCallback((key: string) => {
     setExpandedSections((current) => ({
@@ -457,7 +474,12 @@ export default function JobNotesSummary({ jobId, baseUrl }: JobNotesSummaryProps
                     {item.row_id ? `Row ${item.row_id}` : item.job_id ? `Job ${item.job_id}` : "Job"}
                   </div>
                 </td>
-                <td className="p-2 align-top whitespace-pre-wrap break-words">{item.note_text}</td>
+                <td className="p-2 align-top whitespace-pre-wrap break-words">
+                  <div>{item.note_text}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {noteTimestampLine(item) || "No timestamp available"}
+                  </div>
+                </td>
                 <td className="p-2 align-top break-words">{item.note_updated_by || "-"}</td>
                 <td className="p-2 align-top">{formatTimestamp(item.note_updated_at || item.row_updated_at)}</td>
                 <td className="p-2 align-top">

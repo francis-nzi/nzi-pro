@@ -9,6 +9,7 @@ from api.auth import _current_user
 from api.crm_timeline_routes import _ensure_tables as _ensure_crm_timeline_tables
 from api.job_communications_routes import _ensure_tables as _ensure_job_comm_tables
 from core.database import get_conn
+from services.audit_log import ensure_audit_log_table, record_audit_event
 
 router = APIRouter(tags=["client-notes"])
 
@@ -145,9 +146,11 @@ def _serialize_client_note_row(con, row: dict[str, Any], client_id: int, job_loo
         "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
         "archived_at": _to_iso(row.get("archived_at")),
         "archived_by": _safe_text(row.get("archived_by")) or None,
+        "note_created_at": _to_iso(created_at),
         "note_updated_at": _to_iso(updated_at),
         "row_created_at": _to_iso(created_at),
         "row_updated_at": _to_iso(updated_at),
+        "note_edit_timestamps": [],
     }
 
 
@@ -197,6 +200,28 @@ def get_client_notes_summary(
                 [int(client_id)],
             )
             job_lookup = _build_job_lookup(jobs_df)
+            audit_df = _safe_df(
+                """
+                SELECT entity_id, action, created_at
+                FROM audit_log
+                WHERE client_id = %s
+                  AND entity_type = 'client_note'
+                ORDER BY created_at ASC, audit_id ASC
+                """,
+                [int(client_id)],
+            )
+            audit_map: dict[int, dict[str, list[str]]] = {}
+            if audit_df is not None and not audit_df.empty:
+                for _, audit_row in audit_df.iterrows():
+                    note_id_val = _safe_int(audit_row.get("entity_id"), None)
+                    if note_id_val is None:
+                        continue
+                    entry = audit_map.setdefault(note_id_val, {"edits": [], "all": []})
+                    timestamp = _to_iso(audit_row.get("created_at"))
+                    if timestamp:
+                        entry["all"].append(timestamp)
+                        if _safe_text(audit_row.get("action")).lower() != "create":
+                            entry["edits"].append(timestamp)
 
             items: list[dict[str, Any]] = []
 
@@ -232,7 +257,11 @@ def get_client_notes_summary(
                         note_text = _safe_text(row.get("note_text"))
                         if not note_text:
                             continue
-                        items.append(_serialize_client_note_row(con, row.to_dict(), int(client_id), job_lookup))
+                        serialized = _serialize_client_note_row(con, row.to_dict(), int(client_id), job_lookup)
+                        note_id_val = _safe_int(row.get("note_id"), None)
+                        if note_id_val is not None:
+                            serialized["note_edit_timestamps"] = audit_map.get(note_id_val, {}).get("edits", [])
+                        items.append(serialized)
                     except Exception:
                         continue
 
@@ -311,9 +340,11 @@ def get_client_notes_summary(
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
                                 "archived_by": _safe_text(row.get("archived_by")) or None,
+                                "note_created_at": _to_iso(row.get("created_at")),
                                 "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
                                 "row_created_at": _to_iso(row.get("created_at")),
                                 "row_updated_at": _to_iso(row.get("updated_at")),
+                                "note_edit_timestamps": [],
                             }
                         )
                     except Exception:
@@ -398,9 +429,11 @@ def get_client_notes_summary(
                                 "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
                                 "archived_at": _to_iso(row.get("archived_at")),
                                 "archived_by": _safe_text(row.get("archived_by")) or None,
+                                "note_created_at": _to_iso(row.get("created_at")),
                                 "note_updated_at": _to_iso(row.get("event_at") or row.get("updated_at") or row.get("created_at")),
                                 "row_created_at": _to_iso(row.get("created_at")),
                                 "row_updated_at": _to_iso(row.get("updated_at")),
+                                "note_edit_timestamps": [],
                             }
                         )
                     except Exception:
@@ -480,6 +513,7 @@ def create_client_note(client_id: int, body: dict = Body(...), _user: dict[str, 
     try:
         with get_conn() as con:
             _ensure_client_notes_schema(con)
+            ensure_audit_log_table(con)
             client_row = con.execute("SELECT db_id FROM clients WHERE db_id = %s", [int(client_id)]).fetchone()
             if not client_row:
                 raise HTTPException(status_code=404, detail="Client not found")
@@ -508,6 +542,20 @@ def create_client_note(client_id: int, body: dict = Body(...), _user: dict[str, 
                 ],
             ).fetchone()
             note_id = int(row[0])
+            row_df = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [note_id]).df()
+            after = row_df.iloc[0].to_dict() if row_df is not None and not row_df.empty else None
+            record_audit_event(
+                con,
+                request=None,
+                actor={"user_id": _user.get("user_id"), "email": _user.get("email"), "full_name": author, "org_id": _user.get("org_id")},
+                action="create",
+                entity_type="client_note",
+                entity_id=note_id,
+                client_id=int(client_id),
+                job_id=job_id_value,
+                after=after,
+                metadata={"updated_fields": ["subject", "note_text", "is_high_importance"]},
+            )
             payload = {
                 "note_id": note_id,
                 "client_db_id": int(client_id),
@@ -533,6 +581,7 @@ def update_client_note(note_id: int, body: dict = Body(...), _user: dict[str, st
     try:
         with get_conn() as con:
             _ensure_client_notes_schema(con)
+            ensure_audit_log_table(con)
             row = con.execute(
                 "SELECT note_id, client_db_id, archived FROM client_notes WHERE note_id = %s",
                 [int(note_id)],
@@ -557,11 +606,26 @@ def update_client_note(note_id: int, body: dict = Body(...), _user: dict[str, st
                 updates.append("is_high_importance = %s")
                 params.append(bool(body.get("is_high_importance")))
             if updates:
+                before_row = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [int(note_id)]).df()
+                before = before_row.iloc[0].to_dict() if before_row is not None and not before_row.empty else None
                 updates.extend(["updated_at = NOW()", "updated_by = %s"])
                 params.extend([author, int(note_id)])
                 con.execute(f"UPDATE client_notes SET {', '.join(updates)} WHERE note_id = %s", params)
             row_df = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [int(note_id)]).df()
             item = row_df.iloc[0].to_dict() if row_df is not None and not row_df.empty else {"note_id": int(note_id)}
+            record_audit_event(
+                con,
+                request=None,
+                actor={"user_id": _user.get("user_id"), "email": _user.get("email"), "full_name": author, "org_id": _user.get("org_id")},
+                action="update",
+                entity_type="client_note",
+                entity_id=int(note_id),
+                client_id=int(row[1]) if row[1] is not None else None,
+                job_id=_safe_int(item.get("job_id"), None),
+                before=before if updates else None,
+                after=item,
+                metadata={"updated_fields": sorted([key for key in ("subject", "note_text", "is_high_importance") if key in body])},
+            )
             return {"ok": True, "item": item}
     except HTTPException:
         raise
@@ -574,10 +638,13 @@ def archive_client_note(note_id: int, _user: dict[str, str] = Depends(_current_u
     try:
         with get_conn() as con:
             _ensure_client_notes_schema(con)
+            ensure_audit_log_table(con)
             exists = con.execute("SELECT note_id FROM client_notes WHERE note_id = %s", [int(note_id)]).fetchone()
             if not exists:
                 raise HTTPException(status_code=404, detail="Client note not found")
             actor = _display_name(con, _user.get("email") or _user.get("user_id") or "system") or _safe_text(_user.get("email") or _user.get("user_id")) or "system"
+            before_row = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [int(note_id)]).df()
+            before = before_row.iloc[0].to_dict() if before_row is not None and not before_row.empty else None
             con.execute(
                 """
                 UPDATE client_notes
@@ -585,6 +652,21 @@ def archive_client_note(note_id: int, _user: dict[str, str] = Depends(_current_u
                 WHERE note_id = %s
                 """,
                 [actor, actor, int(note_id)],
+            )
+            after_row = con.execute("SELECT * FROM client_notes WHERE note_id = %s", [int(note_id)]).df()
+            after = after_row.iloc[0].to_dict() if after_row is not None and not after_row.empty else None
+            record_audit_event(
+                con,
+                request=None,
+                actor={"user_id": _user.get("user_id"), "email": _user.get("email"), "full_name": actor, "org_id": _user.get("org_id")},
+                action="archive",
+                entity_type="client_note",
+                entity_id=int(note_id),
+                client_id=_safe_int(after.get("client_db_id"), None) if after else None,
+                job_id=_safe_int(after.get("job_id"), None) if after else None,
+                before=before,
+                after=after,
+                metadata={"updated_fields": ["archived"]},
             )
             return {"ok": True}
     except HTTPException:

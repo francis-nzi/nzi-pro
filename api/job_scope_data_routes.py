@@ -795,6 +795,11 @@ def get_job_notes_summary(
             archived_clause = "AND COALESCE(jc.archived, FALSE) = FALSE"
         elif archive_state_normalized == "archived":
             archived_clause = "AND COALESCE(jc.archived, FALSE) = TRUE"
+        client_archived_clause = ""
+        if archive_state_normalized == "active":
+            client_archived_clause = "AND COALESCE(cn.archived, FALSE) = FALSE"
+        elif archive_state_normalized == "archived":
+            client_archived_clause = "AND COALESCE(cn.archived, FALSE) = TRUE"
 
         with get_conn() as con:
             _ensure_job_communications_tables(con)
@@ -840,6 +845,33 @@ def get_job_notes_summary(
                   AND lower(COALESCE(jc.channel, '')) = 'note'
                   {archived_clause}
                 ORDER BY COALESCE(jc.event_at, jc.created_at) DESC NULLS LAST, jc.communication_id DESC
+                """,
+                [int(job_id)],
+            ).df()
+
+            client_notes_df = con.execute(
+                f"""
+                SELECT
+                    cn.note_id,
+                    cn.client_db_id,
+                    cn.job_id,
+                    cn.subject,
+                    cn.note_text,
+                    cn.author,
+                    cn.is_high_importance,
+                    cn.archived,
+                    cn.archived_at,
+                    cn.archived_by,
+                    cn.created_at,
+                    cn.updated_at,
+                    cn.updated_by,
+                    j.job_number,
+                    j.title AS job_title
+                FROM client_notes cn
+                LEFT JOIN jobs j ON j.job_id = cn.job_id
+                WHERE cn.job_id = %s
+                  {client_archived_clause}
+                ORDER BY COALESCE(cn.updated_at, cn.created_at) DESC NULLS LAST, cn.note_id DESC
                 """,
                 [int(job_id)],
             ).df()
@@ -897,7 +929,29 @@ def get_job_notes_summary(
                 [int(job_id)],
             ).df()
 
+            client_note_audit_df = con.execute(
+                """
+                SELECT entity_id, action, created_at
+                FROM audit_log
+                WHERE job_id = %s
+                  AND entity_type = 'client_note'
+                ORDER BY created_at ASC, audit_id ASC
+                """,
+                [int(job_id)],
+            ).df()
+            client_note_history: dict[int, list[str]] = {}
+            if client_note_audit_df is not None and not client_note_audit_df.empty:
+                for _, audit_row in client_note_audit_df.iterrows():
+                    note_id_val = _safe_int(audit_row.get("entity_id"), None)
+                    if note_id_val is None:
+                        continue
+                    timestamp = _to_iso(audit_row.get("created_at"))
+                    if not timestamp:
+                        continue
+                    client_note_history.setdefault(note_id_val, []).append(timestamp)
+
             latest_note_events: dict[str, dict[str, Any]] = {}
+            job_note_history: dict[str, list[str]] = {}
             if audit_df is not None and not audit_df.empty:
                 for _, audit_row in audit_df.iterrows():
                     entity_id = str(audit_row.get("entity_id") or "").strip()
@@ -919,11 +973,14 @@ def get_job_notes_summary(
                     if not note_change_detected:
                         continue
 
+                    timestamp = _to_iso(audit_row.get("created_at"))
                     actor_label = _display_name(con, audit_row.get("actor_name") or audit_row.get("actor_email"))
                     latest_note_events[entity_id] = {
-                        "updated_at": _to_iso(audit_row.get("created_at")),
+                        "updated_at": timestamp,
                         "updated_by": actor_label,
                     }
+                    if timestamp:
+                        job_note_history.setdefault(entity_id, []).append(timestamp)
 
             scope_options: list[str] = []
             category_options: list[str] = []
@@ -1020,6 +1077,53 @@ def get_job_notes_summary(
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }
                     )
+            if client_notes_df is not None and not client_notes_df.empty:
+                for _, row in client_notes_df.iterrows():
+                    note_text = _safe_text(row.get("note_text"))
+                    if not note_text:
+                        continue
+                    job_number = _safe_text(row.get("job_number") or job_row[1]) or None
+                    job_title = _safe_text(row.get("job_title") or job_row[2]) or None
+                    subject = _safe_text(row.get("subject")) or None
+                    location_bits = ["Client Note"]
+                    if job_number:
+                        location_bits.append(f"Job {job_number}")
+                    elif row.get("job_id") is not None:
+                        location_bits.append(f"Job {int(row.get('job_id'))}")
+                    if subject:
+                        location_bits.append(subject)
+                    note_id_val = int(row.get("note_id") or 0)
+                    items.append(
+                        {
+                            "note_id": f"client-note-{note_id_val}",
+                            "source_type": "client-note",
+                            "source_label": "Client Note",
+                            "communication_id": None,
+                            "row_id": None,
+                            "job_id": int(row.get("job_id") or job_id),
+                            "job_number": job_number,
+                            "job_title": job_title,
+                            "note_subject": subject,
+                            "scope": "",
+                            "site_id": None,
+                            "site_name": "",
+                            "category": "",
+                            "archived": bool(row.get("archived")) if row.get("archived") is not None else False,
+                            "archived_at": _to_iso(row.get("archived_at")),
+                            "archived_by": _safe_text(row.get("archived_by")) or None,
+                            "report_label": "",
+                            "original_id": "",
+                            "note_text": note_text,
+                            "note_location": " | ".join(location_bits),
+                            "note_created_at": _to_iso(row.get("created_at")),
+                            "note_updated_at": _to_iso(row.get("updated_at") or row.get("created_at")),
+                            "note_updated_by": _cached_display(row.get("updated_by") or row.get("author")),
+                            "note_edit_timestamps": client_note_history.get(note_id_val, [])[1:],
+                            "row_created_at": _to_iso(row.get("created_at")),
+                            "row_updated_at": _to_iso(row.get("updated_at")),
+                            "is_high_importance": bool(row.get("is_high_importance")) if row.get("is_high_importance") is not None else False,
+                        }
+                    )
             if notes_df is not None and not notes_df.empty:
                 for _, row in notes_df.iterrows():
                     row_id = _safe_int(row.get("row_id"))
@@ -1064,8 +1168,10 @@ def get_job_notes_summary(
                             "original_id": str(row.get("original_id") or ""),
                             "note_text": note_text,
                             "note_location": note_location,
+                            "note_created_at": _to_iso(row.get("created_at")),
                             "note_updated_at": updated_at,
                             "note_updated_by": _cached_display(note_event.get("updated_by")),
+                            "note_edit_timestamps": job_note_history.get(str(row_id), []),
                             "row_created_at": _to_iso(row.get("created_at")),
                             "row_updated_at": _to_iso(row.get("updated_at")),
                         }

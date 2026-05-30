@@ -51,7 +51,9 @@ type ClientNote = {
   archived: boolean;
   archived_at: string | null;
   archived_by: string | null;
+  note_created_at: string | null;
   note_updated_at: string | null;
+  note_edit_timestamps?: string[];
   row_created_at: string | null;
   row_updated_at: string | null;
 };
@@ -124,6 +126,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   const [addSubject, setAddSubject] = useState("");
   const [addText, setAddText] = useState("");
   const [addHighImportance, setAddHighImportance] = useState(false);
+  const [addJobId, setAddJobId] = useState("__none__");
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState("");
 
@@ -131,6 +134,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
   const [editSubject, setEditSubject] = useState("");
   const [editText, setEditText] = useState("");
   const [editHighImportance, setEditHighImportance] = useState(false);
+  const [editJobId, setEditJobId] = useState("__none__");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -161,6 +165,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     setEditSubject(note.note_subject ?? "");
     setEditText(note.note_text);
     setEditHighImportance(Boolean(note.is_high_importance));
+    setEditJobId(note.job_id != null ? String(note.job_id) : "__none__");
     setEditError("");
   }, []);
 
@@ -168,6 +173,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     setAddSubject("");
     setAddText("");
     setAddHighImportance(false);
+    setAddJobId("__none__");
     setAddError("");
     setAddClientNoteOpen(true);
   }, []);
@@ -183,6 +189,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
         body: JSON.stringify({
           subject: addSubject.trim() || null,
           note_text: addText.trim(),
+          job_id: addJobId !== "__none__" ? Number(addJobId) : null,
           is_high_importance: addHighImportance,
         }),
       });
@@ -194,13 +201,14 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       setAddSubject("");
       setAddText("");
       setAddHighImportance(false);
+      setAddJobId("__none__");
       await loadNotes();
     } catch (err) {
       setAddError((err as Error).message);
     } finally {
       setAddBusy(false);
     }
-  }, [addHighImportance, addSubject, addText, baseUrl, clientId, loadNotes]);
+  }, [addHighImportance, addJobId, addSubject, addText, baseUrl, clientId, loadNotes]);
 
   const saveEdit = useCallback(async () => {
     if (!editingNote) return;
@@ -211,7 +219,12 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
       let body: Record<string, unknown>;
       if (editingNote.note_backend === "client_notes") {
         url = `${baseUrl}/client-notes/${editingNote.raw_id}`;
-        body = { subject: editSubject, note_text: editText, is_high_importance: editHighImportance };
+        body = {
+          subject: editSubject,
+          note_text: editText,
+          job_id: editJobId !== "__none__" ? Number(editJobId) : null,
+          is_high_importance: editHighImportance,
+        };
       } else if (editingNote.source_type === "client") {
         url = `${baseUrl}/timeline/events/${editingNote.raw_id}`;
         body = { subject: editSubject, body_text: editText, is_high_importance: editHighImportance };
@@ -236,7 +249,7 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     } finally {
       setEditBusy(false);
     }
-  }, [baseUrl, editingNote, editHighImportance, editSubject, editText, loadNotes]);
+  }, [baseUrl, editHighImportance, editJobId, editSubject, editText, editingNote, loadNotes]);
 
   const archiveNote = useCallback(async (note: ClientNote) => {
     if (!window.confirm("Archive this note? It will no longer appear in the notes list.")) return;
@@ -303,6 +316,16 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
     }
     return Array.from(seen).sort((a, b) => a.localeCompare(b));
   }, [summary]);
+
+  const noteTimestampLine = useCallback((item: ClientNote) => {
+    const createdAt = item.note_created_at || item.row_created_at || item.note_updated_at || item.row_updated_at;
+    const edits = (item.note_edit_timestamps || []).filter(Boolean);
+    const parts = [
+      createdAt ? `Created ${formatTimestamp(createdAt)}` : null,
+      edits.length > 0 ? `Edits ${edits.map((ts) => formatTimestamp(ts)).join(", ")}` : null,
+    ].filter(Boolean);
+    return parts.join(" • ");
+  }, []);
 
   const filteredNotes = useMemo(() => {
     return (summary?.items || []).filter((item) => {
@@ -390,10 +413,12 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 <td className="p-2 align-top whitespace-pre-wrap break-words">
                   {item.note_subject ? <div className="font-medium">{item.note_subject}</div> : null}
                   <div>{item.note_text}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {noteTimestampLine(item) || "No timestamp available"}
+                  </div>
                   {item.updated_by ? (
                     <div className="mt-1 text-xs text-muted-foreground">
                       Edited by {item.updated_by}
-                      {item.row_updated_at ? ` on ${formatTimestamp(item.row_updated_at)}` : ""}
                     </div>
                   ) : null}
                 </td>
@@ -445,6 +470,22 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 className="w-full"
               />
             </div>
+            <div className="space-y-1">
+              <Label htmlFor="addClientNoteJob">Job <span className="text-muted-foreground">(optional)</span></Label>
+              <Select value={addJobId} onValueChange={setAddJobId}>
+                <SelectTrigger id="addClientNoteJob" className="w-full">
+                  <SelectValue placeholder="No job" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No job</SelectItem>
+                  {availableJobs.map((job) => (
+                    <SelectItem key={job.job_id} value={String(job.job_id)}>
+                      {jobLabel(job)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -493,6 +534,24 @@ export default function ClientNotesSummary({ clientId, baseUrl, jobs = [] }: Pro
                 className="w-full"
               />
             </div>
+            {editingNote?.source_type === "client" ? (
+              <div className="space-y-1">
+                <Label htmlFor="editClientNoteJob">Job <span className="text-muted-foreground">(optional)</span></Label>
+                <Select value={editJobId} onValueChange={setEditJobId}>
+                  <SelectTrigger id="editClientNoteJob" className="w-full">
+                    <SelectValue placeholder="No job" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No job</SelectItem>
+                    {availableJobs.map((job) => (
+                      <SelectItem key={job.job_id} value={String(job.job_id)}>
+                        {jobLabel(job)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             {editingNote?.source_type === "client" ? (
               <label className="flex items-center gap-2 text-sm">
                 <input
