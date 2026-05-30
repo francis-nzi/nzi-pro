@@ -85,6 +85,9 @@ const JobLca = dynamic(() => import("@/components/JobLca"), {
 const JobTraining = dynamic(() => import("@/components/JobTraining"), {
   loading: () => <LazyTabPanel title="Training Details" description="Loading training details..." />,
 });
+const JobConsultancy = dynamic(() => import("@/components/JobConsultancy"), {
+  loading: () => <LazyTabPanel title="Consultancy Details" description="Loading consultancy details..." />,
+});
 const JobTimeEntries = dynamic(() => import("@/components/JobTimeEntries"), {
   loading: () => <LazyTabPanel title="Time Entries" description="Loading time entries..." />,
 });
@@ -733,6 +736,8 @@ export default function JobDetailPage() {
 
               {job?.job_family === "training" ? (
                 <JobTraining jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
+              ) : job?.job_family === "consultancy" ? (
+                <JobConsultancy jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
               ) : (
                 <JobScopeCard
                   ref={scopeCardRef}

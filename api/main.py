@@ -95,6 +95,7 @@ from api.job_management_routes import router as job_management_router
 from api.job_template_routes import router as job_template_router
 from api.job_setup_routes import router as job_setup_router
 from api.job_training_routes import router as job_training_router
+from api.job_consultancy_routes import router as job_consultancy_router
 from api.job_report_version_routes import router as job_report_version_router
 from api.job_report_docx_routes import router as job_report_docx_router
 from api.job_report_asset_routes import router as job_report_asset_router
@@ -231,6 +232,7 @@ app.include_router(job_management_router)
 app.include_router(job_template_router)
 app.include_router(job_setup_router)
 app.include_router(job_training_router)
+app.include_router(job_consultancy_router)
 
 # Include emission register routes
 app.include_router(job_emission_register_router)
