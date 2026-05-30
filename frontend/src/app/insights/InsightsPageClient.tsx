@@ -635,6 +635,7 @@ function overviewSubtitle(data: DashboardOverview | null): string {
 
 export default function InsightsPageClient() {
   const baseUrl = useMemo(() => apiBaseUrl(), []);
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
   const [activeTab, setActiveTab] = useState("portfolio");
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [jobsStatus, setJobsStatus] = useState<JobsMilestoneStatus>(EMPTY_JOBS_STATUS);
@@ -652,7 +653,7 @@ export default function InsightsPageClient() {
   const [reportDrill, setReportDrill] = useState<ReportDrillState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number | null>(() => currentYear);
   const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
   const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
@@ -776,9 +777,6 @@ export default function InsightsPageClient() {
 
       const overviewJson = (await overviewRes.json()) as DashboardOverview;
       setData(overviewJson);
-      if (!selectedYear && overviewJson.selected_year) {
-        setSelectedYear(Number(overviewJson.selected_year));
-      }
 
       setLoading(false);
 
@@ -876,6 +874,10 @@ export default function InsightsPageClient() {
     () => (data?.job_status_breakdown || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
     [data]
   );
+  const availableYears = useMemo(() => {
+    const years = data?.available_years ?? [];
+    return years.includes(currentYear) ? years : [currentYear, ...years];
+  }, [currentYear, data?.available_years]);
   const financialCurrencies = useMemo(
     () => Array.from(new Set([...(financialData.quote_currencies || []), ...(financialData.invoice_currencies || [])])),
     [financialData]
@@ -1266,16 +1268,16 @@ export default function InsightsPageClient() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">Year</span>
-            <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={v => setSelectedYear(v === ALL_FILTER_VALUE ? null : Number(v))}>
-              <SelectTrigger className="h-8 w-28 text-xs"><SelectValue placeholder="All years" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
-                {(data?.available_years ?? []).map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Year</span>
+              <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={v => setSelectedYear(v === ALL_FILTER_VALUE ? null : Number(v))}>
+                <SelectTrigger className="h-8 w-28 text-xs"><SelectValue placeholder="All years" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
+                  {availableYears.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           {(data?.available_industries ?? []).length > 0 && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Industry</span>
@@ -1404,7 +1406,7 @@ export default function InsightsPageClient() {
             </div>
 
             {/* Clients by Industry + Jobs by Type + Jobs by Status + Top 10 Clients list */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
                 <CardContent className="pt-0">
