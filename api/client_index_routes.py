@@ -409,6 +409,7 @@ def client_jobs(
     org_id = str(_user.get("org_id") or "").strip() or None
     try:
         with get_conn() as con:
+            has_job_family = _col_exists(con, "jobs", "job_family")
             rows = pd.DataFrame()
             total_row = (0,)
             if org_id:
@@ -425,7 +426,7 @@ def client_jobs(
                 rows = con.execute(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                           j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           j.job_type, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -452,7 +453,7 @@ def client_jobs(
                 rows = con.execute(
                     f"""
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year, j.status,
-                           j.job_type, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
+                           j.job_type, {("j.job_family" if has_job_family else "NULL::text AS job_family")}, j.is_crp, j.reporting_period_end::text AS reporting_period_end,
                            jp.data_collection_due::text AS data_collection_due, jp.data_collection_completed_at::text AS data_collection_completed_at,
                            jp.first_draft_due::text AS first_draft_due, jp.first_draft_completed_at::text AS first_draft_completed_at,
                            jp.final_report_due::text AS final_report_due, jp.final_report_completed_at::text AS final_report_completed_at
@@ -547,6 +548,7 @@ def client_jobs(
                     "reporting_year": _reporting_year_from_row(r),
                     "status": None if _is_missing(r.get("status")) else r.get("status"),
                     "job_type": None if _is_missing(r.get("job_type")) else r.get("job_type"),
+                    "job_family": None if _is_missing(r.get("job_family")) else r.get("job_family"),
                     "is_crp": _bool_or_false(r.get("is_crp")),
                     "milestone_status": overall_milestone_status,
                     "total_emissions": total_emissions_by_job.get(job_id),

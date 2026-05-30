@@ -163,10 +163,11 @@ interface JobScopeCardProps {
   jobId: number;
   jobTypeId?: number | null;
   jobTypeName?: string;
+  jobFamily?: string | null;
 }
 
 const JobScopeCard = forwardRef<JobScopeCardHandle, JobScopeCardProps>(
-function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
+function JobScopeCard({ jobId, jobTypeId, jobTypeName, jobFamily }, ref) {
   const [items, setItems] = useState<LineItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [allJobItems, setAllJobItems] = useState<JobItem[]>([]);
@@ -460,7 +461,7 @@ function JobScopeCard({ jobId, jobTypeId, jobTypeName }, ref) {
                   onClick={applyTemplate}
                   className="mt-1 text-xs text-[#1c5026] hover:underline"
                 >
-                  Create items from template
+                  {jobFamily && jobFamily !== "crp" ? "Create items from job template" : "Create items from template"}
                 </button>
               ) : (
                 <p className="mt-1 text-xs text-slate-400">

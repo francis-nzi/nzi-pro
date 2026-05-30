@@ -18,6 +18,7 @@ type JobLike = {
   client_name?: string | null;
   crm_owner?: string | null;
   crm_name?: string | null;
+  job_family?: string | null;
   reporting_year?: number | null;
   status?: string | null;
   reporting_period_start?: string | null;
@@ -413,6 +414,7 @@ export default function useJobWorkspaceDerivedState({
       jobNumber: jobNumberLabel,
       jobTitle: jobTitleLabel || "Job",
       clientName: clientLabel,
+      jobFamily: job?.job_family?.trim() || undefined,
       benchmarkPeriodLabel: benchmarkPeriodLabel || undefined,
       reportingPeriodLabel,
       statusLabel,

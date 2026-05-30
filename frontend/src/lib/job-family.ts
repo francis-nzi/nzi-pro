@@ -1,0 +1,33 @@
+export type JobFamily = "crp" | "training" | "consultancy" | "lca" | "pcf";
+
+const FAMILY_LABELS: Record<string, string> = {
+  crp: "CRP",
+  training: "Training",
+  consultancy: "Consultancy",
+  lca: "LCA",
+  pcf: "PCF",
+};
+
+export function formatJobFamilyLabel(value?: string | null): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "Unassigned";
+  return FAMILY_LABELS[raw] || raw.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+export function jobFamilyBadgeClassName(value?: string | null): string {
+  const family = String(value || "").trim().toLowerCase();
+  switch (family) {
+    case "crp":
+      return "border-green-200 bg-green-50 text-green-800";
+    case "training":
+      return "border-blue-200 bg-blue-50 text-blue-800";
+    case "consultancy":
+      return "border-violet-200 bg-violet-50 text-violet-800";
+    case "lca":
+      return "border-orange-200 bg-orange-50 text-orange-800";
+    case "pcf":
+      return "border-teal-200 bg-teal-50 text-teal-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}

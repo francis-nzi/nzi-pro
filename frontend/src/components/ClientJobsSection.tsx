@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import LoadingOrbit from "@/components/LoadingOrbit";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import StatusBadge from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
+import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 type ClientJobsSectionProps = {
@@ -17,6 +19,7 @@ type ClientJobsSectionProps = {
     reporting_year: number | null;
     status: string | null;
     job_type?: string | null;
+    job_family?: string | null;
     is_crp?: boolean;
     milestone_status?: string | null;
     total_emissions?: number | null;
@@ -51,7 +54,7 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
   }
 
   const jobsByType = jobs.reduce((acc, job) => {
-    const type = job.job_type || "Unknown";
+    const type = job.job_family || job.job_type || "Unknown";
     if (!acc[type]) acc[type] = [];
     acc[type].push(job);
     return acc;
@@ -65,7 +68,7 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
       <CardContent className="space-y-6">
         {Object.entries(jobsByType).map(([jobType, typeJobs]) => (
           <div key={jobType}>
-            <h3 className="mb-2 text-sm font-semibold text-muted-foreground">{jobType}</h3>
+            <h3 className="mb-2 text-sm font-semibold text-muted-foreground">{formatJobFamilyLabel(jobType)}</h3>
             <div className="space-y-2">
               {typeJobs.map((j) => {
                 const statusColor = milestoneDotClass(j.milestone_status);
@@ -85,6 +88,11 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
                         <Link href={`/jobs/${j.job_id}`} className="min-w-0 flex-1">
                           <div className="font-medium">
                             {(j.job_number ?? `Job ${j.job_id}`) + (j.reporting_year ? ` (${j.reporting_year})` : "")}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className={jobFamilyBadgeClassName(j.job_family || j.job_type)}>
+                              {formatJobFamilyLabel(j.job_family || j.job_type)}
+                            </Badge>
                           </div>
                           <div className="text-muted-foreground">{j.title ?? ""}</div>
                           <div className="flex items-center gap-2 text-muted-foreground">

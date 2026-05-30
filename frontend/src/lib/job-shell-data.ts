@@ -10,6 +10,7 @@ export type JobShellJob = {
   reporting_period_start: string | null;
   reporting_period_end: string | null;
   status: string | null;
+  job_family?: string | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number;

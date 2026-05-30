@@ -48,6 +48,7 @@ export type JobWorkspaceJob = {
   jobNumber: string;
   jobTitle: string;
   clientName: string;
+  jobFamily?: string;
   benchmarkPeriodLabel?: string;
   reportingPeriodLabel: string;
   statusLabel: string;

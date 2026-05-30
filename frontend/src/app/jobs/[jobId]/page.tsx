@@ -103,6 +103,7 @@ type Job = {
   is_benchmark?: boolean | null;
   status: string | null;
   job_type?: string | null;
+  job_family?: string | null;
   job_type_id?: number | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
@@ -697,6 +698,7 @@ export default function JobDetailPage() {
                 jobTitle={jobTitle}
                 jobStatus={jobStatus}
                 jobType={jobType}
+                jobFamily={job?.job_family ?? null}
                 originalPortfolio={originalPortfolio}
                 crmName={crmName}
                 jobStartDate={jobStartDate}
@@ -732,6 +734,7 @@ export default function JobDetailPage() {
                 jobId={jobId}
                 jobTypeId={job?.job_type_id ?? null}
                 jobTypeName={job?.job_type ?? undefined}
+                jobFamily={job?.job_family ?? null}
               />
 
               {/* Project Milestones */}

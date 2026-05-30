@@ -10,6 +10,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
+import { Badge } from "@/components/ui/badge";
+import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 type JobSetupOverviewSectionProps = {
   hidden?: boolean;
@@ -20,6 +22,7 @@ type JobSetupOverviewSectionProps = {
   jobTitle: string;
   jobStatus: string;
   jobType: string;
+  jobFamily?: string | null;
   originalPortfolio: string;
   crmName: string;
   jobStartDate: string;
@@ -58,6 +61,7 @@ export default function JobSetupOverviewSection({
   jobTitle,
   jobStatus,
   jobType,
+  jobFamily,
   originalPortfolio,
   crmName,
   jobStartDate,
@@ -145,6 +149,14 @@ export default function JobSetupOverviewSection({
               ) : (
                 <p className="text-xs text-muted-foreground">Controls how the job is grouped on client pages and in reporting.</p>
               )}
+              {jobFamily ? (
+                <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+                  <span>Family:</span>
+                  <Badge variant="outline" className={jobFamilyBadgeClassName(jobFamily)}>
+                    {formatJobFamilyLabel(jobFamily)}
+                  </Badge>
+                </div>
+              ) : null}
             </div>
           </div>
 

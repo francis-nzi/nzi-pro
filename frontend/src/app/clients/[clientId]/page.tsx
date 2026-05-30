@@ -87,6 +87,7 @@ type ClientJobsResponse = {
     reporting_year: number | null;
     status: string | null;
     job_type?: string | null;
+    job_family?: string | null;
     is_crp?: boolean;
     milestone_status?: string | null;
     total_emissions?: number | null;

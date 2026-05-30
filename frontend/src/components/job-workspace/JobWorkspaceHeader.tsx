@@ -5,6 +5,7 @@ import Link from "next/link";
 import EmissionsSummary from "@/components/EmissionsSummary";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 import type {
   JobWorkspaceJob,
@@ -92,6 +93,12 @@ export default function JobWorkspaceHeader({
             <div className="flex flex-wrap items-center gap-2">
               <Pill label={`Owner: ${job.ownerLabel}`} />
               {job.crmLabel ? <Pill label={`CRM: ${job.crmLabel}`} /> : null}
+              {job.jobFamily ? (
+                <Pill
+                  label={`Family: ${formatJobFamilyLabel(job.jobFamily)}`}
+                  className={jobFamilyBadgeClassName(job.jobFamily)}
+                />
+              ) : null}
               {job.setupCompletionLabel ? (
                 <Pill
                   label={job.setupCompletionLabel}

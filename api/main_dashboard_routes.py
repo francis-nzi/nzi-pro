@@ -641,9 +641,11 @@ def get_dashboard_overview(
             has_job_types_table = _table_exists(con, "job_types")
             has_job_type_id = _column_exists(con, "jobs", "job_type_id")
             has_job_type_text = _column_exists(con, "jobs", "job_type")
+            has_job_family_text = _column_exists(con, "job_types", "job_family")
             has_job_due_date = _column_exists(con, "jobs", "due_date")
             if has_job_types_table and has_job_type_id:
                 job_type_join = "LEFT JOIN job_types jt ON jt.job_type_id = j.job_type_id"
+                job_family_expr = "COALESCE(NULLIF(TRIM(jt.job_family), ''), 'crp')" if has_job_family_text else "'crp'"
                 if has_job_type_text:
                     job_type_name_expr = "COALESCE(NULLIF(TRIM(jt.name), ''), NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
                 else:
@@ -651,9 +653,11 @@ def get_dashboard_overview(
             elif has_job_type_text:
                 job_type_join = ""
                 job_type_name_expr = "COALESCE(NULLIF(TRIM(j.job_type), ''), 'Unassigned')"
+                job_family_expr = "COALESCE(NULLIF(TRIM(j.job_family), ''), 'crp')" if _column_exists(con, "jobs", "job_family") else "'crp'"
             else:
                 job_type_join = ""
                 job_type_name_expr = "'Unassigned'"
+                job_family_expr = "'crp'"
 
             # Industry breakdown (count of active clients by industry)
             industry_breakdown = []
@@ -692,7 +696,8 @@ def get_dashboard_overview(
                             jp.first_draft_completed_at,
                             jp.final_report_due,
                             jp.final_report_completed_at,
-                            {job_type_name_expr} AS job_type_name
+                            {job_type_name_expr} AS job_type_name,
+                            {job_family_expr} AS job_family
                         FROM jobs j
                         LEFT JOIN clients c ON j.client_db_id = c.db_id
                         {job_type_join}
@@ -721,7 +726,8 @@ def get_dashboard_overview(
                             NULL as first_draft_completed_at,
                             NULL as final_report_due,
                             NULL as final_report_completed_at,
-                            {job_type_name_expr} AS job_type_name
+                            {job_type_name_expr} AS job_type_name,
+                            {job_family_expr} AS job_family
                         FROM jobs j
                         LEFT JOIN clients c ON j.client_db_id = c.db_id
                         {job_type_join}
@@ -748,7 +754,8 @@ def get_dashboard_overview(
                         NULL as first_draft_completed_at,
                         NULL as final_report_due,
                         NULL as final_report_completed_at,
-                        {job_type_name_expr} AS job_type_name
+                        {job_type_name_expr} AS job_type_name,
+                        {job_family_expr} AS job_family
                     FROM jobs j
                     LEFT JOIN clients c ON j.client_db_id = c.db_id
                     {job_type_join}
@@ -814,6 +821,7 @@ def get_dashboard_overview(
                         "status": row['status'],
                         "client_name": row['client_name'],
                         "job_type": _normalize_text_value(row.get("job_type_name"), "Unassigned"),
+                        "job_family": _normalize_text_value(row.get("job_family"), "crp"),
                         "start_date": row['start_date'],
                         "milestone_status": overall_milestone_status,
                     })
@@ -823,7 +831,8 @@ def get_dashboard_overview(
                 jobs_by_type_df = con.execute(
                     f"""
                     SELECT
-                        {job_type_name_expr} AS job_type,
+                        {job_family_expr} AS job_type,
+                        {job_family_expr} AS job_family,
                         COUNT(*) AS total_jobs,
                         SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown')) NOT IN ('completed', 'archived', 'cancelled') THEN 1 ELSE 0 END) AS active_jobs,
                         SUM(CASE WHEN LOWER(COALESCE(NULLIF(TRIM(j.status), ''), 'Unknown')) = 'completed' THEN 1 ELSE 0 END) AS completed_jobs
@@ -832,7 +841,7 @@ def get_dashboard_overview(
                     {job_type_join}
                     WHERE 1=1{job_where}
                     GROUP BY 1
-                    ORDER BY total_jobs DESC, job_type ASC
+                    ORDER BY total_jobs DESC, job_family ASC
                     LIMIT 12
                     """,
                     job_params,
@@ -844,6 +853,7 @@ def get_dashboard_overview(
                 for _, row in jobs_by_type_df.iterrows():
                     jobs_by_type.append({
                         "job_type": _normalize_text_value(row.get("job_type"), "Unassigned"),
+                        "job_family": _normalize_text_value(row.get("job_family"), "crp"),
                         "total_jobs": int(row.get("total_jobs") or 0),
                         "active_jobs": int(row.get("active_jobs") or 0),
                         "completed_jobs": int(row.get("completed_jobs") or 0),

@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS, MCKINSEY_SCOPE_COLORS } from "@/lib/chart-colors";
+import { formatJobFamilyLabel } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
@@ -50,6 +51,7 @@ type DashboardOverview = {
   }>;
   jobs_by_type: Array<{
     job_type: string;
+    job_family?: string | null;
     total_jobs: number;
     active_jobs: number;
     completed_jobs: number;
@@ -79,6 +81,7 @@ type DashboardOverview = {
     start_date: string | null;
     milestone_status?: string | null;
     job_type?: string | null;
+    job_family?: string | null;
   }>;
   jobs_per_crm: Array<{
     crm_name: string;
@@ -974,7 +977,7 @@ export default function InsightsPageClient() {
     (data?.jobs_by_type ?? [])
       .filter((d) => (d.total_jobs || 0) > 0)
       .map((d) => ({
-        name: d.job_type || "Unassigned",
+        name: formatJobFamilyLabel(d.job_family || d.job_type),
         jobs: +d.total_jobs || 0,
         active: +d.active_jobs || 0,
         completed: +d.completed_jobs || 0,
@@ -1448,7 +1451,7 @@ export default function InsightsPageClient() {
               </Card>
 
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Job Type</CardTitle></CardHeader>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Family</CardTitle></CardHeader>
                 <CardContent className="pt-0">
                   {jobsByTypeChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[240px]">

@@ -25,6 +25,7 @@ type WorkspaceJob = {
   reporting_period_start: string | null;
   reporting_period_end: string | null;
   status: string | null;
+  job_family?: string | null;
   job_template_id?: number | null;
   milestone_template_id?: number | null;
   client_db_id: number | null;
@@ -316,6 +317,7 @@ export default function useJobWorkspaceData({
             reporting_period_start: jJson.reporting_period_start,
             reporting_period_end: jJson.reporting_period_end,
             status: jJson.status,
+            job_family: jJson.job_family,
             job_template_id: jJson.job_template_id,
             milestone_template_id: jJson.milestone_template_id,
             client_db_id: jJson.client_db_id ?? 0,
