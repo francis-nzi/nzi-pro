@@ -670,6 +670,7 @@ export default function InsightsPageClient() {
       : ["crp", "training", "consultancy", "lca", "pcf"],
     [data]
   );
+  const selectedJobFamilyLabel = selectedJobFamily ? formatJobFamilyLabel(selectedJobFamily) : "All families";
 
   const readApiError = useCallback(async (res: Response, fallback: string) => {
     const text = await res.text();
@@ -1287,7 +1288,11 @@ export default function InsightsPageClient() {
           <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Insights</h2>
           <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
-            <span>{isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}</span>
+            <span>
+              {isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}
+              <span className="mx-1 text-slate-300">•</span>
+              <span>Family: {selectedJobFamilyLabel}</span>
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1347,6 +1352,17 @@ export default function InsightsPageClient() {
           <span className="text-xs text-muted-foreground">View:</span>
           <InsightsPill active={isSuperuser} onClick={() => setSelectedCrm(null)}>All CRMs</InsightsPill>
           {crmOpts.map(c => <InsightsPill key={c} active={selectedCrm === c} onClick={() => setSelectedCrm(selectedCrm === c ? null : c)}>{c}</InsightsPill>)}
+          <span className="ml-2 text-xs text-muted-foreground">Family:</span>
+          <InsightsPill active={!selectedJobFamily} onClick={() => setSelectedJobFamily(null)}>All families</InsightsPill>
+          {availableJobFamilies.map((family) => (
+            <InsightsPill
+              key={family}
+              active={selectedJobFamily === family}
+              onClick={() => setSelectedJobFamily(selectedJobFamily === family ? null : family)}
+            >
+              {formatJobFamilyLabel(family)}
+            </InsightsPill>
+          ))}
         </div>
       )}
 
