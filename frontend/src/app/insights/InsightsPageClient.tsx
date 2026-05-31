@@ -1359,7 +1359,9 @@ export default function InsightsPageClient() {
           <span className="text-xs text-muted-foreground">View:</span>
           <InsightsPill active={isSuperuser} onClick={() => setSelectedCrm(null)}>All CRMs</InsightsPill>
           {crmOpts.map(c => <InsightsPill key={c} active={selectedCrm === c} onClick={() => setSelectedCrm(selectedCrm === c ? null : c)}>{c}</InsightsPill>)}
-          <span className="ml-2 text-xs text-muted-foreground">Family:</span>
+          <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            Family
+          </span>
           <InsightsPill active={!selectedJobFamily} onClick={() => setSelectedJobFamily(null)}>All families</InsightsPill>
           {availableJobFamilies.map((family) => (
             <InsightsPill
