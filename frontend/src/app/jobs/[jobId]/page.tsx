@@ -738,6 +738,8 @@ export default function JobDetailPage() {
                 <JobTraining jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
               ) : job?.job_family === "consultancy" ? (
                 <JobConsultancy jobId={jobId} baseUrl={baseUrl} jobFamily={job?.job_family ?? null} />
+              ) : job?.job_family === "lca" ? (
+                <JobLca jobId={jobId} baseUrl={baseUrl} />
               ) : (
                 <JobScopeCard
                   ref={scopeCardRef}
