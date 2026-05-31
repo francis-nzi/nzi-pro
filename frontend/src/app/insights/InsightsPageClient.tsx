@@ -1280,7 +1280,7 @@ export default function InsightsPageClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-8 space-y-5">
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 pb-14 space-y-5">
 
       {/* â”€â”€ Header â”€â”€ */}
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
