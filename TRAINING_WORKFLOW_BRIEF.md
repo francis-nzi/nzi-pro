@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Training is no longer just a small job subtype. It is a deliverable with its own operational lifecycle, participants, sessions, reminders, certificates, invoicing rules, and calendar management needs.
+Training is not just a small subtype of CRP. It is a delivery model with its own scheduling, participants, attendance, reminders, certificates, documents, invoicing rules, and capacity management.
 
 The purpose of this brief is to define a training workflow that supports:
 
@@ -14,33 +14,13 @@ The purpose of this brief is to define a training workflow that supports:
 - automated reminders and post-course follow-up
 - attendance, no-shows, certificates, and documents
 
-This brief is intended to sit on top of the existing job-family model, where `training` is one of the canonical families.
+This brief sits on top of the existing job-family model, where `training` is one of the canonical families.
 
 ## Core Principle
 
 > **Treat training as a course delivery model, not just a job record with a few extra fields.**
 
-The commercial job record should remain the container for ownership, client linkage, and billing context, but the actual training delivery should be modelled as course sessions and participant bookings.
-
-## Recommended Structure
-
-The cleanest model is:
-
-- **Training Job**: the commercial wrapper and client/job context
-- **Training Course**: the training product or course offering
-- **Training Session**: one scheduled delivery block, such as a full day, half-day, or multi-day course component
-- **Training Booking / Enrollment**: one participant booking onto a course
-- **Training Attendance**: attendance record for a participant on a session
-- **Training Documents**: certificates, questionnaires, joining instructions, slides, and feedback forms
-
-This gives the system enough flexibility to handle:
-
-- one-off CPD courses
-- repeated public courses
-- client-only courses
-- mixed client and external attendee courses
-- courses included in a CRP engagement
-- courses that are invoiced separately
+The job record should remain the commercial wrapper for ownership, client linkage, and billing context. The actual training delivery should be modelled as course runs, sessions, participant bookings, attendance records, and documents.
 
 ## Commercial Rules
 
@@ -60,13 +40,13 @@ The existing job setup already includes fields such as:
 - `free_training_place`
 - `date_training_completed`
 
-These should be used to support the hand-off from a CRP job to an associated training entitlement.
+Those fields should support the hand-off from a CRP job to a training entitlement, but they are not enough on their own. The workflow needs an explicit entitlement model so usage, cancellations, transfers, and audit history are reliable.
 
 Recommended rule:
 
-- when a CRP job includes a free training place, the job should be able to link to the training booking that consumed that entitlement
-- the training booking should show where the free place originated from
-- the CRP job should record whether the free place was used, booked, completed, cancelled, or transferred
+- when a CRP job includes a free training place, the job should create or reference an explicit training entitlement
+- the entitlement should be able to link to the booking that consumed it
+- the CRP job should record whether the entitlement was available, reserved, consumed, cancelled, transferred, or expired
 
 ### Invoicing
 
@@ -74,8 +54,8 @@ Training should connect to the invoicing process already in the platform.
 
 Recommended billing logic:
 
-- a course can be billed by course, by participant, or by booking block
-- the system should support invoice generation from the training booking
+- a training engagement can be billed by course run, by participant, or by booking block
+- the system should support invoice generation from the training booking or course run
 - invoice lines should be able to reflect:
   - course fee
   - participant fee
@@ -83,26 +63,80 @@ Recommended billing logic:
   - cancellation fee
   - no-show fee if required
 
-## Course Model
+## Recommended Model Layers
 
-### Training Course
+The training workflow should keep these layers separate:
 
-The course record should hold the offering itself, not just the booking.
+- **Training job**: the commercial wrapper and client/job context
+- **Training product**: reusable course definition, such as "CPD Accredited Net Zero Leaders"
+- **Training course run**: one scheduled delivery instance of that product
+- **Training session**: one delivery block within a course run
+- **Training booking**: one participant booking onto a course run
+- **Training attendance**: one session attendance record for one booking
+- **Training entitlement**: a free or discounted seat linked from a CRP job
+- **Trainer assignment**: the trainer or facilitator allocation
+- **Venue**: physical delivery location, if relevant
+
+This avoids mixing reusable course definitions with scheduled runs or booking data.
+
+## Wrapper-Level Job Details
+
+The `job_training_details` table should remain a wrapper-level summary only. It should not duplicate the live delivery engine.
+
+Recommended wrapper-level fields:
+
+| Field | Purpose |
+|---|---|
+| `job_id` | Parent commercial job |
+| `training_summary` | Short summary of the training engagement |
+| `delivery_mode_preference` | Preferred delivery mode at job level |
+| `commercial_mode` | Included, paid, free place, discounted, mixed |
+| `primary_product_name` | Friendly course name for the job wrapper |
+| `internal_notes` | Internal delivery notes |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+## Training Product
+
+The training product is the reusable definition of a course offering.
 
 Recommended fields:
 
 | Field | Purpose |
 |---|---|
-| `training_course_id` | Primary key |
+| `training_product_id` | Primary key |
+| `product_code` | Internal or external code |
+| `product_name` | Course / product name |
+| `description` | Product description |
+| `default_hours` | Default allocated hours |
+| `default_delivery_format` | `in_person`, `online`, `hybrid` |
+| `default_capacity` | Default maximum participants |
+| `default_min_attendees` | Optional minimum delivery threshold |
+| `certificate_policy` | Whether certificates are required |
+| `default_document_set` | Default supporting documents |
+| `is_active` | Active or retired |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+## Training Course Run
+
+A course run is a scheduled delivery instance of a product. This is the thing that appears in the calendar and that participants book onto.
+
+Recommended fields:
+
+| Field | Purpose |
+|---|---|
+| `training_course_run_id` | Primary key |
 | `job_id` | Parent commercial job |
-| `course_title` | Course name |
-| `course_code` | Internal or external reference |
-| `course_type` | e.g. CPD, workshop, leadership course |
-| `total_hours` | Allocated delivery hours |
+| `training_product_id` | Parent product |
+| `run_name` | Friendly label for the specific run |
+| `course_code` | Instance code or reference |
+| `total_hours` | Allocated delivery hours for the run |
 | `delivery_format` | `in_person`, `online`, `hybrid` |
 | `capacity` | Maximum participants |
 | `min_attendees` | Optional minimum delivery threshold |
 | `status` | Draft, scheduled, open, full, in progress, completed, cancelled, archived |
+| `workflow_stage_key` | Current delivery workflow stage |
 | `venue_id` | Linked venue if in person |
 | `online_meeting_url` | Linked online meeting URL if virtual |
 | `online_meeting_id` | Optional meeting ID |
@@ -110,16 +144,16 @@ Recommended fields:
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
-### Training Session
+## Training Session
 
-A course may span one or more delivery sessions.
+A course run may span one or more delivery sessions.
 
 Recommended fields:
 
 | Field | Purpose |
 |---|---|
 | `training_session_id` | Primary key |
-| `training_course_id` | Parent course |
+| `training_course_run_id` | Parent course run |
 | `session_date` | Date of the session |
 | `start_time` | Start time |
 | `end_time` | End time |
@@ -130,37 +164,38 @@ Recommended fields:
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
-### Participant / Booking
+## Participant / Booking
 
-Training participants should be modelled separately from the course because a course may include:
+Training participants should be modelled separately from the course run because a run may include:
 
 - client contacts
 - external individuals
-- mixed audiences
+- internal participants
 
 Recommended fields:
 
 | Field | Purpose |
 |---|---|
 | `training_booking_id` | Primary key |
-| `training_course_id` | Parent course |
+| `training_course_run_id` | Parent course run |
 | `client_db_id` | Linked client, if any |
 | `contact_id` | Linked client contact, if any |
 | `person_name` | Participant name |
 | `person_email` | Participant email |
 | `person_phone` | Participant phone |
 | `booking_type` | `client`, `external`, `internal` |
-| `booking_source` | `free_place`, `paid`, `included`, `discounted` |
-| `billing_status` | `not_billable`, `to_invoice`, `invoiced`, `paid`, `waived` |
-| `attendance_status` | `invited`, `booked`, `confirmed`, `attended`, `no_show`, `cancelled` |
+| `booking_source` | `free_place`, `paid`, `included`, `discounted`, `complimentary` |
+| `billing_status` | `not_billable`, `to_invoice`, `invoiced`, `paid`, `waived`, `refunded` |
+| `attendance_status` | `invited`, `booked`, `confirmed`, `attended`, `partial`, `no_show`, `cancelled`, `transferred` |
 | `special_requirements` | Accessibility, dietary, or access notes |
 | `consent_status` | Communication consent or marketing opt-in |
+| `entitlement_id` | Linked training entitlement if the booking consumes one |
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
-### Attendance
+## Attendance
 
-Attendance should be tracked at session level, not only at course level.
+Attendance should be tracked at session level, not only at course run level.
 
 Recommended fields:
 
@@ -175,30 +210,109 @@ Recommended fields:
 | `marked_by_user_id` | User who recorded attendance |
 | `marked_at` | Timestamp |
 
+## Trainers and Venues
+
+Trainers and venues should be first-class entities so calendar management and clash detection work reliably.
+
+### Trainer assignment
+
+Recommended fields:
+
+| Field | Purpose |
+|---|---|
+| `training_trainer_assignment_id` | Primary key |
+| `training_course_run_id` | Parent course run |
+| `user_id` | Trainer / facilitator user |
+| `role` | Lead trainer, co-trainer, assessor, observer |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+### Venue
+
+Recommended fields:
+
+| Field | Purpose |
+|---|---|
+| `training_venue_id` | Primary key |
+| `venue_name` | Venue name |
+| `address_line_1` | Address line 1 |
+| `address_line_2` | Address line 2 |
+| `city` | City |
+| `postcode` | Postcode |
+| `country` | Country |
+| `capacity` | Venue capacity |
+| `accessibility_notes` | Access / mobility / dietary notes |
+| `is_active` | Active or retired |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+## Training Entitlements
+
+Free or discounted places linked from CRP jobs should be modelled explicitly.
+
+Recommended fields:
+
+| Field | Purpose |
+|---|---|
+| `training_entitlement_id` | Primary key |
+| `source_job_id` | CRP job that created the entitlement |
+| `source_job_number` | Human-readable job reference |
+| `entitlement_type` | `free_place`, `discounted_place` |
+| `status` | `available`, `reserved`, `consumed`, `cancelled`, `transferred`, `expired` |
+| `allocated_to_booking_id` | Booking that consumed the entitlement |
+| `reserved_at` | Timestamp when reserved |
+| `consumed_at` | Timestamp when consumed |
+| `expires_at` | Optional expiry timestamp |
+| `notes` | Audit notes |
+
 ## Workflow
 
-Suggested course workflow:
+Training needs two layers of workflow:
 
-1. Draft
-2. Scheduled
-3. Open for booking
-4. Full
-5. In progress
-6. Completed
-7. Closed / archived
+1. **Job lifecycle**: the commercial wrapper state
+2. **Course run lifecycle**: the delivery state of the actual course run
 
-This workflow should sit alongside the shared job lifecycle status, not replace it.
+### Recommended job lifecycle
 
-### Suggested workflow stages
+- draft
+- active
+- completed
+- cancelled
+- archived
 
-- Draft
-- Setup complete
-- Booking open
-- Reminder sent
-- Course in progress
-- Awaiting certificates
-- Completed
-- Closed
+### Recommended course run lifecycle
+
+- draft
+- scheduled
+- open
+- full
+- in_progress
+- completed
+- cancelled
+- archived
+
+### Recommended course run workflow stages
+
+- setup_complete
+- booking_open
+- reminder_sent
+- in_progress
+- awaiting_certificates
+- completed
+- closed
+
+### Booking and attendance states
+
+Participant state should be separate from course run state.
+
+- booked
+- confirmed
+- attended
+- partial
+- no_show
+- cancelled
+- transferred
+- waived
 
 ## Scheduling and Calendar
 
@@ -226,6 +340,8 @@ The system should also detect:
 - over-capacity sessions
 - participant double-bookings if that data is available
 
+The course run should be the calendar object that appears in scheduling views, not the reusable product definition.
+
 ## Delivery Modes
 
 ### In person
@@ -235,7 +351,7 @@ In-person courses should manage:
 - venue name
 - address
 - room
-- parking/access notes
+- parking / access notes
 - seating or room capacity
 - arrival instructions
 
@@ -253,7 +369,7 @@ Online courses should manage:
 
 Hybrid delivery should be supported without needing a separate model. It can be handled by session or course metadata, depending on implementation needs.
 
-## Communications
+## Communications and Automation
 
 The system should be able to email participants from within the platform.
 
@@ -283,6 +399,16 @@ The communication system should support:
 - resending a previous message
 - tracking whether the email was sent
 
+### Automation rules
+
+The system should support rules such as:
+
+- resend reminders when a course is rescheduled
+- suppress reminders for cancelled bookings
+- generate certificate tasks when completion criteria are met
+- generate questionnaire or feedback emails after course completion
+- notify admins when a course is nearing capacity
+
 ## Certificates and Documents
 
 The system should support automatic and manual document handling.
@@ -303,6 +429,8 @@ Recommended certificate rules:
 - certificates should be stored and re-downloadable
 - certificates should be re-issuable if needed
 - certificate sending should be logged
+- certificate templates should be versioned
+- the system should allow manual override where appropriate
 
 ## Completion Rules
 
@@ -321,21 +449,25 @@ The system should be able to flag:
 - no-shows
 - cancellations
 - transferred bookings
+- substitutions
 
 ## Administration Screens
 
 Recommended admin screens for training:
 
-1. Course setup
-2. Session schedule
-3. Participant management
-4. Attendance marking
-5. Email / reminder management
-6. Certificate management
-7. Documents and attachments
-8. Invoicing and billing
-9. Calendar view
-10. Reporting view
+1. Product / course definition
+2. Course run setup
+3. Session schedule
+4. Trainer assignment
+5. Venue management
+6. Participant management
+7. Attendance marking
+8. Email / reminder management
+9. Certificate management
+10. Documents and attachments
+11. Invoicing and billing
+12. Calendar view
+13. Reporting view
 
 ## Reporting
 
@@ -343,7 +475,7 @@ Training should have its own reporting layer separate from CRP dashboards.
 
 Useful training metrics:
 
-- total courses delivered
+- total course runs delivered
 - total sessions delivered
 - seats offered
 - seats booked
@@ -351,10 +483,12 @@ Useful training metrics:
 - no-show rate
 - completion rate
 - certificate issue rate
-- revenue by course
+- revenue by course run
 - revenue by participant
 - free places used from CRP jobs
 - lead source / client source
+- capacity utilisation
+- course fill rate
 
 ## Data Integration Notes
 
@@ -371,21 +505,34 @@ The training workflow should integrate with existing platform concepts:
 
 It should not duplicate CRP emissions logic.
 
+The job-level `job_training_details` table should remain a summary and bridge to the detailed training delivery tables rather than duplicating session or booking state.
+
 ## Recommended Implementation Phases
+
+### Phase 0
+
+- confirm whether one training job can have multiple course runs
+- confirm whether the reusable product and the course run should be separately editable
+- confirm whether external individuals can be booked without a client record
+- confirm the trainer and venue entities
+- confirm entitlement status rules for free CRP-linked places
+- confirm certificate policy defaults
 
 ### Phase 1
 
-- add training course and booking tables
-- support course creation
+- add training product and course run tables
+- support course run creation
 - support participant booking
 - support basic schedule and capacity
-- support free-place linkage from CRP jobs
+- support explicit training entitlement linkage from CRP jobs
+- keep job-level `job_training_details` as a wrapper summary only
 
 ### Phase 2
 
 - add attendance tracking
 - add reminder emails
-- add venue and online delivery details
+- add trainer assignment and venue records
+- add online delivery details
 - connect to invoicing
 
 ### Phase 3
@@ -405,17 +552,19 @@ It should not duplicate CRP emissions logic.
 
 Before implementation, the team should confirm:
 
-- whether a training job always creates one course or can have multiple courses
+- whether a training job can have multiple course runs
+- whether a reusable product can be edited independently of its course runs
 - whether external individuals can be booked without a client record
-- whether certificates are mandatory for all training courses
+- whether certificates are mandatory for all training course runs
 - whether no-show fees should be automatic or manual
 - whether course capacity should be enforced strictly
-- whether reminders should be configurable per course or globally
-- whether the training course should be created at the same time as the job or separately after job creation
+- whether reminders should be configurable per course run or globally
+- whether course runs should be created at the same time as the job or separately after job creation
+- whether trainer and venue records should be mandatory for scheduled runs
 
 ## Summary
 
-Training needs its own operational model. The safest and most scalable approach is to keep the job as the commercial wrapper and add dedicated course, session, booking, attendance, communication, certificate, and document structures underneath it.
+Training needs its own operational model. The safest and most scalable approach is to keep the job as the commercial wrapper and add dedicated product, course run, session, booking, attendance, communication, certificate, entitlement, trainer, venue, and document structures underneath it.
 
 That approach covers:
 
@@ -429,4 +578,3 @@ That approach covers:
 - invoicing
 - certificates
 - post-course follow-up
-
