@@ -1355,11 +1355,11 @@ export default function InsightsPageClient() {
 
       {/* â”€â”€ CRM pill strip â”€â”€ */}
       {crmOpts.length > 1 && (
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs text-muted-foreground">View:</span>
           <InsightsPill active={isSuperuser} onClick={() => setSelectedCrm(null)}>All CRMs</InsightsPill>
           {crmOpts.map(c => <InsightsPill key={c} active={selectedCrm === c} onClick={() => setSelectedCrm(selectedCrm === c ? null : c)}>{c}</InsightsPill>)}
-          <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+          <span className="ml-1.5 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
             Family
           </span>
           <InsightsPill active={!selectedJobFamily} onClick={() => setSelectedJobFamily(null)}>All families</InsightsPill>
@@ -2518,12 +2518,13 @@ function InsightsPill({
   tone?: string;
 }) {
   const activeClassName = tone && active ? jobFamilyBadgeClassName(tone) : "bg-primary text-primary-foreground border-primary";
+  const inactiveClassName = tone
+    ? "border-slate-200 bg-slate-50/70 text-slate-600 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-800"
+    : "border-border text-muted-foreground hover:border-primary hover:text-foreground";
   return (
     <button
       onClick={onClick}
-      className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-        active ? activeClassName : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
-      }`}
+      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${active ? activeClassName : inactiveClassName}`}
     >
       {children}
     </button>
