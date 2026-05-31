@@ -406,6 +406,7 @@ def create_job(request: Request, body: dict = Body(...), _user: dict[str, str] =
 def list_jobs(
     q: str | None = None,
     crm: str | None = None,
+    job_family: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     _user: dict[str, str] = Depends(_current_user),
@@ -413,6 +414,7 @@ def list_jobs(
     assert_permission(_user, "jobs.view")
     query = (q or "").strip()
     crm_filter = (crm or "").strip()
+    job_family_filter = (job_family or "").strip().lower()
 
     def _col_exists(con, table_name: str, col_name: str) -> bool:
         try:
@@ -452,6 +454,7 @@ def list_jobs(
             has_due_date = _col_exists(con, "jobs", "due_date")
             has_client_crm_owner = _col_exists(con, "clients", "crm_owner")
             has_job_crm_name = _col_exists(con, "jobs", "crm_name")
+            has_job_family = _col_exists(con, "jobs", "job_family")
             has_job_plan = _table_exists(con, "job_plan")
 
             # Cast dates to text so psycopg3 never tries to parse out-of-range years (e.g. 62024)
@@ -505,6 +508,18 @@ def list_jobs(
                 else:
                     where_clauses.append(f"lower(coalesce({crm_name_value_expr},'')) LIKE ?")
                     params.append(f"%{crm_filter.lower()}%")
+
+            if job_family_filter:
+                family_expr = (
+                    "COALESCE(NULLIF(j.job_family, ''), CASE WHEN COALESCE(j.is_crp, FALSE) THEN 'crp' ELSE NULL END)"
+                    if has_job_family
+                    else "CASE WHEN COALESCE(j.is_crp, FALSE) THEN 'crp' ELSE NULL END"
+                )
+                if db_backend() == "postgres":
+                    where_clauses.append(f"LOWER({family_expr}) = ?")
+                else:
+                    where_clauses.append(f"LOWER(COALESCE({family_expr}, '')) = ?")
+                params.append(job_family_filter)
 
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
@@ -567,6 +582,7 @@ def list_jobs(
                     SELECT j.job_id, j.job_number, j.title, j.reporting_year,
                            {reporting_period_start_expr}, {reporting_period_end_expr}, {is_benchmark_expr},
                            j.status, j.client_db_id, c.client_name, {crm_name_expr}, {due_date_expr},
+                           {("j.job_family" if has_job_family else "NULL::text AS job_family")},
                            {milestone_sort_expr}
                            {job_plan_select_sql}
                     FROM jobs j
@@ -662,6 +678,7 @@ def list_jobs(
                     "client_db_id": int(r.get("client_db_id")),
                     "client_name": _json_null_if_na(r.get("client_name")),
                     "crm_name": _json_null_if_na(r.get("crm_name")),
+                    "job_family": _json_null_if_na(r.get("job_family")),
                     "due_date": (
                         str(r.get("due_date"))
                         if _json_null_if_na(r.get("due_date")) is not None

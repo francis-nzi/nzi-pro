@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass, toneForMilestone } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
@@ -34,6 +35,7 @@ type JobListItem = {
   client_db_id: number;
   client_name: string | null;
   crm_name: string | null;
+  job_family?: string | null;
   due_date: string | null;
   milestone_status?: string | null;
 };
@@ -50,6 +52,7 @@ export default function JobsPage() {
 
   const [q, setQ] = useState("");
   const [crmFilter, setCrmFilter] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("");
   const [items, setItems] = useState<JobListItem[]>([]);
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
@@ -90,6 +93,7 @@ export default function JobsPage() {
         const params = new URLSearchParams();
         if (q.trim()) params.set("q", q.trim());
         if (crmFilter.trim()) params.set("crm", crmFilter.trim());
+        if (familyFilter.trim()) params.set("job_family", familyFilter.trim());
         params.set("limit", String(limit));
         params.set("offset", String(offset));
 
@@ -119,7 +123,7 @@ export default function JobsPage() {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [baseUrl, q, crmFilter, limit, offset]);
+  }, [baseUrl, q, crmFilter, familyFilter, limit, offset]);
 
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -209,7 +213,7 @@ export default function JobsPage() {
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Due</span>
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">Healthy</span>
               </div>
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
                 <div className="space-y-2">
                   <Label htmlFor="q">Search</Label>
                   <Input
@@ -239,6 +243,28 @@ export default function JobsPage() {
                       {crmList.map((crm) => (
                         <SelectItem key={crm} value={crm}>
                           {crm}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="familyFilter">Job Family</Label>
+                  <Select
+                    value={familyFilter || "__all__"}
+                    onValueChange={(v) => {
+                      setFamilyFilter(v === "__all__" ? "" : v);
+                      setOffset(0);
+                    }}
+                  >
+                    <SelectTrigger id="familyFilter" className="w-full">
+                      <SelectValue placeholder="All families" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">All families</SelectItem>
+                      {["crp", "training", "consultancy", "lca", "pcf"].map((family) => (
+                        <SelectItem key={family} value={family}>
+                          {formatJobFamilyLabel(family)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -322,7 +348,16 @@ export default function JobsPage() {
                         <div className="col-span-1 flex items-center">
                           <div className={`h-3 w-3 rounded-full ${statusColor}`} title={`Milestone status: ${j.milestone_status || "none"}`} />
                         </div>
-                        <div className="col-span-2 font-medium">{j.job_number ?? `Job ${j.job_id}`}</div>
+                        <div className="col-span-2 font-medium">
+                          <div>{j.job_number ?? `Job ${j.job_id}`}</div>
+                          {j.job_family ? (
+                            <div className="mt-1">
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${jobFamilyBadgeClassName(j.job_family)}`}>
+                                {formatJobFamilyLabel(j.job_family)}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="col-span-2">{j.client_name ?? ""}</div>
                         <div className="col-span-2">
                           {j.reporting_period_start && j.reporting_period_end ? (

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +8,13 @@ import LoadingOrbit from "@/components/LoadingOrbit";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
 
@@ -27,6 +35,21 @@ type ClientJobsSectionProps = {
 };
 
 export default function ClientJobsSection({ loading = false, jobs }: ClientJobsSectionProps) {
+  const [familyFilter, setFamilyFilter] = useState<string>("all");
+
+  const availableFamilies = useMemo(
+    () =>
+      Array.from(
+        new Set(jobs.map((job) => String(job.job_family || job.job_type || "").trim().toLowerCase()).filter(Boolean))
+      ).sort(),
+    [jobs]
+  );
+
+  const filteredJobs = useMemo(() => {
+    if (familyFilter === "all") return jobs;
+    return jobs.filter((job) => String(job.job_family || job.job_type || "").trim().toLowerCase() === familyFilter);
+  }, [familyFilter, jobs]);
+
   if (loading) {
     return (
       <Card>
@@ -53,17 +76,66 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
     );
   }
 
-  const jobsByType = jobs.reduce((acc, job) => {
+  if (filteredJobs.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="space-y-3">
+          <CardTitle>Jobs ({jobs.length})</CardTitle>
+          <div className="flex items-center gap-3">
+            <label htmlFor="clientJobFamilyFilter" className="text-sm text-muted-foreground">
+              Family
+            </label>
+            <Select value={familyFilter} onValueChange={setFamilyFilter}>
+              <SelectTrigger id="clientJobFamilyFilter" className="w-[220px]">
+                <SelectValue placeholder="All families" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All families</SelectItem>
+                {availableFamilies.map((family) => (
+                  <SelectItem key={family} value={family}>
+                    {formatJobFamilyLabel(family)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-sm text-muted-foreground">No jobs match the selected family.</div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const jobsByType = filteredJobs.reduce((acc, job) => {
     const type = job.job_family || job.job_type || "Unknown";
     if (!acc[type]) acc[type] = [];
     acc[type].push(job);
     return acc;
-  }, {} as Record<string, typeof jobs>);
+  }, {} as Record<string, typeof filteredJobs>);
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="space-y-3">
         <CardTitle>Jobs ({jobs.length})</CardTitle>
+        <div className="flex items-center gap-3">
+          <label htmlFor="clientJobFamilyFilter" className="text-sm text-muted-foreground">
+            Family
+          </label>
+          <Select value={familyFilter} onValueChange={setFamilyFilter}>
+            <SelectTrigger id="clientJobFamilyFilter" className="w-[220px]">
+              <SelectValue placeholder="All families" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All families</SelectItem>
+              {availableFamilies.map((family) => (
+                <SelectItem key={family} value={family}>
+                  {formatJobFamilyLabel(family)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {Object.entries(jobsByType).map(([jobType, typeJobs]) => (
