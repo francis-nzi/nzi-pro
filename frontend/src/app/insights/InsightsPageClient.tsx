@@ -1290,8 +1290,15 @@ export default function InsightsPageClient() {
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
             <span>
               {isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}
-              <span className="mx-1 text-slate-300">•</span>
-              <span>Family: {selectedJobFamilyLabel}</span>
+            </span>
+            <span className="mx-1 text-slate-300">•</span>
+            <span className="flex items-center gap-1">
+              <span>Family:</span>
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${selectedJobFamily ? jobFamilyBadgeClassName(selectedJobFamily) : "border-slate-200 bg-slate-50 text-slate-700"}`}
+              >
+                {selectedJobFamilyLabel}
+              </span>
             </span>
           </div>
         </div>
