@@ -2433,12 +2433,12 @@ export default function InsightsPageClient() {
                   </div>
                 ) : null}
                 {reportData.columns.length > 0 ? (
-                  <div className="overflow-x-auto rounded border">
+                  <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-muted/50">
+                      <thead className="bg-slate-50/80">
                         <tr>
                           {reportData.columns.map((column) => (
-                            <th key={column.key} className="px-3 py-2 text-left font-medium">
+                            <th key={column.key} className="whitespace-nowrap px-3 py-2.5 text-left font-medium text-slate-700">
                               {column.label}
                             </th>
                           ))}
@@ -2449,11 +2449,14 @@ export default function InsightsPageClient() {
                           visibleReportRows.map((row, index) => {
                             const href = reportRowHref(row);
                             return (
-                              <tr key={`report-row-${index}`} className="border-t align-top">
+                              <tr
+                                key={`report-row-${index}`}
+                                className="border-t border-slate-200/80 align-top transition-colors hover:bg-muted/30"
+                              >
                                 {reportData.columns.map((column) => {
                                   const value = formatReportValue(column.key, row[column.key]);
                                   return (
-                                    <td key={`${index}-${column.key}`} className="px-3 py-2 text-muted-foreground">
+                                    <td key={`${index}-${column.key}`} className="px-3 py-2.5 text-muted-foreground">
                                       {href && column === reportData.columns[0] ? (
                                         <Link href={href} className="font-medium text-foreground hover:underline">
                                           {value}
@@ -2469,7 +2472,7 @@ export default function InsightsPageClient() {
                           })
                         ) : (
                           <tr>
-                            <td colSpan={reportData.columns.length} className="px-3 py-6 text-center text-muted-foreground">
+                            <td colSpan={reportData.columns.length} className="px-3 py-7 text-center text-muted-foreground">
                               No rows match the current report filters.
                             </td>
                           </tr>
