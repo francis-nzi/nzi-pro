@@ -97,6 +97,27 @@ def _apply_client_filters(
             params.append(crm_value)
 
 
+def _job_family_expression(job_alias: str = "j") -> str:
+    return (
+        f"LOWER(COALESCE(NULLIF(TRIM({job_alias}.job_family), ''), "
+        f"CASE WHEN COALESCE({job_alias}.is_crp, FALSE) THEN 'crp' ELSE NULL END))"
+    )
+
+
+def _apply_job_family_filter(
+    where_parts: list[str],
+    params: list[object],
+    *,
+    job_alias: str = "j",
+    job_family: str | None,
+) -> None:
+    family = str(job_family or "").strip().lower()
+    if not family:
+        return
+    where_parts.append(f"{_job_family_expression(job_alias)} = ?")
+    params.append(family)
+
+
 def _load_dashboard_crm_options(con, org_id: str) -> list[dict[str, str]]:
     """Return selectable CRM/team options for the dashboard filters."""
     options: list[dict[str, str]] = []
@@ -294,7 +315,11 @@ def _load_dashboard_emissions_jobs(
     year: int | None,
     industry: str | None,
     crm_owner: str | None,
+    job_family: str | None = None,
 ):
+    family = str(job_family or "").strip().lower()
+    if family and family != "crp":
+        return pd.DataFrame(columns=["job_id", "client_id", "client_name", "reporting_year", "dashboard_year"])
     where_parts = ["j.is_crp = TRUE"]
     params: list[object] = []
     _apply_client_filters(
@@ -304,6 +329,7 @@ def _load_dashboard_emissions_jobs(
         industry=industry,
         crm_owner=crm_owner,
     )
+    _apply_job_family_filter(where_parts, params, job_alias="j", job_family=family)
     if year is not None:
         where_parts.append("j.reporting_year = ?")
         params.append(int(year))
@@ -459,6 +485,7 @@ def get_dashboard_overview(
     year: int = Query(None, description="Reporting year to filter emissions (defaults to current year)"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    job_family: str | None = Query(None, description="Optional job family filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """
@@ -475,6 +502,7 @@ def get_dashboard_overview(
         year = int(year) if isinstance(year, int) else None
         industry = industry if isinstance(industry, str) else None
         crm_owner = crm_owner if isinstance(crm_owner, str) else None
+        job_family = str(job_family or "").strip().lower() or None
         org_id = require_org(_user)
         with get_conn() as con:
             # build filters for industry / crm owner
@@ -496,6 +524,13 @@ def get_dashboard_overview(
                 else:
                     job_filters.append("c.crm_owner = ?")
                     job_params.append(crm_value)
+            if job_family:
+                client_filters.append(
+                    "EXISTS (SELECT 1 FROM jobs jf WHERE jf.client_db_id = c.db_id AND "
+                    f"{_job_family_expression('jf')} = ?)"
+                )
+                client_params.append(job_family)
+                _apply_job_family_filter(job_filters, job_params, job_alias="j", job_family=job_family)
 
             # helper clauses
             client_where = "WHERE " + " AND ".join(client_filters) if client_filters else ""
@@ -516,6 +551,7 @@ def get_dashboard_overview(
                 year=None,
                 industry=industry,
                 crm_owner=crm_owner,
+                job_family=job_family,
             )
             emissions_scope_df = None
             if emissions_jobs_df is not None and not emissions_jobs_df.empty:
@@ -638,6 +674,26 @@ def get_dashboard_overview(
 
             crm_options = _load_dashboard_crm_options(con, org_id)
             available_crm = [str(option.get("label") or option.get("value") or "").strip() for option in crm_options if str(option.get("label") or option.get("value") or "").strip()]
+            available_job_families = ["crp", "training", "consultancy", "lca", "pcf"]
+            if _table_exists(con, "job_types") and _column_exists(con, "job_types", "job_family"):
+                try:
+                    families_df = con.execute(
+                        """
+                        SELECT DISTINCT LOWER(TRIM(job_family)) AS job_family
+                        FROM job_types
+                        WHERE COALESCE(NULLIF(TRIM(job_family), ''), '') <> ''
+                        ORDER BY job_family
+                        """
+                    ).df()
+                    families = [
+                        str(row.get("job_family") or "").strip().lower()
+                        for _, row in families_df.iterrows()
+                        if str(row.get("job_family") or "").strip()
+                    ] if families_df is not None and not families_df.empty else []
+                    if families:
+                        available_job_families = sorted(set(available_job_families).union(families))
+                except Exception:
+                    logger.debug("Failed to load dashboard job family list; using defaults", exc_info=True)
             has_job_types_table = _table_exists(con, "job_types")
             has_job_type_id = _column_exists(con, "jobs", "job_type_id")
             has_job_type_text = _column_exists(con, "jobs", "job_type")
@@ -966,6 +1022,7 @@ def get_dashboard_overview(
                 "available_years": years_list,
                 "available_industries": available_industries,
                 "available_crm": available_crm,
+                "available_job_families": available_job_families,
                 "crm_options": crm_options,
                 "year_trend": year_trend,
                 "industry_breakdown": industry_breakdown,
@@ -994,10 +1051,12 @@ def get_dashboard_financial_overview(
     year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    job_family: str | None = Query(None, description="Optional job family filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """Portfolio-level quote and invoice intelligence for Insights."""
     try:
+        family = str(job_family or "").strip().lower() or None
         with get_conn() as con:
             if not _table_exists(con, "quotes") or not _table_exists(con, "quote_lines") or not _table_exists(con, "invoices"):
                 return {
@@ -1048,12 +1107,15 @@ def get_dashboard_financial_overview(
                 industry=industry,
                 crm_owner=crm_owner,
             )
+            _apply_job_family_filter(quote_where_parts, quote_params, job_alias="j", job_family=family)
+            _apply_job_family_filter(invoice_where_parts, invoice_params, job_alias="j", job_family=family)
             _financial_year_filter(
                 quote_where_parts,
                 quote_params,
                 date_expr="COALESCE(q.quote_date, q.created_at::date)",
                 job_year_expr=("j.reporting_year" if has_quote_job_number else "NULL"),
                 year=year,
+                job_family=job_family,
             )
             _financial_year_filter(
                 invoice_where_parts,
@@ -1065,6 +1127,7 @@ def get_dashboard_financial_overview(
                     else ("j.reporting_year" if has_invoice_job_id else ("jq.reporting_year" if has_quote_job_number else "NULL"))
                 ),
                 year=year,
+                job_family=job_family,
             )
 
             quote_where = f"WHERE {' AND '.join(quote_where_parts)}" if quote_where_parts else ""
@@ -1380,7 +1443,10 @@ def get_dashboard_financial_overview(
 
 
 @router.get("/dashboard/jobs-by-milestone-status")
-def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user)):
+def get_jobs_by_milestone_status(
+    job_family: str | None = Query(None, description="Optional job family filter"),
+    _user: dict[str, str] = Depends(_current_user),
+):
     """
     Get count of jobs grouped by their overall milestone status (green, amber, red)
     """
@@ -1415,9 +1481,15 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
                 return "green"
         
         with get_conn() as con:
+            family = str(job_family or "").strip().lower() or None
             # If milestone table does not exist yet, return safe empty counts
             if not _table_exists(con, "job_plan"):
-                total_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+                total_jobs_query = "SELECT COUNT(*) FROM jobs j"
+                total_jobs_params: list[object] = []
+                if family:
+                    total_jobs_query += f" WHERE {_job_family_expression('j')} = ?"
+                    total_jobs_params.append(family)
+                total_jobs = con.execute(total_jobs_query, total_jobs_params).fetchone()[0]
                 return {
                     "green": 0,
                     "amber": 0,
@@ -1428,6 +1500,10 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
 
             # Get all jobs with their milestone data
             try:
+                where_parts = []
+                params: list[object] = []
+                _apply_job_family_filter(where_parts, params, job_alias="j", job_family=family)
+                where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
                 jobs_df = con.execute(
                     """
                     SELECT
@@ -1437,11 +1513,16 @@ def get_jobs_by_milestone_status(_user: dict[str, str] = Depends(_current_user))
                         jp.final_report_due, jp.final_report_completed_at
                     FROM jobs j
                     LEFT JOIN job_plan jp ON jp.job_id = j.job_id
-                    """
+                    """ + f" {where_sql}"
             ).df()
             except Exception:
                 logger.debug("Failed to load dashboard milestone summary; falling back to no-milestones total", exc_info=True)
-                total_jobs = con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+                total_jobs_query = "SELECT COUNT(*) FROM jobs j"
+                total_jobs_params: list[object] = []
+                if family:
+                    total_jobs_query += f" WHERE {_job_family_expression('j')} = ?"
+                    total_jobs_params.append(family)
+                total_jobs = con.execute(total_jobs_query, total_jobs_params).fetchone()[0]
                 return {
                     "green": 0,
                     "amber": 0,
@@ -1612,6 +1693,7 @@ def get_dashboard_operations_overview(
     year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    job_family: str | None = Query(None, description="Optional job family filter"),
     _user: dict[str, str] = Depends(_current_user)
 ):
     """Portfolio-level delivery and workload intelligence for Insights."""
@@ -1619,6 +1701,7 @@ def get_dashboard_operations_overview(
         year = int(year) if isinstance(year, int) else None
         industry = industry if isinstance(industry, str) else None
         crm_owner = crm_owner if isinstance(crm_owner, str) else None
+        family = str(job_family or "").strip().lower() or None
         org_id = require_org(_user)
         with get_conn() as con:
             if not _table_exists(con, "jobs"):
@@ -1642,6 +1725,7 @@ def get_dashboard_operations_overview(
                 industry=industry,
                 crm_owner=crm_owner,
             )
+            _apply_job_family_filter(job_where_parts, job_params, job_alias="j", job_family=family)
             if year is not None:
                 job_where_parts.append("j.reporting_year = ?")
                 job_params.append(int(year))
@@ -2052,8 +2136,10 @@ def _build_insights_report(
     year: int | None,
     industry: str | None,
     crm_owner: str | None,
+    job_family: str | None,
     limit: int,
 ) -> dict:
+    family = str(job_family or "").strip().lower() or None
     has_job_plan = _table_exists(con, "job_plan")
     has_time_logs = _table_exists(con, "time_logs")
     has_job_crm_name = _column_exists(con, "jobs", "crm_name")
@@ -2070,6 +2156,12 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        if family:
+            where_parts.append(
+                "EXISTS (SELECT 1 FROM jobs jf WHERE jf.client_db_id = c.db_id AND "
+                f"{_job_family_expression('jf')} = ?)"
+            )
+            params.append(family)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         year_case = "j.reporting_year = ?" if year is not None else "1=1"
         extra_year_params = [int(year), int(year), int(year)] if year is not None else []
@@ -2130,6 +2222,7 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        _apply_job_family_filter(where_parts, params, job_alias="j", job_family=family)
         if year is not None:
             where_parts.append("j.reporting_year = ?")
             params.append(int(year))
@@ -2241,6 +2334,7 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        _apply_job_family_filter(where_parts, params, job_alias="j", job_family=family)
         if year is not None:
             where_parts.append("COALESCE(j.reporting_year, jq.reporting_year, EXTRACT(YEAR FROM COALESCE(i.invoice_date, i.created_at::date))::INTEGER) = ?")
             params.append(int(year))
@@ -2319,6 +2413,7 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        _apply_job_family_filter(quote_where_parts, quote_params, job_alias="j", job_family=family)
         _financial_year_filter(
             quote_where_parts,
             quote_params,
@@ -2409,6 +2504,7 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        _apply_job_family_filter(where_parts, params, job_alias="j", job_family=family)
         if year is not None:
             where_parts.append("j.reporting_year = ?")
             params.append(int(year))
@@ -2541,6 +2637,12 @@ def _build_insights_report(
             industry=industry,
             crm_owner=crm_owner,
         )
+        if family:
+            where_parts.append(
+                "EXISTS (SELECT 1 FROM jobs jf WHERE jf.client_db_id = c.db_id AND "
+                f"{_job_family_expression('jf')} = ?)"
+            )
+            params.append(family)
         if year is not None:
             where_parts.append("j.reporting_year = ?")
             params.append(int(year))
@@ -2568,6 +2670,7 @@ def _build_insights_report(
             year=year,
             industry=industry,
             crm_owner=crm_owner,
+            job_family=family,
         )
         emissions_rows_df = None
         if emissions_jobs_df is not None and not emissions_jobs_df.empty:
@@ -2648,6 +2751,7 @@ def get_dashboard_bi_portfolio(
     year: int = Query(None, description="Reporting year filter"),
     industry: str | None = Query(None),
     crm_owner: str | None = Query(None),
+    job_family: str | None = Query(None),
     _user: dict[str, str] = Depends(_current_user),
 ):
     """
@@ -2658,6 +2762,7 @@ def get_dashboard_bi_portfolio(
 
     try:
         with get_conn() as con:
+            family = str(job_family or "").strip().lower() or None
             has_clients = _table_exists(con, "clients")
             has_jobs = _table_exists(con, "jobs")
             has_client_status = has_clients and _column_exists(con, "clients", "status")
@@ -2673,6 +2778,12 @@ def get_dashboard_bi_portfolio(
             if crm_owner:
                 client_where_parts.append("COALESCE(c.crm_owner,'Unassigned') = ?")
                 client_params.append(crm_owner)
+            if family:
+                client_where_parts.append(
+                    "EXISTS (SELECT 1 FROM jobs jf WHERE jf.client_db_id = c.db_id AND "
+                    f"{_job_family_expression('jf')} = ?)"
+                )
+                client_params.append(family)
             client_where = ("WHERE " + " AND ".join(client_where_parts)) if client_where_parts else ""
 
             # â”€â”€ Client portfolio summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2739,6 +2850,7 @@ def get_dashboard_bi_portfolio(
                     job_where_parts2, job_params2, client_alias="c",
                     industry=industry, crm_owner=crm_owner,
                 )
+                _apply_job_family_filter(job_where_parts2, job_params2, job_alias="j", job_family=family)
                 if year:
                     job_where_parts2.append("j.reporting_year = ?")
                     job_params2.append(int(year))
@@ -2759,7 +2871,7 @@ def get_dashboard_bi_portfolio(
             try:
                 # Load ALL years (no year filter) so we can compute cumulative totals
                 all_years_jobs_df = _load_dashboard_emissions_jobs(
-                    con, year=None, industry=industry, crm_owner=crm_owner,
+                    con, year=None, industry=industry, crm_owner=crm_owner, job_family=family,
                 )
 
                 if all_years_jobs_df is not None and not all_years_jobs_df.empty:
@@ -3065,6 +3177,7 @@ def get_dashboard_report_view(
     year: int | None = Query(None, description="Optional reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    job_family: str | None = Query(None, description="Optional job family filter"),
     limit: int = Query(100, ge=1, le=500, description="Maximum rows to return"),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -3076,6 +3189,7 @@ def get_dashboard_report_view(
                 year=year,
                 industry=industry,
                 crm_owner=crm_owner,
+                job_family=job_family,
                 limit=limit,
             )
     except HTTPException:
@@ -3090,6 +3204,7 @@ def export_dashboard_report(
     year: int | None = Query(None, description="Optional reporting year filter"),
     industry: str | None = Query(None, description="Optional industry filter"),
     crm_owner: str | None = Query(None, description="Optional CRM owner filter"),
+    job_family: str | None = Query(None, description="Optional job family filter"),
     limit: int = Query(500, ge=1, le=2000, description="Maximum rows to export"),
     _user: dict[str, str] = Depends(_current_user),
 ):
@@ -3101,6 +3216,7 @@ def export_dashboard_report(
                 year=year,
                 industry=industry,
                 crm_owner=crm_owner,
+                job_family=job_family,
                 limit=limit,
             )
 

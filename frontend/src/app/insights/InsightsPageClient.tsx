@@ -31,6 +31,7 @@ type DashboardOverview = {
   available_years: number[];
   available_industries: string[];
   available_crm: string[];
+  available_job_families?: string[];
   year_trend: Array<{ year: number | null; total_emissions: number }>;
   industry_breakdown: Array<{ industry: string; client_count: number }>;
   metrics: {
@@ -510,12 +511,14 @@ function reportFilterSummary(filters: {
   year?: number | null;
   industry?: string | null;
   crm_owner?: string | null;
+  job_family?: string | null;
 }): string {
   return [
     reportPresetLabel(filters.view),
     filters.year ? `Year ${filters.year}` : "All years",
     filters.industry || "All industries",
     filters.crm_owner || "All client owners",
+    filters.job_family ? `Family ${formatJobFamilyLabel(filters.job_family)}` : "All families",
   ].join(" | ");
 }
 
@@ -633,7 +636,7 @@ function toneForMilestoneStatus(status: string | null | undefined): string {
 function overviewSubtitle(data: DashboardOverview | null): string {
   if (!data) return "Portfolio-wide business intelligence for clients, jobs, and delivery performance.";
   const year = data.selected_year || new Date().getFullYear();
-  return `Portfolio-wide business intelligence for ${year}, with filters for industry and client owner.`;
+  return `Portfolio-wide business intelligence for ${year}, with filters for industry, client owner, and job family.`;
 }
 
 export default function InsightsPageClient() {
@@ -659,7 +662,14 @@ export default function InsightsPageClient() {
   const [selectedYear, setSelectedYear] = useState<number | null>(() => currentYear);
   const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
   const [selectedCrm, setSelectedCrm] = useState<string | null>(null);
+  const [selectedJobFamily, setSelectedJobFamily] = useState<string | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamUser[]>([]);
+  const availableJobFamilies = useMemo(
+    () => data?.available_job_families && data.available_job_families.length > 0
+      ? data.available_job_families
+      : ["crp", "training", "consultancy", "lca", "pcf"],
+    [data]
+  );
 
   const readApiError = useCallback(async (res: Response, fallback: string) => {
     const text = await res.text();
@@ -724,6 +734,7 @@ export default function InsightsPageClient() {
       if (selectedYear) params.set("year", String(selectedYear));
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
+      if (selectedJobFamily) params.set("job_family", selectedJobFamily);
       const requestInit: RequestInit = {
         credentials: "include",
         cache: "no-store",
@@ -743,7 +754,7 @@ export default function InsightsPageClient() {
     } catch {
       setReportData(EMPTY_REPORT);
     }
-  }, [baseUrl, fetchJsonWithTimeout, reportView, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, fetchJsonWithTimeout, reportView, selectedCrm, selectedIndustry, selectedJobFamily, selectedYear]);
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -753,6 +764,7 @@ export default function InsightsPageClient() {
       if (selectedYear) params.set("year", String(selectedYear));
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
+      if (selectedJobFamily) params.set("job_family", selectedJobFamily);
 
       params.set("limit", "100");
       const requestTimeoutMs = 12000;
@@ -784,8 +796,13 @@ export default function InsightsPageClient() {
       setLoading(false);
 
       void (async () => {
-        const [jobsStatusRes, financialRes, operationsRes, biPortfolioRes] = await Promise.allSettled([
-          fetchJsonWithTimeout(`${baseUrl}/dashboard/jobs-by-milestone-status`, requestInit, requestTimeoutMs, "Jobs milestone status"),
+      const [jobsStatusRes, financialRes, operationsRes, biPortfolioRes] = await Promise.allSettled([
+          fetchJsonWithTimeout(
+            `${baseUrl}/dashboard/jobs-by-milestone-status${selectedJobFamily ? `?job_family=${encodeURIComponent(selectedJobFamily)}` : ""}`,
+            requestInit,
+            requestTimeoutMs,
+            "Jobs milestone status",
+          ),
           fetchJsonWithTimeout(`${baseUrl}/dashboard/financial-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Financial overview"),
           fetchJsonWithTimeout(`${baseUrl}/dashboard/operations-overview${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "Operations overview"),
           fetchJsonWithTimeout(`${baseUrl}/dashboard/bi-portfolio${params.toString() ? `?${params.toString()}` : ""}`, requestInit, requestTimeoutMs, "BI portfolio"),
@@ -829,7 +846,7 @@ export default function InsightsPageClient() {
       setBiPortfolio(EMPTY_BI_PORTFOLIO);
       setLoading(false);
     }
-  }, [baseUrl, fetchJsonWithTimeout, selectedCrm, selectedIndustry, selectedYear]);
+  }, [baseUrl, fetchJsonWithTimeout, selectedCrm, selectedIndustry, selectedJobFamily, selectedYear]);
 
   useEffect(() => {
     void loadInsights();
@@ -871,7 +888,7 @@ export default function InsightsPageClient() {
 
   useEffect(() => {
     setReportDrill(null);
-  }, [reportView, selectedYear, selectedIndustry, selectedCrm]);
+  }, [reportView, selectedYear, selectedIndustry, selectedCrm, selectedJobFamily]);
 
   const totalJobs = useMemo(
     () => (data?.job_status_breakdown || []).reduce((sum, item) => sum + Number(item.count || 0), 0),
@@ -931,11 +948,12 @@ export default function InsightsPageClient() {
     () =>
       reportFilterSummary({
         view: reportView,
-        year: selectedYear,
-        industry: selectedIndustry,
-        crm_owner: selectedCrm,
-      }),
-    [reportView, selectedCrm, selectedIndustry, selectedYear]
+      year: selectedYear,
+      industry: selectedIndustry,
+      crm_owner: selectedCrm,
+      job_family: selectedJobFamily,
+    }),
+    [reportView, selectedCrm, selectedIndustry, selectedJobFamily, selectedYear]
   );
 
   // â”€â”€â”€ Chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1119,12 +1137,13 @@ export default function InsightsPageClient() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      body: JSON.stringify({
           name: trimmedName,
           view: reportView,
           year: selectedYear,
           industry: selectedIndustry,
           crm_owner: selectedCrm,
+          job_family: selectedJobFamily,
         }),
       });
       if (!res.ok) {
@@ -1211,6 +1230,7 @@ export default function InsightsPageClient() {
       if (selectedYear) params.set("year", String(selectedYear));
       if (selectedIndustry) params.set("industry", selectedIndustry);
       if (selectedCrm) params.set("crm_owner", selectedCrm);
+      if (selectedJobFamily) params.set("job_family", selectedJobFamily);
       const res = await fetch(`${baseUrl}/dashboard/report-export?${params.toString()}`, {
         credentials: "include",
       });
@@ -1278,6 +1298,18 @@ export default function InsightsPageClient() {
                 <SelectContent>
                   <SelectItem value={ALL_FILTER_VALUE}>All years</SelectItem>
                   {availableYears.map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Family</span>
+              <Select value={selectedJobFamily ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedJobFamily(v === ALL_FILTER_VALUE ? null : v)}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All families" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All families</SelectItem>
+                  {availableJobFamilies.map((family) => (
+                    <SelectItem key={family} value={family}>{formatJobFamilyLabel(family)}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
