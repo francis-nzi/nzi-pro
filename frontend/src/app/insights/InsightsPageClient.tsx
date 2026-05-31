@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StatusBadge from "@/components/StatusBadge";
 import { MCKINSEY_ACTIVITY_COLORS, MCKINSEY_DATA_COLORS, MCKINSEY_SCOPE_COLORS } from "@/lib/chart-colors";
-import { formatJobFamilyLabel } from "@/lib/job-family";
+import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 function apiBaseUrl(): string {
@@ -1358,6 +1358,7 @@ export default function InsightsPageClient() {
             <InsightsPill
               key={family}
               active={selectedJobFamily === family}
+              tone={family}
               onClick={() => setSelectedJobFamily(selectedJobFamily === family ? null : family)}
             >
               {formatJobFamilyLabel(family)}
@@ -2496,9 +2497,25 @@ function InsightsKpi({ label, value, sub, icon, accent = "blue" }: { label: stri
   );
 }
 
-function InsightsPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function InsightsPill({
+  active,
+  onClick,
+  children,
+  tone,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: string;
+}) {
+  const activeClassName = tone && active ? jobFamilyBadgeClassName(tone) : "bg-primary text-primary-foreground border-primary";
   return (
-    <button onClick={onClick} className={`text-xs px-3 py-1 rounded-full border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}>
+    <button
+      onClick={onClick}
+      className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+        active ? activeClassName : "border-border text-muted-foreground hover:border-primary hover:text-foreground"
+      }`}
+    >
       {children}
     </button>
   );
