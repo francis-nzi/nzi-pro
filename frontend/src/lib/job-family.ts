@@ -8,6 +8,14 @@ const FAMILY_LABELS: Record<string, string> = {
   pcf: "PCF",
 };
 
+const FAMILY_DESCRIPTIONS: Record<string, string> = {
+  crp: "Carbon reduction plan workflow",
+  training: "Training delivery and session details",
+  consultancy: "Advisory engagement scope and deliverables",
+  lca: "Life cycle assessment modelling and outputs",
+  pcf: "Product carbon footprinting engagement",
+};
+
 export function formatJobFamilyLabel(value?: string | null): string {
   const raw = String(value || "").trim().toLowerCase();
   if (!raw) return "Unassigned";
@@ -30,4 +38,9 @@ export function jobFamilyBadgeClassName(value?: string | null): string {
     default:
       return "border-slate-200 bg-slate-50 text-slate-700";
   }
+}
+
+export function getJobFamilyDescription(value?: string | null): string {
+  const family = String(value || "").trim().toLowerCase();
+  return FAMILY_DESCRIPTIONS[family] || "General job workflow";
 }

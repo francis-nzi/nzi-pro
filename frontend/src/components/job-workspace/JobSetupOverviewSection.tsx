@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import SearchableStringSelect from "@/components/SearchableStringSelect";
 import { Badge } from "@/components/ui/badge";
-import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 type JobSetupOverviewSectionProps = {
   hidden?: boolean;
@@ -155,6 +155,7 @@ export default function JobSetupOverviewSection({
                   <Badge variant="outline" className={jobFamilyBadgeClassName(jobFamily)}>
                     {formatJobFamilyLabel(jobFamily)}
                   </Badge>
+                  <span>{getJobFamilyDescription(jobFamily)}</span>
                 </div>
               ) : null}
             </div>

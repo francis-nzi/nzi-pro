@@ -7,7 +7,7 @@ import LoadingOrbit from "@/components/LoadingOrbit";
 import MilestoneBadge from "@/components/MilestoneBadge";
 import StatusBadge from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { formatJobFamilyLabel, jobFamilyBadgeClassName } from "@/lib/job-family";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 import { milestoneDotClass } from "@/lib/status-utils";
 
 type ClientJobsSectionProps = {
@@ -93,6 +93,9 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
                             <Badge variant="outline" className={jobFamilyBadgeClassName(j.job_family || j.job_type)}>
                               {formatJobFamilyLabel(j.job_family || j.job_type)}
                             </Badge>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {getJobFamilyDescription(j.job_family || j.job_type)}
                           </div>
                           <div className="text-muted-foreground">{j.title ?? ""}</div>
                           <div className="flex items-center gap-2 text-muted-foreground">
