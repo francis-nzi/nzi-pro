@@ -1467,10 +1467,10 @@ export default function InsightsPageClient() {
             </div>
 
             {/* Clients by Industry + Jobs by Type + Jobs by Status + Top 10 Clients list */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Clients by Industry</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {industryChartData.length === 0 ? <InsightsEmpty /> : (
                     <div className="h-[240px]">
                       <ResponsiveContainer width="100%" height={240}>
@@ -1488,12 +1488,12 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Status</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {jobStatusChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[240px]">
-                      <ResponsiveContainer width="100%" height={240}>
+                    <div className="h-[250px]">
+                      <ResponsiveContainer width="100%" height={250}>
                         <BarChart data={jobStatusChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
@@ -1508,12 +1508,12 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Jobs by Family</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {jobsByTypeChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[240px]">
-                      <ResponsiveContainer width="100%" height={240}>
+                    <div className="h-[250px]">
+                      <ResponsiveContainer width="100%" height={250}>
                         <BarChart data={jobsByTypeChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} allowDecimals={false} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={132} />
@@ -1537,14 +1537,14 @@ export default function InsightsPageClient() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-semibold">Top Clients — All Jobs</CardTitle>
                     <Button variant="outline" size="sm" className="text-xs h-7" asChild><Link href="/clients">View all</Link></Button>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {(data?.top_emitting_clients ?? []).length === 0 ? <InsightsEmpty /> : (
                     <div className="space-y-1">
                       {(data?.top_emitting_clients ?? []).slice(0, 10).map((c, i) => (
@@ -1678,14 +1678,14 @@ export default function InsightsPageClient() {
               <InsightsKpi label="Scope 2 + 3"      value={tco2e(biPortfolio.emissions_by_scope.scope_2 + biPortfolio.emissions_by_scope.scope_3)}         icon={<Layers className="h-4 w-4" />}       accent="purple" sub="indirect + value chain" />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
               {/* Emissions year trend */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Annual Emissions Trend (tCO₂e)</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {emissionsChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[220px]">
-                      <ResponsiveContainer width="100%" height={220}>
+                    <div className="h-[240px]">
+                      <ResponsiveContainer width="100%" height={240}>
                         <AreaChart data={emissionsChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                           <defs><linearGradient id="gEm" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient></defs>
                           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
@@ -1701,13 +1701,13 @@ export default function InsightsPageClient() {
               </Card>
 
               {/* Scope breakdown donut */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions by Scope</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {scopeDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
-                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height={180}>
+                      <div className="relative h-[190px] w-[190px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height={190}>
                           <PieChart>
                             <Pie data={scopeDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {scopeDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1832,8 +1832,8 @@ export default function InsightsPageClient() {
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Monthly Revenue</CardTitle></CardHeader>
               <CardContent className="pt-0">
                 {monthlyChartData.length === 0 ? <InsightsEmpty /> : (
-                  <div className="h-[240px]">
-                    <ResponsiveContainer width="100%" height={240}>
+                    <div className="h-[250px]">
+                      <ResponsiveContainer width="100%" height={250}>
                       <AreaChart data={monthlyChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                         <defs>
                           <linearGradient id="gFI" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0.25} /><stop offset="95%" stopColor={MCKINSEY_DATA_COLORS[0]} stopOpacity={0} /></linearGradient>
@@ -1852,15 +1852,15 @@ export default function InsightsPageClient() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
               {/* Quote pipeline donut */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Quote Pipeline by Status</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {quoteDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
-                      <div className="h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height={180}>
+                      <div className="h-[190px] w-[190px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height={190}>
                           <PieChart>
                             <Pie data={quoteDonutData} dataKey="value" nameKey="name" innerRadius="60%" outerRadius="90%" paddingAngle={2}>
                               {quoteDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1883,12 +1883,12 @@ export default function InsightsPageClient() {
               </Card>
 
               {/* Top clients bar */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top Clients by Revenue</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {topClientsChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[200px]">
-                      <ResponsiveContainer width="100%" height={200}>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height={220}>
                         <BarChart data={topClientsChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => gbp(+v)} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={110} />
@@ -1944,15 +1944,15 @@ export default function InsightsPageClient() {
               <InsightsKpi label="Due in 30 days" value={operationsData.metrics.upcoming_milestones_30d}                                                                   icon={<Clock className="h-4 w-4" />}         accent="orange" sub="milestones" />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
               {/* Milestone health donut */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Milestone Health</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {opsMilestoneDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
-                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height={180}>
+                      <div className="relative h-[190px] w-[190px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height={190}>
                           <PieChart>
                             <Pie data={opsMilestoneDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {opsMilestoneDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -1978,12 +1978,12 @@ export default function InsightsPageClient() {
               </Card>
 
               {/* Time by subject bar */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Time by Subject</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {timeSubjectChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[200px]">
-                      <ResponsiveContainer width="100%" height={200}>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height={220}>
                         <BarChart data={timeSubjectChartData} layout="vertical" margin={{ top: 0, right: 8, left: 4, bottom: 0 }}>
                           <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${v}h`} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
