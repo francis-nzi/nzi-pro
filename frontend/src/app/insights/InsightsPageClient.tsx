@@ -2115,10 +2115,10 @@ export default function InsightsPageClient() {
           <TabsContent value="reports" className="space-y-5 pt-3">
             {activeTab === "reports" ? (
               <>
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Saved Reports</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-[1.4fr_auto_auto] md:items-end">
+              <CardContent className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-[1.5fr_auto_auto] md:items-end">
                   <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">Saved report name</div>
                     <Input
@@ -2135,11 +2135,11 @@ export default function InsightsPageClient() {
                   </Button>
                 </div>
 
-                <div className="rounded border bg-muted/20 p-3 text-sm text-muted-foreground">
+                <div className="rounded-xl border bg-slate-50/80 p-4 text-sm text-muted-foreground">
                   <div className="font-medium text-foreground">Current report</div>
-                  <div className="mt-1">{currentReportSummary}</div>
+                  <div className="mt-1.5 leading-relaxed">{currentReportSummary}</div>
                   {selectedSavedReport ? (
-                    <div className="mt-2 text-xs">
+                    <div className="mt-2.5 text-xs">
                       Selected for update: <span className="font-medium text-foreground">{selectedSavedReport.name}</span>
                     </div>
                   ) : null}
@@ -2157,7 +2157,7 @@ export default function InsightsPageClient() {
                       return (
                         <div
                           key={report.saved_report_id}
-                          className={`rounded border p-4 ${isSelected ? "border-[#f26624] bg-orange-50" : ""}`}
+                          className={`flex h-full flex-col justify-between rounded-xl border p-4 shadow-sm transition-colors ${isSelected ? "border-[#f26624] bg-orange-50" : "border-border bg-card hover:bg-muted/30"}`}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
                             <div>
@@ -2176,7 +2176,7 @@ export default function InsightsPageClient() {
                           <div className="mt-3 text-xs text-muted-foreground">
                             Updated {formatDate(report.updated_at || report.created_at)}
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-4 flex flex-wrap gap-2">
                             <Button
                               variant="outline"
                               size="sm"
@@ -2216,26 +2216,30 @@ export default function InsightsPageClient() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Starter Views</CardTitle></CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-3">
+              <CardContent className="grid gap-4 md:grid-cols-3 items-stretch">
                 {REPORT_PRESETS.map((preset) => (
                   <button
                     key={preset.key}
                     type="button"
                     onClick={() => setReportView(preset.key)}
-                    className={`rounded border p-4 text-left transition-colors ${reportView === preset.key ? "border-[#f26624] bg-orange-50" : "hover:bg-muted/40"}`}
+                    className={`min-h-[116px] rounded-xl border p-4 text-left shadow-sm transition-colors ${
+                      reportView === preset.key
+                        ? "border-[#f26624] bg-orange-50"
+                        : "border-border bg-card hover:border-slate-300 hover:bg-muted/40"
+                    }`}
                   >
                     <div className="text-sm font-medium">{preset.label}</div>
-                    <div className="mt-2 text-sm text-muted-foreground">{preset.description}</div>
+                    <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{preset.description}</div>
                   </button>
                 ))}
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Report Builder</CardTitle></CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-[1fr_auto_auto] md:items-end">
+              <CardContent className="grid gap-4 md:grid-cols-[1.2fr_auto_auto] md:items-end">
                 <div className="space-y-2">
                   <div className="text-sm text-muted-foreground">Report View</div>
                   <Select value={reportView} onValueChange={setReportView}>
@@ -2260,16 +2264,16 @@ export default function InsightsPageClient() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">{reportData.title || "Report"}</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+              <CardContent className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-slate-50/70 px-4 py-3 text-sm text-muted-foreground">
                   <span>{reportData.description || "Reusable filtered report view for export and drilldown."}</span>
                   <span>
                     Showing {visibleReportRows.length} of {reportData.row_count} rows
                   </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
                   <span>Click a slice or bar to drill the table below.</span>
                   {reportDrill ? (
                     <>
