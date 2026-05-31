@@ -548,6 +548,78 @@ The job-level `job_training_details` table should remain a summary and bridge to
 - add waitlists, substitutions, and repeat courses
 - add deeper audit and analytics
 
+## Implementation Checklist
+
+This is the recommended build order for the first delivery cycle.
+
+### Phase 0: decisions to lock
+
+- [ ] Confirm whether one training job can have multiple course runs
+- [ ] Confirm whether the reusable product and the course run should be separately editable
+- [ ] Confirm whether external individuals can be booked without a client record
+- [ ] Confirm whether trainer and venue records are mandatory for scheduled runs
+- [ ] Confirm entitlement status rules for free CRP-linked places
+- [ ] Confirm certificate policy defaults
+- [ ] Confirm whether reminders are global defaults or course-run overrides
+- [ ] Confirm whether course runs are created with the job or after job creation
+
+### Phase 1: database foundation
+
+- [ ] Create `training_products`
+- [ ] Create `training_course_runs`
+- [ ] Create `training_sessions`
+- [ ] Create `training_bookings`
+- [ ] Create `training_attendance`
+- [ ] Create `training_entitlements`
+- [ ] Create `training_trainer_assignments`
+- [ ] Create `training_venues`
+- [ ] Keep `job_training_details` as a wrapper summary only
+- [ ] Add indexes for `job_id`, `training_product_id`, `training_course_run_id`, `client_db_id`, and `status`
+- [ ] Add foreign keys and delete behaviour for booking, attendance, and entitlement links
+
+### Phase 2: backend API
+
+- [ ] Add endpoints to create, update, fetch, and list training products
+- [ ] Add endpoints to create, update, fetch, and list course runs
+- [ ] Add endpoints to create, update, and cancel bookings
+- [ ] Add endpoints to record attendance at session level
+- [ ] Add endpoints to allocate and consume training entitlements
+- [ ] Add endpoints to manage trainer assignments
+- [ ] Add endpoints to manage venues
+- [ ] Add endpoints to send participant emails and reminders
+- [ ] Add endpoints to issue and reissue certificates
+- [ ] Add endpoints to attach and retrieve course documents
+
+### Phase 3: UI foundation
+
+- [ ] Add training product and course run screens in the job workspace
+- [ ] Add a course run setup panel for training jobs
+- [ ] Add booking management for client and external participants
+- [ ] Add attendance marking per session
+- [ ] Add venue and online delivery details
+- [ ] Add trainer assignment UI
+- [ ] Add entitlement linking UI for CRP free places
+- [ ] Add reminders and email send controls
+
+### Phase 4: automation and documents
+
+- [ ] Add certificate generation rules
+- [ ] Add questionnaire and follow-up document sending
+- [ ] Add automatic reminder schedules
+- [ ] Add course completion checks
+- [ ] Add no-show / cancellation handling
+- [ ] Add waitlist and substitution handling if needed
+
+### Phase 5: reporting and operations
+
+- [ ] Add training occupancy reporting
+- [ ] Add booking and attendance reporting
+- [ ] Add revenue reporting by course run and participant
+- [ ] Add free-place usage reporting from CRP jobs
+- [ ] Add trainer and venue utilisation reporting
+- [ ] Add course calendar view
+- [ ] Add clash detection for trainer, venue, and capacity constraints
+
 ## Open Questions
 
 Before implementation, the team should confirm:
