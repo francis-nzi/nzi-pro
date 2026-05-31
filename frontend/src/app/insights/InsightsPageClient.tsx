@@ -2524,7 +2524,9 @@ function InsightsPill({
   return (
     <button
       onClick={onClick}
-      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${active ? activeClassName : inactiveClassName}`}
+      className={`inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium leading-none transition-colors ${
+        active ? activeClassName : inactiveClassName
+      }`}
     >
       {children}
     </button>
