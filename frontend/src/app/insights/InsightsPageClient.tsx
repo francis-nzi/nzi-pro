@@ -1283,15 +1283,15 @@ export default function InsightsPageClient() {
     <div className="mx-auto w-full max-w-7xl px-6 py-8 space-y-5">
 
       {/* â”€â”€ Header â”€â”€ */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
           <h2 className="text-2xl font-semibold" style={{ color: "#F26624" }}>Insights</h2>
-          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-0.5 text-xs text-muted-foreground">
             {isSuperuser ? <Shield className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
             <span>
               {isSuperuser ? "All CRMs — Portfolio View" : `Viewing: ${selectedCrm}`}
             </span>
-            <span className="mx-1 text-slate-300">•</span>
+            <span className="hidden sm:inline mx-1 text-slate-300">•</span>
             <span className="flex items-center gap-1">
               <span>Family:</span>
               <span
@@ -1302,7 +1302,7 @@ export default function InsightsPageClient() {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:justify-end">
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Year</span>
               <Select value={selectedYear ? String(selectedYear) : ALL_FILTER_VALUE} onValueChange={v => setSelectedYear(v === ALL_FILTER_VALUE ? null : Number(v))}>
@@ -1316,7 +1316,7 @@ export default function InsightsPageClient() {
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Family</span>
               <Select value={selectedJobFamily ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedJobFamily(v === ALL_FILTER_VALUE ? null : v)}>
-                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All families" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-40 text-xs sm:w-44"><SelectValue placeholder="All families" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_FILTER_VALUE}>All families</SelectItem>
                   {availableJobFamilies.map((family) => (
@@ -1329,7 +1329,7 @@ export default function InsightsPageClient() {
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">Industry</span>
               <Select value={selectedIndustry ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedIndustry(v === ALL_FILTER_VALUE ? null : v)}>
-                <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="All industries" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-36 text-xs sm:w-40"><SelectValue placeholder="All industries" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_FILTER_VALUE}>All</SelectItem>
                   {(data?.available_industries ?? []).map(i => <SelectItem key={i} value={i}>{i}</SelectItem>)}
@@ -1341,7 +1341,7 @@ export default function InsightsPageClient() {
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">CRM</span>
               <Select value={selectedCrm ?? ALL_FILTER_VALUE} onValueChange={v => setSelectedCrm(v === ALL_FILTER_VALUE ? null : v)}>
-                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All CRMs" /></SelectTrigger>
+                <SelectTrigger className="h-8 w-36 text-xs sm:w-44"><SelectValue placeholder="All CRMs" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL_FILTER_VALUE}>All CRMs</SelectItem>
                   {teamMembers.map(m => <SelectItem key={m.email} value={m.full_name || m.email}>{m.full_name || m.email}</SelectItem>)}
