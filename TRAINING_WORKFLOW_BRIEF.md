@@ -620,6 +620,126 @@ This is the recommended build order for the first delivery cycle.
 - [ ] Add course calendar view
 - [ ] Add clash detection for trainer, venue, and capacity constraints
 
+## Day 1 Engineering Plan
+
+Day 1 should create the minimum viable training foundation:
+
+- a reusable training product
+- a scheduled course run
+- participant bookings
+- a CRP-linked free-place entitlement
+- a wrapper-level training job summary
+
+This is intentionally narrower than the full brief. Attendance, reminders, certificates, and reporting stay out of day 1.
+
+### Day 1 deliverables
+
+1. Database migration for the core training entities
+2. Backend routes for products, course runs, bookings, and entitlements
+3. Training job workspace UI for creating and viewing a course run
+4. Basic participant booking UI
+5. Basic free-place linkage from CRP jobs
+
+### Exact database changes
+
+Create a new migration file, for example:
+
+- `sql_migrations/0046_training_phase1.sql`
+
+The migration should create:
+
+- `training_products`
+- `training_course_runs`
+- `training_bookings`
+- `training_entitlements`
+
+It should also extend or keep using:
+
+- `job_training_details` as the wrapper-level summary table
+
+It should not yet create:
+
+- `training_sessions`
+- `training_attendance`
+- `training_trainer_assignments`
+- `training_venues`
+
+Those belong to later phases.
+
+### Exact backend files
+
+Create or update these backend files:
+
+- `api/training_products_routes.py`
+- `api/training_course_runs_routes.py`
+- `api/training_bookings_routes.py`
+- `api/training_entitlements_routes.py`
+- `api/job_training_routes.py`
+- `api/main.py`
+
+If the team wants to move more slowly, the first pass can keep the routes grouped into one `api/job_training_routes.py` module and split them later.
+
+### Day 1 API surface
+
+At minimum, day 1 should support:
+
+- `GET /jobs/{job_id}/training-details`
+- `PUT /jobs/{job_id}/training-details`
+- `GET /training-products`
+- `POST /training-products`
+- `GET /training-course-runs?job_id=...`
+- `POST /training-course-runs`
+- `GET /training-bookings?training_course_run_id=...`
+- `POST /training-bookings`
+- `PUT /training-bookings/{booking_id}`
+- `POST /training-entitlements`
+- `PUT /training-entitlements/{entitlement_id}/consume`
+
+### Exact frontend files
+
+Update or create these frontend files:
+
+- `frontend/src/components/JobTraining.tsx`
+- `frontend/src/app/jobs/[jobId]/page.tsx`
+- `frontend/src/app/jobs/new/NewJobPageClient.tsx`
+- `frontend/src/lib/training-workflow.ts`
+
+Day 1 should make the training section on the job page able to:
+
+- show the linked training product
+- show the scheduled course run
+- add/edit participant bookings
+- link a booking to a free CRP entitlement
+- show whether the course is in-person or online
+
+### Day 1 UI sequence
+
+1. In the job page, render a training summary panel for `job_family = training`
+2. Add a course run form inside the training panel
+3. Add participant booking rows under the course run
+4. Add a free-place selector that can link a CRP entitlement
+5. Add a capacity indicator and a booked-count indicator
+
+### Day 1 business rules
+
+- one training job may initially create one course run
+- external participants may be entered without a client record if needed
+- course capacity should be checked at booking time
+- free entitlements should move from `available` to `reserved` or `consumed`
+- no attendance, reminders, or certificates are required on day 1
+
+### Day 1 out of scope
+
+- attendance marking
+- reminder automation
+- certificate generation
+- trainer calendars
+- venue calendars
+- reporting dashboards
+- waitlists
+- substitutions
+- questionnaire sending
+
 ## Open Questions
 
 Before implementation, the team should confirm:
