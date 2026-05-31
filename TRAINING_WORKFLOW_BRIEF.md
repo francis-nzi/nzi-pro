@@ -640,6 +640,57 @@ This is intentionally narrower than the full brief. Attendance, reminders, certi
 4. Basic participant booking UI
 5. Basic free-place linkage from CRP jobs
 
+### Day 1 task sequence
+
+1. Lock the day-1 entity shape
+   - Dependency: Phase 0 decisions should be confirmed first.
+   - Output: final agreement on `training_products`, `training_course_runs`, `training_bookings`, and `training_entitlements`.
+
+2. Build the database migration
+   - Dependency: task 1.
+   - Output: `sql_migrations/0046_training_phase1.sql`.
+   - Must create the four day-1 tables and keep `job_training_details` as the wrapper summary.
+
+3. Add the backend schema helpers and route module
+   - Dependency: task 2.
+   - Output: `api/training_products_routes.py`, `api/training_course_runs_routes.py`, `api/training_bookings_routes.py`, `api/training_entitlements_routes.py` or a first-pass `api/job_training_routes.py`.
+   - Must expose the day-1 API surface listed below.
+
+4. Register the new backend routes
+   - Dependency: task 3.
+   - Output: update `api/main.py` to include the training routes.
+   - Verify the existing job workspace still loads normally.
+
+5. Add the job workspace training panel
+   - Dependency: task 4.
+   - Output: `frontend/src/components/JobTraining.tsx` and the training branch in `frontend/src/app/jobs/[jobId]/page.tsx`.
+   - Must show the wrapper summary and the course run form.
+
+6. Add course run creation and edit flow
+   - Dependency: task 5.
+   - Output: training run form inside the job page.
+   - Must allow one initial run per training job and display capacity and delivery mode.
+
+7. Add participant booking UI
+   - Dependency: task 6.
+   - Output: booking rows under the course run.
+   - Must support client contacts and external participants.
+
+8. Add entitlement linking for free CRP places
+   - Dependency: task 7 and an available CRP entitlement record.
+   - Output: booking selector for `training_entitlements`.
+   - Must move entitlements from `available` toward `reserved` or `consumed`.
+
+9. Wire the new training flow into the create-job journey
+   - Dependency: tasks 4 to 8.
+   - Output: `frontend/src/app/jobs/new/NewJobPageClient.tsx` and `frontend/src/lib/training-workflow.ts`.
+   - Must show the training workflow preview and the correct post-create navigation path.
+
+10. Validate the first end-to-end journey
+   - Dependency: tasks 1 to 9.
+   - Output: create a training job, add a course run, add at least one booking, and link a free entitlement if available.
+   - Success criteria: the job loads, the training panel saves, and the booking data persists.
+
 ### Exact database changes
 
 Create a new migration file, for example:
