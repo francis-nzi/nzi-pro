@@ -1400,7 +1400,7 @@ export default function InsightsPageClient() {
           <TabsContent value="portfolio" className="space-y-5 pt-3">
             {activeTab === "portfolio" ? (
               <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-stretch">
               <InsightsKpi label="Total Clients"    value={biPortfolio.portfolio.total_clients}                                                                    icon={<Users className="h-4 w-4" />}         accent="blue"   sub="in portfolio" />
               <InsightsKpi label="Active Clients"   value={biPortfolio.portfolio.active_clients}                                                                   icon={<Users className="h-4 w-4" />}         accent="green"  sub="currently active" />
               <InsightsKpi label="New This Year"    value={biPortfolio.portfolio.new_clients_this_year}                                                            icon={<TrendingUp className="h-4 w-4" />}    accent="purple" sub="clients added" />
@@ -1409,14 +1409,14 @@ export default function InsightsPageClient() {
               <InsightsKpi label="Emissions Managed" value={tco2e(biPortfolio.portfolio.total_emissions_managed)}                                                  icon={<Layers className="h-4 w-4" />}        accent="orange" sub="cumulative tCO₂e" />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
               {/* Cumulative Emissions Under Management */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Emissions Under Management (tCO₂e)</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {cumulativeChartData.length === 0 ? <InsightsEmpty /> : (
-                    <div className="h-[240px]">
-                      <ResponsiveContainer width="100%" height={240}>
+                    <div className="h-[260px]">
+                      <ResponsiveContainer width="100%" height={260}>
                         <ComposedChart data={cumulativeChartData} margin={{ top: 4, right: 16, bottom: 0, left: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.35} />
                           <XAxis dataKey="year" tick={{ fontSize: 11 }} />
@@ -1434,13 +1434,13 @@ export default function InsightsPageClient() {
               </Card>
 
               {/* Client Status donut */}
-              <Card>
+              <Card className="h-full">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Client Portfolio Status</CardTitle></CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 h-full">
                   {clientStatusDonutData.length === 0 ? <InsightsEmpty /> : (
                     <div className="flex items-center gap-4">
-                      <div className="relative h-[180px] w-[180px] flex-shrink-0">
-                        <ResponsiveContainer width="100%" height={180}>
+                      <div className="relative h-[200px] w-[200px] flex-shrink-0">
+                        <ResponsiveContainer width="100%" height={200}>
                           <PieChart>
                             <Pie data={clientStatusDonutData} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="92%" paddingAngle={2}>
                               {clientStatusDonutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -2491,8 +2491,8 @@ export default function InsightsPageClient() {
 function InsightsKpi({ label, value, sub, icon, accent = "blue" }: { label: string; value: string | number; sub?: string; icon?: React.ReactNode; accent?: string }) {
   const s = ACCENT[accent as keyof typeof ACCENT] ?? ACCENT.blue;
   return (
-    <Card className={`border-l-4 ${s.border}`}>
-      <CardContent className="pt-4 pb-3">
+    <Card className={`h-full min-h-[126px] border-l-4 ${s.border}`}>
+      <CardContent className="flex h-full items-center pt-4 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="text-xs text-muted-foreground leading-tight mb-1">{label}</div>
