@@ -2,11 +2,30 @@
 
 import { useEffect, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  formatTrainingBookingSource,
+  formatTrainingBookingStatus,
+  formatTrainingBillingStatus,
+  formatTrainingCourseRunStatus,
+  formatTrainingDeliveryMode,
+  formatTrainingEntitlementStatus,
+  formatTrainingParticipantType,
+  TRAINING_BILLING_STATUS_OPTIONS,
+  TRAINING_BOOKING_SOURCE_OPTIONS,
+  TRAINING_BOOKING_STATUS_OPTIONS,
+  TRAINING_COURSE_RUN_STATUS_OPTIONS,
+  TRAINING_DELIVERY_MODE_OPTIONS,
+  TRAINING_ENTITLEMENT_STATUS_OPTIONS,
+  TRAINING_PARTICIPANT_TYPE_OPTIONS,
+} from "@/lib/training-workflow";
 
 type JobTrainingProps = {
   jobId: number;
@@ -27,36 +46,305 @@ type TrainingDetails = {
   notes: string | null;
 };
 
+type TrainingProduct = {
+  training_product_id: number;
+  org_id: string;
+  product_code: string | null;
+  product_name: string;
+  description: string | null;
+  default_hours: number | null;
+  default_delivery_mode: string | null;
+  default_capacity: number | null;
+  default_min_attendees: number | null;
+  certificate_policy: string | null;
+  default_documents_json: string | null;
+  is_active: boolean;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+
+type TrainingBooking = {
+  training_booking_id: number;
+  org_id: string;
+  training_course_run_id: number;
+  client_db_id: number | null;
+  contact_id: number | null;
+  participant_type: string;
+  booking_source: string;
+  person_name: string;
+  person_email: string | null;
+  person_phone: string | null;
+  billing_status: string;
+  attendance_status: string;
+  special_requirements: string | null;
+  consent_status: string;
+  notes: string | null;
+  entitlement_id: number | null;
+  client_name: string | null;
+  source_job_number: string | null;
+  entitlement_status: string | null;
+  allocated_booking_name: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+
+type TrainingCourseRun = {
+  training_course_run_id: number;
+  org_id: string;
+  job_id: number;
+  training_product_id: number | null;
+  product_name: string | null;
+  run_name: string | null;
+  course_code: string | null;
+  total_hours: number | null;
+  delivery_mode: string | null;
+  capacity: number | null;
+  min_attendees: number | null;
+  status: string;
+  workflow_stage_key: string;
+  start_date: string | null;
+  end_date: string | null;
+  venue_name: string | null;
+  venue_address: string | null;
+  online_meeting_url: string | null;
+  online_meeting_id: string | null;
+  online_passcode: string | null;
+  notes: string | null;
+  booking_count: number;
+  confirmed_count: number;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  bookings: TrainingBooking[];
+  available_seats?: number | null;
+};
+
+type TrainingEntitlement = {
+  training_entitlement_id: number;
+  org_id: string;
+  source_job_id: number | null;
+  source_job_number: string | null;
+  source_client_db_id: number | null;
+  entitlement_type: string;
+  status: string;
+  allocated_to_booking_id: number | null;
+  reserved_at: string | null;
+  consumed_at: string | null;
+  expires_at: string | null;
+  notes: string | null;
+  source_job_client_name: string | null;
+  allocated_booking_name: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+
+type TrainingOverview = {
+  job_id: number;
+  details: TrainingDetails;
+  products: TrainingProduct[];
+  course_runs: TrainingCourseRun[];
+  available_entitlements: TrainingEntitlement[];
+};
+
+type ProductFormState = {
+  product_code: string;
+  product_name: string;
+  description: string;
+  default_hours: string;
+  default_delivery_mode: string;
+  default_capacity: string;
+  default_min_attendees: string;
+  certificate_policy: string;
+  default_documents_json: string;
+  is_active: boolean;
+};
+
+type RunFormState = {
+  training_product_id: string;
+  run_name: string;
+  course_code: string;
+  total_hours: string;
+  delivery_mode: string;
+  capacity: string;
+  min_attendees: string;
+  status: string;
+  workflow_stage_key: string;
+  start_date: string;
+  end_date: string;
+  venue_name: string;
+  venue_address: string;
+  online_meeting_url: string;
+  online_meeting_id: string;
+  online_passcode: string;
+  notes: string;
+};
+
+type BookingFormState = {
+  client_db_id: string;
+  contact_id: string;
+  participant_type: string;
+  booking_source: string;
+  person_name: string;
+  person_email: string;
+  person_phone: string;
+  billing_status: string;
+  attendance_status: string;
+  special_requirements: string;
+  consent_status: string;
+  notes: string;
+  entitlement_id: string;
+};
+
+type EntitlementFormState = {
+  source_job_number: string;
+  entitlement_type: string;
+  status: string;
+  expires_at: string;
+  notes: string;
+};
+
+const EMPTY_DETAILS: TrainingDetails = {
+  job_id: null,
+  training_date: null,
+  delivery_format: null,
+  topic: null,
+  audience: null,
+  attendee_count: null,
+  session_duration_hours: null,
+  materials_link: null,
+  location: null,
+  notes: null,
+};
+
+const EMPTY_PRODUCT: ProductFormState = {
+  product_code: "",
+  product_name: "",
+  description: "",
+  default_hours: "",
+  default_delivery_mode: "",
+  default_capacity: "",
+  default_min_attendees: "",
+  certificate_policy: "",
+  default_documents_json: "",
+  is_active: true,
+};
+
+const EMPTY_RUN: RunFormState = {
+  training_product_id: "__none__",
+  run_name: "",
+  course_code: "",
+  total_hours: "",
+  delivery_mode: "",
+  capacity: "",
+  min_attendees: "",
+  status: "draft",
+  workflow_stage_key: "setup",
+  start_date: "",
+  end_date: "",
+  venue_name: "",
+  venue_address: "",
+  online_meeting_url: "",
+  online_meeting_id: "",
+  online_passcode: "",
+  notes: "",
+};
+
+const EMPTY_BOOKING: BookingFormState = {
+  client_db_id: "",
+  contact_id: "",
+  participant_type: "external_individual",
+  booking_source: "manual",
+  person_name: "",
+  person_email: "",
+  person_phone: "",
+  billing_status: "pending",
+  attendance_status: "booked",
+  special_requirements: "",
+  consent_status: "unknown",
+  notes: "",
+  entitlement_id: "__none__",
+};
+
+const EMPTY_ENTITLEMENT: EntitlementFormState = {
+  source_job_number: "",
+  entitlement_type: "free_place",
+  status: "available",
+  expires_at: "",
+  notes: "",
+};
+
+function toNumberOrNull(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toStringOrEmpty(value: string | null | undefined): string {
+  return value ?? "";
+}
+
+function toSelectValue(value: number | null | undefined): string {
+  return value === null || value === undefined ? "__none__" : String(value);
+}
+
+function parseSelectNumber(value: string): number | null {
+  if (!value || value === "__none__") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function statusChipClass(value?: string | null): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (raw === "inactive") return "border-slate-200 bg-slate-50 text-slate-500";
+  if (["completed", "attended", "consumed", "paid"].includes(raw)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (["cancelled", "no_show", "expired"].includes(raw)) return "border-red-200 bg-red-50 text-red-700";
+  if (["draft", "pending", "booked"].includes(raw)) return "border-slate-200 bg-slate-50 text-slate-700";
+  if (["reserved", "confirmed", "scheduled", "open"].includes(raw)) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
 export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingProps) {
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
-  const [details, setDetails] = useState<TrainingDetails>({
-    job_id: null,
-    training_date: null,
-    delivery_format: null,
-    topic: null,
-    audience: null,
-    attendee_count: null,
-    session_duration_hours: null,
-    materials_link: null,
-    location: null,
-    notes: null,
-  });
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [overview, setOverview] = useState<TrainingOverview | null>(null);
+  const [details, setDetails] = useState<TrainingDetails>(EMPTY_DETAILS);
+  const [summarySaving, setSummarySaving] = useState(false);
+  const [productSaving, setProductSaving] = useState(false);
+  const [runSaving, setRunSaving] = useState(false);
+  const [entitlementSaving, setEntitlementSaving] = useState(false);
+  const [newProduct, setNewProduct] = useState<ProductFormState>(EMPTY_PRODUCT);
+  const [newRun, setNewRun] = useState<RunFormState>(EMPTY_RUN);
+  const [newEntitlement, setNewEntitlement] = useState<EntitlementFormState>(EMPTY_ENTITLEMENT);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       setLoading(true);
-      setStatus("");
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/training-details`, { credentials: "include" });
-        if (!res.ok) return;
-        const json = (await res.json()) as TrainingDetails;
-        if (!cancelled) setDetails(json);
-      } catch {
-        if (!cancelled) setStatus("Failed to load training details.");
+        const res = await fetch(`${baseUrl}/jobs/${jobId}/training-overview`, { credentials: "include" });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+        }
+        const json = (await res.json()) as TrainingOverview;
+        if (cancelled) return;
+        setOverview(json);
+        setDetails(json.details || EMPTY_DETAILS);
+      } catch (err) {
+        if (!cancelled) {
+          setStatus(`Failed to load training overview: ${(err as Error).message}`);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -69,10 +357,20 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, jobFamily, jobId]);
+  }, [baseUrl, jobFamily, jobId, refreshToken]);
 
-  async function save() {
-    setSaving(true);
+  if (jobFamily !== "training") return null;
+
+  const products = overview?.products ?? [];
+  const courseRuns = overview?.course_runs ?? [];
+  const entitlements = overview?.available_entitlements ?? [];
+
+  async function refresh() {
+    setRefreshToken((value) => value + 1);
+  }
+
+  async function saveSummary() {
+    setSummarySaving(true);
     setStatus("");
     try {
       const res = await fetch(`${baseUrl}/jobs/${jobId}/training-details`, {
@@ -83,138 +381,1220 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        setStatus(`Save failed: ${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
-        return;
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
       }
       const json = (await res.json()) as TrainingDetails;
       setDetails(json);
-      setStatus("Training details saved.");
-    } catch (e) {
-      setStatus(`Save error: ${(e as Error).message}`);
+      setStatus("Training summary saved.");
+      await refresh();
+    } catch (err) {
+      setStatus(`Save failed: ${(err as Error).message}`);
     } finally {
-      setSaving(false);
+      setSummarySaving(false);
     }
   }
 
-  if (jobFamily !== "training") return null;
+  async function createProduct() {
+    setProductSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...newProduct,
+        default_hours: toNumberOrNull(newProduct.default_hours),
+        default_capacity: toNumberOrNull(newProduct.default_capacity),
+        default_min_attendees: toNumberOrNull(newProduct.default_min_attendees),
+        default_documents_json: newProduct.default_documents_json || null,
+        is_active: newProduct.is_active,
+      };
+      const res = await fetch(`${baseUrl}/training-products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setNewProduct(EMPTY_PRODUCT);
+      setStatus("Training product created.");
+      await refresh();
+    } catch (err) {
+      setStatus(`Product save failed: ${(err as Error).message}`);
+    } finally {
+      setProductSaving(false);
+    }
+  }
+
+  async function createRun() {
+    setRunSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...newRun,
+        training_product_id: parseSelectNumber(newRun.training_product_id),
+        total_hours: toNumberOrNull(newRun.total_hours),
+        capacity: toNumberOrNull(newRun.capacity),
+        min_attendees: toNumberOrNull(newRun.min_attendees),
+        start_date: newRun.start_date || null,
+        end_date: newRun.end_date || null,
+      };
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/training-course-runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setNewRun(EMPTY_RUN);
+      setStatus("Training course run created.");
+      await refresh();
+    } catch (err) {
+      setStatus(`Course run save failed: ${(err as Error).message}`);
+    } finally {
+      setRunSaving(false);
+    }
+  }
+
+  async function createEntitlement() {
+    setEntitlementSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...newEntitlement,
+        expires_at: newEntitlement.expires_at || null,
+      };
+      const res = await fetch(`${baseUrl}/training-entitlements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setNewEntitlement(EMPTY_ENTITLEMENT);
+      setStatus("Training entitlement created.");
+      await refresh();
+    } catch (err) {
+      setStatus(`Entitlement save failed: ${(err as Error).message}`);
+    } finally {
+      setEntitlementSaving(false);
+    }
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle style={{ color: "#F26624" }}>Training Details</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         <p className="text-sm text-muted-foreground">
-          Capture the core details for the training engagement. This section is specific to the Training job family.
+          Manage the training wrapper, reusable course products, scheduled runs, participant bookings, and free-place entitlements.
         </p>
         {status ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
-        {loading ? <div className="text-sm text-muted-foreground">Loading training details...</div> : null}
+        {loading ? <div className="text-sm text-muted-foreground">Loading training overview...</div> : null}
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="trainingDate">Training Date</Label>
-            <Input
-              id="trainingDate"
-              type="date"
-              value={details.training_date || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, training_date: e.target.value || null }))}
-            />
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Training Summary</h3>
+              <p className="text-sm text-muted-foreground">Wrapper-level notes for the overall training job.</p>
+            </div>
+            <Button onClick={saveSummary} disabled={summarySaving}>
+              {summarySaving ? "Saving..." : "Save Summary"}
+            </Button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="trainingDate">Training Date</Label>
+              <Input
+                id="trainingDate"
+                type="date"
+                value={details.training_date || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, training_date: e.target.value || null }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="deliveryFormat">Delivery Format</Label>
+              <Input
+                id="deliveryFormat"
+                value={details.delivery_format || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, delivery_format: e.target.value || null }))}
+                placeholder="Onsite / remote / hybrid"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="topic">Topic</Label>
+              <Input
+                id="topic"
+                value={details.topic || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, topic: e.target.value || null }))}
+                placeholder="Carbon literacy, leadership training..."
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="audience">Audience</Label>
+              <Input
+                id="audience"
+                value={details.audience || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, audience: e.target.value || null }))}
+                placeholder="Leadership team, staff, suppliers..."
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="attendees">Attendee Count</Label>
+              <Input
+                id="attendees"
+                type="number"
+                min="0"
+                value={details.attendee_count ?? ""}
+                onChange={(e) =>
+                  setDetails((prev) => ({
+                    ...prev,
+                    attendee_count: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="duration">Session Hours</Label>
+              <Input
+                id="duration"
+                type="number"
+                min="0"
+                step="0.25"
+                value={details.session_duration_hours ?? ""}
+                onChange={(e) =>
+                  setDetails((prev) => ({
+                    ...prev,
+                    session_duration_hours: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="materialsLink">Materials Link</Label>
+              <Input
+                id="materialsLink"
+                value={details.materials_link || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, materials_link: e.target.value || null }))}
+                placeholder="Shared deck / folder link"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="location">Location</Label>
+              <Input
+                id="location"
+                value={details.location || ""}
+                onChange={(e) => setDetails((prev) => ({ ...prev, location: e.target.value || null }))}
+                placeholder="Onsite location or venue"
+              />
+            </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="deliveryFormat">Delivery Format</Label>
-            <Input
-              id="deliveryFormat"
-              value={details.delivery_format || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, delivery_format: e.target.value || null }))}
-              placeholder="Onsite / remote / hybrid"
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea
+              id="notes"
+              value={details.notes || ""}
+              onChange={(e) => setDetails((prev) => ({ ...prev, notes: e.target.value || null }))}
+              rows={4}
+              placeholder="Delivery notes, follow-ups, or feedback..."
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="topic">Topic</Label>
-            <Input
-              id="topic"
-              value={details.topic || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, topic: e.target.value || null }))}
-              placeholder="Carbon literacy, leadership training..."
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="audience">Audience</Label>
-            <Input
-              id="audience"
-              value={details.audience || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, audience: e.target.value || null }))}
-              placeholder="Leadership team, staff, suppliers..."
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="attendees">Attendee Count</Label>
-            <Input
-              id="attendees"
-              type="number"
-              min="0"
-              value={details.attendee_count ?? ""}
-              onChange={(e) =>
-                setDetails((prev) => ({
-                  ...prev,
-                  attendee_count: e.target.value ? Number(e.target.value) : null,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="duration">Session Hours</Label>
-            <Input
-              id="duration"
-              type="number"
-              min="0"
-              step="0.25"
-              value={details.session_duration_hours ?? ""}
-              onChange={(e) =>
-                setDetails((prev) => ({
-                  ...prev,
-                  session_duration_hours: e.target.value ? Number(e.target.value) : null,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="materialsLink">Materials Link</Label>
-            <Input
-              id="materialsLink"
-              value={details.materials_link || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, materials_link: e.target.value || null }))}
-              placeholder="Shared deck / folder link"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="location">Location</Label>
-            <Input
-              id="location"
-              value={details.location || ""}
-              onChange={(e) => setDetails((prev) => ({ ...prev, location: e.target.value || null }))}
-              placeholder="Onsite location or venue"
-            />
-          </div>
-        </div>
+        </section>
 
-        <div className="space-y-2">
-          <Label htmlFor="notes">Notes</Label>
-          <Textarea
-            id="notes"
-            value={details.notes || ""}
-            onChange={(e) => setDetails((prev) => ({ ...prev, notes: e.target.value || null }))}
-            rows={4}
-            placeholder="Any delivery notes, follow-ups, or feedback..."
-          />
-        </div>
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Training Products</h3>
+              <p className="text-sm text-muted-foreground">Reusable course templates and defaults.</p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <h4 className="font-medium">Create Product</h4>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Code</Label>
+                  <Input value={newProduct.product_code} onChange={(e) => setNewProduct((p) => ({ ...p, product_code: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    value={newProduct.product_name}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, product_name: e.target.value }))}
+                    placeholder="CPD Accredited Net Zero Leaders"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Description</Label>
+                  <Textarea
+                    value={newProduct.description}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, description: e.target.value }))}
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Default Hours</Label>
+                  <Input type="number" min="0" step="0.25" value={newProduct.default_hours} onChange={(e) => setNewProduct((p) => ({ ...p, default_hours: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Default Capacity</Label>
+                  <Input type="number" min="0" value={newProduct.default_capacity} onChange={(e) => setNewProduct((p) => ({ ...p, default_capacity: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Min Attendees</Label>
+                  <Input type="number" min="0" value={newProduct.default_min_attendees} onChange={(e) => setNewProduct((p) => ({ ...p, default_min_attendees: e.target.value }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Delivery Mode</Label>
+                  <Select value={newProduct.default_delivery_mode || "__none__"} onValueChange={(v) => setNewProduct((p) => ({ ...p, default_delivery_mode: v === "__none__" ? "" : v }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select mode..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No default</SelectItem>
+                      {TRAINING_DELIVERY_MODE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Certificate Policy</Label>
+                  <Input value={newProduct.certificate_policy} onChange={(e) => setNewProduct((p) => ({ ...p, certificate_policy: e.target.value }))} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Default Documents JSON</Label>
+                  <Textarea
+                    value={newProduct.default_documents_json}
+                    onChange={(e) => setNewProduct((p) => ({ ...p, default_documents_json: e.target.value }))}
+                    rows={3}
+                    placeholder='["questionnaire", "join_link"]'
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="newProductActive"
+                  type="checkbox"
+                  checked={newProduct.is_active}
+                  onChange={(e) => setNewProduct((p) => ({ ...p, is_active: e.target.checked }))}
+                />
+                <Label htmlFor="newProductActive">Active</Label>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={createProduct} disabled={productSaving}>
+                  {productSaving ? "Creating..." : "Create Product"}
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Hours</TableHead>
+                    <TableHead>Mode</TableHead>
+                    <TableHead>Capacity</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {products.length ? (
+                    products.map((product) => (
+                      <TableRow key={product.training_product_id}>
+                        <TableCell>{product.product_code || "—"}</TableCell>
+                        <TableCell>{product.product_name}</TableCell>
+                        <TableCell>{product.default_hours ?? "—"}</TableCell>
+                        <TableCell>{formatTrainingDeliveryMode(product.default_delivery_mode)}</TableCell>
+                        <TableCell>{product.default_capacity ?? "—"}</TableCell>
+                        <TableCell>
+                          <Badge className={statusChipClass(product.is_active ? "active" : "inactive")} variant="outline">
+                            {product.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                        No training products yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </section>
 
-        <div className="flex items-center justify-end gap-3">
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Saving..." : "Save Training Details"}
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Course Runs</h3>
+              <p className="text-sm text-muted-foreground">Manage the scheduled delivery instances for this job.</p>
+            </div>
+            <Badge variant="outline">{courseRuns.length} run{courseRuns.length === 1 ? "" : "s"}</Badge>
+          </div>
+
+          <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+            <h4 className="font-medium">Create Course Run</h4>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Product</Label>
+                <Select value={newRun.training_product_id} onValueChange={(v) => setNewRun((p) => ({ ...p, training_product_id: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select product..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No product</SelectItem>
+                    {products.map((product) => (
+                      <SelectItem key={product.training_product_id} value={String(product.training_product_id)}>
+                        {product.product_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Run Name</Label>
+                <Input value={newRun.run_name} onChange={(e) => setNewRun((p) => ({ ...p, run_name: e.target.value }))} placeholder="Net Zero Leaders - April cohort" />
+              </div>
+              <div className="space-y-2">
+                <Label>Course Code</Label>
+                <Input value={newRun.course_code} onChange={(e) => setNewRun((p) => ({ ...p, course_code: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Total Hours</Label>
+                <Input type="number" min="0" step="0.25" value={newRun.total_hours} onChange={(e) => setNewRun((p) => ({ ...p, total_hours: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Delivery Mode</Label>
+                <Select value={newRun.delivery_mode || "__none__"} onValueChange={(v) => setNewRun((p) => ({ ...p, delivery_mode: v === "__none__" ? "" : v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select mode..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No default</SelectItem>
+                    {TRAINING_DELIVERY_MODE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Capacity</Label>
+                <Input type="number" min="0" value={newRun.capacity} onChange={(e) => setNewRun((p) => ({ ...p, capacity: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Min Attendees</Label>
+                <Input type="number" min="0" value={newRun.min_attendees} onChange={(e) => setNewRun((p) => ({ ...p, min_attendees: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={newRun.status} onValueChange={(v) => setNewRun((p) => ({ ...p, status: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRAINING_COURSE_RUN_STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Workflow Stage</Label>
+                <Input value={newRun.workflow_stage_key} onChange={(e) => setNewRun((p) => ({ ...p, workflow_stage_key: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Input type="date" value={newRun.start_date} onChange={(e) => setNewRun((p) => ({ ...p, start_date: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>End Date</Label>
+                <Input type="date" value={newRun.end_date} onChange={(e) => setNewRun((p) => ({ ...p, end_date: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Venue Name</Label>
+                <Input value={newRun.venue_name} onChange={(e) => setNewRun((p) => ({ ...p, venue_name: e.target.value }))} />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Venue / Location Notes</Label>
+                <Input value={newRun.venue_address} onChange={(e) => setNewRun((p) => ({ ...p, venue_address: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Online Link</Label>
+                <Input value={newRun.online_meeting_url} onChange={(e) => setNewRun((p) => ({ ...p, online_meeting_url: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Meeting ID</Label>
+                <Input value={newRun.online_meeting_id} onChange={(e) => setNewRun((p) => ({ ...p, online_meeting_id: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Passcode</Label>
+                <Input value={newRun.online_passcode} onChange={(e) => setNewRun((p) => ({ ...p, online_passcode: e.target.value }))} />
+              </div>
+              <div className="space-y-2 md:col-span-3">
+                <Label>Notes</Label>
+                <Textarea value={newRun.notes} onChange={(e) => setNewRun((p) => ({ ...p, notes: e.target.value }))} rows={3} />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={createRun} disabled={runSaving}>
+                {runSaving ? "Creating..." : "Create Course Run"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {courseRuns.length ? (
+              courseRuns.map((run) => (
+                <CourseRunCard
+                  key={run.training_course_run_id}
+                  run={run}
+                  products={products}
+                  entitlements={entitlements}
+                  baseUrl={baseUrl}
+                  onSaved={refresh}
+                />
+              ))
+            ) : (
+              <div className="rounded-lg border bg-muted/20 p-6 text-sm text-muted-foreground">No course runs have been created for this training job yet.</div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Free Place Entitlements</h3>
+              <p className="text-sm text-muted-foreground">Create and track free training places originating from CRP jobs.</p>
+            </div>
+            <Badge variant="outline">{entitlements.length} entitlement{entitlements.length === 1 ? "" : "s"}</Badge>
+          </div>
+
+          <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+            <h4 className="font-medium">Create Entitlement</h4>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Source Job Number</Label>
+                <Input
+                  value={newEntitlement.source_job_number}
+                  onChange={(e) => setNewEntitlement((p) => ({ ...p, source_job_number: e.target.value }))}
+                  placeholder="J000123"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Entitlement Type</Label>
+                <Input value={newEntitlement.entitlement_type} onChange={(e) => setNewEntitlement((p) => ({ ...p, entitlement_type: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={newEntitlement.status} onValueChange={(v) => setNewEntitlement((p) => ({ ...p, status: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRAINING_ENTITLEMENT_STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Expires At</Label>
+                <Input type="datetime-local" value={newEntitlement.expires_at} onChange={(e) => setNewEntitlement((p) => ({ ...p, expires_at: e.target.value }))} />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Notes</Label>
+                <Textarea value={newEntitlement.notes} onChange={(e) => setNewEntitlement((p) => ({ ...p, notes: e.target.value }))} rows={3} />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={createEntitlement} disabled={entitlementSaving}>
+                {entitlementSaving ? "Creating..." : "Create Entitlement"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="overflow-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Source Job</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Allocated To</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entitlements.length ? (
+                  entitlements.map((entitlement) => (
+                    <TableRow key={entitlement.training_entitlement_id}>
+                      <TableCell>
+                        <div className="font-medium">{entitlement.source_job_number || `Job ${entitlement.source_job_id ?? "—"}`}</div>
+                        {entitlement.source_job_client_name ? (
+                          <div className="text-xs text-muted-foreground">{entitlement.source_job_client_name}</div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={statusChipClass(entitlement.status)} variant="outline">
+                          {formatTrainingEntitlementStatus(entitlement.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{entitlement.allocated_booking_name || "—"}</TableCell>
+                      <TableCell>{entitlement.expires_at ? new Date(entitlement.expires_at).toLocaleString() : "—"}</TableCell>
+                      <TableCell>{entitlement.notes || "—"}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                      No entitlements recorded yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CourseRunCard({
+  run,
+  products,
+  entitlements,
+  baseUrl,
+  onSaved,
+}: {
+  run: TrainingCourseRun;
+  products: TrainingProduct[];
+  entitlements: TrainingEntitlement[];
+  baseUrl: string;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [draft, setDraft] = useState<RunFormState>(() => ({
+    training_product_id: toSelectValue(run.training_product_id),
+    run_name: toStringOrEmpty(run.run_name),
+    course_code: toStringOrEmpty(run.course_code),
+    total_hours: run.total_hours === null ? "" : String(run.total_hours),
+    delivery_mode: toStringOrEmpty(run.delivery_mode),
+    capacity: run.capacity === null ? "" : String(run.capacity),
+    min_attendees: run.min_attendees === null ? "" : String(run.min_attendees),
+    status: run.status || "draft",
+    workflow_stage_key: run.workflow_stage_key || "setup",
+    start_date: toStringOrEmpty(run.start_date),
+    end_date: toStringOrEmpty(run.end_date),
+    venue_name: toStringOrEmpty(run.venue_name),
+    venue_address: toStringOrEmpty(run.venue_address),
+    online_meeting_url: toStringOrEmpty(run.online_meeting_url),
+    online_meeting_id: toStringOrEmpty(run.online_meeting_id),
+    online_passcode: toStringOrEmpty(run.online_passcode),
+    notes: toStringOrEmpty(run.notes),
+  }));
+  const [newBooking, setNewBooking] = useState<BookingFormState>(EMPTY_BOOKING);
+
+  useEffect(() => {
+    setDraft({
+      training_product_id: toSelectValue(run.training_product_id),
+      run_name: toStringOrEmpty(run.run_name),
+      course_code: toStringOrEmpty(run.course_code),
+      total_hours: run.total_hours === null ? "" : String(run.total_hours),
+      delivery_mode: toStringOrEmpty(run.delivery_mode),
+      capacity: run.capacity === null ? "" : String(run.capacity),
+      min_attendees: run.min_attendees === null ? "" : String(run.min_attendees),
+      status: run.status || "draft",
+      workflow_stage_key: run.workflow_stage_key || "setup",
+      start_date: toStringOrEmpty(run.start_date),
+      end_date: toStringOrEmpty(run.end_date),
+      venue_name: toStringOrEmpty(run.venue_name),
+      venue_address: toStringOrEmpty(run.venue_address),
+      online_meeting_url: toStringOrEmpty(run.online_meeting_url),
+      online_meeting_id: toStringOrEmpty(run.online_meeting_id),
+      online_passcode: toStringOrEmpty(run.online_passcode),
+      notes: toStringOrEmpty(run.notes),
+    });
+  }, [run]);
+
+  async function saveRun() {
+    setSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...draft,
+        training_product_id: parseSelectNumber(draft.training_product_id),
+        total_hours: toNumberOrNull(draft.total_hours),
+        capacity: toNumberOrNull(draft.capacity),
+        min_attendees: toNumberOrNull(draft.min_attendees),
+        start_date: draft.start_date || null,
+        end_date: draft.end_date || null,
+      };
+      const res = await fetch(`${baseUrl}/training-course-runs/${run.training_course_run_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Course run saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createBooking() {
+    if (!newBooking.person_name.trim()) {
+      setStatus("Please enter a participant name.");
+      return;
+    }
+    setSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...newBooking,
+        client_db_id: toNumberOrNull(newBooking.client_db_id),
+        contact_id: toNumberOrNull(newBooking.contact_id),
+        entitlement_id: parseSelectNumber(newBooking.entitlement_id),
+      };
+      const res = await fetch(`${baseUrl}/training-course-runs/${run.training_course_run_id}/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setNewBooking(EMPTY_BOOKING);
+      setStatus("Participant added.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Booking save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card className="border-slate-200">
+      <CardHeader className="space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-lg">
+              {run.run_name || run.product_name || `Run ${run.training_course_run_id}`}
+            </CardTitle>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <Badge className={statusChipClass(run.status)} variant="outline">
+                {formatTrainingCourseRunStatus(run.status)}
+              </Badge>
+              {run.delivery_mode ? <Badge variant="outline">{formatTrainingDeliveryMode(run.delivery_mode)}</Badge> : null}
+              {run.start_date || run.end_date ? (
+                <span>
+                  {run.start_date || "?"}
+                  {run.end_date ? ` → ${run.end_date}` : ""}
+                </span>
+              ) : null}
+              {run.capacity !== null ? <span>{run.booking_count}/{run.capacity} booked</span> : <span>{run.booking_count} bookings</span>}
+            </div>
+          </div>
+          <Button onClick={saveRun} disabled={saving} variant="outline">
+            {saving ? "Saving..." : "Save Run"}
           </Button>
+        </div>
+        {status ? <div className="rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Product</Label>
+            <Select value={draft.training_product_id} onValueChange={(v) => setDraft((p) => ({ ...p, training_product_id: v }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select product..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No product</SelectItem>
+                {products.map((product) => (
+                  <SelectItem key={product.training_product_id} value={String(product.training_product_id)}>
+                    {product.product_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Course Code</Label>
+            <Input value={draft.course_code} onChange={(e) => setDraft((p) => ({ ...p, course_code: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Run Name</Label>
+            <Input value={draft.run_name} onChange={(e) => setDraft((p) => ({ ...p, run_name: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Total Hours</Label>
+            <Input type="number" min="0" step="0.25" value={draft.total_hours} onChange={(e) => setDraft((p) => ({ ...p, total_hours: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Delivery Mode</Label>
+            <Select value={draft.delivery_mode || "__none__"} onValueChange={(v) => setDraft((p) => ({ ...p, delivery_mode: v === "__none__" ? "" : v }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select mode..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No default</SelectItem>
+                {TRAINING_DELIVERY_MODE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Capacity</Label>
+            <Input type="number" min="0" value={draft.capacity} onChange={(e) => setDraft((p) => ({ ...p, capacity: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Min Attendees</Label>
+            <Input type="number" min="0" value={draft.min_attendees} onChange={(e) => setDraft((p) => ({ ...p, min_attendees: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <Select value={draft.status} onValueChange={(v) => setDraft((p) => ({ ...p, status: v }))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRAINING_COURSE_RUN_STATUS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Workflow Stage</Label>
+            <Input value={draft.workflow_stage_key} onChange={(e) => setDraft((p) => ({ ...p, workflow_stage_key: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Start Date</Label>
+            <Input type="date" value={draft.start_date} onChange={(e) => setDraft((p) => ({ ...p, start_date: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>End Date</Label>
+            <Input type="date" value={draft.end_date} onChange={(e) => setDraft((p) => ({ ...p, end_date: e.target.value }))} />
+          </div>
+          <div className="space-y-2 md:col-span-3">
+            <Label>Venue / Address</Label>
+            <Input value={draft.venue_name} onChange={(e) => setDraft((p) => ({ ...p, venue_name: e.target.value }))} placeholder="Venue name or online room label" />
+          </div>
+          <div className="space-y-2 md:col-span-3">
+            <Label>Location Notes</Label>
+            <Input value={draft.venue_address} onChange={(e) => setDraft((p) => ({ ...p, venue_address: e.target.value }))} placeholder="Address, access notes, or online instructions" />
+          </div>
+          <div className="space-y-2">
+            <Label>Online Link</Label>
+            <Input value={draft.online_meeting_url} onChange={(e) => setDraft((p) => ({ ...p, online_meeting_url: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Meeting ID</Label>
+            <Input value={draft.online_meeting_id} onChange={(e) => setDraft((p) => ({ ...p, online_meeting_id: e.target.value }))} />
+          </div>
+          <div className="space-y-2">
+            <Label>Passcode</Label>
+            <Input value={draft.online_passcode} onChange={(e) => setDraft((p) => ({ ...p, online_passcode: e.target.value }))} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Notes</Label>
+          <Textarea value={draft.notes} onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} rows={3} />
+        </div>
+
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h4 className="font-medium">Add Participant</h4>
+              <p className="text-xs text-muted-foreground">People can be linked to a client or booked as external individuals.</p>
+            </div>
+            <Button onClick={createBooking} disabled={saving}>
+              {saving ? "Saving..." : "Add Participant"}
+            </Button>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={newBooking.person_name} onChange={(e) => setNewBooking((p) => ({ ...p, person_name: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input value={newBooking.person_email} onChange={(e) => setNewBooking((p) => ({ ...p, person_email: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input value={newBooking.person_phone} onChange={(e) => setNewBooking((p) => ({ ...p, person_phone: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Participant Type</Label>
+              <Select value={newBooking.participant_type} onValueChange={(v) => setNewBooking((p) => ({ ...p, participant_type: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAINING_PARTICIPANT_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Booking Source</Label>
+              <Select value={newBooking.booking_source} onValueChange={(v) => setNewBooking((p) => ({ ...p, booking_source: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAINING_BOOKING_SOURCE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Billing Status</Label>
+              <Select value={newBooking.billing_status} onValueChange={(v) => setNewBooking((p) => ({ ...p, billing_status: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAINING_BILLING_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Attendance</Label>
+              <Select value={newBooking.attendance_status} onValueChange={(v) => setNewBooking((p) => ({ ...p, attendance_status: v }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRAINING_BOOKING_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Entitlement</Label>
+              <Select value={newBooking.entitlement_id} onValueChange={(v) => setNewBooking((p) => ({ ...p, entitlement_id: v }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No entitlement" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No entitlement</SelectItem>
+                  {entitlements.map((entitlement) => (
+                    <SelectItem key={entitlement.training_entitlement_id} value={String(entitlement.training_entitlement_id)}>
+                      {entitlement.source_job_number || `Job ${entitlement.source_job_id ?? "—"}`} - {formatTrainingEntitlementStatus(entitlement.status)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 md:col-span-3">
+              <Label>Client DB ID / Contact ID</Label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Client DB ID"
+                  value={newBooking.client_db_id}
+                  onChange={(e) => setNewBooking((p) => ({ ...p, client_db_id: e.target.value }))}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="Contact ID"
+                  value={newBooking.contact_id}
+                  onChange={(e) => setNewBooking((p) => ({ ...p, contact_id: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2 md:col-span-3">
+              <Label>Special Requirements</Label>
+              <Input value={newBooking.special_requirements} onChange={(e) => setNewBooking((p) => ({ ...p, special_requirements: e.target.value }))} />
+            </div>
+            <div className="space-y-2 md:col-span-3">
+              <Label>Notes</Label>
+              <Textarea value={newBooking.notes} onChange={(e) => setNewBooking((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="font-medium">Participants</h4>
+          {run.bookings.length ? (
+            run.bookings.map((booking) => (
+              <BookingEditorCard
+                key={booking.training_booking_id}
+                booking={booking}
+                entitlements={entitlements}
+                baseUrl={baseUrl}
+                onSaved={onSaved}
+              />
+            ))
+          ) : (
+            <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">No participants yet.</div>
+          )}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function BookingEditorCard({
+  booking,
+  entitlements,
+  baseUrl,
+  onSaved,
+}: {
+  booking: TrainingBooking;
+  entitlements: TrainingEntitlement[];
+  baseUrl: string;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
+  const [draft, setDraft] = useState<BookingFormState>(() => ({
+    client_db_id: booking.client_db_id === null ? "" : String(booking.client_db_id),
+    contact_id: booking.contact_id === null ? "" : String(booking.contact_id),
+    participant_type: booking.participant_type || "external_individual",
+    booking_source: booking.booking_source || "manual",
+    person_name: booking.person_name || "",
+    person_email: booking.person_email || "",
+    person_phone: booking.person_phone || "",
+    billing_status: booking.billing_status || "pending",
+    attendance_status: booking.attendance_status || "booked",
+    special_requirements: booking.special_requirements || "",
+    consent_status: booking.consent_status || "unknown",
+    notes: booking.notes || "",
+    entitlement_id: booking.entitlement_id === null ? "__none__" : String(booking.entitlement_id),
+  }));
+
+  useEffect(() => {
+    setDraft({
+      client_db_id: booking.client_db_id === null ? "" : String(booking.client_db_id),
+      contact_id: booking.contact_id === null ? "" : String(booking.contact_id),
+      participant_type: booking.participant_type || "external_individual",
+      booking_source: booking.booking_source || "manual",
+      person_name: booking.person_name || "",
+      person_email: booking.person_email || "",
+      person_phone: booking.person_phone || "",
+      billing_status: booking.billing_status || "pending",
+      attendance_status: booking.attendance_status || "booked",
+      special_requirements: booking.special_requirements || "",
+      consent_status: booking.consent_status || "unknown",
+      notes: booking.notes || "",
+      entitlement_id: booking.entitlement_id === null ? "__none__" : String(booking.entitlement_id),
+    });
+  }, [booking]);
+
+  async function saveBooking() {
+    setSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...draft,
+        client_db_id: toNumberOrNull(draft.client_db_id),
+        contact_id: toNumberOrNull(draft.contact_id),
+        entitlement_id: parseSelectNumber(draft.entitlement_id),
+      };
+      const res = await fetch(`${baseUrl}/training-bookings/${booking.training_booking_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Participant saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Save failed: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="font-medium">{booking.person_name}</div>
+          <div className="text-xs text-muted-foreground">
+            {booking.client_name ? `${booking.client_name} • ` : ""}
+            {formatTrainingParticipantType(booking.participant_type)} • {formatTrainingBookingSource(booking.booking_source)}
+          </div>
+        </div>
+        <Button onClick={saveBooking} disabled={saving} variant="outline" size="sm">
+          {saving ? "Saving..." : "Save Participant"}
+        </Button>
+      </div>
+      {status ? <div className="mt-2 rounded-md bg-muted px-3 py-2 text-sm">{status}</div> : null}
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label>Name</Label>
+          <Input value={draft.person_name} onChange={(e) => setDraft((p) => ({ ...p, person_name: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input value={draft.person_email} onChange={(e) => setDraft((p) => ({ ...p, person_email: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Phone</Label>
+          <Input value={draft.person_phone} onChange={(e) => setDraft((p) => ({ ...p, person_phone: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Participant Type</Label>
+          <Select value={draft.participant_type} onValueChange={(v) => setDraft((p) => ({ ...p, participant_type: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAINING_PARTICIPANT_TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Booking Source</Label>
+          <Select value={draft.booking_source} onValueChange={(v) => setDraft((p) => ({ ...p, booking_source: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAINING_BOOKING_SOURCE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Billing Status</Label>
+          <Select value={draft.billing_status} onValueChange={(v) => setDraft((p) => ({ ...p, billing_status: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAINING_BILLING_STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Attendance</Label>
+          <Select value={draft.attendance_status} onValueChange={(v) => setDraft((p) => ({ ...p, attendance_status: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TRAINING_BOOKING_STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Entitlement</Label>
+          <Select value={draft.entitlement_id} onValueChange={(v) => setDraft((p) => ({ ...p, entitlement_id: v }))}>
+            <SelectTrigger>
+              <SelectValue placeholder="No entitlement" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No entitlement</SelectItem>
+              {entitlements.map((entitlement) => (
+                <SelectItem key={entitlement.training_entitlement_id} value={String(entitlement.training_entitlement_id)}>
+                  {entitlement.source_job_number || `Job ${entitlement.source_job_id ?? "—"}`} - {formatTrainingEntitlementStatus(entitlement.status)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Client DB ID</Label>
+          <Input type="number" min="0" value={draft.client_db_id} onChange={(e) => setDraft((p) => ({ ...p, client_db_id: e.target.value }))} />
+        </div>
+        <div className="space-y-2">
+          <Label>Contact ID</Label>
+          <Input type="number" min="0" value={draft.contact_id} onChange={(e) => setDraft((p) => ({ ...p, contact_id: e.target.value }))} />
+        </div>
+        <div className="space-y-2 md:col-span-3">
+          <Label>Special Requirements</Label>
+          <Input value={draft.special_requirements} onChange={(e) => setDraft((p) => ({ ...p, special_requirements: e.target.value }))} />
+        </div>
+        <div className="space-y-2 md:col-span-3">
+          <Label>Notes</Label>
+          <Textarea value={draft.notes} onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} rows={2} />
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Badge className={statusChipClass(booking.attendance_status)} variant="outline">
+          {formatTrainingBookingStatus(booking.attendance_status)}
+        </Badge>
+        <Badge className={statusChipClass(booking.billing_status)} variant="outline">
+          {formatTrainingBillingStatus(booking.billing_status)}
+        </Badge>
+        <span>{booking.entitlement_id ? `Linked entitlement ${booking.entitlement_id}` : "No entitlement linked"}</span>
+      </div>
+    </div>
   );
 }
