@@ -660,7 +660,6 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
         FROM jobs j
         LEFT JOIN report_reviews r ON r.job_id = j.job_id
         WHERE j.client_db_id = %s
-          AND COALESCE(LOWER(j.job_family), 'crp') = 'crp'
         ORDER BY display_year DESC NULLS LAST, j.job_id DESC
         """,
         [int(client_db_id)],
