@@ -8,9 +8,10 @@ These routes are protected by standard NZI staff auth and allow CRMs to:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.auth import _current_user
@@ -31,6 +32,7 @@ from services.portal import (
 from services.outbound_email import send_tracked_email
 
 router = APIRouter(tags=["job-review"])
+logger = logging.getLogger(__name__)
 
 
 def _actor(user: dict) -> str:
@@ -254,29 +256,37 @@ def send_job_for_review(
 @router.post("/jobs/{job_id}/review/generate-snapshot")
 def generate_review_snapshot(
     job_id: int,
+    background_tasks: BackgroundTasks,
     _user: dict = Depends(_current_user),
 ):
     """Generate (or refresh) the portal HTML snapshot for this job without re-sending the client notification."""
     assert_permission(_user, "jobs.edit")
     assert_job_access(_user, int(job_id))
 
-    try:
-        from api.job_report_routes import generate_html_report
-        generate_html_report(
-            job_id=int(job_id),
-            template_id=None,
-            version_id=None,
-            save_version=True,
-            report_version_status="review",
-            report_version_label="For Client Review",
-            _user=_user,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to generate snapshot: {exc}") from exc
+    def _refresh_snapshot() -> None:
+        try:
+            from api.job_report_routes import generate_html_report
 
-    return {"ok": True, "message": "Report snapshot generated successfully"}
+            generate_html_report(
+                job_id=int(job_id),
+                template_id=None,
+                version_id=None,
+                save_version=True,
+                report_version_status="review",
+                report_version_label="For Client Review",
+                _user=_user,
+            )
+            logger.info("generate_review_snapshot: completed for job %s", job_id)
+        except Exception:
+            logger.exception("generate_review_snapshot: failed for job %s", job_id)
+
+    # Queue the refresh so the UI can return immediately instead of waiting on report generation.
+    background_tasks.add_task(_refresh_snapshot)
+
+    return {
+        "ok": True,
+        "message": "Report snapshot refresh started. It may take a short while to appear in the portal.",
+    }
 
 
 def _get_active_portal_users_for_job(job_id: int, con) -> list[dict]:
