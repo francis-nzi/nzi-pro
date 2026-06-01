@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatJobFamilyLabel } from "@/lib/job-family";
+import { formatJobFamilyLabel, getJobFamilyDescription } from "@/lib/job-family";
 import { getJobWorkflowDefinition, normalizeJobFamily } from "@/lib/job-workflows";
 
 function apiBaseUrl(): string {
@@ -740,9 +740,11 @@ function NewJobPageContent() {
                         <SelectContent>
                           {jobTypes.map((jt) => {
                             const family = normalizeJobFamily(jt.job_family || (jt.is_crp ? "crp" : null));
+                            const familyLabel = formatJobFamilyLabel(family);
+                            const familyDescription = getJobFamilyDescription(family);
                             return (
                               <SelectItem key={jt.job_type_id} value={jt.name}>
-                                {jt.name} • {formatJobFamilyLabel(family)}
+                                {jt.name} • {familyLabel} — {familyDescription}
                               </SelectItem>
                             );
                           })}
