@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiFetch } from "@/lib/auth";
+import { apiBase, apiFetch } from "@/lib/auth";
 
 type ReportMeta = {
   report_version_id?: number | null;
@@ -32,15 +32,28 @@ function formatTimestamp(raw: string | null | undefined): string {
 
 export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const [loaded, setLoaded] = useState(false);
+  const [reportHtml, setReportHtml] = useState("");
+  const [reportError, setReportError] = useState("");
   const [meta, setMeta] = useState<ReportMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(true);
-
-  const reportUrl = useMemo(() => `/api/backend/portal/jobs/${jobId}/report-html`, [jobId]);
+  const [reportLoading, setReportLoading] = useState(true);
+  
+  function injectBaseHref(html: string, baseHref: string): string {
+    const baseTag = `<base href="${baseHref}">`;
+    if (/<head[^>]*>/i.test(html)) {
+      return html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`);
+    }
+    return `${baseTag}${html}`;
+  }
 
   useEffect(() => {
     setLoaded(false);
+    setReportLoading(true);
+    setReportError("");
+    setReportHtml("");
     setMetaLoading(true);
     setMeta(null);
+    const reportBaseHref = `${window.location.origin}${apiBase()}/`;
     apiFetch(`/portal/jobs/${jobId}/report-meta`)
       .then(async (res) => {
         if (!res.ok) {
@@ -51,6 +64,20 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       .then((data) => setMeta(data))
       .catch(() => setMeta(null))
       .finally(() => setMetaLoading(false));
+    apiFetch(`/portal/jobs/${jobId}/report-html`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Failed to load report (${res.status})`);
+        }
+        return res.text();
+      })
+      .then((html) => setReportHtml(injectBaseHref(html, reportBaseHref)))
+      .catch((err) => {
+        setReportHtml("");
+        setReportError((err as Error).message || "Failed to load report");
+      })
+      .finally(() => setReportLoading(false));
   }, [jobId]);
 
   const snapshotLabel = meta?.version_label?.trim()
@@ -81,18 +108,20 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        {!loaded ? (
+        {!loaded || reportLoading ? (
           <div className="flex h-64 items-center justify-center text-sm text-gray-400">
-            Loading report…
+            {reportError ? `Unable to load report: ${reportError}` : "Loading report…"}
           </div>
         ) : null}
-        <iframe
-          title={`Client report for job ${jobId}`}
-          src={reportUrl}
-          onLoad={() => setLoaded(true)}
-          className={`w-full border-0 ${loaded ? "block" : "h-0 opacity-0"}`}
-          style={{ minHeight: "80vh" }}
-        />
+        {!reportError && reportHtml ? (
+          <iframe
+            title={`Client report for job ${jobId}`}
+            srcDoc={reportHtml}
+            onLoad={() => setLoaded(true)}
+            className={`w-full border-0 ${loaded ? "block" : "h-0 opacity-0"}`}
+            style={{ minHeight: "80vh" }}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
