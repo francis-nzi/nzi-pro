@@ -113,7 +113,27 @@ def _coerce_int(value: Any) -> int | None:
     if value is None or str(value).strip() == "":
         return None
     try:
-        return int(float(value))
+        f = float(value)
+        if f != f:  # NaN check
+            return None
+        return int(f)
+    except Exception:
+        return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, float) and value != value:
+            return None
+        if hasattr(value, "item"):
+            value = value.item()
+        if value is None:
+            return None
+        if isinstance(value, float) and value != value:
+            return None
+        return int(value)
     except Exception:
         return None
 
@@ -202,16 +222,16 @@ def _milestone_status(due_date: Any, completed_at: Any) -> str:
 
 def _serialize_comm(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "communication_id": int(row.get("communication_id")),
-        "job_id": int(row.get("job_id")),
-        "client_db_id": int(row.get("client_db_id")) if row.get("client_db_id") is not None else None,
+        "communication_id": _safe_int(row.get("communication_id")),
+        "job_id": _safe_int(row.get("job_id")),
+        "client_db_id": _safe_int(row.get("client_db_id")),
         "direction": str(row.get("direction") or "internal"),
         "channel": str(row.get("channel") or "note"),
         "subject": str(row.get("subject") or ""),
         "message_text": str(row.get("message_text") or ""),
         "scope": str(row.get("scope") or ""),
         "category": str(row.get("category") or ""),
-        "site_id": int(row.get("site_id")) if row.get("site_id") is not None else None,
+        "site_id": _safe_int(row.get("site_id")),
         "site_name": str(row.get("site_name") or ""),
         "from_name": str(row.get("from_name") or ""),
         "from_email": str(row.get("from_email") or ""),
@@ -235,9 +255,9 @@ def _serialize_comm(row: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_task(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "task_id": int(row.get("task_id")),
-        "job_id": int(row.get("job_id")),
-        "communication_id": int(row.get("communication_id")) if row.get("communication_id") is not None else None,
+        "task_id": _safe_int(row.get("task_id")),
+        "job_id": _safe_int(row.get("job_id")),
+        "communication_id": _safe_int(row.get("communication_id")),
         "title": str(row.get("title") or ""),
         "details": str(row.get("details") or ""),
         "assigned_to": str(row.get("assigned_to") or ""),
@@ -949,7 +969,7 @@ def list_job_communications(job_id: int, _user: dict = Depends(_current_user)):
             for _, row in contacts_df.iterrows():
                 contacts.append(
                     {
-                        "contact_id": int(row.get("contact_id")),
+                        "contact_id": _safe_int(row.get("contact_id")),
                         "full_name": str(row.get("full_name") or ""),
                         "email": str(row.get("email") or ""),
                         "is_primary": bool(row.get("is_primary")) if row.get("is_primary") is not None else False,
