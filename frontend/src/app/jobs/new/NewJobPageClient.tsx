@@ -16,7 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatJobFamilyLabel, getJobFamilyDescription } from "@/lib/job-family";
+import {
+  formatJobFamilyLabel,
+  getJobFamilyDescription,
+  jobFamilyBadgeClassName,
+} from "@/lib/job-family";
 import { getJobWorkflowDefinition, normalizeJobFamily } from "@/lib/job-workflows";
 
 function apiBaseUrl(): string {
@@ -751,9 +755,13 @@ function NewJobPageContent() {
                         </SelectContent>
                       </Select>
                       {selectedJobTypeRecord ? (
-                        <p className="text-xs text-muted-foreground">
-                          Family: {formatJobFamilyLabel(selectedJobFamily)}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Family:</span>
+                          <Badge className={jobFamilyBadgeClassName(selectedJobFamily)} variant="outline">
+                            {formatJobFamilyLabel(selectedJobFamily)}
+                          </Badge>
+                          <span>{getJobFamilyDescription(selectedJobFamily)}</span>
+                        </div>
                       ) : null}
                       {formErrors.jobType && (
                         <p className="text-xs text-destructive">{formErrors.jobType}</p>
