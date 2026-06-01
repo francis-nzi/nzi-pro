@@ -119,6 +119,7 @@ def portal_job_overview(job_id: int, current_user: dict = Depends(portal_user_de
 @router.get("/portal/jobs/{job_id}/live-report-data")
 def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_user_dep)):
     from services.tenancy import org_context
+    from api.job_report_routes import get_job_data, get_scope_totals, get_emissions_by_category
     from api.job_live_report_routes import get_job_live_report_data
 
     client_db_id = int(current_user["client_db_id"])
@@ -134,8 +135,48 @@ def portal_live_report_data(job_id: int, current_user: dict = Depends(portal_use
         except HTTPException:
             raise
         except Exception as exc:
-            logger.exception("portal_live_report_data failed for job %s", job_id)
-            raise HTTPException(status_code=500, detail=f"Failed to load report data: {exc}") from exc
+            logger.exception("portal_live_report_data failed for job %s; returning fallback payload", job_id)
+            job_data = get_job_data(int(job_id))
+            if not job_data:
+                raise HTTPException(status_code=404, detail="Job not found") from exc
+            try:
+                scope_totals = get_scope_totals(int(job_id))
+            except Exception:
+                scope_totals = {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0}
+            try:
+                categories = get_emissions_by_category(int(job_id))
+            except Exception:
+                categories = []
+            total_emissions = float(scope_totals.get("Total") or 0.0)
+            return {
+                "job_data": job_data,
+                "scope_totals": scope_totals,
+                "benchmark_totals": {"Scope 1": 0.0, "Scope 2": 0.0, "Scope 3": 0.0, "Total": 0.0},
+                "categories": categories,
+                "benchmark_categories": [],
+                "activity_groups": {},
+                "activity_totals": {},
+                "activity_details": {},
+                "activity_group_order": [],
+                "activity_group_colors": {},
+                "job_actions": {},
+                "intensity_metrics": {},
+                "yearly_emissions": [],
+                "target_data": {},
+                "report_metadata": {},
+                "template_variables": {},
+                "site_breakdowns": {},
+                "glossary_cards": [],
+                "render_values": {},
+                "nzi_logo_src": "",
+                "summary": {
+                    "current_total": total_emissions,
+                    "benchmark_total": 0.0,
+                    "delta_total": total_emissions,
+                    "delta_pct": None,
+                    "top_category": None,
+                },
+            }
 
 
 # ---------------------------------------------------------------------------
