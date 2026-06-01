@@ -163,6 +163,8 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   const [error, setError] = useState("");
   const [summaryData, setSummaryData] = useState<DataOutputSummary | null>(null);
   const [auditData, setAuditData] = useState<AuditData | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
   const [clientId, setClientId] = useState<number | null>(null);
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const [detailedData, setDetailedData] = useState<DataOutputDetailed | null>(null);
@@ -227,54 +229,82 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
   const loadSummary = useCallback(async () => {
     setLoading(true);
     setError("");
+    setAuditError("");
     setComparisonError("");
-    setComparisonLoading(true);
+    setComparisonLoading(false);
+    setAuditLoading(false);
+    let resolvedClientId: number | null = null;
+    let initialLoadSucceeded = false;
     try {
-      const [summaryRes, auditRes, jobRes] = await Promise.all([
+      const [summaryRes, jobRes] = await Promise.all([
         fetch(`${baseUrl}/jobs/${jobId}/data-output`),
-        fetch(`${baseUrl}/jobs/${jobId}/data-output/audit`),
         fetch(`${baseUrl}/jobs/${jobId}`),
       ]);
 
       if (!summaryRes.ok) {
         throw new Error(`Failed to load data: ${summaryRes.status}`);
       }
-      if (!auditRes.ok) {
-        throw new Error(`Failed to load audit data: ${auditRes.status}`);
-      }
       if (!jobRes.ok) {
         throw new Error(`Failed to load job context: ${jobRes.status}`);
       }
 
       const summaryJson = await summaryRes.json();
-      const auditJson = await auditRes.json();
       const jobJson = await jobRes.json();
       setSummaryData(summaryJson);
-      setAuditData(auditJson);
 
-      const resolvedClientId = Number(jobJson?.client_db_id);
+      resolvedClientId = Number(jobJson?.client_db_id);
       setClientId(Number.isFinite(resolvedClientId) ? resolvedClientId : null);
-
-      if (Number.isFinite(resolvedClientId) && resolvedClientId > 0) {
-        const comparisonRes = await fetch(`${baseUrl}/clients/${resolvedClientId}/reporting`);
-        if (comparisonRes.ok) {
-          const comparisonJson = (await comparisonRes.json()) as ClientReportingComparisonData;
-          setComparisonData(comparisonJson);
-        } else {
-          setComparisonData(null);
-          setComparisonError(`Failed to load year-over-year comparison: ${comparisonRes.status}`);
-        }
-      } else {
-        setClientId(null);
-        setComparisonData(null);
-        setComparisonError("Unable to resolve client for year-over-year comparison.");
-      }
+      initialLoadSucceeded = true;
     } catch (e) {
       setError((e as Error).message);
       setComparisonData(null);
     } finally {
       setLoading(false);
-      setComparisonLoading(false);
+    }
+
+    if (!initialLoadSucceeded) {
+      return;
+    }
+
+    void (async () => {
+      setAuditLoading(true);
+      try {
+        const auditRes = await fetch(`${baseUrl}/jobs/${jobId}/data-output/audit`);
+        if (!auditRes.ok) {
+          throw new Error(`Failed to load audit data: ${auditRes.status}`);
+        }
+        const auditJson = (await auditRes.json()) as AuditData;
+        setAuditData(auditJson);
+      } catch (e) {
+        setAuditData(null);
+        setAuditError((e as Error).message);
+      } finally {
+        setAuditLoading(false);
+      }
+    })();
+
+    if (resolvedClientId !== null && Number.isFinite(resolvedClientId) && resolvedClientId > 0) {
+      void (async () => {
+        setComparisonLoading(true);
+        try {
+          const comparisonRes = await fetch(`${baseUrl}/clients/${resolvedClientId}/reporting`);
+          if (comparisonRes.ok) {
+            const comparisonJson = (await comparisonRes.json()) as ClientReportingComparisonData;
+            setComparisonData(comparisonJson);
+          } else {
+            setComparisonData(null);
+            setComparisonError(`Failed to load year-over-year comparison: ${comparisonRes.status}`);
+          }
+        } catch {
+          setComparisonData(null);
+          setComparisonError("Failed to load year-over-year comparison.");
+        } finally {
+          setComparisonLoading(false);
+        }
+      })();
+    } else {
+      setComparisonData(null);
+      setComparisonError("Unable to resolve client for year-over-year comparison.");
     }
   }, [baseUrl, jobId]);
 
@@ -1414,7 +1444,11 @@ export default function DataOutput({ jobId, baseUrl, showEmissionsSummary = fals
               </div>
             </CardHeader>
             <CardContent>
-              {!auditData || (auditData.rows || []).length === 0 ? (
+              {auditLoading ? (
+                <div className="text-center text-muted-foreground py-8">Loading audit rows...</div>
+              ) : auditError ? (
+                <div className="text-center text-destructive py-8">{auditError}</div>
+              ) : !auditData || (auditData.rows || []).length === 0 ? (
                 <div className="text-center text-muted-foreground py-8">No audit rows available.</div>
               ) : (
                 <div className="overflow-x-auto">
