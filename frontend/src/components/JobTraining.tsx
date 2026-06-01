@@ -28,6 +28,7 @@ import {
   TRAINING_ATTENDANCE_STATUS_OPTIONS,
   TRAINING_PARTICIPANT_TYPE_OPTIONS,
 } from "@/lib/training-workflow";
+import { formatJobFamilyLabel, getJobFamilyDescription, jobFamilyBadgeClassName } from "@/lib/job-family";
 
 type JobTrainingProps = {
   jobId: number;
@@ -533,6 +534,9 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
 
   if (jobFamily !== "training") return null;
 
+  const trainingFamilyLabel = formatJobFamilyLabel("training");
+  const trainingFamilyDescription = getJobFamilyDescription("training");
+  const trainingFamilyBadgeClass = jobFamilyBadgeClassName("training");
   const products = overview?.products ?? [];
   const courseRuns = overview?.course_runs ?? [];
   const entitlements = overview?.available_entitlements ?? [];
@@ -769,8 +773,14 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="space-y-2">
         <CardTitle style={{ color: "#F26624" }}>Training Details</CardTitle>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge className={trainingFamilyBadgeClass} variant="outline">
+            {trainingFamilyLabel}
+          </Badge>
+          <span>{trainingFamilyDescription}</span>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <p className="text-sm text-muted-foreground">
@@ -892,7 +902,12 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold">Course Calendar</h3>
-              <p className="text-sm text-muted-foreground">Sessions, capacity, and reminder status in one view.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge className={trainingFamilyBadgeClass} variant="outline">
+                  {trainingFamilyLabel}
+                </Badge>
+                <span>{trainingFamilyDescription}</span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setCalendarMonthOffset((p) => p - 1)}>
@@ -1086,7 +1101,12 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold">Training Products</h3>
-              <p className="text-sm text-muted-foreground">Reusable course templates and defaults.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge className={trainingFamilyBadgeClass} variant="outline">
+                  {trainingFamilyLabel}
+                </Badge>
+                <span>{trainingFamilyDescription}</span>
+              </div>
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
@@ -1215,7 +1235,12 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold">Course Runs</h3>
-              <p className="text-sm text-muted-foreground">Manage the scheduled delivery instances for this job.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge className={trainingFamilyBadgeClass} variant="outline">
+                  {trainingFamilyLabel}
+                </Badge>
+                <span>{trainingFamilyDescription}</span>
+              </div>
             </div>
             <Badge variant="outline">{courseRuns.length} run{courseRuns.length === 1 ? "" : "s"}</Badge>
           </div>
@@ -1363,7 +1388,12 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold">Free Place Entitlements</h3>
-              <p className="text-sm text-muted-foreground">Create and track free training places originating from CRP jobs.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge className={trainingFamilyBadgeClass} variant="outline">
+                  {trainingFamilyLabel}
+                </Badge>
+                <span>{trainingFamilyDescription}</span>
+              </div>
             </div>
             <Badge variant="outline">{entitlements.length} entitlement{entitlements.length === 1 ? "" : "s"}</Badge>
           </div>
@@ -1834,7 +1864,12 @@ function CourseRunCard({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h4 className="font-medium">Automation</h4>
-              <p className="text-xs text-muted-foreground">Configure reminders, completion packs, certificates, and post-course documents.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <Badge className={jobFamilyBadgeClassName("training")} variant="outline">
+                  {formatJobFamilyLabel("training")}
+                </Badge>
+                <span>{getJobFamilyDescription("training")}</span>
+              </div>
             </div>
             <Button onClick={saveAutomation} disabled={automationSaving} variant="outline">
               {automationSaving ? "Saving..." : "Save Automation"}
@@ -2039,6 +2074,12 @@ function CourseRunCard({
 
         <div className="space-y-3">
           <h4 className="font-medium">Scheduled Sessions</h4>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            <Badge className={jobFamilyBadgeClassName("training")} variant="outline">
+              {formatJobFamilyLabel("training")}
+            </Badge>
+            <span>{getJobFamilyDescription("training")}</span>
+          </div>
           {sessions.length ? (
             sessions.map((session) => (
               <SessionEditorCard
@@ -2060,7 +2101,12 @@ function CourseRunCard({
           <div className="flex items-center justify-between gap-3">
             <div>
               <h4 className="font-medium">Add Participant</h4>
-              <p className="text-xs text-muted-foreground">People can be linked to a client or booked as external individuals.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <Badge className={jobFamilyBadgeClassName("training")} variant="outline">
+                  {formatJobFamilyLabel("training")}
+                </Badge>
+                <span>{getJobFamilyDescription("training")}</span>
+              </div>
             </div>
             <Button onClick={createBooking} disabled={saving}>
               {saving ? "Saving..." : "Add Participant"}
