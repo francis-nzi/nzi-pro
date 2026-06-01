@@ -116,6 +116,16 @@ type TrainingCourseRun = {
   online_meeting_id: string | null;
   online_passcode: string | null;
   notes: string | null;
+  reminder_enabled: boolean;
+  reminder_schedule_json: string | null;
+  reminder_subject_template: string | null;
+  reminder_body_template: string | null;
+  completion_subject_template: string | null;
+  completion_body_template: string | null;
+  post_course_documents_json: string | null;
+  auto_certificate: boolean;
+  certificate_template_key: string | null;
+  completed_at: string | null;
   booking_count: number;
   confirmed_count: number;
   created_at: string | null;
@@ -276,6 +286,18 @@ type SessionFormState = {
   notes: string;
 };
 
+type AutomationFormState = {
+  reminder_enabled: boolean;
+  reminder_schedule_json: string;
+  reminder_subject_template: string;
+  reminder_body_template: string;
+  completion_subject_template: string;
+  completion_body_template: string;
+  post_course_documents_json: string;
+  auto_certificate: boolean;
+  certificate_template_key: string;
+};
+
 const EMPTY_DETAILS: TrainingDetails = {
   job_id: null,
   training_date: null,
@@ -360,6 +382,18 @@ const EMPTY_SESSION: SessionFormState = {
   online_passcode: "",
   status: "scheduled",
   notes: "",
+};
+
+const EMPTY_AUTOMATION: AutomationFormState = {
+  reminder_enabled: true,
+  reminder_schedule_json: "[7,1,0]",
+  reminder_subject_template: "",
+  reminder_body_template: "",
+  completion_subject_template: "",
+  completion_body_template: "",
+  post_course_documents_json: "[\"questionnaire\"]",
+  auto_certificate: true,
+  certificate_template_key: "training_certificate",
 };
 
 function toNumberOrNull(value: string): number | null {
@@ -1110,8 +1144,21 @@ function CourseRunCard({
 }) {
   const [saving, setSaving] = useState(false);
   const [sessionSaving, setSessionSaving] = useState(false);
+  const [automationSaving, setAutomationSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [automationResult, setAutomationResult] = useState("");
   const [sessionDraft, setSessionDraft] = useState<SessionFormState>(EMPTY_SESSION);
+  const [automation, setAutomation] = useState<AutomationFormState>(() => ({
+    reminder_enabled: run.reminder_enabled ?? true,
+    reminder_schedule_json: run.reminder_schedule_json || "[7,1,0]",
+    reminder_subject_template: run.reminder_subject_template || "",
+    reminder_body_template: run.reminder_body_template || "",
+    completion_subject_template: run.completion_subject_template || "",
+    completion_body_template: run.completion_body_template || "",
+    post_course_documents_json: run.post_course_documents_json || "[\"questionnaire\"]",
+    auto_certificate: run.auto_certificate ?? true,
+    certificate_template_key: run.certificate_template_key || "training_certificate",
+  }));
   const [draft, setDraft] = useState<RunFormState>(() => ({
     training_product_id: toSelectValue(run.training_product_id),
     run_name: toStringOrEmpty(run.run_name),
@@ -1153,7 +1200,19 @@ function CourseRunCard({
       online_passcode: toStringOrEmpty(run.online_passcode),
       notes: toStringOrEmpty(run.notes),
     });
+    setAutomation({
+      reminder_enabled: run.reminder_enabled ?? true,
+      reminder_schedule_json: run.reminder_schedule_json || "[7,1,0]",
+      reminder_subject_template: run.reminder_subject_template || "",
+      reminder_body_template: run.reminder_body_template || "",
+      completion_subject_template: run.completion_subject_template || "",
+      completion_body_template: run.completion_body_template || "",
+      post_course_documents_json: run.post_course_documents_json || "[\"questionnaire\"]",
+      auto_certificate: run.auto_certificate ?? true,
+      certificate_template_key: run.certificate_template_key || "training_certificate",
+    });
     setSessionDraft(EMPTY_SESSION);
+    setAutomationResult("");
   }, [run]);
 
   async function saveRun() {
@@ -1219,6 +1278,60 @@ function CourseRunCard({
       setStatus(`Booking save failed: ${(err as Error).message}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveAutomation() {
+    setAutomationSaving(true);
+    setStatus("");
+    try {
+      const payload = {
+        ...automation,
+        reminder_enabled: automation.reminder_enabled,
+        auto_certificate: automation.auto_certificate,
+      };
+      const res = await fetch(`${baseUrl}/training-course-runs/${run.training_course_run_id}/automation`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setStatus("Automation settings saved.");
+      onSaved();
+    } catch (err) {
+      setStatus(`Automation save failed: ${(err as Error).message}`);
+    } finally {
+      setAutomationSaving(false);
+    }
+  }
+
+  async function runAutomation(triggerKey: "reminders" | "completion_pack", mode: "preview" | "send") {
+    setAutomationSaving(true);
+    setStatus("");
+    setAutomationResult("");
+    try {
+      const res = await fetch(`${baseUrl}/training-course-runs/${run.training_course_run_id}/automation/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ trigger_key: triggerKey, mode }),
+      });
+      const text = await res.text().catch(() => "");
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+      }
+      setAutomationResult(text);
+      setStatus(`${triggerKey === "reminders" ? "Reminder" : "Completion"} automation ${mode} complete.`);
+      onSaved();
+    } catch (err) {
+      setAutomationResult(String((err as Error).message || ""));
+      setStatus(`Automation failed: ${(err as Error).message}`);
+    } finally {
+      setAutomationSaving(false);
     }
   }
 
@@ -1355,6 +1468,112 @@ function CourseRunCard({
         <div className="space-y-2">
           <Label>Notes</Label>
           <Textarea value={draft.notes} onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))} rows={3} />
+        </div>
+
+        <div className="space-y-4 rounded-lg border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 className="font-medium">Automation</h4>
+              <p className="text-xs text-muted-foreground">Configure reminders, completion packs, certificates, and post-course documents.</p>
+            </div>
+            <Button onClick={saveAutomation} disabled={automationSaving} variant="outline">
+              {automationSaving ? "Saving..." : "Save Automation"}
+            </Button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Reminder schedule (days before start)</Label>
+              <Input
+                value={automation.reminder_schedule_json}
+                onChange={(e) => setAutomation((p) => ({ ...p, reminder_schedule_json: e.target.value }))}
+                placeholder="[7, 1, 0]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Certificate template key</Label>
+              <Input
+                value={automation.certificate_template_key}
+                onChange={(e) => setAutomation((p) => ({ ...p, certificate_template_key: e.target.value }))}
+                placeholder="training_certificate"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Reminder subject template</Label>
+              <Input
+                value={automation.reminder_subject_template}
+                onChange={(e) => setAutomation((p) => ({ ...p, reminder_subject_template: e.target.value }))}
+                placeholder="Reminder: {{course_name}} starts {{start_date}}"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Reminder body template</Label>
+              <Textarea
+                value={automation.reminder_body_template}
+                onChange={(e) => setAutomation((p) => ({ ...p, reminder_body_template: e.target.value }))}
+                rows={3}
+                placeholder="Optional custom HTML body for reminder emails."
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Completion subject template</Label>
+              <Input
+                value={automation.completion_subject_template}
+                onChange={(e) => setAutomation((p) => ({ ...p, completion_subject_template: e.target.value }))}
+                placeholder="Training completion pack: {{course_name}}"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Completion body template</Label>
+              <Textarea
+                value={automation.completion_body_template}
+                onChange={(e) => setAutomation((p) => ({ ...p, completion_body_template: e.target.value }))}
+                rows={3}
+                placeholder="Optional custom HTML body for completion packs."
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Post-course documents JSON</Label>
+              <Textarea
+                value={automation.post_course_documents_json}
+                onChange={(e) => setAutomation((p) => ({ ...p, post_course_documents_json: e.target.value }))}
+                rows={3}
+                placeholder='["questionnaire"]'
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={automation.reminder_enabled}
+                onChange={(e) => setAutomation((p) => ({ ...p, reminder_enabled: e.target.checked }))}
+              />
+              Reminders enabled
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={automation.auto_certificate}
+                onChange={(e) => setAutomation((p) => ({ ...p, auto_certificate: e.target.checked }))}
+              />
+              Auto-issue certificate
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void runAutomation("reminders", "preview")} disabled={automationSaving}>
+              Preview Reminders
+            </Button>
+            <Button variant="outline" onClick={() => void runAutomation("reminders", "send")} disabled={automationSaving}>
+              Send Due Reminders
+            </Button>
+            <Button variant="outline" onClick={() => void runAutomation("completion_pack", "preview")} disabled={automationSaving}>
+              Preview Completion Pack
+            </Button>
+            <Button onClick={() => void runAutomation("completion_pack", "send")} disabled={automationSaving}>
+              Send Completion Pack
+            </Button>
+          </div>
+          {automationResult ? <pre className="overflow-auto rounded-md bg-background p-3 text-xs text-muted-foreground">{automationResult}</pre> : null}
         </div>
 
         <div className="space-y-4 rounded-lg border bg-muted/20 p-3">

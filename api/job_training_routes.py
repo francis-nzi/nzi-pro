@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import io
+import html
 import json
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 from api.auth import _current_user
 from api.permissions import assert_job_access, assert_permission
 from core.database import get_conn
+from services.company_profile import company_footer_text, get_company_profile
+from services.messaging_templates import build_email_content, render_template_text
+from services.outbound_email import send_tracked_email
 from services.tenancy import require_org
 
 router = APIRouter(tags=["job-training"])
@@ -48,6 +60,62 @@ def _clean_bool(value: Any, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _json_text(value: Any, default: list[Any] | dict[str, Any] | None = None) -> str:
+    if value in (None, ""):
+        return json.dumps(default if default is not None else [])
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return json.dumps(default if default is not None else [])
+        try:
+            parsed = json.loads(text)
+            return json.dumps(parsed)
+        except Exception:
+            return text
+    try:
+        return json.dumps(value)
+    except Exception:
+        return json.dumps(default if default is not None else [])
+
+
+def _json_list(value: Any, default: list[Any] | None = None) -> list[Any]:
+    if value in (None, ""):
+        return list(default or [])
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    try:
+        parsed = json.loads(str(value))
+        if isinstance(parsed, list):
+            return parsed
+    except Exception:
+        pass
+    return list(default or [])
+
+
+def _safe_date_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _safe_datetime_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    try:
+        return datetime.fromisoformat(str(value)).isoformat()
+    except Exception:
+        return str(value)
 
 
 def _ensure_tables(con) -> None:
@@ -121,6 +189,16 @@ def _ensure_tables(con) -> None:
           online_meeting_id VARCHAR,
           online_passcode VARCHAR,
           notes TEXT,
+          reminder_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          reminder_schedule_json TEXT NOT NULL DEFAULT '[7,1,0]',
+          reminder_subject_template TEXT,
+          reminder_body_template TEXT,
+          completion_subject_template TEXT,
+          completion_body_template TEXT,
+          post_course_documents_json TEXT,
+          auto_certificate BOOLEAN NOT NULL DEFAULT TRUE,
+          certificate_template_key TEXT NOT NULL DEFAULT 'training_certificate',
+          completed_at TIMESTAMP,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           created_by VARCHAR,
           updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -134,6 +212,43 @@ def _ensure_tables(con) -> None:
     con.execute(
         "CREATE INDEX IF NOT EXISTS ix_training_course_runs_product ON training_course_runs (training_product_id)"
     )
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS reminder_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS reminder_schedule_json TEXT NOT NULL DEFAULT '[7,1,0]'")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS reminder_subject_template TEXT")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS reminder_body_template TEXT")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS completion_subject_template TEXT")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS completion_body_template TEXT")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS post_course_documents_json TEXT")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS auto_certificate BOOLEAN NOT NULL DEFAULT TRUE")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS certificate_template_key TEXT NOT NULL DEFAULT 'training_certificate'")
+    con.execute("ALTER TABLE training_course_runs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP")
+
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_automation_log (
+          training_automation_log_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+          org_id VARCHAR NOT NULL,
+          training_course_run_id INTEGER NOT NULL REFERENCES training_course_runs(training_course_run_id) ON DELETE CASCADE,
+          training_course_session_id INTEGER,
+          training_booking_id INTEGER,
+          automation_key TEXT NOT NULL,
+          trigger_key TEXT NOT NULL,
+          action_type TEXT NOT NULL,
+          recipient_name TEXT,
+          recipient_email TEXT,
+          subject TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_text TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_by TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          sent_at TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_training_automation_log_key ON training_automation_log (automation_key)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_training_automation_log_run ON training_automation_log (org_id, training_course_run_id, created_at DESC)")
 
     con.execute(
         """
@@ -326,12 +441,22 @@ def _run_payload(row, bookings: list[dict[str, Any]] | None = None) -> dict[str,
         "online_meeting_id": row[18],
         "online_passcode": row[19],
         "notes": row[20],
-        "booking_count": int(row[21]) if row[21] is not None else 0,
-        "confirmed_count": int(row[22]) if row[22] is not None else 0,
-        "created_at": str(row[23]) if row[23] else None,
-        "created_by": row[24],
-        "updated_at": str(row[25]) if row[25] else None,
-        "updated_by": row[26],
+        "reminder_enabled": bool(row[21]) if row[21] is not None else True,
+        "reminder_schedule_json": row[22],
+        "reminder_subject_template": row[23],
+        "reminder_body_template": row[24],
+        "completion_subject_template": row[25],
+        "completion_body_template": row[26],
+        "post_course_documents_json": row[27],
+        "auto_certificate": bool(row[28]) if row[28] is not None else True,
+        "certificate_template_key": row[29],
+        "completed_at": _safe_datetime_text(row[30]) if row[30] else None,
+        "booking_count": int(row[31]) if row[31] is not None else 0,
+        "confirmed_count": int(row[32]) if row[32] is not None else 0,
+        "created_at": str(row[33]) if row[33] else None,
+        "created_by": row[34],
+        "updated_at": str(row[35]) if row[35] else None,
+        "updated_by": row[36],
         "bookings": bookings or [],
     }
     payload["available_seats"] = (
@@ -497,6 +622,9 @@ def _get_course_run_rows(con, org_id: str, job_id: int) -> list[dict[str, Any]]:
                r.run_name, r.course_code, r.total_hours, r.delivery_mode, r.capacity, r.min_attendees,
                r.status, r.workflow_stage_key, r.start_date, r.end_date, r.venue_name, r.venue_address,
                r.online_meeting_url, r.online_meeting_id, r.online_passcode, r.notes,
+               r.reminder_enabled, r.reminder_schedule_json, r.reminder_subject_template, r.reminder_body_template,
+               r.completion_subject_template, r.completion_body_template, r.post_course_documents_json,
+               r.auto_certificate, r.certificate_template_key, r.completed_at,
                COALESCE(counts.booking_count, 0), COALESCE(counts.confirmed_count, 0),
                r.created_at, r.created_by, r.updated_at, r.updated_by
         FROM training_course_runs r
@@ -632,6 +760,673 @@ def _get_training_overview(con, org_id: str, job_id: int) -> dict[str, Any]:
         "course_runs": course_runs,
         "available_entitlements": entitlements,
         "sessions": sessions,
+    }
+
+
+def _automation_payload(row) -> dict[str, Any]:
+    return {
+        "training_course_run_id": int(row[0]),
+        "org_id": row[1],
+        "job_id": int(row[2]),
+        "training_product_id": int(row[3]) if row[3] is not None else None,
+        "run_name": row[5],
+        "course_code": row[6],
+        "start_date": str(row[13]) if row[13] else None,
+        "end_date": str(row[14]) if row[14] else None,
+        "delivery_mode": row[8],
+        "booking_count": int(row[31]) if row[31] is not None else 0,
+        "reminder_enabled": bool(row[21]) if row[21] is not None else True,
+        "reminder_schedule": _json_list(row[22], [7, 1, 0]),
+        "reminder_subject_template": row[23],
+        "reminder_body_template": row[24],
+        "completion_subject_template": row[25],
+        "completion_body_template": row[26],
+        "post_course_documents": _json_list(row[27], []),
+        "auto_certificate": bool(row[28]) if row[28] is not None else True,
+        "certificate_template_key": row[29] or "training_certificate",
+        "completed_at": _safe_datetime_text(row[30]) if row[30] else None,
+    }
+
+
+def _get_run_automation(con, org_id: str, training_course_run_id: int) -> dict[str, Any]:
+    row = con.execute(
+        """
+        SELECT r.training_course_run_id, r.org_id, r.job_id, r.training_product_id, p.product_name,
+               r.run_name, r.course_code, r.total_hours, r.delivery_mode, r.capacity, r.min_attendees,
+               r.status, r.workflow_stage_key, r.start_date, r.end_date, r.venue_name, r.venue_address,
+               r.online_meeting_url, r.online_meeting_id, r.online_passcode, r.notes,
+               r.reminder_enabled, r.reminder_schedule_json, r.reminder_subject_template, r.reminder_body_template,
+               r.completion_subject_template, r.completion_body_template, r.post_course_documents_json,
+               r.auto_certificate, r.certificate_template_key, r.completed_at,
+               0, 0, r.created_at, r.created_by, r.updated_at, r.updated_by
+        FROM training_course_runs r
+        LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
+        WHERE r.org_id = ? AND r.training_course_run_id = ?
+        """,
+        [org_id, int(training_course_run_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Training course run not found")
+    return _automation_payload(row)
+
+
+def _get_training_run_row(con, org_id: str, training_course_run_id: int):
+    row = con.execute(
+        """
+        SELECT r.training_course_run_id, r.org_id, r.job_id, r.training_product_id, p.product_name,
+               r.run_name, r.course_code, r.total_hours, r.delivery_mode, r.capacity, r.min_attendees,
+               r.status, r.workflow_stage_key, r.start_date, r.end_date, r.venue_name, r.venue_address,
+               r.online_meeting_url, r.online_meeting_id, r.online_passcode, r.notes,
+               r.reminder_enabled, r.reminder_schedule_json, r.reminder_subject_template, r.reminder_body_template,
+               r.completion_subject_template, r.completion_body_template, r.post_course_documents_json,
+               r.auto_certificate, r.certificate_template_key, r.completed_at,
+               0, 0, r.created_at, r.created_by, r.updated_at, r.updated_by
+        FROM training_course_runs r
+        LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
+        WHERE r.org_id = ? AND r.training_course_run_id = ?
+        """,
+        [org_id, int(training_course_run_id)],
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Training course run not found")
+    return row
+
+
+def _get_run_bookings(con, org_id: str, training_course_run_id: int) -> list[dict[str, Any]]:
+    rows = con.execute(
+        """
+        SELECT b.training_booking_id, b.org_id, b.training_course_run_id, b.client_db_id, b.contact_id,
+               b.participant_type, b.booking_source, b.person_name, b.person_email, b.person_phone,
+               b.billing_status, b.attendance_status, b.special_requirements, b.consent_status,
+               b.notes, b.entitlement_id, c.client_name, e.source_job_number,
+               e.status, COALESCE(b2.person_name, ''),
+               b.created_at, b.created_by, b.updated_at, b.updated_by
+        FROM training_bookings b
+        LEFT JOIN clients c ON c.db_id = b.client_db_id
+        LEFT JOIN training_entitlements e ON e.training_entitlement_id = b.entitlement_id
+        LEFT JOIN training_bookings b2 ON b2.training_booking_id = e.allocated_to_booking_id
+        WHERE b.org_id = ? AND b.training_course_run_id = ?
+        ORDER BY b.person_name, b.training_booking_id
+        """,
+        [org_id, int(training_course_run_id)],
+    ).fetchall()
+    return [_booking_payload(row) for row in rows]
+
+
+def _ensure_training_automation_log(con, org_id: str, training_course_run_id: int, automation_key: str) -> bool:
+    exists = con.execute(
+        """
+        SELECT 1
+        FROM training_automation_log
+        WHERE org_id = ? AND training_course_run_id = ? AND automation_key = ?
+        LIMIT 1
+        """,
+        [org_id, int(training_course_run_id), automation_key],
+    ).fetchone()
+    return bool(exists)
+
+
+def _record_training_automation(
+    con,
+    *,
+    org_id: str,
+    training_course_run_id: int,
+    automation_key: str,
+    trigger_key: str,
+    action_type: str,
+    recipient_name: str | None,
+    recipient_email: str | None,
+    subject: str | None,
+    status: str,
+    created_by: str,
+    training_course_session_id: int | None = None,
+    training_booking_id: int | None = None,
+    error_text: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    sent_at: datetime | None = None,
+) -> None:
+    con.execute(
+        """
+        INSERT INTO training_automation_log (
+          org_id, training_course_run_id, training_course_session_id, training_booking_id, automation_key,
+          trigger_key, action_type, recipient_name, recipient_email, subject, status, error_text,
+          metadata_json, created_by, created_at, sent_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        """,
+        [
+            org_id,
+            int(training_course_run_id),
+            int(training_course_session_id) if training_course_session_id is not None else None,
+            int(training_booking_id) if training_booking_id is not None else None,
+            automation_key,
+            trigger_key,
+            action_type,
+            recipient_name,
+            recipient_email,
+            subject,
+            status,
+            error_text,
+            json.dumps(metadata or {}),
+            created_by,
+            sent_at,
+        ],
+    )
+
+
+def _update_training_automation_log_status(
+    con,
+    *,
+    org_id: str,
+    training_course_run_id: int,
+    automation_key: str,
+    status: str,
+    error_text: str | None = None,
+    sent_at: datetime | None = None,
+) -> None:
+    con.execute(
+        """
+        UPDATE training_automation_log
+        SET status = ?, error_text = ?, sent_at = COALESCE(?, sent_at), updated_at = NOW()
+        WHERE org_id = ? AND training_course_run_id = ? AND automation_key = ?
+        """,
+        [status, error_text, sent_at, org_id, int(training_course_run_id), automation_key],
+    )
+
+
+def _all_sessions_completed(con, org_id: str, training_course_run_id: int) -> bool:
+    row = con.execute(
+        """
+        SELECT COUNT(*) AS total_count,
+               COUNT(*) FILTER (WHERE lower(coalesce(status, '')) = 'completed') AS completed_count
+        FROM training_course_sessions
+        WHERE org_id = ? AND training_course_run_id = ?
+        """,
+        [org_id, int(training_course_run_id)],
+    ).fetchone()
+    if not row:
+        return False
+    total = int(row[0] or 0)
+    completed = int(row[1] or 0)
+    return total > 0 and total == completed
+
+
+def _training_course_display_name(run: dict[str, Any]) -> str:
+    return str(run.get("run_name") or run.get("product_name") or f"Training Run {run.get('training_course_run_id')}").strip()
+
+
+def _training_participant_email_allowed(booking: dict[str, Any]) -> bool:
+    if not str(booking.get("person_email") or "").strip():
+        return False
+    return str(booking.get("attendance_status") or "").strip().lower() != "cancelled"
+
+
+def _training_reminder_subject(run: dict[str, Any], days_before: int) -> str:
+    title = _training_course_display_name(run)
+    job_ref = f"Job {run.get('job_id')}"
+    if days_before == 0:
+        return f"Training starts today: {title} ({job_ref})"
+    return f"Reminder: {title} starts in {days_before} day{'s' if abs(days_before) != 1 else ''} ({job_ref})"
+
+
+def _training_completion_subject(run: dict[str, Any]) -> str:
+    title = _training_course_display_name(run)
+    job_ref = f"Job {run.get('job_id')}"
+    return f"Training completion pack: {title} ({job_ref})"
+
+
+def _render_training_certificate_pdf(
+    run: dict[str, Any],
+    booking: dict[str, Any],
+    company_profile: dict[str, Any] | None = None,
+) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+        title=f"Training Certificate {booking.get('person_name') or ''}",
+        author="Net Zero International",
+    )
+    styles = getSampleStyleSheet()
+    styles.add(
+        ParagraphStyle(
+            name="TrainingTitle",
+            parent=styles["Title"],
+            alignment=1,
+            textColor=colors.HexColor("#F26624"),
+            fontSize=22,
+            leading=26,
+            spaceAfter=10,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
+            name="TrainingBody",
+            parent=styles["BodyText"],
+            fontSize=11,
+            leading=16,
+            spaceAfter=8,
+        )
+    )
+    elements: list[Any] = [
+        Paragraph("Certificate of Training Completion", styles["TrainingTitle"]),
+        Paragraph(f"This is to certify that <strong>{html.escape(str(booking.get('person_name') or 'Participant'))}</strong> has completed the training programme below.", styles["TrainingBody"]),
+        Spacer(1, 8 * mm),
+        Table(
+            [
+                ["Course", _training_course_display_name(run)],
+                ["Job", f"Job {run.get('job_id')}"],
+                ["Delivery mode", str(run.get("delivery_mode") or "Training").title()],
+                ["Hours", str(run.get("total_hours") or "")],
+                ["Client", str(org_name or "")],
+            ],
+            colWidths=[42 * mm, 110 * mm],
+        ),
+    ]
+    elements[-1].setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fff4ec")),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#1f2937")),
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("LEADING", (0, 0), (-1, -1), 14),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    elements.extend(
+        [
+            Spacer(1, 10 * mm),
+            Paragraph(
+                f"Date: {datetime.now(timezone.utc).date().isoformat()}",
+                styles["TrainingBody"],
+            ),
+            Paragraph(company_footer_text(company_profile or {}) or "Net Zero International", styles["TrainingBody"]),
+        ]
+    )
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def _render_training_questionnaire_pdf(run: dict[str, Any], booking: dict[str, Any]) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=18 * mm,
+        rightMargin=18 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+        title=f"Training Questionnaire {booking.get('person_name') or ''}",
+        author="Net Zero International",
+    )
+    styles = getSampleStyleSheet()
+    styles.add(
+        ParagraphStyle(
+            name="QTitle",
+            parent=styles["Title"],
+            alignment=1,
+            textColor=colors.HexColor("#F26624"),
+            fontSize=20,
+            leading=24,
+        )
+    )
+    styles.add(ParagraphStyle(name="QBody", parent=styles["BodyText"], fontSize=11, leading=16, spaceAfter=7))
+    questions = [
+        "How relevant was the session to your role?",
+        "What did you find most useful?",
+        "What could be improved for future sessions?",
+        "Would you recommend this training to a colleague?",
+    ]
+    elements: list[Any] = [
+        Paragraph("Training Questionnaire", styles["QTitle"]),
+        Paragraph(f"Course: <strong>{html.escape(_training_course_display_name(run))}</strong>", styles["QBody"]),
+        Paragraph(f"Participant: <strong>{html.escape(str(booking.get('person_name') or 'Participant'))}</strong>", styles["QBody"]),
+        Spacer(1, 6 * mm),
+    ]
+    for idx, question in enumerate(questions, start=1):
+        elements.append(Paragraph(f"{idx}. {html.escape(question)}", styles["QBody"]))
+        elements.append(Spacer(1, 12 * mm))
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def _build_training_documents(run: dict[str, Any], booking: dict[str, Any]) -> list[dict[str, Any]]:
+    docs = _json_list(run.get("post_course_documents_json"), [])
+    attachments: list[dict[str, Any]] = []
+    for doc_key in docs:
+        key = str(doc_key or "").strip().lower()
+        if not key:
+            continue
+        if key == "questionnaire":
+            attachments.append(
+                {
+                    "filename": f"{re.sub(r'[^A-Za-z0-9._-]+', '-', str(booking.get('person_name') or 'participant')).strip('-') or 'participant'}-questionnaire.pdf",
+                    "mime": "application/pdf",
+                    "bytes": _render_training_questionnaire_pdf(run, booking),
+                }
+            )
+    return attachments
+
+
+def _build_training_certificate_attachment(run: dict[str, Any], booking: dict[str, Any], org_name: str | None = None) -> dict[str, Any]:
+    filename = f"{re.sub(r'[^A-Za-z0-9._-]+', '-', str(booking.get('person_name') or 'participant')).strip('-') or 'participant'}-certificate.pdf"
+    return {
+        "filename": filename,
+        "mime": "application/pdf",
+        "bytes": _render_training_certificate_pdf(run, booking, company_profile={"company_display_name": org_name or "Net Zero International"}),
+    }
+
+
+def _send_training_email(
+    con,
+    *,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    body_html: str | None,
+    created_by: str,
+    job_id: int,
+    client_db_id: int | None,
+    template_key: str,
+    metadata: dict[str, Any],
+    attachments: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+    return send_tracked_email(
+        con,
+        to_email=to_email,
+        subject=subject,
+        body_text=body_text,
+        body_html=body_html,
+        created_by=created_by,
+        job_id=job_id,
+        client_db_id=client_db_id,
+        template_key=template_key,
+        entity_type="training_automation",
+        entity_id=None,
+        metadata=metadata,
+        attachments=attachments,
+        raise_on_error=False,
+    )
+
+
+def _execute_training_reminders(
+    con,
+    *,
+    org_id: str,
+    training_course_run_id: int,
+    actor: str,
+    mode: str = "preview",
+) -> dict[str, Any]:
+    run_row = _get_training_run_row(con, org_id, training_course_run_id)
+    run = _automation_payload(run_row)
+    bookings = _get_run_bookings(con, org_id, training_course_run_id)
+    schedule = [int(x) for x in _json_list(run.get("reminder_schedule"), [7, 1, 0]) if str(x).strip() != ""]
+    start_text = run.get("start_date")
+    if not start_text:
+        return {"ok": True, "mode": mode, "trigger_key": "reminders", "planned": [], "sent_count": 0}
+
+    try:
+        start_date = date.fromisoformat(str(start_text))
+    except Exception:
+        return {"ok": True, "mode": mode, "trigger_key": "reminders", "planned": [], "sent_count": 0}
+
+    today = datetime.now(timezone.utc).date()
+    days_until = (start_date - today).days
+    if days_until not in schedule:
+        return {"ok": True, "mode": mode, "trigger_key": "reminders", "planned": [], "sent_count": 0, "days_until": days_until}
+    if not bool(run.get("reminder_enabled")):
+        return {"ok": True, "mode": mode, "trigger_key": "reminders", "planned": [], "sent_count": 0, "disabled": True}
+
+    planned: list[dict[str, Any]] = []
+    sent_count = 0
+    for booking in bookings:
+        if not _training_participant_email_allowed(booking):
+            continue
+        automation_key = f"training-reminder:{training_course_run_id}:{days_until}:{booking['training_booking_id']}"
+        if _ensure_training_automation_log(con, org_id, training_course_run_id, automation_key):
+            continue
+        subject = _training_reminder_subject(run, days_until)
+        ctx = {
+            "participant_name": booking.get("person_name") or "Participant",
+            "person_name": booking.get("person_name") or "Participant",
+            "job_number": f"Job {run.get('job_id')}",
+            "job_id": run.get("job_id"),
+            "course_name": _training_course_display_name(run),
+            "run_name": _training_course_display_name(run),
+            "start_date": start_date.isoformat(),
+            "days_until": days_until,
+            "recipient_name": booking.get("person_name") or "Participant",
+            "custom_message": "We look forward to welcoming you to the course.",
+            "sender_name": actor,
+        }
+        if str(run.get("reminder_subject_template") or "").strip():
+            subject = render_template_text(str(run.get("reminder_subject_template") or ""), ctx).strip() or subject
+        if str(run.get("reminder_body_template") or "").strip():
+            rendered_body = render_template_text(str(run.get("reminder_body_template") or ""), ctx)
+            custom_body_html = rendered_body
+        else:
+            custom_body_html = None
+        rendered = build_email_content(
+            con=con,
+            template_key="training_reminder",
+            context=ctx,
+            fallback_subject=subject,
+            fallback_body=(
+                f"<p>Hi {booking.get('person_name') or 'Participant'},</p>"
+                f"<p>This is a reminder that <strong>{_training_course_display_name(run)}</strong> starts on {start_date.isoformat()}.</p>"
+                f"<p>We look forward to welcoming you.</p>"
+                f"<p>Kind regards,<br/>{actor}</p>"
+            ),
+            sender_identifier=actor,
+            override_body=custom_body_html,
+        )
+        planned.append(
+            {
+                "automation_key": automation_key,
+                "booking_id": booking["training_booking_id"],
+                "recipient_email": booking.get("person_email"),
+                "subject": rendered["subject"],
+            }
+        )
+        if mode == "send":
+            _record_training_automation(
+                con,
+                org_id=org_id,
+                training_course_run_id=training_course_run_id,
+                automation_key=automation_key,
+                trigger_key="reminders",
+                action_type="reminder",
+                recipient_name=booking.get("person_name"),
+                recipient_email=booking.get("person_email"),
+                subject=rendered["subject"],
+                status="pending",
+                created_by=actor,
+                training_booking_id=int(booking["training_booking_id"]),
+                metadata={"days_until": days_until},
+            )
+            send_res = _send_training_email(
+                con,
+                to_email=str(booking.get("person_email") or "").strip(),
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
+                created_by=actor,
+                job_id=int(run.get("job_id")),
+                client_db_id=booking.get("client_db_id"),
+                template_key="training_reminder",
+                metadata={"automation_key": automation_key, "days_until": days_until},
+            )
+            if str(send_res.get("status") or "") == "sent":
+                sent_count += 1
+                _update_training_automation_log_status(
+                    con,
+                    org_id=org_id,
+                    training_course_run_id=training_course_run_id,
+                    automation_key=automation_key,
+                    status="sent",
+                    sent_at=datetime.now(timezone.utc),
+                )
+            else:
+                _update_training_automation_log_status(
+                    con,
+                    org_id=org_id,
+                    training_course_run_id=training_course_run_id,
+                    automation_key=automation_key,
+                    status="failed",
+                    error_text=str(send_res.get("error") or "Failed to send"),
+                )
+
+    return {
+        "ok": True,
+        "mode": mode,
+        "trigger_key": "reminders",
+        "days_until": days_until,
+        "planned": planned,
+        "sent_count": sent_count,
+    }
+
+
+def _execute_training_completion_pack(
+    con,
+    *,
+    org_id: str,
+    training_course_run_id: int,
+    actor: str,
+    mode: str = "preview",
+) -> dict[str, Any]:
+    run_row = _get_training_run_row(con, org_id, training_course_run_id)
+    run = _automation_payload(run_row)
+    if not _all_sessions_completed(con, org_id, training_course_run_id):
+        return {"ok": True, "mode": mode, "trigger_key": "completion_pack", "planned": [], "sent_count": 0, "ready": False}
+
+    bookings = _get_run_bookings(con, org_id, training_course_run_id)
+    company_profile = get_company_profile(con)
+    planned: list[dict[str, Any]] = []
+    sent_count = 0
+    for booking in bookings:
+        if not _training_participant_email_allowed(booking):
+            continue
+        automation_key = f"training-completion:{training_course_run_id}:{booking['training_booking_id']}"
+        if _ensure_training_automation_log(con, org_id, training_course_run_id, automation_key):
+            continue
+
+        attachments: list[dict[str, Any]] = []
+        if bool(run.get("auto_certificate", True)):
+            attachments.append(_build_training_certificate_attachment(run, booking, org_name=company_profile.get("company_display_name")))
+        attachments.extend(_build_training_documents(run, booking))
+        subject = str(run.get("completion_subject_template") or _training_completion_subject(run)).strip()
+        ctx = {
+            "participant_name": booking.get("person_name") or "Participant",
+            "person_name": booking.get("person_name") or "Participant",
+            "job_number": f"Job {run.get('job_id')}",
+            "course_name": _training_course_display_name(run),
+            "run_name": _training_course_display_name(run),
+            "custom_message": "Thank you for attending. Please find your certificate and follow-up documents attached.",
+            "sender_name": actor,
+        }
+        if str(run.get("completion_subject_template") or "").strip():
+            subject = render_template_text(str(run.get("completion_subject_template") or ""), ctx).strip() or subject
+        if str(run.get("completion_body_template") or "").strip():
+            custom_body_html = render_template_text(str(run.get("completion_body_template") or ""), ctx)
+        else:
+            custom_body_html = None
+        rendered = build_email_content(
+            con=con,
+            template_key="training_completion",
+            context=ctx,
+            fallback_subject=subject,
+            fallback_body=(
+                f"<p>Hi {booking.get('person_name') or 'Participant'},</p>"
+                f"<p>Thank you for attending <strong>{_training_course_display_name(run)}</strong>.</p>"
+                f"<p>Your certificate and follow-up documents are attached.</p>"
+                f"<p>Kind regards,<br/>{actor}</p>"
+            ),
+            sender_identifier=actor,
+            override_subject=subject if run.get("completion_subject_template") else None,
+            override_body=custom_body_html,
+        )
+        planned.append(
+            {
+                "automation_key": automation_key,
+                "booking_id": booking["training_booking_id"],
+                "recipient_email": booking.get("person_email"),
+                "subject": rendered["subject"],
+                "attachments": [att["filename"] for att in attachments],
+            }
+        )
+        if mode == "send":
+            _record_training_automation(
+                con,
+                org_id=org_id,
+                training_course_run_id=training_course_run_id,
+                automation_key=automation_key,
+                trigger_key="completion_pack",
+                action_type="completion_pack",
+                recipient_name=booking.get("person_name"),
+                recipient_email=booking.get("person_email"),
+                subject=rendered["subject"],
+                status="pending",
+                created_by=actor,
+                training_booking_id=int(booking["training_booking_id"]),
+                metadata={"attachments": [att["filename"] for att in attachments]},
+            )
+            send_res = _send_training_email(
+                con,
+                to_email=str(booking.get("person_email") or "").strip(),
+                subject=rendered["subject"],
+                body_text=rendered["body_text"],
+                body_html=rendered["body_html"],
+                created_by=actor,
+                job_id=int(run.get("job_id")),
+                client_db_id=booking.get("client_db_id"),
+                template_key="training_completion",
+                metadata={"automation_key": automation_key, "trigger_key": "completion_pack"},
+                attachments=attachments,
+            )
+            if str(send_res.get("status") or "") == "sent":
+                sent_count += 1
+                _update_training_automation_log_status(
+                    con,
+                    org_id=org_id,
+                    training_course_run_id=training_course_run_id,
+                    automation_key=automation_key,
+                    status="sent",
+                    sent_at=datetime.now(timezone.utc),
+                )
+            else:
+                _update_training_automation_log_status(
+                    con,
+                    org_id=org_id,
+                    training_course_run_id=training_course_run_id,
+                    automation_key=automation_key,
+                    status="failed",
+                    error_text=str(send_res.get("error") or "Failed to send"),
+                )
+
+    if mode == "send" and sent_count:
+        con.execute(
+            "UPDATE training_course_runs SET completed_at = COALESCE(completed_at, NOW()), updated_at = NOW() WHERE training_course_run_id = ? AND org_id = ?",
+            [int(training_course_run_id), org_id],
+        )
+    return {
+        "ok": True,
+        "mode": mode,
+        "trigger_key": "completion_pack",
+        "ready": True,
+        "planned": planned,
+        "sent_count": sent_count,
     }
 
 
@@ -1223,7 +2018,10 @@ def create_job_training_course_run(
             SELECT r.training_course_run_id, r.org_id, r.job_id, r.training_product_id, p.product_name,
                    r.run_name, r.course_code, r.total_hours, r.delivery_mode, r.capacity, r.min_attendees,
                    r.status, r.workflow_stage_key, r.start_date, r.end_date, r.venue_name, r.venue_address,
-                   r.online_meeting_url, r.online_meeting_id, r.online_passcode, r.notes, 0, 0,
+                   r.online_meeting_url, r.online_meeting_id, r.online_passcode, r.notes,
+                   r.reminder_enabled, r.reminder_schedule_json, r.reminder_subject_template, r.reminder_body_template,
+                   r.completion_subject_template, r.completion_body_template, r.post_course_documents_json,
+                   r.auto_certificate, r.certificate_template_key, r.completed_at, 0, 0,
                    r.created_at, r.created_by, r.updated_at, r.updated_by
             FROM training_course_runs r
             LEFT JOIN training_products p ON p.training_product_id = r.training_product_id
@@ -1549,6 +2347,11 @@ def update_training_course_session(
         sessions = _get_training_course_sessions(con, org_id, job_id)
         for session in sessions:
             if session["training_course_session_id"] == int(training_course_session_id):
+                if str(values["status"] or "").strip().lower() == "completed" and _all_sessions_completed(con, org_id, int(session["training_course_run_id"])):
+                    try:
+                        _execute_training_completion_pack(con, org_id=org_id, training_course_run_id=int(session["training_course_run_id"]), actor=actor, mode="send")
+                    except Exception:
+                        pass
                 return session
         raise HTTPException(status_code=500, detail="Training session update failed")
 
@@ -1622,8 +2425,99 @@ def upsert_training_session_attendance(
         sessions = _get_training_course_sessions(con, org_id, job_id)
         for session in sessions:
             if session["training_course_session_id"] == int(training_course_session_id):
+                if str(session.get("status") or "").strip().lower() == "completed" and _all_sessions_completed(con, org_id, int(session["training_course_run_id"])):
+                    try:
+                        _execute_training_completion_pack(con, org_id=org_id, training_course_run_id=int(session["training_course_run_id"]), actor=actor, mode="send")
+                    except Exception:
+                        pass
                 return session
         raise HTTPException(status_code=500, detail="Training attendance update failed")
+
+
+@router.get("/training-course-runs/{training_course_run_id}/automation")
+def get_training_course_run_automation(
+    training_course_run_id: int,
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    org_id = require_org(_user)
+    with get_conn() as con:
+        _ensure_tables(con)
+        _assert_run_access(_user, con, int(training_course_run_id), org_id)
+        return _get_run_automation(con, org_id, int(training_course_run_id))
+
+
+@router.put("/training-course-runs/{training_course_run_id}/automation")
+def save_training_course_run_automation(
+    training_course_run_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.edit")
+    org_id = require_org(_user)
+    actor = _actor(_user)
+    with get_conn() as con:
+        _ensure_tables(con)
+        _assert_run_access(_user, con, int(training_course_run_id), org_id)
+        values = {
+            "reminder_enabled": _clean_bool(body.get("reminder_enabled"), True),
+            "reminder_schedule_json": _json_text(body.get("reminder_schedule_json"), [7, 1, 0]),
+            "reminder_subject_template": _clean_text(body.get("reminder_subject_template")),
+            "reminder_body_template": _clean_text(body.get("reminder_body_template")),
+            "completion_subject_template": _clean_text(body.get("completion_subject_template")),
+            "completion_body_template": _clean_text(body.get("completion_body_template")),
+            "post_course_documents_json": _json_text(body.get("post_course_documents_json"), []),
+            "auto_certificate": _clean_bool(body.get("auto_certificate"), True),
+            "certificate_template_key": _clean_text(body.get("certificate_template_key")) or "training_certificate",
+        }
+        con.execute(
+            """
+            UPDATE training_course_runs
+            SET reminder_enabled = ?, reminder_schedule_json = ?, reminder_subject_template = ?, reminder_body_template = ?,
+                completion_subject_template = ?, completion_body_template = ?, post_course_documents_json = ?,
+                auto_certificate = ?, certificate_template_key = ?, updated_at = NOW(), updated_by = ?
+            WHERE training_course_run_id = ? AND org_id = ?
+            """,
+            [
+                values["reminder_enabled"],
+                values["reminder_schedule_json"],
+                values["reminder_subject_template"],
+                values["reminder_body_template"],
+                values["completion_subject_template"],
+                values["completion_body_template"],
+                values["post_course_documents_json"],
+                values["auto_certificate"],
+                values["certificate_template_key"],
+                actor,
+                int(training_course_run_id),
+                org_id,
+            ],
+        )
+        return _get_run_automation(con, org_id, int(training_course_run_id))
+
+
+@router.post("/training-course-runs/{training_course_run_id}/automation/run")
+def run_training_course_automation(
+    training_course_run_id: int,
+    body: dict = Body(...),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.edit")
+    org_id = require_org(_user)
+    actor = _actor(_user)
+    mode = str(body.get("mode") or "preview").strip().lower()
+    trigger_key = str(body.get("trigger_key") or "reminders").strip().lower()
+    if mode not in {"preview", "send"}:
+        raise HTTPException(status_code=400, detail="mode must be preview or send")
+    if trigger_key not in {"reminders", "completion_pack"}:
+        raise HTTPException(status_code=400, detail="trigger_key must be reminders or completion_pack")
+
+    with get_conn() as con:
+        _ensure_tables(con)
+        _assert_run_access(_user, con, int(training_course_run_id), org_id)
+        if trigger_key == "reminders":
+            return _execute_training_reminders(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
+        return _execute_training_completion_pack(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
 
 
 @router.get("/training-entitlements")

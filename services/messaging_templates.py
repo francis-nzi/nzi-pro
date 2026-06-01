@@ -145,7 +145,30 @@ DEFAULT_EMAIL_TEMPLATES: list[dict[str, str]] = [
             "<p>Kind regards,<br/>{{crm_name}}</p>"
         ),
     },
-]
+    {
+        "template_key": "training_reminder",
+        "template_name": "Training Reminder",
+        "subject_template": "Reminder: {{course_name}} starts {{start_date}}",
+        "body_template": (
+            "<p>Hi {{participant_name}},</p>"
+            "<p>This is a reminder that <strong>{{course_name}}</strong> starts on <strong>{{start_date}}</strong>.</p>"
+            "<p>{{custom_message}}</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+    {
+        "template_key": "training_completion",
+        "template_name": "Training Completion Pack",
+        "subject_template": "Training completion pack: {{course_name}}",
+        "body_template": (
+            "<p>Hi {{participant_name}},</p>"
+            "<p>Thank you for attending <strong>{{course_name}}</strong>.</p>"
+            "<p>Your certificate and follow-up documents are attached.</p>"
+            "<p>{{custom_message}}</p>"
+            "<p>Kind regards,<br/>{{sender_name}}</p>"
+        ),
+    },
+] 
 
 
 def _strip_html(value: str) -> str:
