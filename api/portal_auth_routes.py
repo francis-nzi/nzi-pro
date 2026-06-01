@@ -22,6 +22,9 @@ from services.portal import (
     set_portal_user_password,
 )
 from services.outbound_email import send_tracked_email
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     import jwt as pyjwt
@@ -151,6 +154,7 @@ def portal_password_reset_request(payload: PasswordResetRequestPayload = Body(..
         reset_url = f"{_portal_base_url()}/reset-password?token={token}"
         try:
             send_tracked_email(
+                con,
                 to_email=payload.email,
                 subject="NZInsights — reset your password",
                 body_text=(
@@ -167,9 +171,11 @@ def portal_password_reset_request(payload: PasswordResetRequestPayload = Body(..
                 template_key="portal_password_reset",
                 entity_type="portal_user",
                 created_by="portal-self-service",
+                raise_on_error=False,
             )
+            logger.info("portal password reset email queued for %s", payload.email)
         except Exception:
-            pass  # Never fail the request due to email issues
+            logger.exception("portal password reset email failed for %s", payload.email)
 
     return {"ok": True, "message": "If that email is registered you will receive a reset link shortly"}
 
