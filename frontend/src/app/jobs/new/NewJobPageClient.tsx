@@ -748,7 +748,13 @@ function NewJobPageContent() {
                             const familyDescription = getJobFamilyDescription(family);
                             return (
                               <SelectItem key={jt.job_type_id} value={jt.name}>
-                                {jt.name} • {familyLabel} — {familyDescription}
+                                <div className="flex items-center gap-2">
+                                  <span>{jt.name}</span>
+                                  <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
+                                    {familyLabel}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground">{familyDescription}</div>
                               </SelectItem>
                             );
                           })}
