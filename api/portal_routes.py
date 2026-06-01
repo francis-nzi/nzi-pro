@@ -275,6 +275,140 @@ def portal_report_meta(job_id: int, current_user: dict = Depends(portal_user_dep
 
 
 # ---------------------------------------------------------------------------
+# Portal snapshot data — frozen JSON payload sent by CRM via Send to Portal
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/jobs/{job_id}/portal-snapshot-data")
+def portal_snapshot_data(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Return the frozen report data snapshot that the CRM sent to this client.
+
+    The snapshot is keyed by report_reviews.portal_version_id so the client
+    always sees exactly the version the CRM explicitly sent, not live data.
+    Returns { status: 'not_sent' } with 404 if no version has been sent yet.
+    """
+    import json as _json
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _assert_job_belongs_to_client(job_id, client_db_id, con)
+
+        # Load the review record and resolve the portal version
+        review_row = con.execute(
+            """
+            SELECT rr.status, rr.portal_version_id,
+                   rr.approved_at, rr.approved_by_name,
+                   rr.published_at, rr.pdf_version_id,
+                   rr.sent_for_review_at, rr.review_id
+            FROM report_reviews rr
+            WHERE rr.job_id = %s
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+        if not review_row or not review_row[1]:
+            raise HTTPException(
+                status_code=404,
+                detail="not_sent",
+            )
+
+        review_status = str(review_row[0] or "draft")
+        portal_version_id = int(review_row[1])
+
+        version_row = con.execute(
+            """
+            SELECT snapshot_json, version_label, version_number, reviewed_at
+            FROM job_report_versions
+            WHERE report_version_id = %s AND snapshot_json IS NOT NULL
+            """,
+            [portal_version_id],
+        ).fetchone()
+
+    if not version_row or not version_row[0]:
+        raise HTTPException(
+            status_code=404,
+            detail="not_sent",
+        )
+
+    try:
+        snapshot = _json.loads(version_row[0])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Snapshot is corrupted: {exc}") from exc
+
+    def _dt(v):
+        try:
+            return v.isoformat() if v else None
+        except Exception:
+            return None
+
+    return {
+        "ok": True,
+        "snapshot": snapshot,
+        "review_status": review_status,
+        "version_label": str(version_row[1] or ""),
+        "version_number": int(version_row[2]) if version_row[2] is not None else None,
+        "sent_at": _dt(version_row[3]),
+        "approved_at": _dt(review_row[2]),
+        "approved_by_name": str(review_row[3] or "") or None,
+        "published_at": _dt(review_row[4]),
+        "review_id": int(review_row[7]) if review_row[7] is not None else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# PDF download — available to client after CRM publishes
+# ---------------------------------------------------------------------------
+
+@router.get("/portal/jobs/{job_id}/download-pdf")
+def portal_download_pdf(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    """Serve the published PDF to the client.  Only available after CRM clicks Publish PDF."""
+    from fastapi.responses import Response as _Response
+    import pathlib as _pathlib
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _assert_job_belongs_to_client(job_id, client_db_id, con)
+
+        review_row = con.execute(
+            "SELECT published_at, pdf_version_id FROM report_reviews WHERE job_id = %s",
+            [int(job_id)],
+        ).fetchone()
+
+    if not review_row or not review_row[0]:
+        raise HTTPException(
+            status_code=404,
+            detail="The PDF is not yet available. Your consultant will notify you when it has been published.",
+        )
+
+    pdf_version_id = review_row[1]
+    if not pdf_version_id:
+        raise HTTPException(status_code=404, detail="PDF version not found.")
+
+    with get_conn() as con:
+        version_row = con.execute(
+            "SELECT file_path, file_name FROM job_report_versions WHERE report_version_id = %s",
+            [int(pdf_version_id)],
+        ).fetchone()
+
+    if not version_row or not version_row[0]:
+        raise HTTPException(status_code=404, detail="PDF file not found.")
+
+    file_path = _pathlib.Path(str(version_row[0]))
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="PDF file not found on server.")
+
+    pdf_bytes = file_path.read_bytes()
+    filename = str(version_row[1] or f"report-job-{job_id}.pdf")
+    return _Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Comments
 # ---------------------------------------------------------------------------
 

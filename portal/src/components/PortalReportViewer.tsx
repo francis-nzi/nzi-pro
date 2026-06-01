@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -447,27 +447,92 @@ function MetaRow({ label, value }: { label: string; value: string | number | nul
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+type Comment = {
+  comment_id: number;
+  comment_text: string;
+  section_reference: string | null;
+  status: string;
+  author_name: string;
+  created_at: string | null;
+};
+
 export default function PortalReportViewer({ jobId }: { jobId: number }) {
   const [data, setData] = useState<LiveData | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<string>("not_sent");
+
+  // Review Notes panel state
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [currentSection, setCurrentSection] = useState<string>("General");
+  const [noteText, setNoteText] = useState("");
+  const [submittingNote, setSubmittingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteSuccess, setNoteSuccess] = useState(false);
+  const [existingComments, setExistingComments] = useState<Comment[]>([]);
+
+  // Intersection Observer to detect current section as user scrolls
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const setupObserver = useCallback(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+    const sections = document.querySelectorAll<HTMLElement>("[data-section]");
+    if (!sections.length) return;
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter(e => e.isIntersecting);
+        if (visible.length > 0) {
+          const section = (visible[0].target as HTMLElement).dataset.section;
+          if (section) setCurrentSection(section);
+        }
+      },
+      { threshold: 0.2 }
+    );
+    sections.forEach(el => observerRef.current!.observe(el));
+  }, []);
+
+  const loadComments = useCallback(() => {
+    apiFetch(`/portal/jobs/${jobId}/comments`)
+      .then(async r => r.ok ? r.json() as Promise<{ comments: Comment[] }> : { comments: [] })
+      .then(d => setExistingComments(d.comments ?? []))
+      .catch(() => { /* non-fatal */ });
+  }, [jobId]);
 
   useEffect(() => {
     setLoading(true);
     setFetchError(null);
-    apiFetch(`/portal/jobs/${jobId}/live-report-data`)
+    apiFetch(`/portal/jobs/${jobId}/portal-snapshot-data`)
       .then(async r => {
         if (!r.ok) {
-          let detail = `${r.status} ${r.statusText}`;
-          try { const body = await r.json() as { detail?: string }; if (body.detail) detail = body.detail; } catch { /* ignore */ }
-          throw new Error(detail);
+          const body = await r.json().catch(() => ({})) as { detail?: string };
+          if (r.status === 404) {
+            setReviewStatus("not_sent");
+            return null;
+          }
+          throw new Error(body.detail ?? `${r.status} ${r.statusText}`);
         }
-        return r.json() as Promise<LiveData>;
+        return r.json() as Promise<{ snapshot: LiveData; review_status: string }>;
       })
-      .then(d => setData(d))
+      .then(d => {
+        if (!d) return;
+        setData(d.snapshot);
+        setReviewStatus(d.review_status ?? "sent_for_review");
+      })
       .catch(e => setFetchError(String(e)))
       .finally(() => setLoading(false));
   }, [jobId]);
+
+  useEffect(() => {
+    if (data) {
+      // Give React time to render sections before observing
+      const t = setTimeout(setupObserver, 300);
+      return () => clearTimeout(t);
+    }
+  }, [data, setupObserver]);
+
+  useEffect(() => {
+    if (notesOpen) loadComments();
+  }, [notesOpen, loadComments]);
 
   // Must be declared before early returns (Rules of Hooks)
   const effectiveYearlyEmissions: YearlyEmission[] = useMemo(() => {
@@ -479,10 +544,49 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
     return [{ year: by, scope1: toNum(data?.scope_totals?.["Scope 1"]), scope2: toNum(data?.scope_totals?.["Scope 2"]), scope3: toNum(data?.scope_totals?.["Scope 3"]), total: te }];
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function submitNote() {
+    if (!noteText.trim()) return;
+    setSubmittingNote(true);
+    setNoteError(null);
+    setNoteSuccess(false);
+    try {
+      const res = await apiFetch(`/portal/jobs/${jobId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment_text: noteText.trim(), section_reference: currentSection }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { detail?: string };
+        throw new Error(body.detail ?? `Failed to submit note (${res.status})`);
+      }
+      setNoteText("");
+      setNoteSuccess(true);
+      loadComments();
+      setTimeout(() => setNoteSuccess(false), 3000);
+    } catch (e) {
+      setNoteError(String(e));
+    } finally {
+      setSubmittingNote(false);
+    }
+  }
+
+  const canAddNotes = reviewStatus === "sent_for_review" || reviewStatus === "changes_requested";
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="text-center text-sm text-gray-400">Loading report…</div>
+      </div>
+    );
+  }
+
+  if (reviewStatus === "not_sent" || (!data && !fetchError)) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="text-center space-y-2">
+          <div className="text-sm font-medium text-gray-600">Report being prepared</div>
+          <div className="text-xs text-gray-400">Your consultant will notify you when the report is ready for review.</div>
+        </div>
       </div>
     );
   }
@@ -545,7 +649,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       <CoverPage data={data} />
 
       {/* ── 2. Executive Summary ───────────────────────────────────────── */}
-      <Card>
+      <Card data-section="Executive Summary">
         <CardHeader className="pb-3">
           <SectionHeader title="Executive Summary" />
         </CardHeader>
@@ -791,7 +895,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       </Card>
 
       {/* ── 4b. Carbon Emissions Overview ──────────────────────────────── */}
-      <Card>
+      <Card data-section="Carbon Emissions Overview">
         <CardHeader className="pb-3">
           <SectionHeader title="Carbon Emissions Overview" />
         </CardHeader>
@@ -837,7 +941,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       </Card>
 
       {/* ── 5. Analysis by Scope ───────────────────────────────────────── */}
-      <Card>
+      <Card data-section="Analysis by Scope">
         <CardHeader className="pb-3">
           <SectionHeader title="Analysis by Scope" />
         </CardHeader>
@@ -964,14 +1068,14 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           )}
 
           <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-            <p className="text-xs italic text-gray-600">Reported Scope 3 emissions may increase in future years as more detailed data and information become available.</p>
+            <p className="text-xs text-gray-600">Reported Scope 3 emissions may increase in future years as more detailed data and information become available.</p>
           </div>
         </CardContent>
       </Card>
 
       {/* ── 6. Emissions by Activity ───────────────────────────────────── */}
       {activityBarData.length > 0 && (
-        <Card>
+        <Card data-section="Emissions by Activity">
           <CardHeader className="pb-3">
             <SectionHeader title="Emissions by Activity" />
           </CardHeader>
@@ -1109,7 +1213,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
           );
         }
         return (
-          <Card>
+          <Card data-section="Emissions by Scope and Category">
             <CardHeader className="pb-3"><SectionHeader title="Emissions by Scope and Category" /></CardHeader>
             <CardContent className="space-y-4">
               <div className="overflow-hidden rounded-lg border border-gray-200">
@@ -1193,7 +1297,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
         const employeeCount = toNum(intensity_metrics.employees?.value);
 
         return (
-          <Card>
+          <Card data-section="Intensity Metric Analysis">
             <CardHeader className="pb-3"><SectionHeader title="Intensity Metric Analysis" /></CardHeader>
             <CardContent className="space-y-5">
               <p className="text-sm text-gray-700 leading-relaxed">
@@ -1250,7 +1354,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
       {/* ── 9. Historical Emissions Trend ──────────────────────────────── */}
       {effectiveYearlyEmissions.length > 0 && (
-        <Card>
+        <Card data-section="Historical Emissions Trend">
           <CardHeader className="pb-3"><SectionHeader title="Historical Emissions Trend" /></CardHeader>
           <CardContent>
             <div className="h-[300px]">
@@ -1274,7 +1378,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       )}
 
       {/* ── 10. Carbon Reduction Actions ───────────────────────────────── */}
-      <Card>
+      <Card data-section="Carbon Reduction Actions">
         <CardHeader className="pb-3"><SectionHeader title="Carbon Reduction Actions" /></CardHeader>
         <CardContent className="space-y-5">
           <p className="text-sm text-gray-700 leading-relaxed">
@@ -1325,7 +1429,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       </Card>
 
       {/* ── 12. Standards & Methodology ────────────────────────────────── */}
-      <Card>
+      <Card data-section="Standards & Methodology">
         <CardHeader className="pb-3"><SectionHeader title="Standards & Methodology" /></CardHeader>
         <CardContent className="space-y-4 text-sm text-gray-700">
           <table className="w-full border-collapse text-xs">
@@ -1356,7 +1460,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
       </Card>
 
       {/* ── 13. Declaration / Sign-off ──────────────────────────────────── */}
-      <Card>
+      <Card data-section="Declaration and Sign Off">
         <CardHeader className="pb-3"><SectionHeader title="Declaration and Sign Off" /></CardHeader>
         <CardContent className="space-y-5">
           <div className="rounded-lg border-2 border-red-400 p-5 space-y-3">
@@ -1389,7 +1493,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
       {/* ── 14. Glossary ───────────────────────────────────────────────── */}
       {hasGlossary && (
-        <Card>
+        <Card data-section="Glossary">
           <CardHeader className="pb-3"><SectionHeader title="Glossary" /></CardHeader>
           <CardContent>
             <table className="w-full border-collapse">
@@ -1414,7 +1518,7 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
 
       {/* ── 15. Appendix — Full Emissions Audit ────────────────────────── */}
       {hasAppendix && (
-        <Card>
+        <Card data-section="Appendix 1 — Full Emissions Audit">
           <CardHeader className="pb-3"><SectionHeader title="Appendix — Full Emissions Audit" /></CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -1453,6 +1557,79 @@ export default function PortalReportViewer({ jobId }: { jobId: number }) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* ── Review Commentary button (bottom of report) ────────────────── */}
+      {canAddNotes && (
+        <div className="flex justify-center py-8">
+          <button
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setTimeout(() => setNotesOpen(true), 400);
+            }}
+            className="rounded-lg px-6 py-3 text-sm font-semibold text-white shadow-md transition hover:opacity-90"
+            style={{ backgroundColor: BRAND }}
+          >
+            Review Commentary &amp; Edits
+          </button>
+        </div>
+      )}
+
+      {/* ── Floating Review Notes panel ────────────────────────────────── */}
+      {notesOpen && canAddNotes && (
+        <div
+          className="fixed top-20 right-4 z-50 flex w-80 flex-col rounded-xl border border-gray-200 bg-white shadow-2xl"
+          style={{ maxHeight: "calc(100vh - 100px)" }}
+        >
+          <div className="flex items-center justify-between rounded-t-xl px-4 py-3 text-white" style={{ backgroundColor: BRAND }}>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Review Notes</div>
+              <div className="text-xs opacity-70 truncate">Section: {currentSection}</div>
+            </div>
+            <button onClick={() => setNotesOpen(false)} className="ml-2 rounded p-1 hover:bg-white/20 text-white">✕</button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" style={{ maxHeight: 260 }}>
+            {existingComments.filter((c: any) => c.author_type === "client").length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">No notes yet. Add your first note below.</p>
+            ) : (
+              existingComments
+                .filter((c: any) => c.author_type === "client")
+                .map(c => (
+                  <div key={c.comment_id} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                    {c.section_reference && (
+                      <div className="text-gray-400 font-medium mb-0.5">{c.section_reference}</div>
+                    )}
+                    <div className="text-gray-700">{c.comment_text}</div>
+                    <div className={`mt-1 text-gray-400 ${c.status === "addressed" ? "line-through" : ""}`}>
+                      {c.status === "addressed" ? "Addressed" : "Open"}
+                    </div>
+                  </div>
+                ))
+            )}
+          </div>
+
+          <div className="border-t border-gray-100 px-3 py-3 space-y-2">
+            <div className="text-xs text-gray-500">Adding note for: <span className="font-medium text-gray-700">{currentSection}</span></div>
+            <textarea
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-blue-400"
+              rows={3}
+              placeholder="Add a note or change request…"
+              value={noteText}
+              onChange={e => setNoteText(e.target.value)}
+            />
+            {noteError && <div className="text-xs text-red-600">{noteError}</div>}
+            {noteSuccess && <div className="text-xs text-green-600">Note submitted.</div>}
+            <button
+              onClick={() => void submitNote()}
+              disabled={submittingNote || !noteText.trim()}
+              className="w-full rounded-md py-2 text-xs font-semibold text-white disabled:opacity-50"
+              style={{ backgroundColor: BRAND }}
+            >
+              {submittingNote ? "Submitting…" : "Submit Note"}
+            </button>
+          </div>
+        </div>
       )}
 
     </div>

@@ -123,6 +123,10 @@ def ensure_portal_schema(con) -> None:
         "ALTER TABLE client_portal_users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS sent_for_review_at TIMESTAMP",
         "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS pdf_generated_at TIMESTAMP",
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS portal_version_id BIGINT",
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS published_at TIMESTAMP",
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS published_by VARCHAR",
+        "ALTER TABLE report_reviews ADD COLUMN IF NOT EXISTS pdf_version_id BIGINT",
     ):
         try:
             con.execute(ddl)
@@ -374,6 +378,15 @@ def authenticate_portal_user(email: str, password: str, *, con=None) -> dict[str
 # Report reviews
 # ---------------------------------------------------------------------------
 
+_REVIEW_SELECT = """
+    SELECT review_id, job_id, status, sent_for_review_at, sent_by,
+           approved_at, approved_by_name, approved_by_email, pdf_generated_at,
+           created_at, updated_at,
+           portal_version_id, published_at, published_by, pdf_version_id
+    FROM report_reviews
+"""
+
+
 def _row_to_review(row) -> dict[str, Any]:
     return {
         "review_id": int(row[0]),
@@ -387,6 +400,10 @@ def _row_to_review(row) -> dict[str, Any]:
         "pdf_generated_at": str(row[8]) if row[8] else None,
         "created_at": str(row[9]) if row[9] else None,
         "updated_at": str(row[10]) if row[10] else None,
+        "portal_version_id": int(row[11]) if row[11] is not None else None,
+        "published_at": str(row[12]) if row[12] else None,
+        "published_by": str(row[13] or "") or None,
+        "pdf_version_id": int(row[14]) if row[14] is not None else None,
     }
 
 
@@ -396,18 +413,20 @@ def get_or_create_review(job_id: int, *, con=None) -> dict[str, Any]:
             return get_or_create_review(job_id, con=managed)
     ensure_portal_schema(con)
     row = con.execute(
-        """
-        SELECT review_id, job_id, status, sent_for_review_at, sent_by,
-               approved_at, approved_by_name, approved_by_email, pdf_generated_at,
-               created_at, updated_at
-        FROM report_reviews WHERE job_id = %s
-        """,
+        _REVIEW_SELECT + "WHERE job_id = %s",
         [int(job_id)],
     ).fetchone()
     if row:
         return _row_to_review(row)
     new_row = con.execute(
-        "INSERT INTO report_reviews (job_id, status) VALUES (%s, 'draft') RETURNING review_id, job_id, status, sent_for_review_at, sent_by, approved_at, approved_by_name, approved_by_email, pdf_generated_at, created_at, updated_at",
+        """
+        INSERT INTO report_reviews (job_id, status)
+        VALUES (%s, 'draft')
+        RETURNING review_id, job_id, status, sent_for_review_at, sent_by,
+                  approved_at, approved_by_name, approved_by_email, pdf_generated_at,
+                  created_at, updated_at,
+                  portal_version_id, published_at, published_by, pdf_version_id
+        """,
         [int(job_id)],
     ).fetchone()
     return _row_to_review(new_row)
@@ -479,6 +498,69 @@ def mark_pdf_generated(job_id: int, *, con=None) -> None:
         "UPDATE report_reviews SET pdf_generated_at = NOW(), updated_at = NOW() WHERE job_id = %s",
         [int(job_id)],
     )
+
+
+def send_to_portal(
+    job_id: int,
+    sent_by: str,
+    portal_version_id: int,
+    *,
+    con=None,
+) -> dict[str, Any]:
+    """Record that a frozen snapshot has been sent to the client portal.
+
+    Sets portal_version_id (which snapshot the portal will serve), updates
+    status to sent_for_review, and records who sent it and when.
+    """
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return send_to_portal(job_id, sent_by, portal_version_id, con=managed)
+    ensure_portal_schema(con)
+    review = get_or_create_review(job_id, con=con)
+    if review["status"] == "approved":
+        raise HTTPException(status_code=400, detail="This report has already been approved and cannot be re-sent")
+    con.execute(
+        """
+        UPDATE report_reviews
+        SET status = 'sent_for_review',
+            sent_for_review_at = NOW(),
+            sent_by = %s,
+            portal_version_id = %s,
+            updated_at = NOW()
+        WHERE job_id = %s
+        """,
+        [sent_by, int(portal_version_id), int(job_id)],
+    )
+    return get_or_create_review(job_id, con=con)
+
+
+def mark_published(
+    job_id: int,
+    published_by: str,
+    pdf_version_id: int,
+    *,
+    con=None,
+) -> dict[str, Any]:
+    """Record that the CRM has published the final PDF for client download."""
+    if con is None:
+        with get_conn(autocommit=False) as managed:
+            return mark_published(job_id, published_by, pdf_version_id, con=managed)
+    ensure_portal_schema(con)
+    review = get_or_create_review(job_id, con=con)
+    if review["status"] != "approved":
+        raise HTTPException(status_code=400, detail="Report must be approved by the client before publishing")
+    con.execute(
+        """
+        UPDATE report_reviews
+        SET published_at = NOW(),
+            published_by = %s,
+            pdf_version_id = %s,
+            updated_at = NOW()
+        WHERE job_id = %s
+        """,
+        [published_by, int(pdf_version_id), int(job_id)],
+    )
+    return get_or_create_review(job_id, con=con)
 
 
 # ---------------------------------------------------------------------------

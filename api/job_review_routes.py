@@ -24,8 +24,10 @@ from services.portal import (
     get_or_create_review,
     list_comments,
     list_portal_users,
+    mark_published,
     respond_to_comment,
     send_review_to_client,
+    send_to_portal,
     update_portal_user,
     set_portal_user_password,
 )
@@ -436,3 +438,193 @@ def crm_add_note(
             con=con,
         )
     return {"ok": True, "comment": comment}
+
+
+# ---------------------------------------------------------------------------
+# Send to Portal — saves a frozen snapshot and makes it visible to the client
+# ---------------------------------------------------------------------------
+
+@router.post("/jobs/{job_id}/review/send-to-portal")
+def send_job_to_portal(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    _user: dict = Depends(_current_user),
+):
+    """Save a frozen JSON snapshot of the current report and send it to the client portal.
+
+    This is the single controlled action by which the CRM makes a version of the
+    report visible to the client.  The snapshot is generated synchronously (JSON only,
+    no Playwright PDF) so it completes quickly.  An email notification is queued to
+    active portal users after the response is sent.
+    """
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    actor = _actor(_user)
+
+    try:
+        import hashlib as _hashlib
+        import json as _json
+        from datetime import datetime, timezone
+        from api.job_report_routes import (
+            get_job_data,
+            get_scope_totals,
+            get_emissions_by_category,
+            get_benchmark_emissions,
+            get_site_emissions_breakdowns,
+            _get_job_assigned_template_selection,
+            _get_template_variable_values_for_render,
+            _ensure_report_versions_schema,
+        )
+        from api.job_live_report_routes import _get_job_report_metadata
+
+        job_data = get_job_data(int(job_id))
+        if not job_data:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        scope_totals = get_scope_totals(int(job_id))
+        categories = get_emissions_by_category(int(job_id))
+        benchmark_totals = get_benchmark_emissions(int(job_id), job_data.get("benchmark_year"))
+        template_selection = _get_job_assigned_template_selection(int(job_id))
+        template_variables: dict[str, Any] = {}
+        if template_selection and template_selection.get("template_id") is not None:
+            try:
+                template_variables = _get_template_variable_values_for_render(
+                    int(job_id),
+                    int(template_selection["template_id"]),
+                    int(template_selection["version_id"]) if template_selection.get("version_id") is not None else None,
+                )
+            except Exception:
+                pass
+
+        site_breakdowns: dict[str, Any] = {}
+        try:
+            site_breakdowns = get_site_emissions_breakdowns(int(job_id))
+        except Exception:
+            pass
+
+        with get_conn() as con:
+            report_metadata = _get_job_report_metadata(int(job_id)) or {}
+
+        generation_date = datetime.now(timezone.utc).date().isoformat()
+        snapshot_payload: dict[str, Any] = {
+            "job_data": job_data,
+            "scope_totals": scope_totals,
+            "benchmark_totals": benchmark_totals,
+            "categories": categories,
+            "template_variables": template_variables,
+            "report_metadata": report_metadata,
+            "site_breakdowns": site_breakdowns,
+            "generation_date": generation_date,
+            "renderer": "react",
+        }
+        snapshot_json = _json.dumps(snapshot_payload, ensure_ascii=False, sort_keys=True, default=str)
+        data_hash = _hashlib.sha256(snapshot_json.encode()).hexdigest()
+
+        org_id_val = str(job_data.get("org_id") or "").strip() or None
+        client_db_id_val = int(job_data.get("client_db_id") or 0)
+        tmpl_id = int(template_selection["template_id"]) if template_selection and template_selection.get("template_id") is not None else None
+        tmpl_ver_id = int(template_selection["version_id"]) if template_selection and template_selection.get("version_id") is not None else None
+
+        with get_conn(autocommit=False) as con:
+            _ensure_report_versions_schema(con)
+            next_v_row = con.execute(
+                "SELECT COALESCE(MAX(version_number), 0) + 1 FROM job_report_versions WHERE job_id = %s",
+                [int(job_id)],
+            ).fetchone()
+            version_number = int(next_v_row[0]) if next_v_row else 1
+
+            # Insert snapshot-only version (no PDF file — portal serves the JSON directly)
+            version_row = con.execute(
+                """
+                INSERT INTO job_report_versions (
+                    org_id, job_id, client_db_id, version_number, version_label, status,
+                    report_format, template_id, version_id, data_hash, snapshot_json,
+                    generated_by, reviewed_at, reviewed_by
+                ) VALUES (%s, %s, %s, %s, 'For Client Review', 'review',
+                          'react', %s, %s, %s, %s,
+                          %s, NOW(), %s)
+                RETURNING report_version_id
+                """,
+                [
+                    org_id_val, int(job_id), client_db_id_val, version_number,
+                    tmpl_id, tmpl_ver_id, data_hash, snapshot_json,
+                    actor, actor,
+                ],
+            ).fetchone()
+
+        portal_version_id = int(version_row[0])
+
+        with get_conn(autocommit=False) as con:
+            review = send_to_portal(int(job_id), actor, portal_version_id, con=con)
+            portal_users = _get_active_portal_users_for_job(int(job_id), con=con)
+            job_row = con.execute(
+                "SELECT job_number, title FROM jobs WHERE job_id = %s", [int(job_id)]
+            ).fetchone()
+
+        job_ref = f"{job_row[0]} — {job_row[1]}" if job_row and job_row[0] else (str(job_row[1]) if job_row else f"Job {job_id}")
+        for pu in portal_users:
+            background_tasks.add_task(_notify_client_review_ready, pu, job_ref, int(job_id))
+
+        logger.info("send_job_to_portal: job %s sent to portal as version %s by %s", job_id, portal_version_id, actor)
+        return {
+            "ok": True,
+            "portal_version_id": portal_version_id,
+            "sent_to_count": len(portal_users),
+            "review": review,
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("send_job_to_portal: failed for job %s", job_id)
+        raise HTTPException(status_code=500, detail="Failed to send report to portal. Please try again.")
+
+
+# ---------------------------------------------------------------------------
+# Publish PDF — CRM explicitly publishes the final PDF for client download
+# ---------------------------------------------------------------------------
+
+@router.post("/jobs/{job_id}/review/publish-pdf")
+def publish_pdf_for_client(
+    job_id: int,
+    _user: dict = Depends(_current_user),
+):
+    """Mark the latest final PDF version as published and available for client download."""
+    assert_permission(_user, "jobs.edit")
+    assert_job_access(_user, int(job_id))
+    actor = _actor(_user)
+
+    with get_conn() as con:
+        review = get_or_create_review(int(job_id), con=con)
+        if review["status"] != "approved":
+            raise HTTPException(
+                status_code=400,
+                detail="The report must be approved by the client before publishing the PDF.",
+            )
+        # Find the most recent final version for this job
+        version_row = con.execute(
+            """
+            SELECT report_version_id, version_number, file_path, file_id
+            FROM job_report_versions
+            WHERE job_id = %s
+              AND lower(COALESCE(status, '')) = 'final'
+              AND snapshot_json IS NOT NULL
+            ORDER BY version_number DESC
+            LIMIT 1
+            """,
+            [int(job_id)],
+        ).fetchone()
+
+    if not version_row:
+        raise HTTPException(
+            status_code=404,
+            detail="No final report version found. Please generate and mark a version as Final in Report Printing before publishing.",
+        )
+
+    pdf_version_id = int(version_row[0])
+
+    with get_conn(autocommit=False) as con:
+        review = mark_published(int(job_id), actor, pdf_version_id, con=con)
+
+    logger.info("publish_pdf_for_client: job %s published version %s by %s", job_id, pdf_version_id, actor)
+    return {"ok": True, "published_at": review["published_at"], "pdf_version_id": pdf_version_id}

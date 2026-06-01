@@ -682,6 +682,8 @@ export default function JobAdvancedReports({
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [markingFinal, setMarkingFinal] = useState<number | null>(null);
   const [activeTemplate, setActiveTemplate] = useState<"crp" | "secr">("crp");
+  const [sendingToPortal, setSendingToPortal] = useState(false);
+  const [sendToPortalResult, setSendToPortalResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {
@@ -813,6 +815,23 @@ export default function JobAdvancedReports({
       setGenerateError(String(e));
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function sendToPortal() {
+    if (!confirm("Send this report to the client portal for review?\n\nThe client will be notified and will see the current version of the report.")) return;
+    setSendingToPortal(true);
+    setSendToPortalResult(null);
+    try {
+      const res = await authFetch(`${baseUrl}/jobs/${jobId}/review/send-to-portal`, { method: "POST" });
+      const body = await res.json() as { ok?: boolean; sent_to_count?: number; detail?: string };
+      if (!res.ok) throw new Error(body.detail ?? `Server returned ${res.status}`);
+      const count = body.sent_to_count ?? 0;
+      setSendToPortalResult({ ok: true, message: `Report sent to portal. ${count} client user${count === 1 ? "" : "s"} notified.` });
+    } catch (e) {
+      setSendToPortalResult({ ok: false, message: String(e) });
+    } finally {
+      setSendingToPortal(false);
     }
   }
 
@@ -1156,9 +1175,24 @@ export default function JobAdvancedReports({
             </Button>
             <Button
               size="sm"
+              onClick={() => void sendToPortal()}
+              disabled={sendingToPortal || generating || downloading}
+              className="bg-green-700 text-xs text-white hover:bg-green-800"
+            >
+              {sendingToPortal ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />
+                  Sending…
+                </span>
+              ) : (
+                "Send to Portal"
+              )}
+            </Button>
+            <Button
+              size="sm"
               onClick={() => void downloadPdf()}
               disabled={downloading || generating}
-              className="bg-green-700 text-xs text-white hover:bg-green-800"
+              className="bg-gray-700 text-xs text-white hover:bg-gray-800"
             >
               {downloading ? (
                 <span className="flex items-center gap-2">
@@ -1191,6 +1225,11 @@ export default function JobAdvancedReports({
                 — set the <code className="font-mono">FRONTEND_BASE_URL</code> environment variable on the API service in Render.
               </span>
             )}
+          </div>
+        )}
+        {sendToPortalResult && (
+          <div className={`border-t px-5 py-2 text-xs ${sendToPortalResult.ok ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+            {sendToPortalResult.message}
           </div>
         )}
       </div>
@@ -1292,7 +1331,7 @@ export default function JobAdvancedReports({
         <CoverPage data={data} />
 
         {/* ── 2. Executive Summary ───────────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Executive Summary">
           <CardHeader className="pb-3">
             <SectionHeader title="Executive Summary" />
           </CardHeader>
@@ -1400,7 +1439,7 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 3. Net Zero Commitment ─────────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Net Zero Commitment">
           <CardHeader className="pb-3">
             <SectionHeader title="Net Zero Commitment" />
           </CardHeader>
@@ -1497,7 +1536,7 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 4. Background & Organisation ───────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Background & Organisation">
           <CardHeader className="pb-3">
             <SectionHeader title="Background & Organisation" />
           </CardHeader>
@@ -1614,7 +1653,7 @@ export default function JobAdvancedReports({
 
 
         {/* ── 4b. Carbon Emissions Overview ──────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Carbon Emissions Overview">
           <CardHeader className="pb-3">
             <SectionHeader title="Carbon Emissions Overview" />
           </CardHeader>
@@ -1690,7 +1729,7 @@ export default function JobAdvancedReports({
 
 
         {/* ── 5. Analysis by Scope ───────────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Analysis by Scope">
           <CardHeader className="pb-3">
             <SectionHeader title="Analysis by Scope" />
           </CardHeader>
@@ -1939,7 +1978,7 @@ export default function JobAdvancedReports({
 
         {/* ── 6. Emissions by activity ───────────────────────────────────── */}
         {activityBarData.length > 0 && (
-          <Card className="live-report-section">
+          <Card className="live-report-section" data-section="Emissions by Activity">
             <CardHeader className="pb-3">
               <SectionHeader title="Emissions by Activity" />
             </CardHeader>
@@ -2130,7 +2169,7 @@ export default function JobAdvancedReports({
           }
 
           return (
-            <Card className="live-report-section">
+            <Card className="live-report-section" data-section="Emissions by Scope and Category">
               <CardHeader className="pb-3">
                 <SectionHeader title="Emissions by Scope and Category" />
               </CardHeader>
@@ -2263,7 +2302,7 @@ export default function JobAdvancedReports({
           const employeeCount = toNum(intensity_metrics.employees?.value);
 
           return (
-            <Card className="live-report-section">
+            <Card className="live-report-section" data-section="Intensity Metric Analysis">
               <CardHeader className="pb-3">
                 <SectionHeader title="Intensity Metric Analysis" />
               </CardHeader>
@@ -2339,7 +2378,7 @@ export default function JobAdvancedReports({
 
         {/* ── 9. Historical emissions trend ──────────────────────────────── */}
         {effectiveYearlyEmissions.length > 0 && (
-          <Card className="live-report-section">
+          <Card className="live-report-section" data-section="Historical Emissions Trend">
             <CardHeader className="pb-3">
               <SectionHeader title="Historical Emissions Trend" />
             </CardHeader>
@@ -2391,7 +2430,7 @@ export default function JobAdvancedReports({
         )}
 
         {/* ── 10. Carbon reduction actions ───────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Carbon Reduction Actions">
           <CardHeader className="pb-3">
             <SectionHeader title="Carbon Reduction Actions" />
           </CardHeader>
@@ -2499,7 +2538,7 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 12. Standards & Methodology ────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Standards & Methodology">
           <CardHeader className="pb-3">
             <SectionHeader title="Standards & Methodology" />
           </CardHeader>
@@ -2537,7 +2576,7 @@ export default function JobAdvancedReports({
         </Card>
 
         {/* ── 13. Declaration / Sign-off ──────────────────────────────────── */}
-        <Card className="live-report-section">
+        <Card className="live-report-section" data-section="Declaration and Sign Off">
           <CardHeader className="pb-3">
             <SectionHeader title="Declaration and Sign Off" />
           </CardHeader>
@@ -2592,7 +2631,7 @@ export default function JobAdvancedReports({
 
         {/* ── 14. Glossary ───────────────────────────────────────────────── */}
         {hasGlossary && (
-          <Card className="live-report-section">
+          <Card className="live-report-section" data-section="Glossary">
             <CardHeader className="pb-3">
               <SectionHeader title="Glossary" />
             </CardHeader>
@@ -2623,7 +2662,7 @@ export default function JobAdvancedReports({
 
         {/* ── 15. Appendix 1 — Full Emissions Audit ──────────────────────── */}
         {hasAppendix && (
-          <Card className="live-report-section">
+          <Card className="live-report-section" data-section="Appendix 1 — Full Emissions Audit">
             <CardHeader className="pb-3">
               <SectionHeader title="Appendix 1 — Full Emissions Audit" />
             </CardHeader>

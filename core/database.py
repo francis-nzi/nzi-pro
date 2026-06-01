@@ -114,6 +114,12 @@ class _PgConn:
             cur.execute(q, params or [])
         return _PgResult(cur)
 
+    def executemany(self, sql: str, params_seq):
+        q = _qmark_to_percent_s(sql)
+        cur = self._conn.cursor()
+        cur.executemany(q, params_seq)
+        return _PgResult(cur)
+
 
 def get_conn(*, autocommit: bool = True):
     try:

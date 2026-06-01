@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, MessageSquare, RefreshCw, Send, UserPlus, X } from "lucide-react";
+import { CheckCircle2, FileDown, MessageSquare, UserPlus, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,10 @@ type Review = {
   approved_at: string | null;
   approved_by_name: string | null;
   approved_by_email: string | null;
+  portal_version_id: number | null;
+  published_at: string | null;
+  published_by: string | null;
+  pdf_version_id: number | null;
 };
 
 type Comment = {
@@ -82,10 +86,9 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [snapshotting, setSnapshotting] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [publishing, setPublishing] = useState(false);
 
   // Respond form state
   const [respondingTo, setRespondingTo] = useState<number | null>(null);
@@ -133,42 +136,24 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
     }
   }
 
-  async function handleSendForReview() {
-    setSending(true);
+  async function handlePublishPdf() {
+    if (!confirm("Publish the final PDF to the client portal?\n\nThis makes it available for the client to download. Make sure a Final version exists in Report Printing first.")) return;
+    setPublishing(true);
     setStatus("");
     setError("");
     try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/review/send`, {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/review/publish-pdf`, {
         method: "POST",
         credentials: "include",
       });
-      const data = await safeJson<{ ok?: boolean; notified_count?: number; review?: Review; detail?: string }>(res);
-      if (!res.ok) throw new Error(data.detail ?? `Failed to send (HTTP ${res.status})`);
-      setReview(data.review ?? null);
-      setStatus(`Report sent for review. ${data.notified_count ?? 0} client user(s) notified by email.`);
+      const data = await safeJson<{ ok?: boolean; published_at?: string; detail?: string }>(res);
+      if (!res.ok) throw new Error(data.detail ?? `Failed to publish (HTTP ${res.status})`);
+      await load();
+      setStatus("PDF published. The client can now download it from the portal.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setSending(false);
-    }
-  }
-
-  async function handleGenerateSnapshot() {
-    setSnapshotting(true);
-    setStatus("");
-    setError("");
-    try {
-      const res = await fetch(`${baseUrl}/jobs/${jobId}/review/generate-snapshot`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await safeJson<{ ok?: boolean; message?: string; detail?: string }>(res);
-      if (!res.ok) throw new Error(data.detail ?? `Failed to generate snapshot (HTTP ${res.status})`);
-      setStatus(data.message ?? "Portal snapshot refreshed.");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSnapshotting(false);
+      setPublishing(false);
     }
   }
 
@@ -237,7 +222,19 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
   const openCount = comments.filter(c => c.status === "open").length;
   const clientComments = comments.filter(c => c.author_type === "client");
 
+  // Group client comments by section
+  const commentsBySection = clientComments.reduce<Record<string, Comment[]>>((acc, c) => {
+    const key = c.section_reference?.trim() || "General";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(c);
+    return acc;
+  }, {});
+
   if (loading) return <div className="text-sm text-muted-foreground p-4">Loading review…</div>;
+
+  const isApproved = review?.status === "approved";
+  const isPublished = !!review?.published_at;
+  const hasSentVersion = !!review?.portal_version_id;
 
   return (
     <div className="space-y-6">
@@ -253,46 +250,66 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
                   {STATUS_LABELS[review.status as ReviewStatus] ?? review.status}
                 </Badge>
               )}
+              {isPublished && (
+                <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200">
+                  PDF Published
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
-              Send the report to the client for review and approval via the NZInsights portal.
+              Use <strong>Send to Portal</strong> in Report Printing to send the report to the client for review.
             </CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleGenerateSnapshot} disabled={snapshotting} title="Refresh the report snapshot shown in the client portal (no email sent)">
-              <RefreshCw className={`mr-2 h-4 w-4 ${snapshotting ? "animate-spin" : ""}`} />
-              {snapshotting ? "Generating…" : "Refresh Portal Snapshot"}
-            </Button>
-            {review?.status !== "approved" && (
-              <Button onClick={handleSendForReview} disabled={sending || portalUsers.filter(u => u.is_active).length === 0}>
-                <Send className="mr-2 h-4 w-4" />
-                {sending ? "Sending…" : review?.status === "not_sent" || review?.status === "draft" ? "Send for Review" : "Re-send for Review"}
+            {isApproved && !isPublished && (
+              <Button
+                variant="outline"
+                onClick={() => void handlePublishPdf()}
+                disabled={publishing}
+                className="border-green-300 text-green-700 hover:bg-green-50"
+                title="Publish the final PDF to the client portal for download"
+              >
+                <FileDown className="mr-2 h-4 w-4" />
+                {publishing ? "Publishing…" : "Publish PDF"}
               </Button>
             )}
           </div>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          {review?.status === "approved" && (
+          {isApproved && (
             <div className="flex items-center gap-2 text-green-700">
               <CheckCircle2 className="h-4 w-4" />
-              Approved by {review.approved_by_name} ({review.approved_by_email}) on {formatDate(review.approved_at)}
+              Approved by {review?.approved_by_name} ({review?.approved_by_email}) on {formatDate(review?.approved_at ?? null)}
             </div>
           )}
-          {review?.sent_for_review_at && review.status !== "approved" && (
-            <div>Last sent for review: {formatDate(review.sent_for_review_at)} by {review.sent_by}</div>
+          {isPublished && (
+            <div className="text-green-700">
+              PDF published on {formatDate(review?.published_at ?? null)} by {review?.published_by}
+            </div>
+          )}
+          {!isApproved && review?.sent_for_review_at && (
+            <div>Last sent to portal: {formatDate(review.sent_for_review_at)} by {review.sent_by}</div>
+          )}
+          {!hasSentVersion && !isApproved && (
+            <div className="text-amber-600">No report has been sent to the portal yet. Use Send to Portal in Report Printing.</div>
           )}
           {openCount > 0 && (
             <div className="text-amber-600 font-medium">{openCount} open comment{openCount === 1 ? "" : "s"} awaiting response</div>
           )}
+          {isApproved && !isPublished && (
+            <div className="text-amber-600">
+              Report approved — generate a Final version in Report Printing, then click <strong>Publish PDF</strong> above.
+            </div>
+          )}
           {status && <div className="text-green-700">{status}</div>}
           {error && <div className="text-red-600">{error}</div>}
-          {portalUsers.filter(u => u.is_active).length === 0 && review?.status !== "approved" && (
+          {portalUsers.filter(u => u.is_active).length === 0 && (
             <div className="text-amber-600">No active portal users — add a client account below before sending.</div>
           )}
         </CardContent>
       </Card>
 
-      {/* Client comments */}
+      {/* Client comments grouped by section */}
       {clientComments.length > 0 && (
         <Card>
           <CardHeader>
@@ -304,59 +321,70 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {clientComments.map(comment => (
-              <div key={comment.comment_id} className={`rounded-lg border p-4 ${comment.status === "open" ? "border-amber-200 bg-amber-50/40" : "border-gray-200 bg-muted/20"}`}>
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium">{comment.author_name}</span>
-                      {comment.section_reference && (
-                        <Badge variant="secondary" className="text-xs">{comment.section_reference}</Badge>
-                      )}
-                      <Badge
-                        variant="outline"
-                        className={comment.status === "open" ? "bg-amber-100 text-amber-700 border-amber-200 text-xs" : comment.status === "addressed" ? "bg-green-100 text-green-700 border-green-200 text-xs" : "bg-gray-100 text-gray-600 border-gray-200 text-xs"}
-                      >
-                        {comment.status}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{formatDate(comment.created_at)}</span>
-                    </div>
-                    <p className="text-sm">{comment.comment_text}</p>
-                    {comment.crm_response && (
-                      <div className="mt-2 rounded-md bg-blue-50 border border-blue-100 px-3 py-2 text-sm text-blue-800">
-                        <span className="font-medium">CRM response: </span>{comment.crm_response}
-                      </div>
-                    )}
-                  </div>
-                  {comment.status === "open" && respondingTo !== comment.comment_id && (
-                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setRespondingTo(comment.comment_id); setResponseText(""); }}>
-                      Respond
-                    </Button>
-                  )}
+          <CardContent className="space-y-6">
+            {Object.entries(commentsBySection).map(([section, sectionComments]) => (
+              <div key={section}>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 border-b pb-1">
+                  {section}
                 </div>
+                <div className="space-y-3">
+                  {sectionComments.map(comment => (
+                    <div key={comment.comment_id} className={`rounded-lg border p-4 ${comment.status === "open" ? "border-amber-200 bg-amber-50/40" : "border-gray-200 bg-muted/20"}`}>
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="font-medium">{comment.author_name}</span>
+                            <Badge
+                              variant="outline"
+                              className={comment.status === "open" ? "bg-amber-100 text-amber-700 border-amber-200 text-xs" : comment.status === "addressed" ? "bg-green-100 text-green-700 border-green-200 text-xs" : "bg-gray-100 text-gray-600 border-gray-200 text-xs"}
+                            >
+                              {comment.status}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">{formatDate(comment.created_at)}</span>
+                            {comment.addressed_by && (
+                              <span className="text-xs text-muted-foreground">
+                                · Resolved by {comment.addressed_by} on {formatDate(comment.addressed_at)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm">{comment.comment_text}</p>
+                          {comment.crm_response && (
+                            <div className="mt-2 rounded-md bg-blue-50 border border-blue-100 px-3 py-2 text-sm text-blue-800">
+                              <span className="font-medium">Response: </span>{comment.crm_response}
+                            </div>
+                          )}
+                        </div>
+                        {comment.status === "open" && respondingTo !== comment.comment_id && (
+                          <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setRespondingTo(comment.comment_id); setResponseText(""); }}>
+                            Respond
+                          </Button>
+                        )}
+                      </div>
 
-                {respondingTo === comment.comment_id && (
-                  <div className="mt-3 space-y-2 border-t pt-3">
-                    <Textarea
-                      placeholder="Optional response note visible to the client…"
-                      rows={2}
-                      value={responseText}
-                      onChange={e => setResponseText(e.target.value)}
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" disabled={responding} onClick={() => void handleRespond(comment.comment_id, "addressed")}>
-                        {responding ? "Saving…" : "Mark Addressed"}
-                      </Button>
-                      <Button size="sm" variant="outline" disabled={responding} onClick={() => void handleRespond(comment.comment_id, "dismissed")}>
-                        Dismiss
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setRespondingTo(null)}>
-                        <X className="h-3 w-3" />
-                      </Button>
+                      {respondingTo === comment.comment_id && (
+                        <div className="mt-3 space-y-2 border-t pt-3">
+                          <Textarea
+                            placeholder="Optional response note visible to the client…"
+                            rows={2}
+                            value={responseText}
+                            onChange={e => setResponseText(e.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={responding} onClick={() => void handleRespond(comment.comment_id, "addressed")}>
+                              {responding ? "Saving…" : "Mark Addressed"}
+                            </Button>
+                            <Button size="sm" variant="outline" disabled={responding} onClick={() => void handleRespond(comment.comment_id, "dismissed")}>
+                              Dismiss
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setRespondingTo(null)}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  ))}
+                </div>
               </div>
             ))}
           </CardContent>
