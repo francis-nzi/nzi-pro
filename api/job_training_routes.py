@@ -788,6 +788,29 @@ def _automation_payload(row) -> dict[str, Any]:
     }
 
 
+def _automation_log_payload(row) -> dict[str, Any]:
+    return {
+        "training_automation_log_id": int(row[0]),
+        "org_id": row[1],
+        "training_course_run_id": int(row[2]),
+        "training_course_session_id": int(row[3]) if row[3] is not None else None,
+        "training_booking_id": int(row[4]) if row[4] is not None else None,
+        "automation_key": row[5],
+        "trigger_key": row[6],
+        "action_type": row[7],
+        "recipient_name": row[8],
+        "recipient_email": row[9],
+        "subject": row[10],
+        "status": row[11],
+        "error_text": row[12],
+        "metadata_json": row[13],
+        "created_by": row[14],
+        "created_at": str(row[15]) if row[15] else None,
+        "sent_at": str(row[16]) if row[16] else None,
+        "updated_at": str(row[17]) if row[17] else None,
+    }
+
+
 def _get_run_automation(con, org_id: str, training_course_run_id: int) -> dict[str, Any]:
     row = con.execute(
         """
@@ -2518,6 +2541,34 @@ def run_training_course_automation(
         if trigger_key == "reminders":
             return _execute_training_reminders(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
         return _execute_training_completion_pack(con, org_id=org_id, training_course_run_id=int(training_course_run_id), actor=actor, mode=mode)
+
+
+@router.get("/jobs/{job_id}/training-automation-log")
+def list_training_automation_log(
+    job_id: int,
+    limit: int = Query(default=25, ge=1, le=100),
+    _user: dict[str, str] = Depends(_current_user),
+):
+    assert_permission(_user, "jobs.view")
+    assert_job_access(_user, int(job_id))
+    org_id = require_org(_user)
+    with get_conn() as con:
+        _ensure_tables(con)
+        rows = con.execute(
+            """
+            SELECT l.training_automation_log_id, l.org_id, l.training_course_run_id, l.training_course_session_id,
+                   l.training_booking_id, l.automation_key, l.trigger_key, l.action_type, l.recipient_name,
+                   l.recipient_email, l.subject, l.status, l.error_text, l.metadata_json, l.created_by,
+                   l.created_at, l.sent_at, l.updated_at
+            FROM training_automation_log l
+            JOIN training_course_runs r ON r.training_course_run_id = l.training_course_run_id
+            WHERE r.job_id = ? AND l.org_id = ?
+            ORDER BY l.created_at DESC, l.training_automation_log_id DESC
+            LIMIT ?
+            """,
+            [int(job_id), org_id, int(limit)],
+        ).fetchall()
+        return {"items": [_automation_log_payload(row) for row in rows]}
 
 
 @router.get("/training-entitlements")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -164,6 +164,28 @@ type TrainingOverview = {
   course_runs: TrainingCourseRun[];
   sessions: TrainingSession[];
   available_entitlements: TrainingEntitlement[];
+  automation_log?: TrainingAutomationLog[];
+};
+
+type TrainingAutomationLog = {
+  training_automation_log_id: number;
+  org_id: string;
+  training_course_run_id: number;
+  training_course_session_id: number | null;
+  training_booking_id: number | null;
+  automation_key: string;
+  trigger_key: string;
+  action_type: string;
+  recipient_name: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  status: string;
+  error_text: string | null;
+  metadata_json: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  sent_at: string | null;
+  updated_at: string | null;
 };
 
 type TrainingAttendance = {
@@ -417,6 +439,27 @@ function parseSelectNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseNumberArrayText(value: string | null | undefined, fallback: number[] = []): number[] {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item));
+    }
+  } catch {
+    const parts = text
+      .replace(/[\[\]]/g, "")
+      .split(",")
+      .map((part) => Number(part.trim()))
+      .filter((item) => Number.isFinite(item));
+    if (parts.length) return parts;
+  }
+  return fallback;
+}
+
 function statusChipClass(value?: string | null): string {
   const raw = String(value || "").trim().toLowerCase();
   if (raw === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -433,11 +476,13 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
   const [status, setStatus] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [overview, setOverview] = useState<TrainingOverview | null>(null);
+  const [automationLog, setAutomationLog] = useState<TrainingAutomationLog[]>([]);
   const [details, setDetails] = useState<TrainingDetails>(EMPTY_DETAILS);
   const [summarySaving, setSummarySaving] = useState(false);
   const [productSaving, setProductSaving] = useState(false);
   const [runSaving, setRunSaving] = useState(false);
   const [entitlementSaving, setEntitlementSaving] = useState(false);
+  const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
   const [newProduct, setNewProduct] = useState<ProductFormState>(EMPTY_PRODUCT);
   const [newRun, setNewRun] = useState<RunFormState>(EMPTY_RUN);
   const [newEntitlement, setNewEntitlement] = useState<EntitlementFormState>(EMPTY_ENTITLEMENT);
@@ -448,15 +493,24 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch(`${baseUrl}/jobs/${jobId}/training-overview`, { credentials: "include" });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text}` : ""}`);
+        const [overviewRes, logRes] = await Promise.all([
+          fetch(`${baseUrl}/jobs/${jobId}/training-overview`, { credentials: "include" }),
+          fetch(`${baseUrl}/jobs/${jobId}/training-automation-log`, { credentials: "include" }),
+        ]);
+        if (!overviewRes.ok) {
+          const text = await overviewRes.text().catch(() => "");
+          throw new Error(`${overviewRes.status} ${overviewRes.statusText}${text ? ` - ${text}` : ""}`);
         }
-        const json = (await res.json()) as TrainingOverview;
+        const json = (await overviewRes.json()) as TrainingOverview;
         if (cancelled) return;
         setOverview(json);
         setDetails(json.details || EMPTY_DETAILS);
+        if (logRes.ok) {
+          const logJson = (await logRes.json()) as { items?: TrainingAutomationLog[] };
+          setAutomationLog(Array.isArray(logJson.items) ? logJson.items : []);
+        } else {
+          setAutomationLog([]);
+        }
       } catch (err) {
         if (!cancelled) {
           setStatus(`Failed to load training overview: ${(err as Error).message}`);
@@ -480,6 +534,70 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
   const products = overview?.products ?? [];
   const courseRuns = overview?.course_runs ?? [];
   const entitlements = overview?.available_entitlements ?? [];
+  const runById = useMemo(() => {
+    const map = new Map<number, TrainingCourseRun>();
+    courseRuns.forEach((run) => map.set(run.training_course_run_id, run));
+    return map;
+  }, [courseRuns]);
+  const calendarSessions = useMemo(() => {
+    return [...(overview?.sessions ?? [])].sort((a, b) => {
+      const aDate = a.session_date || "";
+      const bDate = b.session_date || "";
+      if (aDate !== bDate) return aDate.localeCompare(bDate);
+      const aTime = `${a.start_time || ""}${a.end_time || ""}`;
+      const bTime = `${b.start_time || ""}${b.end_time || ""}`;
+      return aTime.localeCompare(bTime);
+    });
+  }, [overview?.sessions]);
+  const calendarAnchor = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }, [calendarSessions]);
+  const calendarMonth = useMemo(() => {
+    const base = new Date(calendarAnchor.getFullYear(), calendarAnchor.getMonth() + calendarMonthOffset, 1);
+    return base;
+  }, [calendarAnchor, calendarMonthOffset]);
+  const calendarLabel = useMemo(
+    () => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(calendarMonth),
+    [calendarMonth],
+  );
+  const calendarDays = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startDay = new Date(firstDay);
+    startDay.setDate(firstDay.getDate() - ((firstDay.getDay() + 6) % 7));
+    const days: Array<{ date: Date; dateKey: string; isCurrentMonth: boolean }> = [];
+    for (let i = 0; i < 42; i += 1) {
+      const date = new Date(startDay);
+      date.setDate(startDay.getDate() + i);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      days.push({ date, dateKey, isCurrentMonth: date.getMonth() === month });
+    }
+    return days;
+  }, [calendarMonth]);
+  const sessionsByDate = useMemo(() => {
+    const map = new Map<string, TrainingSession[]>();
+    calendarSessions.forEach((session) => {
+      if (!session.session_date) return;
+      const list = map.get(session.session_date) || [];
+      list.push(session);
+      map.set(session.session_date, list);
+    });
+    return map;
+  }, [calendarSessions]);
+  const automationByRun = useMemo(() => {
+    const map = new Map<number, TrainingAutomationLog[]>();
+    automationLog.forEach((entry) => {
+      const arr = map.get(entry.training_course_run_id) || [];
+      arr.push(entry);
+      map.set(entry.training_course_run_id, arr);
+    });
+    for (const arr of map.values()) {
+      arr.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    }
+    return map;
+  }, [automationLog]);
 
   async function refresh() {
     setRefreshToken((value) => value + 1);
@@ -748,6 +866,168 @@ export default function JobTraining({ jobId, baseUrl, jobFamily }: JobTrainingPr
               rows={4}
               placeholder="Delivery notes, follow-ups, or feedback..."
             />
+          </div>
+        </section>
+
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Course Calendar</h3>
+              <p className="text-sm text-muted-foreground">Sessions, capacity, and reminder status in one view.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setCalendarMonthOffset((p) => p - 1)}>
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setCalendarMonthOffset(0)}>
+                Current
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setCalendarMonthOffset((p) => p + 1)}>
+                Next
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,0.95fr)]">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{calendarLabel}</div>
+                  <div className="text-xs text-muted-foreground">{calendarSessions.length} scheduled session{calendarSessions.length === 1 ? "" : "s"}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline">{courseRuns.length} runs</Badge>
+                  <Badge variant="outline">{automationLog.filter((item) => item.status === "sent").length} sent</Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+                  <div key={day} className="px-1">
+                    {day}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-2">
+                {calendarDays.map(({ date, dateKey, isCurrentMonth }) => {
+                  const items = sessionsByDate.get(dateKey) || [];
+                  const dayLabel = date.getDate();
+                  return (
+                    <div
+                      key={dateKey}
+                      className={`min-h-[120px] rounded-lg border p-2 ${isCurrentMonth ? "bg-background" : "bg-muted/40 text-muted-foreground"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-medium">{dayLabel}</div>
+                        {items.length ? <Badge variant="outline">{items.length}</Badge> : null}
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {items.slice(0, 3).map((session) => {
+                          const run = runById.get(session.training_course_run_id);
+                          const bookings = run?.booking_count ?? session.attendance_count ?? 0;
+                          const capacity = run?.capacity ?? null;
+                          const reminderDays = (() => {
+                            const schedule = parseNumberArrayText(run?.reminder_schedule_json, [7, 1, 0]);
+                            if (!session.session_date) return null;
+                            const sessionDate = new Date(`${session.session_date}T00:00:00`);
+                            const now = new Date();
+                            const diffMs = sessionDate.getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                            const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+                            if (schedule.includes(diffDays)) return diffDays;
+                            return null;
+                          })();
+                          return (
+                            <div key={session.training_course_session_id} className="rounded-md border bg-white p-2 text-xs shadow-sm">
+                              <div className="font-medium text-slate-800">{session.session_title || run?.run_name || "Session"}</div>
+                              <div className="text-muted-foreground">
+                                {run?.run_name || run?.product_name || `Run ${session.training_course_run_id}`}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <Badge className={statusChipClass(session.status)} variant="outline">
+                                  {session.status}
+                                </Badge>
+                                {session.session_hours !== null ? <span>{session.session_hours}h</span> : null}
+                                {session.start_time || session.end_time ? (
+                                  <span>
+                                    {session.start_time || "?"}
+                                    {session.end_time ? ` - ${session.end_time}` : ""}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 text-[11px] text-muted-foreground">
+                                {capacity !== null ? `${bookings}/${capacity} booked` : `${bookings} bookings`}
+                                {run?.reminder_enabled ? " • reminders on" : " • reminders off"}
+                                {reminderDays !== null ? ` • due in ${reminderDays}d` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {items.length > 3 ? <div className="text-[11px] text-muted-foreground">+{items.length - 3} more</div> : null}
+                        {!items.length ? <div className="pt-3 text-[11px] text-muted-foreground">No sessions</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="font-medium">Run Capacity & Reminders</h4>
+                  <Badge variant="outline">{courseRuns.length} tracked</Badge>
+                </div>
+                <div className="space-y-2">
+                  {courseRuns.length ? (
+                    courseRuns.map((run) => (
+                      <div key={run.training_course_run_id} className="rounded-md border bg-white p-2 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium">{run.run_name || run.product_name || `Run ${run.training_course_run_id}`}</div>
+                          <Badge className={statusChipClass(run.status)} variant="outline">
+                            {formatTrainingCourseRunStatus(run.status)}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {run.capacity !== null ? `${run.booking_count}/${run.capacity} booked` : `${run.booking_count} bookings`}
+                          {run.reminder_enabled ? " • reminders enabled" : " • reminders disabled"}
+                          {run.reminder_schedule_json ? ` • ${run.reminder_schedule_json}` : ""}
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {run.start_date || "No start date"}{run.end_date ? ` → ${run.end_date}` : ""}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-md border bg-background p-3 text-sm text-muted-foreground">No runs yet.</div>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="font-medium">Recent Automation</h4>
+                  <Badge variant="outline">{automationLog.length}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {automationLog.length ? (
+                    automationLog.slice(0, 6).map((entry) => (
+                      <div key={entry.training_automation_log_id} className="rounded-md border bg-white p-2 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{entry.action_type}</span>
+                          <Badge className={statusChipClass(entry.status)} variant="outline">
+                            {entry.status}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {entry.recipient_name || entry.recipient_email || "No recipient"}
+                        </div>
+                        <div className="mt-1 text-muted-foreground">{entry.subject || "No subject"}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-md border bg-background p-3 text-sm text-muted-foreground">No automation activity yet.</div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
