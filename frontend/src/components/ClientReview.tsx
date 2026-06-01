@@ -81,6 +81,15 @@ function formatDate(iso: string | null): string {
   }
 }
 
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
 export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
   const [review, setReview] = useState<Review | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -288,7 +297,7 @@ export default function ClientReview({ jobId, clientDbId, baseUrl }: Props) {
             </div>
           )}
           {!isApproved && review?.sent_for_review_at && (
-            <div>Last sent to portal: {formatDate(review.sent_for_review_at)} by {review.sent_by}</div>
+            <div>Last sent to portal: {formatDateTime(review.sent_for_review_at)} by {review.sent_by}</div>
           )}
           {!hasSentVersion && !isApproved && (
             <div className="text-amber-600">No report has been sent to the portal yet. Use Send to Portal in Report Printing.</div>
