@@ -93,7 +93,13 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
                 <SelectItem value="all">All families</SelectItem>
                 {availableFamilies.map((family) => (
                   <SelectItem key={family} value={family}>
-                    {formatJobFamilyLabel(family)}
+                    <div className="flex items-center gap-2">
+                      <span>{formatJobFamilyLabel(family)}</span>
+                      <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
+                        {formatJobFamilyLabel(family)}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{getJobFamilyDescription(family)}</div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -130,7 +136,13 @@ export default function ClientJobsSection({ loading = false, jobs }: ClientJobsS
               <SelectItem value="all">All families</SelectItem>
               {availableFamilies.map((family) => (
                 <SelectItem key={family} value={family}>
-                  {formatJobFamilyLabel(family)}
+                  <div className="flex items-center gap-2">
+                    <span>{formatJobFamilyLabel(family)}</span>
+                    <Badge className={jobFamilyBadgeClassName(family)} variant="outline">
+                      {formatJobFamilyLabel(family)}
+                    </Badge>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{getJobFamilyDescription(family)}</div>
                 </SelectItem>
               ))}
             </SelectContent>
