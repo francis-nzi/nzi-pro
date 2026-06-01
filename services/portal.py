@@ -656,9 +656,30 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
                ) AS display_year,
                j.status,
                COALESCE(r.status, 'not_sent') AS review_status,
-               r.review_id, r.sent_for_review_at, r.approved_at
+               r.review_id, r.sent_for_review_at, r.approved_at,
+               rv.version_label, rv.version_number, rv.snapshot_at
         FROM jobs j
         LEFT JOIN report_reviews r ON r.job_id = j.job_id
+        LEFT JOIN LATERAL (
+            SELECT
+                jrv.version_label,
+                jrv.version_number,
+                COALESCE(jrv.finalized_at, jrv.reviewed_at, jrv.generated_at) AS snapshot_at
+            FROM job_report_versions jrv
+            WHERE jrv.job_id = j.job_id
+              AND jrv.snapshot_json IS NOT NULL
+              AND lower(COALESCE(jrv.status, '')) IN ('final', 'review', 'draft')
+            ORDER BY
+                CASE lower(COALESCE(jrv.status, ''))
+                    WHEN 'final' THEN 1
+                    WHEN 'review' THEN 2
+                    WHEN 'draft' THEN 3
+                    ELSE 4
+                END,
+                COALESCE(jrv.finalized_at, jrv.reviewed_at, jrv.generated_at) DESC NULLS LAST,
+                jrv.version_number DESC NULLS LAST
+            LIMIT 1
+        ) rv ON TRUE
         WHERE j.client_db_id = %s
         ORDER BY display_year DESC NULLS LAST, j.job_id DESC
         """,
@@ -675,6 +696,9 @@ def portal_dashboard_jobs(client_db_id: int, *, con=None) -> list[dict[str, Any]
             "review_id": int(r[6]) if r[6] is not None else None,
             "sent_for_review_at": str(r[7]) if r[7] else None,
             "approved_at": str(r[8]) if r[8] else None,
+            "snapshot_version_label": str(r[9] or "") or None,
+            "snapshot_version_number": int(r[10]) if r[10] is not None else None,
+            "snapshot_at": str(r[11]) if r[11] else None,
         }
         for r in (rows or [])
     ]

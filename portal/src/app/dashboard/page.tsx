@@ -28,6 +28,9 @@ type Job = {
   reporting_year: number | null;
   status: string;
   review_status: string;
+  snapshot_version_label?: string | null;
+  snapshot_version_number?: number | null;
+  snapshot_at?: string | null;
 };
 
 type DashboardMetrics = {
@@ -73,6 +76,19 @@ function ReviewIcon({ status }: { status: string }) {
   if (status === "sent_for_review") return <FileText className="h-4 w-4 text-blue-600" />;
   if (status === "changes_requested") return <MessageSquare className="h-4 w-4 text-amber-600" />;
   return <Clock className="h-4 w-4 text-gray-400" />;
+}
+
+function formatTimestamp(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return raw;
+  return dt.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 // ── Chart sub-tabs (Overview / Trends) ──────────────────────────────────────
@@ -145,6 +161,11 @@ function ReportYearCards({ jobs }: { jobs: Job[] }) {
               <div>
                 <div className="text-3xl font-bold text-gray-900 tabular-nums">{year || "—"}</div>
                 <div className="mt-1 text-sm text-gray-500 leading-tight">{job.title || "Carbon Report"}</div>
+                <div className="mt-1 text-xs text-gray-400">
+                  {job.snapshot_at
+                    ? `Latest snapshot saved ${formatTimestamp(job.snapshot_at)}`
+                    : "No saved snapshot yet"}
+                </div>
               </div>
               <ReviewIcon status={job.review_status} />
             </div>
