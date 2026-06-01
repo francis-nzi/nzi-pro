@@ -215,6 +215,65 @@ def portal_report_html(job_id: int, current_user: dict = Depends(portal_user_dep
     return HTMLResponse(content=html_content, status_code=200)
 
 
+@router.get("/portal/jobs/{job_id}/report-meta")
+def portal_report_meta(job_id: int, current_user: dict = Depends(portal_user_dep)):
+    from services.tenancy import org_context
+
+    client_db_id = int(current_user["client_db_id"])
+    with get_conn() as con:
+        _assert_job_belongs_to_client(job_id, client_db_id, con)
+        _org_id = _portal_org_id(con, client_db_id)
+
+    with org_context(_org_id):
+        with get_conn() as con:
+            row = con.execute(
+                """
+                SELECT report_version_id, version_label, version_number, status,
+                       generated_at, reviewed_at, finalized_at
+                FROM job_report_versions
+                WHERE job_id = %s
+                  AND lower(COALESCE(status, '')) IN ('final', 'review', 'draft')
+                  AND snapshot_json IS NOT NULL
+                ORDER BY
+                    CASE lower(COALESCE(status, ''))
+                        WHEN 'final' THEN 1
+                        WHEN 'review' THEN 2
+                        WHEN 'draft' THEN 3
+                        ELSE 4
+                    END,
+                    COALESCE(finalized_at, reviewed_at, generated_at) DESC NULLS LAST,
+                    version_number DESC NULLS LAST
+                LIMIT 1
+                """,
+                [int(job_id)],
+            ).fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="No report has been published for review yet. Please ask your NZI consultant to send the report for review.",
+        )
+
+    def _dt_to_iso(value):
+        try:
+            return value.isoformat() if value else None
+        except Exception:
+            return None
+
+    snapshot_at = row[6] or row[5] or row[4]
+    return {
+        "ok": True,
+        "report_version_id": int(row[0]) if row[0] is not None else None,
+        "version_label": str(row[1] or ""),
+        "version_number": int(row[2]) if row[2] is not None else None,
+        "status": str(row[3] or ""),
+        "generated_at": _dt_to_iso(row[4]),
+        "reviewed_at": _dt_to_iso(row[5]),
+        "finalized_at": _dt_to_iso(row[6]),
+        "snapshot_at": _dt_to_iso(snapshot_at),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Comments
 # ---------------------------------------------------------------------------
