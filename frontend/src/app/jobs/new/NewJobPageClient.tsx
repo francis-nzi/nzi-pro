@@ -132,6 +132,46 @@ function NewJobPageContent() {
   const selectedWorkflow = getJobWorkflowDefinition(selectedJobFamily || "crp");
   const isTrainingFamily = selectedJobFamily === "training";
   const isCrpFamily = selectedJobFamily === null || selectedJobFamily === "crp";
+  const familyCreationCopy = useMemo(() => {
+    const family = selectedJobFamily || "crp";
+    switch (family) {
+      case "training":
+        return {
+          step2Title: "Training delivery",
+          step2Description: "Set the course window, delivery dates, and timing before adding sessions later.",
+          step3Title: "Review training job",
+          step3Description: "Confirm the course basics before creating the training workspace.",
+        };
+      case "consultancy":
+        return {
+          step2Title: "Consultancy setup",
+          step2Description: "Set the advisory delivery window and commercial dates before refining scope later.",
+          step3Title: "Review consultancy job",
+          step3Description: "Confirm the service basics before creating the consultancy workspace.",
+        };
+      case "lca":
+        return {
+          step2Title: "LCA setup",
+          step2Description: "Set the analysis window before refining the product and methodology details later.",
+          step3Title: "Review LCA job",
+          step3Description: "Confirm the analysis basics before creating the LCA workspace.",
+        };
+      case "pcf":
+        return {
+          step2Title: "PCF setup",
+          step2Description: "Set the footprinting window before refining product and boundary details later.",
+          step3Title: "Review PCF job",
+          step3Description: "Confirm the product footprinting basics before creating the PCF workspace.",
+        };
+      default:
+        return {
+          step2Title: "Reporting period",
+          step2Description: "Reporting year, dates, and benchmark",
+          step3Title: "Scope datasets",
+          step3Description: "Assign conversion factor datasets",
+        };
+    }
+  }, [selectedJobFamily]);
   const stepConfig = useMemo(
     () => [
       {
@@ -141,20 +181,18 @@ function NewJobPageContent() {
       },
       {
         id: 2,
-        title: isCrpFamily ? "Reporting period" : "Delivery dates",
-        description: isCrpFamily
-          ? "Reporting year, dates, and benchmark"
-          : "Dates and delivery setup for the selected family",
+        title: familyCreationCopy.step2Title,
+        description: familyCreationCopy.step2Description,
       },
       {
         id: 3,
-        title: isCrpFamily ? "Scope datasets" : "Review & create",
+        title: isCrpFamily ? "Scope datasets" : familyCreationCopy.step3Title,
         description: isCrpFamily
           ? "Assign conversion factor datasets"
-          : `Preview the ${selectedWorkflow.label} workflow`,
+          : familyCreationCopy.step3Description,
       },
     ],
-    [isCrpFamily, selectedWorkflow]
+    [familyCreationCopy, isCrpFamily]
   );
 
   const reportingYearLocked = isBenchmark && !!clientBenchmarkPeriod;
@@ -838,7 +876,7 @@ function NewJobPageContent() {
             {currentStep === 2 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{isCrpFamily ? "Reporting period" : "Delivery dates"}</CardTitle>
+                  <CardTitle>{familyCreationCopy.step2Title}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {isCrpFamily ? (
@@ -963,10 +1001,12 @@ function NewJobPageContent() {
                   ) : (
                     <div className="space-y-4">
                       <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
-                        <h4 className="font-semibold text-sm text-slate-900">Delivery window</h4>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary">{selectedWorkflow.label}</Badge>
+                          <h4 className="font-semibold text-sm text-slate-900">{familyCreationCopy.step2Title}</h4>
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Use these dates to capture when this job starts and when delivery or completion is expected.
-                          Training, consultancy, LCA, and PCF do not use the CRP reporting period or benchmark logic.
+                          {familyCreationCopy.step2Description}
                         </p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1012,7 +1052,7 @@ function NewJobPageContent() {
             {currentStep === 3 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{isCrpFamily ? "Scope dataset configuration" : "Review & create"}</CardTitle>
+                  <CardTitle>{isCrpFamily ? "Scope dataset configuration" : familyCreationCopy.step3Title}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {selectedWorkflow.usesScopeDatasets ? (
@@ -1064,8 +1104,8 @@ function NewJobPageContent() {
                           <span className="text-sm font-medium text-slate-900">{selectedWorkflow.description}</span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          This family does not use scope dataset assignment on create. The family-specific workflow
-                          and detail sections will be available on the job page after creation.
+                          {familyCreationCopy.step3Description} The family-specific workflow and detail sections will
+                          be available on the job page after creation.
                         </p>
                       </div>
 
